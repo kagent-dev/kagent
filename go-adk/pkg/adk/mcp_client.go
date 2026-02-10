@@ -103,6 +103,10 @@ func (r *MCPToolRegistry) createTransport(
 	// Configure TLS for self-signed certificates
 	if tlsDisableVerify != nil && *tlsDisableVerify {
 		// Skip TLS certificate verification (for self-signed certificates)
+		// WARNING: This is insecure and should not be used in production
+		if r.logger.GetSink() != nil {
+			r.logger.Info("WARNING: TLS certificate verification disabled for MCP server - this is insecure and not recommended for production", "url", url)
+		}
 		baseTransport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -237,15 +241,15 @@ func (r *MCPToolRegistry) fetchToolsFromServer(
 	// Eagerly fetch and log tool schemas that Google ADK's toolset provides (for debugging parameter name mismatches)
 	// This shows what schemas the LLM will actually see
 	// Calculate timeout for tool fetching
-	initTimeout := 2 * time.Minute
+	initTimeout := core.MCPInitTimeout
 	if timeout != nil && *timeout > 0 {
 		configuredTimeout := time.Duration(*timeout) * time.Second
 		if configuredTimeout > initTimeout {
 			initTimeout = configuredTimeout
 		}
-		// Cap at 5 minutes for initialization to prevent hanging too long
-		if initTimeout > 5*time.Minute {
-			initTimeout = 5 * time.Minute
+		// Cap at max timeout for initialization to prevent hanging too long
+		if initTimeout > core.MCPInitTimeoutMax {
+			initTimeout = core.MCPInitTimeoutMax
 		}
 	}
 	// For SSE, also consider sseReadTimeout
@@ -254,8 +258,8 @@ func (r *MCPToolRegistry) fetchToolsFromServer(
 		if configuredSseTimeout > initTimeout {
 			initTimeout = configuredSseTimeout
 		}
-		if initTimeout > 5*time.Minute {
-			initTimeout = 5 * time.Minute
+		if initTimeout > core.MCPInitTimeoutMax {
+			initTimeout = core.MCPInitTimeoutMax
 		}
 	}
 
@@ -392,8 +396,8 @@ func (r *MCPToolRegistry) fetchToolsFromServer(
 				if schemaBytes, err := json.Marshal(inputSchema); err == nil {
 					schemaJSON = string(schemaBytes)
 					// Truncate if too long
-					if len(schemaJSON) > 2000 {
-						schemaJSON = schemaJSON[:2000] + "... (truncated)"
+					if len(schemaJSON) > core.SchemaJSONMaxLength {
+						schemaJSON = schemaJSON[:core.SchemaJSONMaxLength] + "... (truncated)"
 					}
 				}
 			}

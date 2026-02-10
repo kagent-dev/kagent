@@ -5,6 +5,9 @@ import (
 
 	"github.com/kagent-dev/kagent/go-adk/pkg/core"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/genai"
+	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/model"
+	gogenai "google.golang.org/genai"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -249,4 +252,104 @@ func TestConvertEventToA2AEvents_ErrorCodeWithoutErrorMessage(t *testing.T) {
 	if textPart.Text != expectedMessage {
 		t.Errorf("Expected error message from GetErrorMessage, got %q, want %q", textPart.Text, expectedMessage)
 	}
+}
+
+// TestConvertEventToA2AEvents_UserResponseAndQuestions verifies that user response/question
+// states (input_required, auth_required) match Python kagent-adk _create_status_update_event.
+func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
+	t.Run("long_running_function_call_sets_input_required", func(t *testing.T) {
+		// One long-running function call (not request_euc) → input_required (user approval/questions).
+		e := &adksession.Event{
+			LLMResponse: model.LLMResponse{
+				Content: &gogenai.Content{
+					Parts: []*gogenai.Part{{
+						FunctionCall: &gogenai.FunctionCall{
+							Name: "get_weather",
+							Args: map[string]any{"city": "NYC"},
+							ID:   "fc1",
+						},
+					}},
+				},
+			},
+			LongRunningToolIDs: []string{"fc1"},
+		}
+		result := ConvertEventToA2AEvents(e, "task1", "ctx1", "app", "user", "session")
+		var statusEvent *protocol.TaskStatusUpdateEvent
+		for _, ev := range result {
+			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateInputRequired {
+				statusEvent = se
+				break
+			}
+		}
+		if statusEvent == nil {
+			t.Fatal("Expected one TaskStatusUpdateEvent with state input_required")
+		}
+		if statusEvent.Status.State != protocol.TaskStateInputRequired {
+			t.Errorf("Expected state input_required, got %v", statusEvent.Status.State)
+		}
+	})
+
+	t.Run("long_running_request_euc_sets_auth_required", func(t *testing.T) {
+		// Long-running function call with name "request_euc" → auth_required (matches Python).
+		e := &adksession.Event{
+			LLMResponse: model.LLMResponse{
+				Content: &gogenai.Content{
+					Parts: []*gogenai.Part{{
+						FunctionCall: &gogenai.FunctionCall{
+							Name: "request_euc",
+							Args: map[string]any{},
+							ID:   "fc_euc",
+						},
+					}},
+				},
+			},
+			LongRunningToolIDs: []string{"fc_euc"},
+		}
+		result := ConvertEventToA2AEvents(e, "task2", "ctx2", "app", "user", "session")
+		var statusEvent *protocol.TaskStatusUpdateEvent
+		for _, ev := range result {
+			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateAuthRequired {
+				statusEvent = se
+				break
+			}
+		}
+		if statusEvent == nil {
+			t.Fatal("Expected one TaskStatusUpdateEvent with state auth_required")
+		}
+		if statusEvent.Status.State != protocol.TaskStateAuthRequired {
+			t.Errorf("Expected state auth_required, got %v", statusEvent.Status.State)
+		}
+	})
+
+	t.Run("no_long_running_keeps_working", func(t *testing.T) {
+		// Function call without long_running metadata → state stays working.
+		e := &adksession.Event{
+			LLMResponse: model.LLMResponse{
+				Content: &gogenai.Content{
+					Parts: []*gogenai.Part{{
+						FunctionCall: &gogenai.FunctionCall{
+							Name: "get_weather",
+							Args: map[string]any{"city": "NYC"},
+							ID:   "fc2",
+						},
+					}},
+				},
+			},
+			LongRunningToolIDs: nil, // not long-running
+		}
+		result := ConvertEventToA2AEvents(e, "task3", "ctx3", "app", "user", "session")
+		var statusEvent *protocol.TaskStatusUpdateEvent
+		for _, ev := range result {
+			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok {
+				statusEvent = se
+				break
+			}
+		}
+		if statusEvent == nil {
+			t.Fatal("Expected one TaskStatusUpdateEvent")
+		}
+		if statusEvent.Status.State != protocol.TaskStateWorking {
+			t.Errorf("Expected state working when not long-running, got %v", statusEvent.Status.State)
+		}
+	})
 }

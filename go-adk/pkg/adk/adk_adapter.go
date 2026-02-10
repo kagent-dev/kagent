@@ -330,8 +330,10 @@ func CreateGoogleADKAgent(config *core.AgentConfig, logger logr.Logger) (agent.A
 	return llmAgent, nil
 }
 
-// CreateGoogleADKRunner creates a Google ADK Runner from AgentConfig
-func CreateGoogleADKRunner(config *core.AgentConfig, sessionService core.SessionService, logger logr.Logger) (*runner.Runner, error) {
+// CreateGoogleADKRunner creates a Google ADK Runner from AgentConfig.
+// appName must match the executor's AppName so session lookup returns the same session with prior events
+// (Python: runner.app_name; ensures LLM receives full context on resume after user response).
+func CreateGoogleADKRunner(config *core.AgentConfig, sessionService core.SessionService, appName string, logger logr.Logger) (*runner.Runner, error) {
 	// Create agent
 	agent, err := CreateGoogleADKAgent(config, logger)
 	if err != nil {
@@ -347,10 +349,8 @@ func CreateGoogleADKRunner(config *core.AgentConfig, sessionService core.Session
 		adkSessionService = session.InMemoryService()
 	}
 
-	// Create runner config
-	appName := "kagent-app"
-	if config.Description != "" {
-		// Use description as app name hint
+	// Use provided app name so runner's session lookup matches executor's (same session = full LLM context on resume)
+	if appName == "" {
 		appName = "kagent-app"
 	}
 

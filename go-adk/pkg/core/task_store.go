@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -17,8 +18,8 @@ type KAgentTaskStore struct {
 	BaseURL string
 	Client  *http.Client
 	// Event-based sync: track pending save operations
-	saveEvents map[string]chan struct{}
-	closed     map[string]bool // Track which channels have been closed
+	// Multiple waiters per taskID are supported via slice of channels
+	saveEvents map[string][]chan struct{}
 	mu         sync.RWMutex
 }
 
@@ -27,8 +28,7 @@ func NewKAgentTaskStoreWithClient(baseURL string, client *http.Client) *KAgentTa
 	return &KAgentTaskStore{
 		BaseURL:    baseURL,
 		Client:     client,
-		saveEvents: make(map[string]chan struct{}),
-		closed:     make(map[string]bool),
+		saveEvents: make(map[string][]chan struct{}),
 	}
 }
 
@@ -86,19 +86,17 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *protocol.Task) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("failed to save task: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to save task: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	// Signal that save completed (event-based sync)
+	// Signal that save completed (event-based sync) - notify all waiters
 	s.mu.Lock()
-	if ch, ok := s.saveEvents[task.ID]; ok {
-		// Only close if channel hasn't been closed yet
-		if !s.closed[task.ID] {
+	if channels, ok := s.saveEvents[task.ID]; ok {
+		for _, ch := range channels {
 			close(ch)
-			s.closed[task.ID] = true
 		}
 		delete(s.saveEvents, task.ID)
-		delete(s.closed, task.ID)
 	}
 	s.mu.Unlock()
 
@@ -122,7 +120,8 @@ func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*protocol.Tas
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get task: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get task: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	// Unwrap the StandardResponse envelope from the Go controller
@@ -148,22 +147,37 @@ func (s *KAgentTaskStore) Delete(ctx context.Context, taskID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to delete task: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete task: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	return nil
 }
 
 // WaitForSave waits for a task to be saved (event-based sync)
+// Multiple waiters for the same taskID are supported
 func (s *KAgentTaskStore) WaitForSave(ctx context.Context, taskID string, timeout time.Duration) error {
-	s.mu.Lock()
 	ch := make(chan struct{})
-	s.saveEvents[taskID] = ch
+
+	s.mu.Lock()
+	s.saveEvents[taskID] = append(s.saveEvents[taskID], ch)
 	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		delete(s.saveEvents, taskID)
+		// Remove this specific channel from the slice
+		if channels, ok := s.saveEvents[taskID]; ok {
+			for i, c := range channels {
+				if c == ch {
+					s.saveEvents[taskID] = append(channels[:i], channels[i+1:]...)
+					break
+				}
+			}
+			// Clean up empty slice
+			if len(s.saveEvents[taskID]) == 0 {
+				delete(s.saveEvents, taskID)
+			}
+		}
 		s.mu.Unlock()
 	}()
 

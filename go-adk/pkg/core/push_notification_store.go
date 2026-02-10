@@ -33,6 +33,13 @@ type KAgentPushNotificationResponse struct {
 
 // Set stores a push notification configuration
 func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.TaskPushNotificationConfig) (*protocol.TaskPushNotificationConfig, error) {
+	if config == nil {
+		return nil, fmt.Errorf("push notification config cannot be nil")
+	}
+	if config.TaskID == "" {
+		return nil, fmt.Errorf("push notification config TaskID cannot be empty")
+	}
+
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal push notification config: %w", err)
@@ -71,6 +78,13 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 
 // Get retrieves a push notification configuration
 func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID string) (*protocol.TaskPushNotificationConfig, error) {
+	if taskID == "" {
+		return nil, fmt.Errorf("taskID cannot be empty")
+	}
+	if configID == "" {
+		return nil, fmt.Errorf("configID cannot be empty")
+	}
+
 	// Use /api/tasks/{task_id}/push-notifications/{config_id} endpoint
 	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications/%s", s.BaseURL, taskID, configID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)

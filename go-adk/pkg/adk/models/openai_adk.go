@@ -18,6 +18,29 @@ import (
 	"google.golang.org/genai"
 )
 
+// OpenAI API role and finish-reason values (for clarity and to avoid typos).
+const (
+	openAIRoleSystem          = "system"
+	openAIRoleAssistant       = "assistant"
+	openAIRoleModel           = "model"
+	openAIFinishToolCalls     = "tool_calls"
+	openAIFinishLength        = "length"
+	openAIFinishContentFilter = "content_filter"
+	openAIToolTypeFunction    = "function"
+)
+
+// openAIFinishReasonToGenai maps OpenAI finish_reason to genai.FinishReason.
+func openAIFinishReasonToGenai(reason string) genai.FinishReason {
+	switch reason {
+	case openAIFinishLength:
+		return genai.FinishReasonMaxTokens
+	case openAIFinishContentFilter:
+		return genai.FinishReasonSafety
+	default:
+		return genai.FinishReasonStop // includes "stop", "tool_calls", and empty
+	}
+}
+
 // Name implements model.LLM.
 func (m *OpenAIModel) Name() string {
 	return "openai"
@@ -62,6 +85,9 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 }
 
 func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig) {
+	if cfg == nil {
+		return
+	}
 	if cfg.Temperature != nil {
 		params.Temperature = openai.Float(*cfg.Temperature)
 	}
@@ -86,15 +112,16 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 }
 
 func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]openai.ChatCompletionMessageParamUnion, string) {
-	var systemInstruction string
+	var systemBuilder strings.Builder
 	if config != nil && config.SystemInstruction != nil {
 		for _, p := range config.SystemInstruction.Parts {
 			if p != nil && p.Text != "" {
-				systemInstruction += p.Text + "\n"
+				systemBuilder.WriteString(p.Text)
+				systemBuilder.WriteByte('\n')
 			}
 		}
-		systemInstruction = strings.TrimSpace(systemInstruction)
 	}
+	systemInstruction := strings.TrimSpace(systemBuilder.String())
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
 	for _, c := range contents {
@@ -110,7 +137,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 
 	var messages []openai.ChatCompletionMessageParamUnion
 	for _, content := range contents {
-		if content == nil || strings.TrimSpace(content.Role) == "system" {
+		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
 			continue
 		}
 		role := strings.TrimSpace(content.Role)
@@ -133,7 +160,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			}
 		}
 
-		if len(functionCalls) > 0 && (role == "model" || role == "assistant") {
+		if len(functionCalls) > 0 && (role == openAIRoleModel || role == openAIRoleAssistant) {
 			toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, 0, len(functionCalls))
 			var toolResponseMessages []openai.ChatCompletionMessageParamUnion
 			for _, fc := range functionCalls {
@@ -141,7 +168,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
 					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
 						ID:   fc.ID,
-						Type: constant.Function("function"),
+						Type: constant.Function(openAIToolTypeFunction),
 						Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
 							Name:      fc.Name,
 							Arguments: string(argsJSON),
@@ -271,7 +298,8 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 				toolCallsAcc[idx]["name"] = tc.Function.Name
 			}
 			if tc.Function.Arguments != "" {
-				toolCallsAcc[idx]["arguments"] = toolCallsAcc[idx]["arguments"].(string) + tc.Function.Arguments
+				prev, _ := toolCallsAcc[idx]["arguments"].(string)
+				toolCallsAcc[idx]["arguments"] = prev + tc.Function.Arguments
 			}
 		}
 		if choice.FinishReason != "" {
@@ -287,16 +315,17 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		return
 	}
 
-	// Final response
-	finalParts := []*genai.Part{}
-	if aggregatedText != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText})
-	}
-	var indices []int64
+	// Final response: build parts in index order
+	nToolCalls := len(toolCallsAcc)
+	indices := make([]int64, 0, nToolCalls)
 	for k := range toolCallsAcc {
 		indices = append(indices, k)
 	}
 	sort.Slice(indices, func(i, j int) bool { return indices[i] < indices[j] })
+	finalParts := make([]*genai.Part, 0, 1+nToolCalls)
+	if aggregatedText != "" {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedText})
+	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]
 		argsStr, _ := tc["arguments"].(string)
@@ -307,22 +336,15 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		name, _ := tc["name"].(string)
 		id, _ := tc["id"].(string)
 		if name != "" || id != "" {
-			finalParts = append(finalParts, genai.NewPartFromFunctionCall(name, args))
-			finalParts[len(finalParts)-1].FunctionCall.ID = id
+			p := genai.NewPartFromFunctionCall(name, args)
+			p.FunctionCall.ID = id
+			finalParts = append(finalParts, p)
 		}
-	}
-	fr := genai.FinishReasonStop
-	if finishReason == "tool_calls" {
-		fr = genai.FinishReasonStop
-	} else if finishReason == "length" {
-		fr = genai.FinishReasonMaxTokens
-	} else if finishReason == "content_filter" {
-		fr = genai.FinishReasonSafety
 	}
 	_ = yield(&model.LLMResponse{
 		Partial:      false,
 		TurnComplete: true,
-		FinishReason: fr,
+		FinishReason: openAIFinishReasonToGenai(finishReason),
 		Content:      &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}, nil)
 }
@@ -339,12 +361,17 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 	}
 	choice := completion.Choices[0]
 	msg := choice.Message
-	parts := []*genai.Part{}
+	nParts := 0
+	if msg.Content != "" {
+		nParts++
+	}
+	nParts += len(msg.ToolCalls)
+	parts := make([]*genai.Part, 0, nParts)
 	if msg.Content != "" {
 		parts = append(parts, &genai.Part{Text: msg.Content})
 	}
 	for _, tc := range msg.ToolCalls {
-		if tc.Type == "function" && tc.Function.Name != "" {
+		if tc.Type == openAIToolTypeFunction && tc.Function.Name != "" {
 			var args map[string]interface{}
 			if tc.Function.Arguments != "" {
 				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -353,13 +380,6 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 			p.FunctionCall.ID = tc.ID
 			parts = append(parts, p)
 		}
-	}
-	fr := genai.FinishReasonStop
-	switch choice.FinishReason {
-	case "length":
-		fr = genai.FinishReasonMaxTokens
-	case "content_filter":
-		fr = genai.FinishReasonSafety
 	}
 	var usage *genai.GenerateContentResponseUsageMetadata
 	if completion.Usage.PromptTokens > 0 || completion.Usage.CompletionTokens > 0 {
@@ -371,7 +391,7 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 	yield(&model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
-		FinishReason:  fr,
+		FinishReason:  openAIFinishReasonToGenai(choice.FinishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}, nil)

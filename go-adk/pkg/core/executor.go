@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/models"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/genai"
-	adksession "google.golang.org/adk/session"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -89,9 +88,9 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		spanAttributes["kagent.app_name"] = e.AppName
 	}
 	ctx = SetKAgentSpanAttributes(ctx, spanAttributes)
-	defer func() {
-		ctx = ClearKAgentSpanAttributes(ctx)
-	}()
+	// Note: ClearKAgentSpanAttributes is not called in defer because the context
+	// is local to this function and reassigning ctx in a defer doesn't affect
+	// the original context. Span attributes are cleaned up when the context is done.
 
 	// 3. Prepare session (get or create)
 	session, err := e.prepareSession(ctx, userID, sessionID, &req.Message)
@@ -102,8 +101,10 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	// 2.5. Initialize session path for skills (matching Python implementation)
 	if e.SkillsDirectory != "" && sessionID != "" {
 		if _, err := InitializeSessionPath(sessionID, e.SkillsDirectory); err != nil {
-			// Ignore: skills can still be accessed via absolute path
-			_ = err
+			// Log but continue: skills can still be accessed via absolute path
+			if e.Logger.GetSink() != nil {
+				e.Logger.V(1).Info("Failed to initialize session path for skills (continuing)", "error", err, "sessionID", sessionID, "skillsDirectory", e.SkillsDirectory)
+			}
 		}
 	}
 
@@ -133,10 +134,21 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	if runArgs[ArgKeyRunConfig] == nil {
 		runArgs[ArgKeyRunConfig] = make(map[string]interface{})
 	}
-	runArgs[ArgKeyRunConfig].(map[string]interface{})[RunConfigKeyStreamingMode] = streamingMode
+	if runConfig, ok := runArgs[ArgKeyRunConfig].(map[string]interface{}); ok {
+		runConfig[RunConfigKeyStreamingMode] = streamingMode
+	}
 	// Add session service and session to runArgs so runner can save events to history
 	runArgs[ArgKeySessionService] = e.SessionService
 	runArgs[ArgKeySession] = session
+	// App name must match executor's so runner's session lookup returns the same session (Python: runner.app_name)
+	runArgs[ArgKeyAppName] = e.AppName
+
+	// 4.5. Append system event before run (matches Python _handle_request: append_event before runner.run_async)
+	if e.SessionService != nil && session != nil {
+		if appendErr := e.SessionService.AppendFirstSystemEvent(ctx, session); appendErr != nil && e.Logger.GetSink() != nil {
+			e.Logger.Error(appendErr, "Failed to append system event (continuing)", "sessionID", session.ID)
+		}
+	}
 
 	// 5. Start execution with timeout. Use WithoutCancel so that the execution
 	// (and thus the runner / MCP tool calls) is not cancelled when the incoming
@@ -182,6 +194,14 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	}()
 
 	for internalEvent := range eventChan {
+		// Check for context cancellation at start of each iteration
+		if ctx.Err() != nil {
+			if e.Logger.GetSink() != nil {
+				e.Logger.Info("Context cancelled during event processing", "error", ctx.Err())
+			}
+			return ctx.Err()
+		}
+
 		// Check if event is partial (matching Python: if not adk_event.partial)
 		isPartial := e.Converter.IsPartialEvent(internalEvent)
 
@@ -199,18 +219,9 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 			}
 		}
 
-		// Append only *adksession.Event to session (never RunnerErrorEvent). Non-partial always; partial only when tool-related.
-		shouldAppend := !isPartial || e.Converter.EventHasToolContent(internalEvent)
-		if adkEvent, ok := internalEvent.(*adksession.Event); ok && e.SessionService != nil && session != nil && shouldAppend {
-			appendCtx, appendCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer appendCancel()
-			if err := e.SessionService.AppendEvent(appendCtx, session, adkEvent); err != nil {
-				// Log error but don't fail execution (matching Python: errors are logged but don't stop execution)
-				if e.Logger.GetSink() != nil {
-					e.Logger.Error(err, "Failed to append event to session history", "sessionID", session.ID, "userID", session.UserID)
-				}
-			}
-		}
+		// Do not append streamed events here. Matching Python: the executor only appends the system
+		// event (header_update); streamed events are appended once by the runner layer (adk_runner
+		// or the Google ADK session service). Appending here would duplicate persistence.
 	}
 
 	// 8. Send final status update (matching Python's final event handling)
@@ -338,7 +349,9 @@ func extractSessionName(message *protocol.Message) string {
 	return ""
 }
 
-// ExtractUserAndSessionID extracts user_id and session_id from the request
+// ExtractUserAndSessionID extracts user_id and session_id from the A2A request.
+// The session_id is derived from the context_id, and user_id defaults to "A2A_USER_" + context_id.
+// This matches the Python implementation's _get_user_id behavior.
 func ExtractUserAndSessionID(req *protocol.SendMessageParams, contextID string) (userID, sessionID string) {
 	const userIDPrefix = "A2A_USER_"
 

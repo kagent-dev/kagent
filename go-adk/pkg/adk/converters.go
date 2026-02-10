@@ -16,14 +16,25 @@ const (
 	requestEucFunctionCallName = "request_euc"
 )
 
-// extractErrorCode extracts error_code from an event using reflection
-// This is a helper function to work with generic event interface{}
+// extractErrorCode extracts error_code from an event.
+// First tries the ErrorEventProvider interface, then falls back to reflection.
 func extractErrorCode(event interface{}) string {
+	// Try interface first (avoids reflection)
+	if provider, ok := event.(ErrorEventProvider); ok {
+		return provider.GetErrorCode()
+	}
+	// Fall back to reflection for other types
 	return extractStringField(event, "ErrorCode")
 }
 
-// extractErrorMessage extracts error_message from an event using reflection
+// extractErrorMessage extracts error_message from an event.
+// First tries the ErrorEventProvider interface, then falls back to reflection.
 func extractErrorMessage(event interface{}) string {
+	// Try interface first (avoids reflection)
+	if provider, ok := event.(ErrorEventProvider); ok {
+		return provider.GetErrorMessage()
+	}
+	// Fall back to reflection for other types
 	return extractStringField(event, "ErrorMessage")
 }
 
@@ -308,6 +319,10 @@ func convertADKEventToA2AEvents(
 		Metadata:  messageMetadata,
 	}
 
+	// User response and questions: set task state so clients know when to prompt the user.
+	// Matches Python kagent-adk _create_status_update_event (event_converter.py):
+	// - working by default; auth_required if any part is long-running function_call with name "request_euc";
+	// - else input_required if any part is long-running function_call (user approval/questions).
 	state := protocol.TaskStateWorking
 	for _, part := range a2aParts {
 		if dataPart, ok := part.(*protocol.DataPart); ok && dataPart.Metadata != nil {
