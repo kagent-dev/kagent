@@ -17,6 +17,9 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
+// Compile-time interface compliance check
+var _ core.Runner = (*GoogleADKRunnerWrapper)(nil)
+
 // GoogleADKRunnerWrapper wraps Google ADK Runner to match our Runner interface.
 //
 // Event processing: The loop lives inside adk-go (Flow.Run). We only range over
@@ -101,8 +104,11 @@ func runConfigFromArgs(args map[string]interface{}) agent.RunConfig {
 
 // Run implements our Runner interface by converting between formats.
 // Aligned with runner.go AgentRunner.Run: same channel size, context usage, session append pattern, and channel send semantics.
+//
+// IMPORTANT: The caller MUST drain the returned channel to avoid goroutine leaks.
+// The channel is closed when processing completes or context is cancelled.
 func (w *GoogleADKRunnerWrapper) Run(ctx context.Context, args map[string]interface{}) (<-chan interface{}, error) {
-	ch := make(chan interface{}, 10)
+	ch := make(chan interface{}, core.EventChannelBufferSize)
 
 	go func() {
 		defer close(ch)
@@ -205,9 +211,11 @@ func (w *GoogleADKRunnerWrapper) Run(ctx context.Context, args map[string]interf
 				logADKEventDetails(w.logger, adkEvent, eventCount)
 			}
 
+			// Persist event once here (matching Python: runner layer appends; executor does not).
+			// Do not also append in executor or we duplicate persistence.
 			shouldAppend := !adkEvent.Partial || EventHasToolContent(adkEvent)
 			if rargs.sessionService != nil && rargs.session != nil && shouldAppend {
-				appendCtx, appendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				appendCtx, appendCancel := context.WithTimeout(context.Background(), core.EventPersistTimeout)
 				if err := rargs.sessionService.AppendEvent(appendCtx, rargs.session, adkEvent); err != nil {
 					if w.logger.GetSink() != nil {
 						w.logger.Error(err, "Failed to append event to session", "eventNumber", eventCount, "author", adkEvent.Author)
@@ -450,6 +458,22 @@ func convertMapToGenAIContent(msgMap map[string]interface{}) (*genai.Content, er
 				}
 				continue
 			}
+			// Handle code_execution_result (matching Python: genai_types.Part(code_execution_result=...))
+			if codeExecutionResult, ok := partMap["code_execution_result"].(map[string]interface{}); ok {
+				outcomeStr, _ := codeExecutionResult["outcome"].(string)
+				outputStr, _ := codeExecutionResult["output"].(string)
+				parts = append(parts, genai.NewPartFromCodeExecutionResult(genai.Outcome(outcomeStr), outputStr))
+				continue
+			}
+			// Handle executable_code (matching Python: genai_types.Part(executable_code=...))
+			if executableCode, ok := partMap["executable_code"].(map[string]interface{}); ok {
+				codeStr, _ := executableCode["code"].(string)
+				languageStr, _ := executableCode["language"].(string)
+				if codeStr != "" {
+					parts = append(parts, genai.NewPartFromExecutableCode(codeStr, genai.Language(languageStr)))
+				}
+				continue
+			}
 		}
 	}
 
@@ -546,7 +570,7 @@ func logADKEventTiming(logger logr.Logger, eventCount int, timeSinceLastEvent, t
 
 func logADKEventDetails(logger logr.Logger, event interface{}, eventCount int) {
 	e, ok := event.(*adksession.Event)
-	if !ok || e.LLMResponse.Content == nil {
+	if !ok || e == nil || e.LLMResponse.Content == nil || e.LLMResponse.Content.Parts == nil {
 		logger.V(1).Info("Google ADK event received", "eventNumber", eventCount, "author", getEventAuthor(event), "partial", getEventPartial(event))
 		return
 	}
@@ -575,8 +599,8 @@ func logADKEventDetails(logger logr.Logger, event interface{}, eventCount int) {
 				} else {
 					responseBody = fmt.Sprintf("%v", part.FunctionResponse.Response)
 				}
-				if len(responseBody) > 2000 {
-					responseBody = responseBody[:2000] + "... (truncated)"
+				if len(responseBody) > core.ResponseBodyMaxLength {
+					responseBody = responseBody[:core.ResponseBodyMaxLength] + "... (truncated)"
 				}
 			}
 			logger.Info("MCP function response", "tool", part.FunctionResponse.Name, "callID", part.FunctionResponse.ID, "responseLength", len(responseBody))

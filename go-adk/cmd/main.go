@@ -77,11 +77,12 @@ func (r *ConfigurableRunner) Run(ctx context.Context, args map[string]interface{
 	}
 
 	sessionService, _ := args[adk.ArgKeySessionService].(core.SessionService)
+	appName, _ := args[adk.ArgKeyAppName].(string)
 	if r.googleADKRunner == nil {
 		if r.logger.GetSink() != nil {
-			r.logger.Info("Creating Google ADK Runner", "modelType", r.config.Model.GetType(), "sessionID", sessionID, "userID", userID)
+			r.logger.Info("Creating Google ADK Runner", "modelType", r.config.Model.GetType(), "sessionID", sessionID, "userID", userID, "appName", appName)
 		}
-		adkRunner, err := adk.CreateGoogleADKRunner(r.config, sessionService, r.logger)
+		adkRunner, err := adk.CreateGoogleADKRunner(r.config, sessionService, appName, r.logger)
 		if err != nil {
 			if r.logger.GetSink() != nil {
 				r.logger.Error(err, "Failed to create Google ADK Runner")

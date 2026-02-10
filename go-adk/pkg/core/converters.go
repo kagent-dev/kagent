@@ -27,6 +27,18 @@ func ConvertA2ARequestToRunArgs(req *protocol.SendMessageParams, userID, session
 
 	// Convert A2A message parts to GenAI format (matching Python: convert_a2a_part_to_genai_part)
 	var genaiParts []map[string]interface{}
+	if req.Message.Parts == nil {
+		// No parts to convert
+		args[ArgKeyNewMessage] = map[string]interface{}{
+			PartKeyRole:  "user",
+			PartKeyParts: genaiParts,
+		}
+		args[ArgKeyMessage] = req.Message
+		args[ArgKeyRunConfig] = map[string]interface{}{
+			RunConfigKeyStreamingMode: "NONE",
+		}
+		return args
+	}
 	for _, part := range req.Message.Parts {
 		genaiPart, err := ConvertA2APartToGenAIPart(part)
 		if err != nil {

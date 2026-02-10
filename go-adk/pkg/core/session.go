@@ -8,11 +8,14 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"sort"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	adksession "google.golang.org/adk/session"
 )
+
+// Compile-time interface compliance check
+var _ SessionService = (*KAgentSessionService)(nil)
 
 // Session represents an agent session.
 type Session struct {
@@ -29,6 +32,8 @@ type SessionService interface {
 	GetSession(ctx context.Context, appName, userID, sessionID string) (*Session, error)
 	DeleteSession(ctx context.Context, appName, userID, sessionID string) error
 	AppendEvent(ctx context.Context, session *Session, event interface{}) error
+	// AppendFirstSystemEvent appends the initial system event (header_update) before run. Matches Python _handle_request: append_event before runner.run_async.
+	AppendFirstSystemEvent(ctx context.Context, session *Session) error
 }
 
 // KAgentSessionService implementation using KAgent API.
@@ -142,7 +147,9 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get session: status %d", resp.StatusCode)
+		// Include response body for better error diagnostics
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get session: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -164,28 +171,54 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 		s.Logger.V(1).Info("Session retrieved successfully", "sessionID", result.Data.Session.ID, "userID", result.Data.Session.UserID, "eventsCount", len(result.Data.Events))
 	}
 
-	// Parse events from JSON (matching Python: Event.model_validate_json(event_data["data"])).
-	// Try ADK Event first so session.Events holds *adksession.Event when API returns ADK JSON.
+	// Parse events from JSON as generic map[string]interface{}.
+	// The backend stores events as {"id": "...", "data": "<json-string>"} where "data" is a JSON string.
+	// ADK-specific parsing (to *adksession.Event) is handled by the adk.SessionServiceAdapter.
 	events := make([]interface{}, 0, len(result.Data.Events))
-	for _, eventData := range result.Data.Events {
-		var adkE adksession.Event
-		if err := json.Unmarshal(eventData.Data, &adkE); err == nil {
-			events = append(events, &adkE)
-			continue
+	for i, eventData := range result.Data.Events {
+		// First, try to unmarshal the raw message - it might be a string (from backend) or an object
+		var eventJSON []byte
+
+		if s.Logger.GetSink() != nil {
+			rawPreview := string(eventData.Data)
+			if len(rawPreview) > 200 {
+				rawPreview = rawPreview[:200] + "..."
+			}
+			s.Logger.V(1).Info("Processing event from backend", "eventIndex", i, "rawDataPreview", rawPreview)
 		}
-		// Fallback: raw map (legacy or non-ADK format); adapter's parseEventsToADK will handle it
-		var event interface{}
-		if err := json.Unmarshal(eventData.Data, &event); err != nil {
+
+		// Check if eventData.Data is a JSON string (starts with quote)
+		if len(eventData.Data) > 0 && eventData.Data[0] == '"' {
+			// It's a JSON string - unmarshal to get the actual JSON content
+			var jsonStr string
+			if err := json.Unmarshal(eventData.Data, &jsonStr); err != nil {
+				if s.Logger.GetSink() != nil {
+					s.Logger.Info("Failed to unmarshal event data string, skipping", "error", err, "eventIndex", i)
+				}
+				continue
+			}
+			eventJSON = []byte(jsonStr)
+		} else {
+			// It's already a JSON object
+			eventJSON = eventData.Data
+		}
+
+		// Parse as generic map - ADK-specific conversion happens in the adapter layer
+		var event map[string]interface{}
+		if err := json.Unmarshal(eventJSON, &event); err != nil {
 			if s.Logger.GetSink() != nil {
-				s.Logger.V(1).Info("Failed to parse event data, skipping", "error", err)
+				s.Logger.Info("Failed to parse event data as map, skipping", "error", err, "eventIndex", i)
 			}
 			continue
+		}
+		if s.Logger.GetSink() != nil {
+			s.Logger.V(1).Info("Parsed event as map", "eventIndex", i, "mapKeys", getMapKeys(event))
 		}
 		events = append(events, event)
 	}
 
-	if s.Logger.GetSink() != nil && len(events) > 0 {
-		s.Logger.V(1).Info("Parsed session events", "eventsCount", len(events))
+	if s.Logger.GetSink() != nil {
+		s.Logger.V(1).Info("Parsed session events", "totalEvents", len(result.Data.Events), "outputEvents", len(events))
 	}
 
 	return &Session{
@@ -216,7 +249,9 @@ func (s *KAgentSessionService) DeleteSession(ctx context.Context, appName, userI
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to delete session: status %d", resp.StatusCode)
+		// Include response body for better error diagnostics
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete session: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	if s.Logger.GetSink() != nil {
@@ -226,10 +261,6 @@ func (s *KAgentSessionService) DeleteSession(ctx context.Context, appName, userI
 }
 
 func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session, event interface{}) error {
-	if s.Logger.GetSink() != nil {
-		s.Logger.V(1).Info("Appending event to session", "sessionID", session.ID, "userID", session.UserID)
-	}
-
 	eventData, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
@@ -237,6 +268,15 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session
 
 	// Extract event ID if available (similar to Python's event.id)
 	eventID := extractEventID(event, eventData, s.Logger)
+
+	if s.Logger.GetSink() != nil {
+		// Log event type and JSON preview for debugging context loss issues
+		jsonPreview := string(eventData)
+		if len(jsonPreview) > 300 {
+			jsonPreview = jsonPreview[:300] + "..."
+		}
+		s.Logger.V(1).Info("Appending event to session", "sessionID", session.ID, "userID", session.UserID, "eventID", eventID, "eventType", fmt.Sprintf("%T", event), "jsonPreview", jsonPreview)
+	}
 
 	reqData := map[string]interface{}{
 		"id":   eventID,
@@ -274,6 +314,19 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session
 		s.Logger.V(1).Info("Event appended to session successfully", "sessionID", session.ID, "eventID", eventID)
 	}
 	return nil
+}
+
+// AppendFirstSystemEvent appends the initial system event (header_update) before run.
+// Matches Python _handle_request: append_event before runner.run_async.
+func (s *KAgentSessionService) AppendFirstSystemEvent(ctx context.Context, session *Session) error {
+	// Minimal event matching ADK Event struct field names (PascalCase, not snake_case).
+	// adksession.Event has InvocationID and Author fields which serialize to "InvocationID" and "Author".
+	// Using matching field names ensures the event is recognized when loaded back.
+	event := map[string]interface{}{
+		"InvocationID": "header_update",
+		"Author":       "system",
+	}
+	return s.AppendEvent(ctx, session, event)
 }
 
 // extractEventID extracts an event ID from various event formats
@@ -374,4 +427,14 @@ func extractStringFromField(field reflect.Value) string {
 		}
 	}
 	return ""
+}
+
+// getMapKeys returns the keys of a map as a sorted slice of strings (for deterministic logging)
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
