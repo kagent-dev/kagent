@@ -333,15 +333,16 @@ def test_mcp_tool_with_proxy_url():
     """Test that MCP tools are configured with proxy URL and the proxy host header.
 
     When proxy is configured, the URL is set to the proxy URL and the proxy host header
-    is included for proxy routing. These are passed through directly to McpToolset.
+    is included for proxy routing. These are passed through directly to EnrichedMcpToolset.
 
-    Note: We verify connection_params configuration because McpToolset doesn't expose
-    a public API to verify proxy setup. The connection_params are what McpToolset uses
+    Note: We verify connection_params configuration because EnrichedMcpToolset doesn't expose
+    a public API to verify proxy setup. The connection_params are what EnrichedMcpToolset uses
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
+    from kagent.adk._mcp_toolset import EnrichedMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
@@ -365,7 +366,7 @@ def test_mcp_tool_with_proxy_url():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if type(tool).__name__ == "McpToolset":
+        if isinstance(tool, EnrichedMcpToolset):
             mcp_tool = tool
             break
 
@@ -390,6 +391,7 @@ def test_mcp_tool_without_proxy():
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
+    from kagent.adk._mcp_toolset import EnrichedMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     config = AgentConfig(
@@ -412,7 +414,7 @@ def test_mcp_tool_without_proxy():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if type(tool).__name__ == "McpToolset":
+        if isinstance(tool, EnrichedMcpToolset):
             mcp_tool = tool
             break
 
@@ -437,6 +439,7 @@ def test_sse_mcp_tool_with_proxy_url():
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
 
+    from kagent.adk._mcp_toolset import EnrichedMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
@@ -460,7 +463,7 @@ def test_sse_mcp_tool_with_proxy_url():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if type(tool).__name__ == "McpToolset":
+        if isinstance(tool, EnrichedMcpToolset):
             mcp_tool = tool
             break
 
@@ -483,6 +486,7 @@ def test_sse_mcp_tool_without_proxy():
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
 
+    from kagent.adk._mcp_toolset import EnrichedMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     config = AgentConfig(
@@ -505,7 +509,7 @@ def test_sse_mcp_tool_without_proxy():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if type(tool).__name__ == "McpToolset":
+        if isinstance(tool, EnrichedMcpToolset):
             mcp_tool = tool
             break
 

@@ -210,9 +210,7 @@ class A2aAgentExecutor(AgentExecutor):
                 )
             )
         except Exception as enqueue_error:
-            logger.error(
-                'Failed to publish failure event: %s', enqueue_error, exc_info=True
-            )
+            logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     async def _handle_request(
         self,

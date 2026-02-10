@@ -21,9 +21,7 @@ class EnrichedMcpToolset(McpToolset):
     implementation may not catch and propagate without enough context.
     """
 
-    async def get_tools(
-        self, readonly_context: Optional[ReadonlyContext] = None
-    ) -> list[BaseTool]:
+    async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         try:
             return await super().get_tools(readonly_context)
         except asyncio.CancelledError as error:
