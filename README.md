@@ -59,7 +59,7 @@
 
 ---
 
-## Getting started
+## Getting Started
 
 - [Quick Start](https://kagent.dev/docs/kagent/getting-started/quickstart)
 - [Installation guide](https://kagent.dev/docs/kagent/introduction/installation)
@@ -70,7 +70,7 @@
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
 - **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
-- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana,  Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
+- **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
 
 ### Core Principles
@@ -106,7 +106,7 @@ There are many ways to get involved:
 - 🐛 [Report bugs and issues](https://github.com/kagent-dev/kagent/issues/)
 - 💡 [Suggest new features](https://github.com/kagent-dev/kagent/issues/)
 - 📖 [Improve documentation](https://github.com/kagent-dev/website/)
-- 🔧 [Submit pull requests](/CONTRIBUTION.md)
+- 🔧 [Submit pull requests](/CONTRIBUTING.md)
 - ⭐ Star the repository
 - 💬 [Help others in Discord](https://discord.gg/Fu3k65f2k3)
 - 💬 [Join the kagent community meetings](https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)

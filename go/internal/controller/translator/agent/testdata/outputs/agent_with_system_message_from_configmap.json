@@ -167,11 +167,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "agent-with-configmap-system-message"
                   },
                   {
                     "name": "KAGENT_URL",

@@ -179,11 +179,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "agent-with-proxy-service"
                   },
                   {
                     "name": "KAGENT_URL",

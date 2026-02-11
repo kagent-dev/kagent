@@ -1,4 +1,6 @@
 modelConfigRef: ""
+imagePullSecrets: []
+
 
 resources:
   requests:

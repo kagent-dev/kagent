@@ -181,11 +181,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "bedrock-agent"
                   },
                   {
                     "name": "KAGENT_URL",

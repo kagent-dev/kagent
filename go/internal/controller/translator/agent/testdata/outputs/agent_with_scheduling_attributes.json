@@ -193,11 +193,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "agent-with-scheduling-attributes"
                   },
                   {
                     "name": "KAGENT_URL",

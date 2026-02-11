@@ -18,8 +18,11 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,7 +44,21 @@ type ServiceController struct {
 
 func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentMCPService(ctx, req)
+
+	err := r.Reconciler.ReconcileKagentMCPService(ctx, req)
+	if err != nil {
+		// Check if this is a validation error that requires user action
+		var validationErr *agent_translator.ValidationError
+		if errors.As(err, &validationErr) {
+			// Validation error - don't retry until Service annotations/ports are fixed
+			// Return empty result with no error to avoid exponential backoff
+			return ctrl.Result{}, nil
+		}
+		// Transient error - return error to trigger exponential backoff retry
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -16,8 +16,9 @@ type StreamableHTTPConnectionParams struct {
 }
 
 type HttpMcpServerConfig struct {
-	Params StreamableHTTPConnectionParams `json:"params"`
-	Tools  []string                       `json:"tools"`
+	Params         StreamableHTTPConnectionParams `json:"params"`
+	Tools          []string                       `json:"tools"`
+	AllowedHeaders []string                       `json:"allowed_headers,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -28,8 +29,9 @@ type SseConnectionParams struct {
 }
 
 type SseMcpServerConfig struct {
-	Params SseConnectionParams `json:"params"`
-	Tools  []string            `json:"tools"`
+	Params         SseConnectionParams `json:"params"`
+	Tools          []string            `json:"tools"`
+	AllowedHeaders []string            `json:"allowed_headers,omitempty"`
 }
 
 type Model interface {
@@ -156,6 +158,7 @@ func (g *GeminiAnthropic) GetType() string {
 
 type Ollama struct {
 	BaseModel
+	Options map[string]string `json:"options,omitempty"`
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
@@ -163,6 +166,7 @@ func (o *Ollama) MarshalJSON() ([]byte, error) {
 		"type":    ModelTypeOllama,
 		"model":   o.Model,
 		"headers": o.Headers,
+		"options": o.Options,
 	})
 }
 

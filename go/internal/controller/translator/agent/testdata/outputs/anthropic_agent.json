@@ -168,11 +168,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "valueFrom": {
-                      "fieldRef": {
-                        "fieldPath": "spec.serviceAccountName"
-                      }
-                    }
+                    "value": "anthropic-agent"
                   },
                   {
                     "name": "KAGENT_URL",

@@ -626,6 +626,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       isSubmitting={state.isSubmitting || state.isLoading}
                       onBlur={() => validateField('tools', state.selectedTools)}
                       currentAgentName={state.name}
+                      currentAgentNamespace={state.namespace}
                     />
                   </CardContent>
                 </Card>

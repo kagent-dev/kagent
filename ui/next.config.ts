@@ -7,9 +7,6 @@ const nextConfig: NextConfig = {
       fullUrl: true,
     },
   },
-  serverRuntimeConfig: {
-    trustProxy: true,
-  },
   experimental: { swcPlugins: [] },
   compiler: { removeConsole: process.env.NODE_ENV === "production" },
 };
