@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	cli "github.com/kagent-dev/kagent/go/cli/internal/cli/agent"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli/mcp"
@@ -32,7 +31,18 @@ func main() {
 
 		cancel()
 	}()
-	cfg := &config.Config{}
+	// Initialize config (reads ~/.kagent/config.yaml) before flag binding
+	// so that YAML values serve as defaults for CLI flags.
+	if err := config.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.Get()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
 
 	rootCmd := &cobra.Command{
 		Use:   "kagent",
@@ -41,11 +51,11 @@ func main() {
 		Run:   runInteractive,
 	}
 
-	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", "http://localhost:8083", "KAgent URL")
-	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", "kagent", "Namespace")
-	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", "table", "Output format")
-	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Verbose output")
-	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", 300*time.Second, "Timeout")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", cfg.KAgentURL, "KAgent URL")
+	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", cfg.Namespace, "Namespace")
+	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", cfg.OutputFormat, "Output format")
+	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
+	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
 	installCfg := &cli.InstallCfg{
 		Config: cfg,
 	}
@@ -334,7 +344,7 @@ Examples:
 	// Add flags for deploy command
 	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
 	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
-	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "kagent", "Kubernetes namespace to deploy to")
+	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", cfg.Namespace, "Kubernetes namespace to deploy to")
 	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
 	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
@@ -414,12 +424,6 @@ Examples:
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
-
-	// Initialize config
-	if err := config.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
-		os.Exit(1)
-	}
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
