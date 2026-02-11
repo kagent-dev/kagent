@@ -4,7 +4,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/internal/controller/provider"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 )
@@ -38,8 +38,7 @@ type Base struct {
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-// providerManager can be nil if provider discovery is not enabled.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, providerManager *provider.Manager) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -52,7 +51,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Health:          NewHealthHandler(),
 		ModelConfig:     NewModelConfigHandler(base),
 		Model:           NewModelHandler(base),
-		Provider:        NewProviderHandler(base, providerManager),
+		Provider:        NewProviderHandler(base, rcnclr),
 		Sessions:        NewSessionsHandler(base),
 		Agents:          NewAgentsHandler(base),
 		Tools:           NewToolsHandler(base),

@@ -47,6 +47,7 @@ type KagentReconciler interface {
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
+	RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -1112,4 +1113,34 @@ func conditionMessage(err error, successMessage string) string {
 		return err.Error()
 	}
 	return successMessage
+}
+
+// RefreshProviderModels forces a fresh model discovery for a provider and updates its status.
+// This is called by the HTTP API when refresh=true is requested.
+// It reuses all existing internal reconciler methods - no code duplication.
+func (a *kagentReconciler) RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error) {
+	p := &v1alpha2.Provider{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, p); err != nil {
+		return nil, fmt.Errorf("failed to get provider %s/%s: %w", namespace, name, err)
+	}
+
+	// Reuse existing secret resolution logic
+	apiKey, secretHash, secretErr := a.resolveProviderSecret(ctx, p)
+	if secretErr != nil {
+		return nil, fmt.Errorf("failed to resolve provider secret: %w", secretErr)
+	}
+
+	// Force discovery by calling the existing method
+	models, discoveryErr := a.discoverProviderModels(ctx, p, apiKey)
+	if discoveryErr != nil {
+		return nil, fmt.Errorf("model discovery failed: %w", discoveryErr)
+	}
+
+	// Update status using existing method (persists to CR)
+	_, err := a.updateProviderStatus(ctx, p, secretErr, discoveryErr, models, secretHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update provider status: %w", err)
+	}
+
+	return models, nil
 }

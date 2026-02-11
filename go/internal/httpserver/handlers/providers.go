@@ -6,22 +6,38 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/provider"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
+	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// ProviderResponse is the API response format for listing providers
+type ProviderResponse struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Endpoint string `json:"endpoint"`
+}
+
+// ModelsResponse is the API response format for listing models
+type ModelsResponse struct {
+	Provider string   `json:"provider"`
+	Models   []string `json:"models"`
+}
 
 // ProviderHandler handles provider requests
 type ProviderHandler struct {
 	*Base
-	providerManager *provider.Manager
+	reconciler reconciler.KagentReconciler
 }
 
 // NewProviderHandler creates a new ProviderHandler
-func NewProviderHandler(base *Base, providerManager *provider.Manager) *ProviderHandler {
+func NewProviderHandler(base *Base, rcnclr reconciler.KagentReconciler) *ProviderHandler {
 	return &ProviderHandler{
-		Base:            base,
-		providerManager: providerManager,
+		Base:       base,
+		reconciler: rcnclr,
 	}
 }
 
@@ -148,22 +164,25 @@ func (h *ProviderHandler) HandleListConfiguredProviders(w ErrorResponseWriter, r
 
 	log.Info("Listing configured providers")
 
-	if h.providerManager == nil {
-		log.Info("Provider manager not initialized")
-		data := api.NewResponse([]provider.ProviderResponse{}, "Provider discovery not enabled", false)
-		RespondWithJSON(w, http.StatusOK, data)
+	// List Provider CRs directly from Kubernetes
+	namespace := utils.GetResourceNamespace()
+	var providerList v1alpha2.ProviderList
+	if err := h.KubeClient.List(r.Context(), &providerList, client.InNamespace(namespace)); err != nil {
+		log.Error(err, "Failed to list providers")
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	providers := h.providerManager.GetProviders()
-
-	// Transform to API response format (hide sensitive data like secretRef)
-	response := make([]provider.ProviderResponse, len(providers))
-	for i, p := range providers {
-		response[i] = provider.ProviderResponse{
-			Name:     p.Name,
-			Type:     string(p.Type),
-			Endpoint: p.Endpoint,
+	// Filter for Ready providers and transform to API response format
+	var response []ProviderResponse
+	for _, p := range providerList.Items {
+		// Only include Ready providers
+		if meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha2.ProviderConditionTypeReady) {
+			response = append(response, ProviderResponse{
+				Name:     p.Name,
+				Type:     string(p.Spec.Type),
+				Endpoint: p.Spec.GetEndpoint(),
+			})
 		}
 	}
 
@@ -187,23 +206,42 @@ func (h *ProviderHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http
 	log = log.WithValues("provider", providerName)
 	log.Info("Getting models for provider")
 
-	if h.providerManager == nil {
-		log.Info("Provider manager not initialized")
-		RespondWithError(w, http.StatusServiceUnavailable, "Provider discovery not enabled")
-		return
-	}
-
 	// Check for refresh query parameter
 	forceRefresh := r.URL.Query().Get("refresh") == "true"
 
-	models, err := h.providerManager.GetModels(r.Context(), providerName, forceRefresh)
-	if err != nil {
-		log.Error(err, "Failed to get models for provider")
-		RespondWithError(w, http.StatusInternalServerError, err.Error())
-		return
+	namespace := utils.GetResourceNamespace()
+	var models []string
+	if forceRefresh {
+		// Call reconciler to trigger fresh discovery
+		log.Info("Forcing fresh model discovery")
+		models, err = h.reconciler.RefreshProviderModels(r.Context(), namespace, providerName)
+		if err != nil {
+			log.Error(err, "Failed to refresh models for provider")
+			RespondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		// Read cached models from Provider.Status
+		p := &v1alpha2.Provider{}
+		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{
+			Namespace: namespace,
+			Name:      providerName,
+		}, p); err != nil {
+			log.Error(err, "Failed to get provider")
+			RespondWithError(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		if len(p.Status.DiscoveredModels) == 0 {
+			log.Info("No models discovered for provider, try refreshing")
+			RespondWithError(w, http.StatusNotFound, "No models discovered for provider, try refreshing")
+			return
+		}
+
+		models = p.Status.DiscoveredModels
 	}
 
-	response := provider.ModelsResponse{
+	response := ModelsResponse{
 		Provider: providerName,
 		Models:   models,
 	}

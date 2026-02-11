@@ -43,6 +43,10 @@ func (f *fakeReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl.R
 	return ctrl.Result{}, nil
 }
 
+func (f *fakeReconciler) RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakeReconciler) GetOwnedResourceTypes() []client.Object {
 	return nil
 }

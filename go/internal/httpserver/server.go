@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
-	"github.com/kagent-dev/kagent/go/internal/controller/provider"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/internal/mcp"
@@ -60,7 +60,7 @@ type ServerConfig struct {
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
 	ProxyURL          string
-	ProviderManager   *provider.Manager // Optional: enables provider discovery endpoints
+	Reconciler        reconciler.KagentReconciler
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -80,7 +80,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.ProviderManager),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
 		authenticator: config.Authenticator,
 	}, nil
 }

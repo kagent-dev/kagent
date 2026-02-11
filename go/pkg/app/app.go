@@ -41,7 +41,6 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
-	"github.com/kagent-dev/kagent/go/internal/controller/provider"
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -503,10 +502,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	// Initialize provider manager for model/provider discovery
-	providerManager := provider.NewManager(mgr.GetClient(), kagentNamespace)
-	setupLog.Info("Initialized provider manager", "namespace", kagentNamespace)
-
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		Router:            router,
 		BindAddr:          cfg.HttpServerAddr,
@@ -518,7 +513,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authorizer:        extensionCfg.Authorizer,
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
-		ProviderManager:   providerManager,
+		Reconciler:        rcnclr,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
