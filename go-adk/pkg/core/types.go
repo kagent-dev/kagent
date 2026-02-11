@@ -51,7 +51,12 @@ func (a *AzureOpenAI) GetType() string { return ModelTypeAzureOpenAI }
 
 type Anthropic struct {
 	BaseModel
-	BaseUrl string `json:"base_url"`
+	BaseUrl     string   `json:"base_url,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	TopK        *int     `json:"top_k,omitempty"`
+	Timeout     *int     `json:"timeout,omitempty"`
 }
 
 func (a *Anthropic) GetType() string { return ModelTypeAnthropic }

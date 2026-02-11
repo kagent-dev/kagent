@@ -23,7 +23,6 @@ const (
 	openAIRoleSystem          = "system"
 	openAIRoleAssistant       = "assistant"
 	openAIRoleModel           = "model"
-	openAIFinishToolCalls     = "tool_calls"
 	openAIFinishLength        = "length"
 	openAIFinishContentFilter = "content_filter"
 	openAIToolTypeFunction    = "function"
