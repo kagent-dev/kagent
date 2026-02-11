@@ -177,7 +177,13 @@ class A2aAgentExecutor(AgentExecutor):
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
-            await asyncio.shield(runner.close())
+            try:
+                await asyncio.shield(runner.close())
+            except asyncio.CancelledError:
+                # asyncio shield will protect the cleanup from cancellation
+                # but the outer await can still raise a cancelled error
+                # which should not be propagated up the call chain
+                pass
 
     async def _publish_failed_status_event(
         self,
