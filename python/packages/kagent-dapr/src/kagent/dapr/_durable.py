@@ -19,14 +19,12 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+import dapr.ext.workflow as wf
 from dapr_agents import DurableAgent
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
-
-import dapr.ext.workflow as wf
-
 logger = logging.getLogger(__name__)
 
 
