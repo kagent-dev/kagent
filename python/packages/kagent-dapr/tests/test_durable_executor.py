@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from a2a.server.agent_execution.context import RequestContext
