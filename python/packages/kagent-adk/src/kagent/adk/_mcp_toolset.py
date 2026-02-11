@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable, Optional
+from typing import Optional
 
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, ReadonlyContext
 from google.adk.tools import BaseTool
@@ -14,7 +14,7 @@ def _enrich_cancelled_error(error: BaseException) -> asyncio.CancelledError:
     return asyncio.CancelledError(message)
 
 
-class EnrichedMcpToolset(McpToolset):
+class KAgentMcpToolset(McpToolset):
     """McpToolset variant that catches and enriches errors during MCP session setup.
 
     This is particularly useful for explicitly catching and enriching failures that the base

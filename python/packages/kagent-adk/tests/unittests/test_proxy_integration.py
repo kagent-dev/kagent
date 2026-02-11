@@ -342,7 +342,7 @@ def test_mcp_tool_with_proxy_url():
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
-    from kagent.adk._mcp_toolset import EnrichedMcpToolset
+    from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
@@ -366,7 +366,7 @@ def test_mcp_tool_with_proxy_url():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if isinstance(tool, EnrichedMcpToolset):
+        if isinstance(tool, KAgentMcpToolset):
             mcp_tool = tool
             break
 
@@ -391,7 +391,7 @@ def test_mcp_tool_without_proxy():
     """
     from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
-    from kagent.adk._mcp_toolset import EnrichedMcpToolset
+    from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     config = AgentConfig(
@@ -414,7 +414,7 @@ def test_mcp_tool_without_proxy():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if isinstance(tool, EnrichedMcpToolset):
+        if isinstance(tool, KAgentMcpToolset):
             mcp_tool = tool
             break
 
@@ -439,7 +439,7 @@ def test_sse_mcp_tool_with_proxy_url():
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
 
-    from kagent.adk._mcp_toolset import EnrichedMcpToolset
+    from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
@@ -463,7 +463,7 @@ def test_sse_mcp_tool_with_proxy_url():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if isinstance(tool, EnrichedMcpToolset):
+        if isinstance(tool, KAgentMcpToolset):
             mcp_tool = tool
             break
 
@@ -486,7 +486,7 @@ def test_sse_mcp_tool_without_proxy():
     """
     from google.adk.tools.mcp_tool import SseConnectionParams
 
-    from kagent.adk._mcp_toolset import EnrichedMcpToolset
+    from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     config = AgentConfig(
@@ -509,7 +509,7 @@ def test_sse_mcp_tool_without_proxy():
     # Find the McpToolset
     mcp_tool = None
     for tool in agent.tools:
-        if isinstance(tool, EnrichedMcpToolset):
+        if isinstance(tool, KAgentMcpToolset):
             mcp_tool = tool
             break
 

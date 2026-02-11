@@ -148,11 +148,7 @@ class A2aAgentExecutor(AgentExecutor):
             except asyncio.CancelledError as e:
                 logger.error('A2A request execution was cancelled', exc_info=True)
                 error_message = str(e) or 'A2A request execution was cancelled.'
-                await self._publish_failed_status_event(
-                    context=context,
-                    event_queue=event_queue,
-                    error_message=error_message,
-                )
+                await self._publish_failed_status_event(context, event_queue, error_message)
                 raise
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
@@ -181,11 +177,10 @@ class A2aAgentExecutor(AgentExecutor):
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
-            await runner.close()
+            await asyncio.shield(runner.close())
 
     async def _publish_failed_status_event(
         self,
-        *,
         context: RequestContext,
         event_queue: EventQueue,
         error_message: str,
@@ -201,7 +196,7 @@ class A2aAgentExecutor(AgentExecutor):
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.agent,
-                                parts=[TextPart(text=error_message)],
+                                parts=[Part(TextPart(text=error_message))],
                             ),
                         ),
                         context_id=context.context_id,
