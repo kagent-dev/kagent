@@ -230,12 +230,18 @@ func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*protocol.Mes
 	return dbpkg.ParseMessages(messages)
 }
 
+// ListEventsForSession retrieves events for a specific session
+// Use Limit with DESC for getting latest events, ASC with no limit for chronological order
 func (c *clientImpl) ListEventsForSession(sessionID, userID string, options dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
 	var events []dbpkg.Event
+	order := "created_at DESC"
+	if options.OrderAsc {
+		order = "created_at ASC"
+	}
 	query := c.db.
 		Where("session_id = ?", sessionID).
 		Where("user_id = ?", userID).
-		Order("created_at DESC")
+		Order(order)
 
 	if !options.After.IsZero() {
 		query = query.Where("created_at > ?", options.After)

@@ -185,6 +185,9 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	queryOptions := database.QueryOptions{
 		Limit: 0,
 	}
+	if r.URL.Query().Get("order") == "asc" {
+		queryOptions.OrderAsc = true
+	}
 	after := r.URL.Query().Get("after")
 	if after != "" {
 		afterTime, err := time.Parse(time.RFC3339, after)

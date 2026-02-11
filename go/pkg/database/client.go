@@ -8,8 +8,13 @@ import (
 )
 
 type QueryOptions struct {
-	Limit int
-	After time.Time
+	Limit    int
+	After    time.Time
+	OrderAsc bool // When true, order results by created_at ASC (chronological). Default is DESC (newest first).
+}
+type LangGraphCheckpointTuple struct {
+	Checkpoint *LangGraphCheckpoint
+	Writes     []*LangGraphCheckpointWrite
 }
 
 type Client interface {
@@ -65,9 +70,4 @@ type Client interface {
 	ResetCrewAIMemory(userID, threadID string) error
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
-}
-
-type LangGraphCheckpointTuple struct {
-	Checkpoint *LangGraphCheckpoint
-	Writes     []*LangGraphCheckpointWrite
 }

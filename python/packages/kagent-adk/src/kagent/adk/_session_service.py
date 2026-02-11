@@ -70,7 +70,8 @@ class KAgentSessionService(BaseSessionService):
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         try:
-            url = f"/api/sessions/{session_id}?user_id={user_id}"
+            # ADK requires events to be chronological (especially for calculating deltas)
+            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc"
             if config:
                 if config.after_timestamp:
                     # TODO: implement
@@ -106,9 +107,6 @@ class KAgentSessionService(BaseSessionService):
             events: list[Event] = []
             for event_data in events_data:
                 events.append(Event.model_validate_json(event_data["data"]))
-
-            # Go API returns events in DESC (newest first); ADK expects chronological (oldest first).
-            events.reverse()
 
             # Convert to ADK Session format
             session = Session(
