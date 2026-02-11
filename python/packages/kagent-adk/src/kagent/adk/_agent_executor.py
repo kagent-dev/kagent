@@ -146,8 +146,8 @@ class A2aAgentExecutor(AgentExecutor):
             try:
                 await self._handle_request(context, event_queue, runner, run_args)
             except asyncio.CancelledError as e:
-                logger.error('A2A request execution was cancelled', exc_info=True)
-                error_message = str(e) or 'A2A request execution was cancelled.'
+                logger.error("A2A request execution was cancelled", exc_info=True)
+                error_message = str(e) or "A2A request execution was cancelled."
                 await self._publish_failed_status_event(context, event_queue, error_message)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
@@ -186,21 +186,21 @@ class A2aAgentExecutor(AgentExecutor):
     ) -> None:
         try:
             await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=error_message))],
-                            ),
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text=error_message))],
                         ),
-                        context_id=context.context_id,
-                        final=True,
-                    )
+                    ),
+                    context_id=context.context_id,
+                    final=True,
                 )
+            )
         except Exception as enqueue_error:
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
