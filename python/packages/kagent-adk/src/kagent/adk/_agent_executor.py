@@ -242,7 +242,7 @@ class A2aAgentExecutor(AgentExecutor):
                 ),
                 context_id=context.context_id,
                 final=False,
-                metadata=run_metadata,
+                metadata=run_metadata.copy(),
             )
         )
 

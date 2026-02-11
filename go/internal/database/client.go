@@ -247,7 +247,7 @@ func (c *clientImpl) ListEventsForSession(sessionID, userID string, options dbpk
 		query = query.Where("created_at > ?", options.After)
 	}
 
-	if options.Limit > 1 {
+	if options.Limit > 0 {
 		query = query.Limit(options.Limit)
 	}
 
