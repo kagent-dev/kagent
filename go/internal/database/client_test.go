@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range numUpserts {
-				agent := &Agent{
+				agent := &dbpkg.Agent{
 					ID:   agentID,
 					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
 				}
@@ -67,7 +68,7 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range numUpserts {
-				toolServer := &ToolServer{
+				toolServer := &dbpkg.ToolServer{
 					Name:        serverName,
 					GroupKind:   groupKind,
 					Description: fmt.Sprintf("Description from goroutine %d iteration %d", goroutineID, j),
@@ -98,7 +99,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	groupKind := "RemoteMCPServer"
 
 	// Create the tool server first
-	_, err := client.StoreToolServer(&ToolServer{
+	_, err := client.StoreToolServer(&dbpkg.ToolServer{
 		Name:        serverName,
 		GroupKind:   groupKind,
 		Description: "Test server",
@@ -139,7 +140,7 @@ func TestStoreAgentIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 
-	agent := &Agent{
+	agent := &dbpkg.Agent{
 		ID:   "idempotent-agent",
 		Type: "declarative",
 	}
@@ -168,7 +169,7 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 
-	server := &ToolServer{
+	server := &dbpkg.ToolServer{
 		Name:        "idempotent-server",
 		GroupKind:   "RemoteMCPServer",
 		Description: "Original description",

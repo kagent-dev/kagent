@@ -107,6 +107,9 @@ class KAgentSessionService(BaseSessionService):
             for event_data in events_data:
                 events.append(Event.model_validate_json(event_data["data"]))
 
+            # Go API returns events in DESC (newest first); ADK expects chronological (oldest first).
+            events.reverse()
+
             # Convert to ADK Session format
             session = Session(
                 id=session_data["id"],
@@ -156,6 +159,9 @@ class KAgentSessionService(BaseSessionService):
 
     @override
     async def append_event(self, session: Session, event: Event) -> Event:
+        if event.partial:
+            return event
+
         # Convert ADK Event to JSON format
         event_data = {
             "id": event.id,

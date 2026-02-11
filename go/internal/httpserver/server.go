@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,7 +56,7 @@ type ServerConfig struct {
 	A2AHandler        a2a.A2AHandlerMux
 	MCPHandler        *mcp.MCPHandler
 	WatchedNamespaces []string
-	DbClient          database.Client
+	DbClient          dbpkg.Client
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
 	ProxyURL          string

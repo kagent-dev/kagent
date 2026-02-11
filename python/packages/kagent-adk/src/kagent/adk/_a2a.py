@@ -83,6 +83,7 @@ class KAgentApp:
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
         token_service = None
+        http_client: Optional[httpx.AsyncClient] = None
         if not local:
             token_service = KAgentTokenService(self.app_name)
             http_client = httpx.AsyncClient(
@@ -102,14 +103,14 @@ class KAgentApp:
                 artifact_service=InMemoryArtifactService(),
             )
 
+        task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
+        if not local and http_client is not None:
+            task_store = KAgentTaskStore(http_client)
+
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
             config=A2aAgentExecutorConfig(stream=self.stream),
         )
-
-        task_store = InMemoryTaskStore()
-        if not local:
-            task_store = KAgentTaskStore(http_client)
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandler(
