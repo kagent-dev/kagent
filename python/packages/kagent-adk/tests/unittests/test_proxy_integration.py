@@ -333,10 +333,10 @@ def test_mcp_tool_with_proxy_url():
     """Test that MCP tools are configured with proxy URL and the proxy host header.
 
     When proxy is configured, the URL is set to the proxy URL and the proxy host header
-    is included for proxy routing. These are passed through directly to EnrichedMcpToolset.
+    is included for proxy routing. These are passed through directly to McpToolset.
 
-    Note: We verify connection_params configuration because EnrichedMcpToolset doesn't expose
-    a public API to verify proxy setup. The connection_params are what EnrichedMcpToolset uses
+    Note: We verify connection_params configuration because McpToolset doesn't expose
+    a public API to verify proxy setup. The connection_params are what McpToolset uses
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
