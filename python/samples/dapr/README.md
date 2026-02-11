@@ -30,7 +30,7 @@ helm install dapr dapr/dapr --namespace dapr-system --create-namespace
 kubectl apply -f components/
 ```
 
-4. Build and push the agent image:
+3. Build and push the agent image:
 
 Run the `dapr-agent-sample` target from the top-level Python directory.
 
@@ -38,7 +38,7 @@ Run the `dapr-agent-sample` target from the top-level Python directory.
 make dapr-agent-sample
 ```
 
-5. Create the LLM API key secret:
+4. Create the LLM API key secret:
 
 ```bash
 kubectl create secret generic kagent-llm-key -n default \
@@ -46,7 +46,7 @@ kubectl create secret generic kagent-llm-key -n default \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-6. Deploy the agent:
+5. Deploy the agent:
 
 ```bash
 kubectl apply -f agent.yaml
