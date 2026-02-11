@@ -1,5 +1,19 @@
 [tool.uv.workspace]
-members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*", "samples/openai/*"]
+members = [
+    "packages/*",
+    "samples/adk/*",
+    "samples/langgraph/*",
+    "samples/crewai/*",
+    "samples/openai/*",
+    "samples/dapr/dapr-agent",
+]
+exclude = [
+    # kagent-dapr requires opentelemetry-sdk>=1.39 (via dapr-agents)
+    # which conflicts with kagent-adk's google-adk (requires <1.39).
+    # Run kagent-dapr tests separately: cd packages/kagent-dapr && uv sync --all-extras && uv run pytest tests/
+    "packages/kagent-dapr",
+    "samples/dapr/*",
+]
 
 [dependency-groups]
 dev = [

@@ -1,0 +1,36 @@
+[project]
+name = "kagent-dapr"
+version = "0.1.0"
+description = "Dapr Agents integration for KAgent"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "dapr-agents>=0.11.0",
+    "kagent-core>=0.1.0",
+    "a2a-sdk[http-server]>=0.3.1",
+    "durabletask-dapr>=0.2.0a15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+kagent-core = { path = "../kagent-core", editable = true }
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kagent"]

@@ -1,0 +1,16 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-registry
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: dapr-redis-master.default.svc.cluster.local:6379
+  - name: redisPassword
+    secretKeyRef:
+      name: dapr-redis
+      key: redis-password
+  - name: keyPrefix
+    value: none
