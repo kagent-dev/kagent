@@ -149,7 +149,6 @@ class A2aAgentExecutor(AgentExecutor):
                 logger.error('A2A request execution was cancelled', exc_info=True)
                 error_message = str(e) or 'A2A request execution was cancelled.'
                 await self._publish_failed_status_event(context, event_queue, error_message)
-                raise
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
@@ -177,13 +176,7 @@ class A2aAgentExecutor(AgentExecutor):
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
-            try:
-                await asyncio.shield(runner.close())
-            except asyncio.CancelledError:
-                # asyncio shield will protect the cleanup from cancellation
-                # but the outer await can still raise a cancelled error
-                # which should not be propagated up the call chain
-                pass
+            await runner.close()
 
     async def _publish_failed_status_event(
         self,
@@ -192,22 +185,20 @@ class A2aAgentExecutor(AgentExecutor):
         error_message: str,
     ) -> None:
         try:
-            await asyncio.shield(
-                event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=error_message))],
-                            ),
+            event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text=error_message))],
                         ),
-                        context_id=context.context_id,
-                        final=True,
-                    )
+                    ),
+                    context_id=context.context_id,
+                    final=True,
                 )
             )
         except Exception as enqueue_error:
