@@ -2,7 +2,7 @@
 
 import logging
 from contextvars import Token
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from opentelemetry import context as otel_context
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor
