@@ -124,7 +124,7 @@ class A2aAgentExecutor(AgentExecutor):
 
         # Set kagent span attributes for all spans in context.
         context_token = set_kagent_span_attributes(span_attributes)
-        runner_normal: Optional[Runner] = None
+        runner: Optional[Runner] = None
         try:
             # for new task, create a task submitted event
             if not context.current_task:
@@ -142,9 +142,9 @@ class A2aAgentExecutor(AgentExecutor):
                 )
 
             # Handle the request and publish updates to the event queue
-            runner_normal = await self._resolve_runner()
+            runner = await self._resolve_runner()
             try:
-                await self._handle_request(context, event_queue, runner_normal, run_args)
+                await self._handle_request(context, event_queue, runner, run_args)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
@@ -190,8 +190,8 @@ class A2aAgentExecutor(AgentExecutor):
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
-            if runner_normal is not None:
-                await runner_normal.close()
+            if runner is not None:
+                await runner.close()
 
     async def _handle_request(
         self,
