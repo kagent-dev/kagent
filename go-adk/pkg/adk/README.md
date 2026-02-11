@@ -46,4 +46,4 @@ The models subpackage provides LLM implementations for various providers:
 - OpenAI (including OpenAI-compatible endpoints like LiteLLM, Ollama)
 - Azure OpenAI
 - Google Gemini (native API and Vertex AI)
-- Anthropic (via LiteLLM proxy)
+- Anthropic (native API via ANTHROPIC_API_KEY)

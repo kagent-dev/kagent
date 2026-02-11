@@ -219,7 +219,7 @@ func parseRawToADKEvent(data []byte, logger logr.Logger) *adksession.Event {
 
 	// Debug: log what we got after unmarshaling
 	if logger.GetSink() != nil {
-		logger.Info("Parsed ADK Event fields",
+		logger.V(1).Info("Parsed ADK Event fields",
 			"author", e.Author,
 			"invocationID", e.InvocationID,
 			"partial", e.Partial,

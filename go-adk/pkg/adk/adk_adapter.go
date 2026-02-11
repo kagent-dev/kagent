@@ -241,24 +241,28 @@ func CreateGoogleADKAgent(config *core.AgentConfig, logger logr.Logger) (agent.A
 		}
 		modelAdapter = NewModelAdapter(geminiLLM, logger, mcpRegistry)
 
-	// Section 3: Anthropic, Ollama, GeminiAnthropic via OpenAI-compatible API (e.g. LiteLLM or native Ollama)
+	// Section 3: Anthropic (native API), Ollama, GeminiAnthropic via OpenAI-compatible API
 	case *core.Anthropic:
-		// OpenAI-compatible proxy (e.g. LiteLLM): base_url + model "anthropic/model-name"
-		baseURL := m.BaseUrl
-		if baseURL == "" {
-			return nil, fmt.Errorf("Anthropic model requires base_url (e.g. LiteLLM server URL)")
-		}
+		// Native Anthropic API using ANTHROPIC_API_KEY
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "claude-3-5-sonnet-20241022"
+			modelName = "claude-sonnet-4-20250514"
 		}
-		// LiteLLM uses "anthropic/model" when base_url points to LiteLLM
-		liteLlmModel := "anthropic/" + modelName
-		openaiModel, err := openAICompatibleModel(baseURL, liteLlmModel, extractHeaders(m.Headers), logger)
+		modelConfig := &models.AnthropicConfig{
+			Model:       modelName,
+			BaseUrl:     m.BaseUrl, // Optional: can be empty for default API
+			Headers:     extractHeaders(m.Headers),
+			MaxTokens:   m.MaxTokens,
+			Temperature: m.Temperature,
+			TopP:        m.TopP,
+			TopK:        m.TopK,
+			Timeout:     m.Timeout,
+		}
+		anthropicModel, err := models.NewAnthropicModelWithLogger(modelConfig, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Anthropic model: %w", err)
 		}
-		modelAdapter = NewModelAdapter(openaiModel, logger, mcpRegistry)
+		modelAdapter = NewModelAdapter(anthropicModel, logger, mcpRegistry)
 	case *core.Ollama:
 		// Ollama OpenAI-compatible API at http://localhost:11434/v1
 		baseURL := "http://localhost:11434/v1"
