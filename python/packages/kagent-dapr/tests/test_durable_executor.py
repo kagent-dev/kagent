@@ -6,12 +6,9 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Message,
-    Part,
-    Role,
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatusUpdateEvent,
-    TextPart,
 )
 from dapr_agents import DurableAgent
 from kagent.dapr._durable import DaprDurableAgentExecutor
