@@ -185,22 +185,22 @@ class A2aAgentExecutor(AgentExecutor):
         error_message: str,
     ) -> None:
         try:
-            event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        message=Message(
-                            message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=error_message))],
+            await event_queue.enqueue_event(
+                    TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[Part(TextPart(text=error_message))],
+                            ),
                         ),
-                    ),
-                    context_id=context.context_id,
-                    final=True,
+                        context_id=context.context_id,
+                        final=True,
+                    )
                 )
-            )
         except Exception as enqueue_error:
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
