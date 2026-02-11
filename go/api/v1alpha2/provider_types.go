@@ -29,10 +29,25 @@ const (
 
 	// ProviderConditionTypeModelsDiscovered indicates whether model discovery has succeeded
 	ProviderConditionTypeModelsDiscovered = "ModelsDiscovered"
-
-	// ProviderAnnotationForceDiscovery is set by clients to trigger immediate model discovery
-	ProviderAnnotationForceDiscovery = "kagent.dev/force-discovery"
 )
+
+// DefaultProviderEndpoint returns the default API endpoint for a given provider type.
+// Returns empty string if no default is defined.
+func DefaultProviderEndpoint(providerType ModelProvider) string {
+	switch providerType {
+	case ModelProviderOpenAI:
+		return "https://api.openai.com/v1"
+	case ModelProviderAnthropic:
+		return "https://api.anthropic.com"
+	case ModelProviderGemini:
+		return "https://generativelanguage.googleapis.com"
+	case ModelProviderOllama:
+		return "http://localhost:11434"
+	default:
+		// Azure, Bedrock, Vertex AI require user-specific endpoints
+		return ""
+	}
+}
 
 // SecretReference contains information to locate a secret.
 type SecretReference struct {
@@ -47,24 +62,37 @@ type SecretReference struct {
 
 // ProviderSpec defines the desired state of Provider.
 //
-// +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
-// +kubebuilder:validation:XValidation:message="secretRef.name and secretRef.key are required",rule="has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0 && has(self.secretRef.key) && size(self.secretRef.key) > 0"
+// +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || self.endpoint == '' || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
+// +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0 && has(self.secretRef.key) && size(self.secretRef.key) > 0)"
 type ProviderSpec struct {
 	// Type is the model provider type (OpenAI, Anthropic, etc.)
 	// +required
 	// +kubebuilder:validation:Required
 	Type ModelProvider `json:"type"`
 
-	// Endpoint is the API endpoint URL for the provider
-	// +required
-	// +kubebuilder:validation:Required
+	// Endpoint is the API endpoint URL for the provider.
+	// If not specified, the default endpoint for the provider type will be used.
+	// +optional
 	// +kubebuilder:validation:Pattern=`^https?://.*`
-	Endpoint string `json:"endpoint"`
+	Endpoint string `json:"endpoint,omitempty"`
 
-	// SecretRef references the Kubernetes Secret containing the API key
-	// +required
-	// +kubebuilder:validation:Required
-	SecretRef SecretReference `json:"secretRef"`
+	// SecretRef references the Kubernetes Secret containing the API key.
+	// Optional for providers that don't require authentication (e.g., local Ollama).
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
+}
+
+// GetEndpoint returns the endpoint, or the default endpoint if not specified.
+func (p *ProviderSpec) GetEndpoint() string {
+	if p.Endpoint != "" {
+		return p.Endpoint
+	}
+	return DefaultProviderEndpoint(p.Type)
+}
+
+// RequiresSecret returns true if this provider type requires a secret for authentication.
+func (p *ProviderSpec) RequiresSecret() bool {
+	return p.Type != ModelProviderOllama
 }
 
 // ProviderStatus defines the observed state of Provider.

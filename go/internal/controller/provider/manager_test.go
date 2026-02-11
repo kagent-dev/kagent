@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const testNamespace = "kagent"
+
 func TestNewManager(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -34,14 +36,14 @@ func TestNewManager(t *testing.T) {
 		wantNamespace string
 	}{
 		{
-			name:          "with default namespace",
-			namespace:     "",
-			wantNamespace: DefaultNamespace,
-		},
-		{
 			name:          "with custom namespace",
 			namespace:     "custom-ns",
 			wantNamespace: "custom-ns",
+		},
+		{
+			name:          "with empty namespace uses default from env or kagent",
+			namespace:     "",
+			wantNamespace: "kagent", // Default when KAGENT_NAMESPACE env var is not set
 		},
 	}
 
@@ -59,6 +61,9 @@ func TestNewManager(t *testing.T) {
 			}
 			if m.client == nil {
 				t.Error("client should be initialized")
+			}
+			if m.discoverer == nil {
+				t.Error("discoverer should be initialized")
 			}
 		})
 	}
@@ -78,17 +83,17 @@ func TestGetProviders(t *testing.T) {
 			wantNames: []string{},
 		},
 		{
-			name: "single ready provider",
+			name: "single ready provider with secret",
 			providers: []*v1alpha2.Provider{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "openai-prod",
-						Namespace: DefaultNamespace,
+						Namespace: testNamespace,
 					},
 					Spec: v1alpha2.ProviderSpec{
 						Type:     v1alpha2.ModelProviderOpenAI,
 						Endpoint: "https://api.openai.com/v1",
-						SecretRef: v1alpha2.SecretReference{
+						SecretRef: &v1alpha2.SecretReference{
 							Name: "openai-secret",
 							Key:  "apiKey",
 						},
@@ -107,17 +112,43 @@ func TestGetProviders(t *testing.T) {
 			wantNames: []string{"openai-prod"},
 		},
 		{
+			name: "ready provider without secret (ollama)",
+			providers: []*v1alpha2.Provider{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ollama-local",
+						Namespace: testNamespace,
+					},
+					Spec: v1alpha2.ProviderSpec{
+						Type: v1alpha2.ModelProviderOllama,
+						// No endpoint - uses default
+						// No SecretRef - not required for Ollama
+					},
+					Status: v1alpha2.ProviderStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   v1alpha2.ProviderConditionTypeReady,
+								Status: metav1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			wantCount: 1,
+			wantNames: []string{"ollama-local"},
+		},
+		{
 			name: "mixed ready and not ready providers",
 			providers: []*v1alpha2.Provider{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "openai-prod",
-						Namespace: DefaultNamespace,
+						Namespace: testNamespace,
 					},
 					Spec: v1alpha2.ProviderSpec{
 						Type:     v1alpha2.ModelProviderOpenAI,
 						Endpoint: "https://api.openai.com/v1",
-						SecretRef: v1alpha2.SecretReference{
+						SecretRef: &v1alpha2.SecretReference{
 							Name: "openai-secret",
 							Key:  "apiKey",
 						},
@@ -134,12 +165,12 @@ func TestGetProviders(t *testing.T) {
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "anthropic-prod",
-						Namespace: DefaultNamespace,
+						Namespace: testNamespace,
 					},
 					Spec: v1alpha2.ProviderSpec{
 						Type:     v1alpha2.ModelProviderAnthropic,
 						Endpoint: "https://api.anthropic.com",
-						SecretRef: v1alpha2.SecretReference{
+						SecretRef: &v1alpha2.SecretReference{
 							Name: "anthropic-secret",
 							Key:  "apiKey",
 						},
@@ -175,7 +206,7 @@ func TestGetProviders(t *testing.T) {
 				WithRuntimeObjects(objs...).
 				Build()
 
-			m := NewManager(client, DefaultNamespace)
+			m := NewManager(client, testNamespace)
 			providers := m.GetProviders()
 
 			if len(providers) != tt.wantCount {
@@ -211,12 +242,12 @@ func TestGetModels(t *testing.T) {
 			provider: &v1alpha2.Provider{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "openai-prod",
-					Namespace: DefaultNamespace,
+					Namespace: testNamespace,
 				},
 				Spec: v1alpha2.ProviderSpec{
 					Type:     v1alpha2.ModelProviderOpenAI,
 					Endpoint: "https://api.openai.com/v1",
-					SecretRef: v1alpha2.SecretReference{
+					SecretRef: &v1alpha2.SecretReference{
 						Name: "openai-secret",
 						Key:  "apiKey",
 					},
@@ -240,7 +271,7 @@ func TestGetModels(t *testing.T) {
 			provider: &v1alpha2.Provider{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "different-provider",
-					Namespace: DefaultNamespace,
+					Namespace: testNamespace,
 				},
 			},
 			forceRefresh: false,
@@ -252,12 +283,12 @@ func TestGetModels(t *testing.T) {
 			provider: &v1alpha2.Provider{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "empty-provider",
-					Namespace: DefaultNamespace,
+					Namespace: testNamespace,
 				},
 				Spec: v1alpha2.ProviderSpec{
 					Type:     v1alpha2.ModelProviderOpenAI,
 					Endpoint: "https://api.openai.com/v1",
-					SecretRef: v1alpha2.SecretReference{
+					SecretRef: &v1alpha2.SecretReference{
 						Name: "openai-secret",
 						Key:  "apiKey",
 					},
@@ -283,7 +314,7 @@ func TestGetModels(t *testing.T) {
 				WithRuntimeObjects(tt.provider).
 				Build()
 
-			m := NewManager(client, DefaultNamespace)
+			m := NewManager(client, testNamespace)
 
 			// Use the provider name from the test case
 			providerName := "openai-prod"
@@ -308,72 +339,76 @@ func TestGetModels(t *testing.T) {
 	}
 }
 
-func TestHasProviders(t *testing.T) {
+func TestGetProviderDefaultEndpoint(t *testing.T) {
 	tests := []struct {
-		name      string
-		providers []*v1alpha2.Provider
-		want      bool
+		name         string
+		provider     *v1alpha2.Provider
+		wantEndpoint string
 	}{
 		{
-			name:      "no providers",
-			providers: []*v1alpha2.Provider{},
-			want:      false,
-		},
-		{
-			name: "has ready provider",
-			providers: []*v1alpha2.Provider{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "openai-prod",
-						Namespace: DefaultNamespace,
+			name: "OpenAI with default endpoint",
+			provider: &v1alpha2.Provider{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "openai",
+					Namespace: testNamespace,
+				},
+				Spec: v1alpha2.ProviderSpec{
+					Type: v1alpha2.ModelProviderOpenAI,
+					// No endpoint specified
+					SecretRef: &v1alpha2.SecretReference{
+						Name: "secret",
+						Key:  "key",
 					},
-					Spec: v1alpha2.ProviderSpec{
-						Type:     v1alpha2.ModelProviderOpenAI,
-						Endpoint: "https://api.openai.com/v1",
-						SecretRef: v1alpha2.SecretReference{
-							Name: "openai-secret",
-							Key:  "apiKey",
-						},
-					},
-					Status: v1alpha2.ProviderStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   v1alpha2.ProviderConditionTypeReady,
-								Status: metav1.ConditionTrue,
-							},
-						},
+				},
+				Status: v1alpha2.ProviderStatus{
+					Conditions: []metav1.Condition{
+						{Type: v1alpha2.ProviderConditionTypeReady, Status: metav1.ConditionTrue},
 					},
 				},
 			},
-			want: true,
+			wantEndpoint: "https://api.openai.com/v1",
 		},
 		{
-			name: "has only not ready provider",
-			providers: []*v1alpha2.Provider{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "anthropic-prod",
-						Namespace: DefaultNamespace,
-					},
-					Spec: v1alpha2.ProviderSpec{
-						Type:     v1alpha2.ModelProviderAnthropic,
-						Endpoint: "https://api.anthropic.com",
-						SecretRef: v1alpha2.SecretReference{
-							Name: "anthropic-secret",
-							Key:  "apiKey",
-						},
-					},
-					Status: v1alpha2.ProviderStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   v1alpha2.ProviderConditionTypeReady,
-								Status: metav1.ConditionFalse,
-							},
-						},
+			name: "Ollama with default endpoint",
+			provider: &v1alpha2.Provider{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ollama",
+					Namespace: testNamespace,
+				},
+				Spec: v1alpha2.ProviderSpec{
+					Type: v1alpha2.ModelProviderOllama,
+					// No endpoint, no secret
+				},
+				Status: v1alpha2.ProviderStatus{
+					Conditions: []metav1.Condition{
+						{Type: v1alpha2.ProviderConditionTypeReady, Status: metav1.ConditionTrue},
 					},
 				},
 			},
-			want: false,
+			wantEndpoint: "http://localhost:11434",
+		},
+		{
+			name: "OpenAI with custom endpoint",
+			provider: &v1alpha2.Provider{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "openai-custom",
+					Namespace: testNamespace,
+				},
+				Spec: v1alpha2.ProviderSpec{
+					Type:     v1alpha2.ModelProviderOpenAI,
+					Endpoint: "https://custom.openai.com/v1",
+					SecretRef: &v1alpha2.SecretReference{
+						Name: "secret",
+						Key:  "key",
+					},
+				},
+				Status: v1alpha2.ProviderStatus{
+					Conditions: []metav1.Condition{
+						{Type: v1alpha2.ProviderConditionTypeReady, Status: metav1.ConditionTrue},
+					},
+				},
+			},
+			wantEndpoint: "https://custom.openai.com/v1",
 		},
 	}
 
@@ -383,20 +418,20 @@ func TestHasProviders(t *testing.T) {
 			_ = v1alpha2.AddToScheme(scheme)
 			_ = corev1.AddToScheme(scheme)
 
-			objs := make([]runtime.Object, len(tt.providers))
-			for i, p := range tt.providers {
-				objs[i] = p
-			}
-
 			client := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithRuntimeObjects(objs...).
+				WithRuntimeObjects(tt.provider).
 				Build()
 
-			m := NewManager(client, DefaultNamespace)
+			m := NewManager(client, testNamespace)
+			providers := m.GetProviders()
 
-			if got := m.HasProviders(); got != tt.want {
-				t.Errorf("HasProviders() = %v, want %v", got, tt.want)
+			if len(providers) != 1 {
+				t.Fatalf("expected 1 provider, got %d", len(providers))
+			}
+
+			if providers[0].Endpoint != tt.wantEndpoint {
+				t.Errorf("endpoint = %v, want %v", providers[0].Endpoint, tt.wantEndpoint)
 			}
 		})
 	}

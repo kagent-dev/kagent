@@ -65,7 +65,7 @@ func (d *ModelDiscoverer) DiscoverModels(ctx context.Context, providerType v1alp
 	// Ollama has a completely different API - delegate to specialized function
 	if providerType == v1alpha2.ModelProviderOllama {
 		logger.V(1).Info("Discovering models from Ollama", "endpoint", endpoint)
-		return d.DiscoverOllamaModels(ctx, endpoint)
+		return d.discoverOllamaModels(ctx, endpoint)
 	}
 
 	modelsURL := buildModelsURL(endpoint, providerType)
@@ -181,8 +181,8 @@ type ollamaTagsResponse struct {
 	} `json:"models"`
 }
 
-// DiscoverOllamaModels handles Ollama's different response format.
-func (d *ModelDiscoverer) DiscoverOllamaModels(ctx context.Context, endpoint string) ([]string, error) {
+// discoverOllamaModels handles Ollama's different response format.
+func (d *ModelDiscoverer) discoverOllamaModels(ctx context.Context, endpoint string) ([]string, error) {
 	endpoint = strings.TrimSuffix(endpoint, "/")
 	modelsURL := endpoint + "/api/tags"
 

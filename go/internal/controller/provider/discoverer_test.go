@@ -357,7 +357,8 @@ func TestDiscoverOllamaModels(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	models, err := d.DiscoverOllamaModels(context.Background(), server.URL)
+	// Test through the public DiscoverModels API for Ollama provider
+	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOllama, server.URL, "")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

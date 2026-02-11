@@ -19,36 +19,35 @@ package provider
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	// DefaultNamespace is the default namespace for kagent resources
-	DefaultNamespace = "kagent"
-)
-
 // Manager handles provider configuration and model discovery.
 // It reads provider configs from Provider CRDs and caches discovered models in CRD status.
 type Manager struct {
-	client    client.Client
-	namespace string
+	client     client.Client
+	namespace  string
+	discoverer *ModelDiscoverer
 }
 
 // NewManager creates a new provider Manager instance.
+// If namespace is empty, it uses utils.GetResourceNamespace() which reads from
+// KAGENT_NAMESPACE environment variable or defaults to "kagent".
 func NewManager(client client.Client, namespace string) *Manager {
 	if namespace == "" {
-		namespace = DefaultNamespace
+		namespace = utils.GetResourceNamespace()
 	}
-
 	return &Manager{
-		client:    client,
-		namespace: namespace,
+		client:     client,
+		namespace:  namespace,
+		discoverer: NewModelDiscoverer(),
 	}
 }
 
@@ -66,24 +65,28 @@ func (m *Manager) GetProviders() []ProviderConfig {
 		// Only include Ready providers
 		if meta.IsStatusConditionTrue(p.Status.Conditions,
 			v1alpha2.ProviderConditionTypeReady) {
-			providers = append(providers, ProviderConfig{
+			config := ProviderConfig{
 				Name:     p.Name,
 				Type:     p.Spec.Type,
-				Endpoint: p.Spec.Endpoint,
-				SecretRef: SecretReference{
+				Endpoint: p.Spec.GetEndpoint(),
+			}
+			// Only set SecretRef if it's specified
+			if p.Spec.SecretRef != nil {
+				config.SecretRef = SecretReference{
 					Name: p.Spec.SecretRef.Name,
 					Key:  p.Spec.SecretRef.Key,
-				},
-			})
+				}
+			}
+			providers = append(providers, config)
 		}
 	}
 
 	return providers
 }
 
-// GetModels returns models for a provider from the cached status or triggers discovery.
+// GetModels returns models for a provider from the cached status or performs direct discovery.
 // Models are cached in Provider.Status.DiscoveredModels by the Provider controller.
-// If forceRefresh is true, sets the force-discovery annotation to trigger controller reconciliation.
+// If forceRefresh is true, performs direct discovery and updates the provider status.
 func (m *Manager) GetModels(ctx context.Context, providerName string, forceRefresh bool) ([]string, error) {
 	logger := log.FromContext(ctx).WithName("provider-manager")
 
@@ -94,33 +97,25 @@ func (m *Manager) GetModels(ctx context.Context, providerName string, forceRefre
 		return nil, fmt.Errorf("provider %s not found: %w", providerName, err)
 	}
 
-	// Force refresh by setting annotation
+	// If force refresh, perform direct discovery
 	if forceRefresh {
-		if provider.Annotations == nil {
-			provider.Annotations = make(map[string]string)
-		}
-		provider.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] = "true"
-		if err := m.client.Update(ctx, provider); err != nil {
-			return nil, fmt.Errorf("failed to trigger discovery: %w", err)
+		logger.Info("Performing direct model discovery", "provider", providerName)
+
+		// Get API key from secret if required
+		apiKey, err := m.getAPIKey(ctx, provider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get API key: %w", err)
 		}
 
-		// Wait for controller to refresh (with timeout)
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			time.Sleep(500 * time.Millisecond)
-			if err := m.client.Get(ctx, client.ObjectKeyFromObject(provider), provider); err == nil {
-				// Check if annotation cleared (refresh done)
-				if provider.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] != "true" {
-					logger.Info("Model discovery completed", "provider", providerName)
-					break
-				}
-			}
+		// Discover models directly
+		endpoint := provider.Spec.GetEndpoint()
+		models, err := m.discoverer.DiscoverModels(ctx, provider.Spec.Type, endpoint, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("model discovery failed: %w", err)
 		}
 
-		// Re-fetch provider to get updated status
-		if err := m.client.Get(ctx, client.ObjectKeyFromObject(provider), provider); err != nil {
-			return nil, fmt.Errorf("failed to get updated provider: %w", err)
-		}
+		logger.Info("Model discovery completed", "provider", providerName, "count", len(models))
+		return models, nil
 	}
 
 	// Return cached models from status
@@ -129,20 +124,35 @@ func (m *Manager) GetModels(ctx context.Context, providerName string, forceRefre
 	}
 
 	// No models discovered - provide helpful message
-	if forceRefresh {
-		return nil, fmt.Errorf("no models discovered for provider %s", providerName)
-	}
 	return nil, fmt.Errorf("no models discovered for provider %s, try refreshing", providerName)
 }
 
-// ClearCache is a no-op for CRD-based implementation.
-// Models are cached in Provider.Status.DiscoveredModels and cleared by the controller.
-func (m *Manager) ClearCache(providerName string) {
-	// No-op - cache is managed by Provider controller in CRD status
-}
+// getAPIKey retrieves the API key from the secret referenced by the provider.
+// Returns empty string for providers that don't require authentication (e.g., Ollama).
+func (m *Manager) getAPIKey(ctx context.Context, provider *v1alpha2.Provider) (string, error) {
+	// Providers like Ollama don't require authentication
+	if !provider.Spec.RequiresSecret() {
+		return "", nil
+	}
 
-// HasProviders returns true if any Ready providers are configured.
-func (m *Manager) HasProviders() bool {
-	providers := m.GetProviders()
-	return len(providers) > 0
+	if provider.Spec.SecretRef == nil {
+		return "", fmt.Errorf("provider %s requires a secret but none is configured", provider.Name)
+	}
+
+	secret := &corev1.Secret{}
+	secretName := types.NamespacedName{
+		Namespace: provider.Namespace,
+		Name:      provider.Spec.SecretRef.Name,
+	}
+
+	if err := m.client.Get(ctx, secretName, secret); err != nil {
+		return "", fmt.Errorf("failed to get secret %s: %w", provider.Spec.SecretRef.Name, err)
+	}
+
+	apiKey, ok := secret.Data[provider.Spec.SecretRef.Key]
+	if !ok || len(apiKey) == 0 {
+		return "", fmt.Errorf("secret %s missing key %s", provider.Spec.SecretRef.Name, provider.Spec.SecretRef.Key)
+	}
+
+	return string(apiKey), nil
 }

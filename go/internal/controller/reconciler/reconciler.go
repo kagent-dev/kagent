@@ -923,27 +923,33 @@ func (a *kagentReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl
 		return ctrl.Result{}, fmt.Errorf("failed to get provider %s: %w", req.NamespacedName, err)
 	}
 
-	// Validate and resolve secret
-	secret, secretHash, secretErr := a.validateProviderSecret(ctx, p)
+	// Validate and resolve secret, get API key in one pass
+	apiKey, secretHash, secretErr := a.resolveProviderSecret(ctx, p)
 
 	// Discover models if needed
 	var models []string
 	var discoveryErr error
 	if a.shouldDiscoverModels(p) {
-		models, discoveryErr = a.discoverProviderModels(ctx, p, secret)
+		models, discoveryErr = a.discoverProviderModels(ctx, p, apiKey)
 	} else {
 		// Keep existing cached models
 		models = p.Status.DiscoveredModels
 	}
 
-	// Update status with results
+	// Update status with results (status subresource only, no object modification)
 	return a.updateProviderStatus(ctx, p, secretErr, discoveryErr, models, secretHash)
 }
 
-// validateProviderSecret fetches the Secret and computes its hash
-func (a *kagentReconciler) validateProviderSecret(ctx context.Context, p *v1alpha2.Provider) (*corev1.Secret, string, error) {
-	if p.Spec.SecretRef.Name == "" {
-		return nil, "", fmt.Errorf("provider %s has no secret reference", p.Name)
+// resolveProviderSecret fetches the Secret, validates it, and returns the API key and hash.
+// For providers that don't require authentication (e.g., Ollama), returns empty apiKey with no error.
+func (a *kagentReconciler) resolveProviderSecret(ctx context.Context, p *v1alpha2.Provider) (string, string, error) {
+	// Providers like Ollama don't require authentication
+	if !p.Spec.RequiresSecret() {
+		return "", "", nil
+	}
+
+	if p.Spec.SecretRef == nil {
+		return "", "", fmt.Errorf("provider %s requires a secret but none is configured", p.Name)
 	}
 
 	secret := &corev1.Secret{}
@@ -953,23 +959,24 @@ func (a *kagentReconciler) validateProviderSecret(ctx context.Context, p *v1alph
 	}
 
 	if err := a.kube.Get(ctx, namespacedName, secret); err != nil {
-		return nil, "", fmt.Errorf("failed to get secret %s: %w", p.Spec.SecretRef.Name, err)
+		return "", "", fmt.Errorf("failed to get secret %s: %w", p.Spec.SecretRef.Name, err)
 	}
 
-	// Check that the specified key exists
+	// Check that the specified key exists and has a value
 	key := p.Spec.SecretRef.Key
 	if key == "" {
-		return nil, "", fmt.Errorf("provider %s has no secret key specified", p.Name)
+		return "", "", fmt.Errorf("provider %s has no secret key specified", p.Name)
 	}
 
-	if _, ok := secret.Data[key]; !ok {
-		return nil, "", fmt.Errorf("secret %s missing key %s", p.Spec.SecretRef.Name, key)
+	apiKey, ok := secret.Data[key]
+	if !ok || len(apiKey) == 0 {
+		return "", "", fmt.Errorf("secret %s missing or empty key %s", p.Spec.SecretRef.Name, key)
 	}
 
 	// Compute secret hash for change detection
 	secretHash := computeProviderSecretHash(secret, key)
 
-	return secret, secretHash, nil
+	return string(apiKey), secretHash, nil
 }
 
 // computeProviderSecretHash computes a hash of the secret data for change detection
@@ -986,38 +993,34 @@ func computeProviderSecretHash(secret *corev1.Secret, key string) string {
 
 // shouldDiscoverModels checks if model discovery is needed
 func (a *kagentReconciler) shouldDiscoverModels(p *v1alpha2.Provider) bool {
-	// 1. Force refresh via annotation (UI "Fetch Models" button)
-	if p.Annotations != nil && p.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] == "true" {
-		return true
-	}
-
-	// 2. Initial discovery when Provider is first created
+	// Initial discovery when Provider is first created or spec changed
 	if p.Status.LastDiscoveryTime == nil {
 		return true
 	}
 
-	// No periodic discovery - only on-demand
+	// Re-discover if the generation changed (spec was updated)
+	if p.Status.ObservedGeneration != p.Generation {
+		return true
+	}
+
+	// No periodic discovery - only on-demand via HTTP API
 	return false
 }
 
 // discoverProviderModels calls the model discoverer to fetch models
-func (a *kagentReconciler) discoverProviderModels(ctx context.Context, p *v1alpha2.Provider, secret *corev1.Secret) ([]string, error) {
-	if secret == nil {
-		return nil, fmt.Errorf("cannot discover models: secret not available")
+func (a *kagentReconciler) discoverProviderModels(ctx context.Context, p *v1alpha2.Provider, apiKey string) ([]string, error) {
+	// For providers that require auth, ensure we have an API key
+	if p.Spec.RequiresSecret() && apiKey == "" {
+		return nil, fmt.Errorf("cannot discover models: API key not available")
 	}
 
-	// Get API key from secret
-	apiKey, ok := secret.Data[p.Spec.SecretRef.Key]
-	if !ok || len(apiKey) == 0 {
-		return nil, fmt.Errorf("secret %s has empty value for key %s", p.Spec.SecretRef.Name, p.Spec.SecretRef.Key)
-	}
-
-	// Use the provider package's ModelDiscoverer
+	// Use the provider package's ModelDiscoverer with the resolved endpoint
 	discoverer := provider.NewModelDiscoverer()
-	return discoverer.DiscoverModels(ctx, p.Spec.Type, p.Spec.Endpoint, string(apiKey))
+	return discoverer.DiscoverModels(ctx, p.Spec.Type, p.Spec.GetEndpoint(), apiKey)
 }
 
-// updateProviderStatus updates the Provider status based on reconciliation results
+// updateProviderStatus updates the Provider status based on reconciliation results.
+// Only modifies the status subresource - never modifies the Provider object itself.
 func (a *kagentReconciler) updateProviderStatus(
 	ctx context.Context,
 	p *v1alpha2.Provider,
@@ -1025,14 +1028,29 @@ func (a *kagentReconciler) updateProviderStatus(
 	models []string,
 	secretHash string,
 ) (ctrl.Result, error) {
+	// For providers that don't require secrets, mark SecretResolved as true
+	secretRequired := p.Spec.RequiresSecret()
+	secretResolved := !secretRequired || secretErr == nil
+
 	// Update SecretResolved condition
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ProviderConditionTypeSecretResolved,
-		Status:             conditionStatus(secretErr == nil),
-		Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
-		Message:            conditionMessage(secretErr, "Secret resolved successfully"),
-		ObservedGeneration: p.Generation,
-	})
+	if secretRequired {
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ProviderConditionTypeSecretResolved,
+			Status:             conditionStatus(secretErr == nil),
+			Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
+			Message:            conditionMessage(secretErr, "Secret resolved successfully"),
+			ObservedGeneration: p.Generation,
+		})
+	} else {
+		// Provider doesn't require a secret (e.g., Ollama)
+		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ProviderConditionTypeSecretResolved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "SecretNotRequired",
+			Message:            "Provider does not require authentication",
+			ObservedGeneration: p.Generation,
+		})
+	}
 
 	// Update ModelsDiscovered condition
 	modelsDiscovered := discoveryErr == nil && len(models) > 0
@@ -1045,7 +1063,7 @@ func (a *kagentReconciler) updateProviderStatus(
 	})
 
 	// Update Ready condition (overall health)
-	ready := secretErr == nil && modelsDiscovered
+	ready := secretResolved && modelsDiscovered
 	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.ProviderConditionTypeReady,
 		Status:             conditionStatus(ready),
@@ -1065,20 +1083,12 @@ func (a *kagentReconciler) updateProviderStatus(
 		p.Status.LastDiscoveryTime = &now
 	}
 
-	// Clear force-discovery annotation if set
-	if p.Annotations != nil && p.Annotations[v1alpha2.ProviderAnnotationForceDiscovery] == "true" {
-		delete(p.Annotations, v1alpha2.ProviderAnnotationForceDiscovery)
-		if err := a.kube.Update(ctx, p); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to clear force-discovery annotation: %w", err)
-		}
-	}
-
-	// Update status subresource
+	// Update status subresource only - never modify the Provider object itself
 	if err := a.kube.Status().Update(ctx, p); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update provider status: %w", err)
 	}
 
-	// No periodic requeue - discovery only on-demand
+	// No periodic requeue - discovery only on-demand via HTTP API
 	return ctrl.Result{}, nil
 }
 
