@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/adk"
@@ -45,6 +46,12 @@ const (
 	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
 
 	ProxyHostHeader = "x-kagent-host"
+
+	// DefaultMCPServerTimeout is the fallback connection timeout applied when
+	// an MCPServer CRD resource does not have an explicit Timeout set (e.g.
+	// objects created before the field was introduced). This value mirrors
+	// the kubebuilder default on MCPServerSpec.Timeout in the kmcp CRD.
+	DefaultMCPServerTimeout = 30 * time.Second
 )
 
 // ValidationError indicates a configuration error that requires user action to fix.
@@ -1259,7 +1266,7 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 		return nil, NewValidationError("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	return &v1alpha2.RemoteMCPServer{
+	remoteMCP := &v1alpha2.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mcpServer.Name,
 			Namespace: mcpServer.Namespace,
@@ -1268,7 +1275,20 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
 			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
 		},
-	}, nil
+	}
+
+	// Propagate the timeout from the MCPServer CRD to the generated
+	// RemoteMCPServer spec. Fall back to DefaultMCPServerTimeout for
+	// MCPServer objects created before the CRD default was introduced,
+	// so the ADK never uses its own 5s built-in which is too short for
+	// sidecar gateway cold starts.
+	if mcpServer.Spec.Timeout != nil {
+		remoteMCP.Spec.Timeout = mcpServer.Spec.Timeout
+	} else {
+		remoteMCP.Spec.Timeout = &metav1.Duration{Duration: DefaultMCPServerTimeout}
+	}
+
+	return remoteMCP, nil
 }
 
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
