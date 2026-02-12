@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -595,4 +596,320 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 			assert.Equal(t, tt.agent.Name, kagentNameEnv, "KAGENT_NAME env var should be the agent name")
 		})
 	}
+}
+
+// Test_AdkApiTranslator_RecursionDepthTracking validates that the with() method
+// correctly tracks nesting depth independently per branch, fixing issue #1287
+// where shared state mutation caused flat agent tool lists to hit the recursion limit.
+func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "default"
+
+	// Helper: create a leaf agent (no sub-agent tools)
+	leafAgent := func(name string) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Leaf agent " + name,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are " + name,
+					ModelConfig:   "test-model",
+				},
+			},
+		}
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	defaultModel := types.NamespacedName{
+		Namespace: namespace,
+		Name:      "test-model",
+	}
+
+	t.Run("flat list of 12 agent tools should pass", func(t *testing.T) {
+		// Root agent references 12 leaf agents as tools (all siblings, depth=1).
+		// Before the fix, this would fail because with() mutated shared state,
+		// incrementing depth for each sibling instead of each nesting level.
+		var leafAgents [](*v1alpha2.Agent)
+		var tools []*v1alpha2.Tool
+		for i := 0; i < 12; i++ {
+			name := fmt.Sprintf("leaf-%02d", i)
+			leafAgents = append(leafAgents, leafAgent(name))
+			tools = append(tools, &v1alpha2.Tool{
+				Type: v1alpha2.ToolProviderType_Agent,
+				Agent: &v1alpha2.TypedLocalReference{
+					Name: name,
+				},
+			})
+		}
+
+		root := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "root",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Root agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are root",
+					ModelConfig:   "test-model",
+					Tools:         tools,
+				},
+			},
+		}
+
+		builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig, root)
+		for _, la := range leafAgents {
+			builder = builder.WithObjects(la)
+		}
+		kubeClient := builder.Build()
+
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), root)
+		require.NoError(t, err, "flat list of 12 agent tools should not hit recursion limit")
+	})
+
+	t.Run("deep nesting of 10 levels should pass", func(t *testing.T) {
+		// Chain: chain-0 -> chain-1 -> ... -> chain-9 (leaf)
+		// Depth from root's perspective: chain-0 calls validateAgent on chain-1 at depth=1, etc.
+		// chain-9 is validated at depth=9 which is <= MAX_DEPTH (10).
+		agents := make([]*v1alpha2.Agent, 10)
+		for i := 0; i < 10; i++ {
+			name := fmt.Sprintf("chain-%d", i)
+			agents[i] = &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Chain agent " + name,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "You are " + name,
+						ModelConfig:   "test-model",
+					},
+				},
+			}
+			if i < 9 {
+				agents[i].Spec.Declarative.Tools = []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_Agent,
+						Agent: &v1alpha2.TypedLocalReference{
+							Name: fmt.Sprintf("chain-%d", i+1),
+						},
+					},
+				}
+			}
+		}
+
+		builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig)
+		for _, a := range agents {
+			builder = builder.WithObjects(a)
+		}
+		kubeClient := builder.Build()
+
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		require.NoError(t, err, "deep nesting of 10 levels should pass")
+	})
+
+	t.Run("deep nesting of 12 levels should fail with recursion limit", func(t *testing.T) {
+		// Chain: deep-0 -> deep-1 -> ... -> deep-11 (leaf)
+		// deep-11 is validated at depth=11 which exceeds MAX_DEPTH (10).
+		agents := make([]*v1alpha2.Agent, 12)
+		for i := 0; i < 12; i++ {
+			name := fmt.Sprintf("deep-%d", i)
+			agents[i] = &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Deep agent " + name,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "You are " + name,
+						ModelConfig:   "test-model",
+					},
+				},
+			}
+			if i < 11 {
+				agents[i].Spec.Declarative.Tools = []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_Agent,
+						Agent: &v1alpha2.TypedLocalReference{
+							Name: fmt.Sprintf("deep-%d", i+1),
+						},
+					},
+				}
+			}
+		}
+
+		builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig)
+		for _, a := range agents {
+			builder = builder.WithObjects(a)
+		}
+		kubeClient := builder.Build()
+
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		require.Error(t, err, "deep nesting of 12 levels should fail")
+		assert.Contains(t, err.Error(), "recursion limit reached")
+	})
+
+	t.Run("true cycle A->B->A should fail with cycle detection", func(t *testing.T) {
+		agentA := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cycle-a",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Agent A",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are A",
+					ModelConfig:   "test-model",
+					Tools: []*v1alpha2.Tool{
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "cycle-b",
+							},
+						},
+					},
+				},
+			},
+		}
+		agentB := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cycle-b",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Agent B",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are B",
+					ModelConfig:   "test-model",
+					Tools: []*v1alpha2.Tool{
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "cycle-a",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(modelConfig, agentA, agentB).Build()
+
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), agentA)
+		require.Error(t, err, "cycle A->B->A should be detected")
+		assert.Contains(t, err.Error(), "cycle detected")
+	})
+
+	t.Run("diamond pattern A->B,C B->D C->D should pass", func(t *testing.T) {
+		// A has tools B and C. B has tool D. C has tool D.
+		// D is visited twice but via different branches — this is NOT a cycle.
+		agentD := leafAgent("diamond-d")
+		agentB := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "diamond-b",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Agent B",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are B",
+					ModelConfig:   "test-model",
+					Tools: []*v1alpha2.Tool{
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "diamond-d",
+							},
+						},
+					},
+				},
+			},
+		}
+		agentC := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "diamond-c",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Agent C",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are C",
+					ModelConfig:   "test-model",
+					Tools: []*v1alpha2.Tool{
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "diamond-d",
+							},
+						},
+					},
+				},
+			},
+		}
+		agentA := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "diamond-a",
+				Namespace: namespace,
+			},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Agent A",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are A",
+					ModelConfig:   "test-model",
+					Tools: []*v1alpha2.Tool{
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "diamond-b",
+							},
+						},
+						{
+							Type: v1alpha2.ToolProviderType_Agent,
+							Agent: &v1alpha2.TypedLocalReference{
+								Name: "diamond-c",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
+
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), agentA)
+		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
+	})
 }
