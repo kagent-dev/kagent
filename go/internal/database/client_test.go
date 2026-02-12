@@ -225,7 +225,7 @@ func TestListEventsForSession(t *testing.T) {
 	sessionID := "test-session"
 
 	// Create 3 events
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		event := &dbpkg.Event{
 			ID:        fmt.Sprintf("event-%d", i),
 			SessionID: sessionID,
@@ -270,7 +270,7 @@ func TestListEventsForSessionOrdering(t *testing.T) {
 	// Using a significant gap to ensure database resolution handles it correctly
 	baseTime := time.Now().Add(-10 * time.Hour)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		event := &dbpkg.Event{
 			ID:        fmt.Sprintf("event-%d", i),
 			SessionID: sessionID,
