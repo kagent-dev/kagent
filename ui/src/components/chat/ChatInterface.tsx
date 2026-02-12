@@ -315,8 +315,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         setIsStreaming(false);
         setStreamingContent("");
       } finally {
-        setChatStatus("ready");
         abortControllerRef.current = null;
+        // Don't reset chatStatus here — the message handlers (finalizeStreaming,
+        // handleA2ATaskStatusUpdate, handleA2ATaskArtifactUpdate) already set
+        // the correct status when the final stream event arrives. Unconditionally
+        // setting "ready" here was causing the status to show "Ready" while
+        // tools were still executing (#325).
       }
     } catch (error) {
       console.error("Error sending message or creating session:", error);

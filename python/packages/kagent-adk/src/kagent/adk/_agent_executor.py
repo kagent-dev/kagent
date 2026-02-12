@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
+import asyncio
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -145,6 +146,10 @@ class A2aAgentExecutor(AgentExecutor):
             runner = await self._resolve_runner()
             try:
                 await self._handle_request(context, event_queue, runner, run_args)
+            except asyncio.CancelledError as e:
+                logger.error("A2A request execution was cancelled", exc_info=True)
+                error_message = str(e) or "A2A request execution was cancelled."
+                await self._publish_failed_status_event(context, event_queue, error_message)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
@@ -165,25 +170,7 @@ class A2aAgentExecutor(AgentExecutor):
                             "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
                         )
                 # Publish failure event
-                try:
-                    await event_queue.enqueue_event(
-                        TaskStatusUpdateEvent(
-                            task_id=context.task_id,
-                            status=TaskStatus(
-                                state=TaskState.failed,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                message=Message(
-                                    message_id=str(uuid.uuid4()),
-                                    role=Role.agent,
-                                    parts=[Part(TextPart(text=error_message))],
-                                ),
-                            ),
-                            context_id=context.context_id,
-                            final=True,
-                        )
-                    )
-                except Exception as enqueue_error:
-                    logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+                await self._publish_failed_status_event(context, event_queue, error_message)
         finally:
             clear_kagent_span_attributes(context_token)
             # close the runner which cleans up the mcptoolsets
@@ -192,6 +179,32 @@ class A2aAgentExecutor(AgentExecutor):
             # this is necessary to gracefully handle mcp toolset connections
             if runner is not None:
                 await runner.close()
+
+    async def _publish_failed_status_event(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+        error_message: str,
+    ) -> None:
+        try:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text=error_message))],
+                        ),
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                )
+            )
+        except Exception as enqueue_error:
+            logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     async def _handle_request(
         self,
