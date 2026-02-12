@@ -146,6 +146,9 @@ type ByoDeploymentSpec struct {
 
 // +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
+	// Image overrides the default repository (e.g. "kagent-dev/kagent/app"). When set, used with ImageRegistry and tag to form the full image.
+	// +optional
+	Image string `json:"image,omitempty"`
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
