@@ -647,7 +647,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		// incrementing depth for each sibling instead of each nesting level.
 		var leafAgents [](*v1alpha2.Agent)
 		var tools []*v1alpha2.Tool
-		for i := 0; i < 12; i++ {
+		for i := range 12 {
 			name := fmt.Sprintf("leaf-%02d", i)
 			leafAgents = append(leafAgents, leafAgent(name))
 			tools = append(tools, &v1alpha2.Tool{
@@ -690,7 +690,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		// Depth from root's perspective: chain-0 calls validateAgent on chain-1 at depth=1, etc.
 		// chain-9 is validated at depth=9 which is <= MAX_DEPTH (10).
 		agents := make([]*v1alpha2.Agent, 10)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			name := fmt.Sprintf("chain-%d", i)
 			agents[i] = &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
@@ -733,7 +733,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		// Chain: deep-0 -> deep-1 -> ... -> deep-11 (leaf)
 		// deep-11 is validated at depth=11 which exceeds MAX_DEPTH (10).
 		agents := make([]*v1alpha2.Agent, 12)
-		for i := 0; i < 12; i++ {
+		for i := range 12 {
 			name := fmt.Sprintf("deep-%d", i)
 			agents[i] = &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
