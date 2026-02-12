@@ -1,3 +1,4 @@
+import functools
 import logging
 from typing import Any, Optional
 
@@ -14,6 +15,18 @@ from typing_extensions import override
 logger = logging.getLogger("kagent." + __name__)
 
 
+def logging_http_exception(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except httpx.HTTPError as exc:
+            logger.error(f"Got HTTP exception when {exc.request.method} {exc.request.url}: {exc}")
+            raise
+
+    return wrapper
+
+
 class KAgentSessionService(BaseSessionService):
     """A session service implementation that uses the Kagent API.
     This service integrates with the Kagent server to manage session state
@@ -25,6 +38,7 @@ class KAgentSessionService(BaseSessionService):
         self.client = client
 
     @override
+    @logging_http_exception
     async def create_session(
         self,
         *,
@@ -61,6 +75,7 @@ class KAgentSessionService(BaseSessionService):
         return Session(id=session_data["id"], user_id=session_data["user_id"], state=state or {}, app_name=app_name)
 
     @override
+    @logging_http_exception
     async def get_session(
         self,
         *,
@@ -127,6 +142,7 @@ class KAgentSessionService(BaseSessionService):
             raise
 
     @override
+    @logging_http_exception
     async def list_sessions(self, *, app_name: str, user_id: str) -> ListSessionsResponse:
         # Make API call to list sessions
         response = await self.client.get(f"/api/sessions?user_id={user_id}", headers={"X-User-ID": user_id})
@@ -147,6 +163,7 @@ class KAgentSessionService(BaseSessionService):
         raise NotImplementedError("not supported. use async")
 
     @override
+    @logging_http_exception
     async def delete_session(self, *, app_name: str, user_id: str, session_id: str) -> None:
         # Make API call to delete session
         response = await self.client.delete(
@@ -156,6 +173,7 @@ class KAgentSessionService(BaseSessionService):
         response.raise_for_status()
 
     @override
+    @logging_http_exception
     async def append_event(self, session: Session, event: Event) -> Event:
         if event.partial:
             return event
