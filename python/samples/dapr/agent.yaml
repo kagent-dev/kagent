@@ -1,0 +1,21 @@
+  apiVersion: kagent.dev/v1alpha2                                                                                                                                                                                                            
+  kind: Agent                                                                                                                                                                                                                                
+  metadata:                                                                                                                                                                                                                                  
+    name: my-dapr-agent                                                                                                                                                                                                                      
+  spec:                                                                                                                                                                                                                                      
+    description: A Dapr-Agents based agent
+    type: BYO                                                                                                                                                                                                                                
+    byo:                                                                                                                                                                                                                                     
+      deployment:                                                                                                                                                                                                                            
+        image: localhost:5001/my-dapr-agent:latest
+        imagePullPolicy: Always
+        annotations:                                                                                                                                                                                                                         
+          dapr.io/enabled: "true"                                                                                                                                                                                                            
+          dapr.io/app-id: "my-dapr-agent"                                                                                                                                                                                                    
+          dapr.io/app-port: "8080"
+        env:
+          - name: API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: kagent-llm-key
+                key: API_KEY

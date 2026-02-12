@@ -2,7 +2,7 @@
 
 import logging
 from contextvars import Token
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from opentelemetry import context as otel_context
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor
@@ -41,7 +41,7 @@ class KagentAttributesSpanProcessor(SpanProcessor):
         return True
 
 
-def set_kagent_span_attributes(attributes: dict) -> Token[otel_context.Context]:
+def set_kagent_span_attributes(attributes: Dict[Any, Any]) -> Token[otel_context.Context]:
     """Set kagent span attributes in the context.
     Args:
         attributes: Dictionary of kagent span attributes to store in context
