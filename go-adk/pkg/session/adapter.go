@@ -210,7 +210,9 @@ func (a *SessionServiceAdapter) AppendEvent(ctx context.Context, session adksess
 	}
 
 	if wrapper, ok := session.(*localSession); ok {
-		wrapper.events = append(wrapper.events, event)
+		if err := wrapper.appendEvent(event); err != nil {
+			return err
+		}
 	}
 
 	persistCtx, cancel := context.WithTimeout(context.Background(), eventPersistTimeout)
@@ -222,8 +224,24 @@ func (a *SessionServiceAdapter) AppendEvent(ctx context.Context, session adksess
 	return nil
 }
 
-func convertSessionToADK(session *Session) adksession.Session {
-	return NewSessionWrapper(session)
+func convertSessionToADK(sess *Session) adksession.Session {
+	adkEvents := make([]*adksession.Event, 0, len(sess.Events))
+	for _, e := range sess.Events {
+		if adkE, ok := e.(*adksession.Event); ok {
+			adkEvents = append(adkEvents, adkE)
+		}
+	}
+	st := sess.State
+	if st == nil {
+		st = make(map[string]any)
+	}
+	return &localSession{
+		appName:   sess.AppName,
+		userID:    sess.UserID,
+		sessionID: sess.ID,
+		events:    adkEvents,
+		state:     st,
+	}
 }
 
 func convertADKSessionToOurs(session adksession.Session) *Session {
