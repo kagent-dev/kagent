@@ -9,15 +9,11 @@ import (
 	"os"
 	"time"
 
-	"iter"
-
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go-adk/pkg/config"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/mcptoolset"
-	"google.golang.org/genai"
 )
 
 const (
@@ -275,31 +271,4 @@ func initializeToolSet(
 	}
 
 	return toolset, nil
-}
-
-// readonlyContextImpl implements agent.ReadonlyContext for tool discovery
-type readonlyContextImpl struct {
-	context.Context
-}
-
-func (r *readonlyContextImpl) SessionID() string           { return "" }
-func (r *readonlyContextImpl) UserID() string              { return "" }
-func (r *readonlyContextImpl) AgentName() string           { return "" }
-func (r *readonlyContextImpl) AppName() string             { return "" }
-func (r *readonlyContextImpl) InvocationID() string        { return "" }
-func (r *readonlyContextImpl) Branch() string              { return "" }
-func (r *readonlyContextImpl) UserContent() *genai.Content { return nil }
-func (r *readonlyContextImpl) ReadonlyState() session.ReadonlyState {
-	return &readonlyStateImpl{}
-}
-
-// readonlyStateImpl implements session.ReadonlyState
-type readonlyStateImpl struct{}
-
-func (r *readonlyStateImpl) Get(key string) (any, error) {
-	return nil, fmt.Errorf("key not found: %s", key)
-}
-
-func (r *readonlyStateImpl) All() iter.Seq2[string, any] {
-	return func(yield func(string, any) bool) {}
 }
