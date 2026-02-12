@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 )
 
 // KAgentPushNotificationStore handles push notification operations via KAgent API
@@ -26,18 +26,18 @@ func NewKAgentPushNotificationStoreWithClient(baseURL string, client *http.Clien
 
 // KAgentPushNotificationResponse wraps KAgent controller API responses for push notifications
 type KAgentPushNotificationResponse struct {
-	Error   bool                                 `json:"error"`
-	Data    *protocol.TaskPushNotificationConfig `json:"data,omitempty"`
-	Message string                               `json:"message,omitempty"`
+	Error   bool               `json:"error"`
+	Data    *a2aschema.PushConfig `json:"data,omitempty"`
+	Message string             `json:"message,omitempty"`
 }
 
-// Set stores a push notification configuration
-func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.TaskPushNotificationConfig) (*protocol.TaskPushNotificationConfig, error) {
+// Save stores a push notification configuration
+func (s *KAgentPushNotificationStore) Save(ctx context.Context, taskID string, config *a2aschema.PushConfig) (*a2aschema.PushConfig, error) {
 	if config == nil {
 		return nil, fmt.Errorf("push notification config cannot be nil")
 	}
-	if config.TaskID == "" {
-		return nil, fmt.Errorf("push notification config TaskID cannot be empty")
+	if taskID == "" {
+		return nil, fmt.Errorf("taskID cannot be empty")
 	}
 
 	configJSON, err := json.Marshal(config)
@@ -45,8 +45,7 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 		return nil, fmt.Errorf("failed to marshal push notification config: %w", err)
 	}
 
-	// Use /api/tasks/{task_id}/push-notifications endpoint
-	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, config.TaskID)
+	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, taskID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(configJSON))
 	if err != nil {
 		return nil, err
@@ -63,7 +62,6 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 		return nil, fmt.Errorf("failed to set push notification: status %d", resp.StatusCode)
 	}
 
-	// Unwrap the StandardResponse envelope from the Go controller
 	var wrapped KAgentPushNotificationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&wrapped); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -77,7 +75,7 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 }
 
 // Get retrieves a push notification configuration
-func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID string) (*protocol.TaskPushNotificationConfig, error) {
+func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID string) (*a2aschema.PushConfig, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("taskID cannot be empty")
 	}
@@ -85,7 +83,6 @@ func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID 
 		return nil, fmt.Errorf("configID cannot be empty")
 	}
 
-	// Use /api/tasks/{task_id}/push-notifications/{config_id} endpoint
 	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications/%s", s.BaseURL, taskID, configID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -105,7 +102,6 @@ func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID 
 		return nil, fmt.Errorf("failed to get push notification: status %d", resp.StatusCode)
 	}
 
-	// Unwrap the StandardResponse envelope from the Go controller
 	var wrapped KAgentPushNotificationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&wrapped); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -116,4 +112,95 @@ func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID 
 	}
 
 	return wrapped.Data, nil
+}
+
+// List retrieves all push notification configurations for a task
+func (s *KAgentPushNotificationStore) List(ctx context.Context, taskID string) ([]*a2aschema.PushConfig, error) {
+	if taskID == "" {
+		return nil, fmt.Errorf("taskID cannot be empty")
+	}
+
+	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, taskID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to list push notifications: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Error   bool                    `json:"error"`
+		Data    []*a2aschema.PushConfig `json:"data,omitempty"`
+		Message string                  `json:"message,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if result.Error {
+		return nil, fmt.Errorf("error from server: %s", result.Message)
+	}
+
+	return result.Data, nil
+}
+
+// Delete removes a push notification configuration
+func (s *KAgentPushNotificationStore) Delete(ctx context.Context, taskID, configID string) error {
+	if taskID == "" {
+		return fmt.Errorf("taskID cannot be empty")
+	}
+	if configID == "" {
+		return fmt.Errorf("configID cannot be empty")
+	}
+
+	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications/%s", s.BaseURL, taskID, configID)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("failed to delete push notification: status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DeleteAll removes all push notification configurations for a task
+func (s *KAgentPushNotificationStore) DeleteAll(ctx context.Context, taskID string) error {
+	if taskID == "" {
+		return fmt.Errorf("taskID cannot be empty")
+	}
+
+	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, taskID)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("failed to delete all push notifications: status %d", resp.StatusCode)
+	}
+
+	return nil
 }

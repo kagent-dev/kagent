@@ -6,8 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 )
 
 const (
@@ -35,9 +34,14 @@ const (
 
 // ToolApprovalRequest structure for a tool call requiring approval.
 type ToolApprovalRequest struct {
-	Name string                 `json:"name"`
+	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
-	ID   string                 `json:"id,omitempty"`
+	ID   string         `json:"id,omitempty"`
+}
+
+// EventWriter is an interface for writing A2A events to a queue.
+type EventWriter interface {
+	Write(ctx context.Context, event a2aschema.Event) error
 }
 
 // GetKAgentMetadataKey returns the prefixed metadata key.
@@ -67,24 +71,22 @@ func ExtractDecisionFromText(text string) DecisionType {
 }
 
 // ExtractDecisionFromMessage extracts decision from A2A message.
-func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
+func ExtractDecisionFromMessage(message *a2aschema.Message) DecisionType {
 	if message == nil || len(message.Parts) == 0 {
 		return ""
 	}
 
 	// Priority 1: Scan for DataPart with decision_type
 	for _, part := range message.Parts {
-		if dataPart, ok := part.(*protocol.DataPart); ok {
-			if dataMap, ok := dataPart.Data.(map[string]any); ok {
-				if decision, ok := dataMap[KAgentHitlDecisionTypeKey].(string); ok {
-					switch decision {
-					case KAgentHitlDecisionTypeApprove:
-						return DecisionApprove
-					case KAgentHitlDecisionTypeDeny:
-						return DecisionDeny
-					case KAgentHitlDecisionTypeReject:
-						return DecisionReject
-					}
+		if dataPart, ok := part.(*a2aschema.DataPart); ok {
+			if decision, ok := dataPart.Data[KAgentHitlDecisionTypeKey].(string); ok {
+				switch decision {
+				case KAgentHitlDecisionTypeApprove:
+					return DecisionApprove
+				case KAgentHitlDecisionTypeDeny:
+					return DecisionDeny
+				case KAgentHitlDecisionTypeReject:
+					return DecisionReject
 				}
 			}
 		}
@@ -92,7 +94,7 @@ func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
 
 	// Priority 2: Fallback to TextPart keyword matching
 	for _, part := range message.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok {
+		if textPart, ok := part.(*a2aschema.TextPart); ok {
 			if decision := ExtractDecisionFromText(textPart.Text); decision != "" {
 				return decision
 			}
@@ -103,21 +105,8 @@ func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
 }
 
 // IsInputRequiredTask checks if task state indicates waiting for user input.
-// This matches Python's is_input_required_task function.
-func IsInputRequiredTask(state protocol.TaskState) bool {
-	return state == protocol.TaskStateInputRequired
-}
-
-// EventQueue is an interface for publishing A2A events.
-type EventQueue interface {
-	EnqueueEvent(ctx context.Context, event protocol.Event) error
-}
-
-// TaskStore is an interface for task persistence and synchronization.
-// This is a simplified interface for HITL operations.
-// The full implementation is KAgentTaskStore.
-type TaskStore interface {
-	WaitForSave(ctx context.Context, taskID string, timeout time.Duration) error
+func IsInputRequiredTask(state a2aschema.TaskState) bool {
+	return state == a2aschema.TaskStateInputRequired
 }
 
 // escapeMarkdownBackticks escapes backticks in text to prevent markdown rendering issues
@@ -128,27 +117,26 @@ func escapeMarkdownBackticks(text any) string {
 
 // formatToolApprovalTextParts formats tool approval requests as human-readable TextParts
 // with proper markdown escaping to prevent rendering issues (matching Python implementation)
-func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []protocol.Part {
-	var parts []protocol.Part
+func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []a2aschema.Part {
+	var parts []a2aschema.Part
 
 	// Add header
-	parts = append(parts, protocol.NewTextPart("**Approval Required**\n\n"))
-	parts = append(parts, protocol.NewTextPart("The following actions require your approval:\n\n"))
+	parts = append(parts, &a2aschema.TextPart{Text: "**Approval Required**\n\n"})
+	parts = append(parts, &a2aschema.TextPart{Text: "The following actions require your approval:\n\n"})
 
 	// List each action
 	for _, action := range actionRequests {
-		// Escape backticks to prevent markdown breaking
 		escapedToolName := escapeMarkdownBackticks(action.Name)
-		parts = append(parts, protocol.NewTextPart(fmt.Sprintf("**Tool**: `%s`\n", escapedToolName)))
-		parts = append(parts, protocol.NewTextPart("**Arguments**:\n"))
+		parts = append(parts, &a2aschema.TextPart{Text: fmt.Sprintf("**Tool**: `%s`\n", escapedToolName)})
+		parts = append(parts, &a2aschema.TextPart{Text: "**Arguments**:\n"})
 
 		for key, value := range action.Args {
 			escapedKey := escapeMarkdownBackticks(key)
 			escapedValue := escapeMarkdownBackticks(value)
-			parts = append(parts, protocol.NewTextPart(fmt.Sprintf("  • %s: `%s`\n", escapedKey, escapedValue)))
+			parts = append(parts, &a2aschema.TextPart{Text: fmt.Sprintf("  • %s: `%s`\n", escapedKey, escapedValue)})
 		}
 
-		parts = append(parts, protocol.NewTextPart("\n"))
+		parts = append(parts, &a2aschema.TextPart{Text: "\n"})
 	}
 
 	return parts
@@ -156,32 +144,18 @@ func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []protoco
 
 // HandleToolApprovalInterrupt sends input_required event for tool approval.
 // This is a framework-agnostic handler that any executor can call when
-// it needs user approval for tool calls. It formats an approval message,
-// sends an input_required event, and waits for the task to be saved.
-//
-// Args:
-//   - actionRequests: List of tool calls requiring approval
-//   - taskID: A2A task ID
-//   - contextID: A2A context ID
-//   - eventQueue: Event queue for publishing events
-//   - taskStore: Task store for synchronization (can be nil)
-//   - appName: Optional application name for metadata (empty string if not provided)
-//
-// Returns error if event enqueue fails. Timeout errors from WaitForSave are logged but not returned.
+// it needs user approval for tool calls.
 func HandleToolApprovalInterrupt(
 	ctx context.Context,
 	actionRequests []ToolApprovalRequest,
-	taskID string,
-	contextID string,
-	eventQueue EventQueue,
-	taskStore TaskStore,
+	infoProvider a2aschema.TaskInfoProvider,
+	queue EventWriter,
 	appName string,
 ) error {
-	// Build human-readable message with markdown escaping (matching Python format_tool_approval_text_parts)
+	// Build human-readable message with markdown escaping
 	textParts := formatToolApprovalTextParts(actionRequests)
 
-	// Build structured DataPart for machine processing (client can parse this)
-	// Convert action requests to map format (matching Python: [{"name": req.name, "args": req.args, "id": req.id} for req in action_requests])
+	// Build structured DataPart for machine processing
 	actionRequestsData := make([]map[string]any, len(actionRequests))
 	for i, req := range actionRequests {
 		actionRequestsData[i] = map[string]any{
@@ -198,8 +172,7 @@ func HandleToolApprovalInterrupt(
 		"action_requests": actionRequestsData,
 	}
 
-	dataPart := &protocol.DataPart{
-		Kind: "data",
+	dataPart := &a2aschema.DataPart{
 		Data: interruptData,
 		Metadata: map[string]any{
 			GetKAgentMetadataKey("type"): "interrupt_data",
@@ -209,7 +182,7 @@ func HandleToolApprovalInterrupt(
 	// Combine message parts
 	allParts := append(textParts, dataPart)
 
-	// Build event metadata (only add app_name if provided, matching Python behavior)
+	// Build event metadata
 	eventMetadata := map[string]any{
 		"interrupt_type": KAgentHitlInterruptTypeToolApproval,
 	}
@@ -217,37 +190,23 @@ func HandleToolApprovalInterrupt(
 		eventMetadata["app_name"] = appName
 	}
 
-	// Send input_required event (matching Python: final=False - not final, waiting for user input)
-	event := &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
-		ContextID: contextID,
-		Status: protocol.TaskStatus{
-			State:     protocol.TaskStateInputRequired,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Message: &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts:     allParts,
-			},
+	msg := a2aschema.NewMessage(a2aschema.MessageRoleAgent, allParts...)
+
+	now := time.Now().UTC()
+	event := &a2aschema.TaskStatusUpdateEvent{
+		TaskID:    infoProvider.TaskInfo().TaskID,
+		ContextID: infoProvider.TaskInfo().ContextID,
+		Status: a2aschema.TaskStatus{
+			State:     a2aschema.TaskStateInputRequired,
+			Timestamp: &now,
+			Message:   msg,
 		},
 		Final:    false, // Not final - waiting for user input (matching Python)
 		Metadata: eventMetadata,
 	}
 
-	if err := eventQueue.EnqueueEvent(ctx, event); err != nil {
-		return fmt.Errorf("failed to enqueue hitl event: %w", err)
-	}
-
-	// Wait for the event consumer to persist the task (event-based sync)
-	// This prevents race condition where approval arrives before task is saved
-	// Timeout errors are handled gracefully (matching Python: logged as warning, not raised)
-	if taskStore != nil {
-		if err := taskStore.WaitForSave(ctx, taskID, 5*time.Second); err != nil {
-			// Log warning but don't fail - timeout is expected in some cases
-			// In production, use proper logging framework
-			_ = err // TODO: Use proper logging when available
-		}
+	if err := queue.Write(ctx, event); err != nil {
+		return fmt.Errorf("failed to write hitl event: %w", err)
 	}
 
 	return nil

@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/a2aproject/a2a-go/a2asrv/push"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go-adk/pkg/a2a"
@@ -22,11 +25,10 @@ import (
 	"github.com/kagent-dev/kagent/go-adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // buildAppName builds the app_name from KAGENT_NAMESPACE and KAGENT_NAME environment variables.
-func buildAppName(ctx context.Context, agentCard *server.AgentCard) string {
+func buildAppName(ctx context.Context, agentCard *a2aschema.AgentCard) string {
 	logger := logr.FromContextOrDiscard(ctx)
 	kagentName := os.Getenv("KAGENT_NAME")
 	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
@@ -131,7 +133,7 @@ func main() {
 			Stream:      &streamDefault,
 			ExecuteCode: &executeCodeDefault,
 		}
-		agentCard = &server.AgentCard{
+		agentCard = &a2aschema.AgentCard{
 			Name:        "go-adk-agent",
 			Description: "Go-based Agent Development Kit",
 		}
@@ -214,26 +216,40 @@ func main() {
 		stream = agentConfig.GetStream()
 	}
 
-	executor := a2a.NewA2aAgentExecutor(adkRunner, a2a.A2aAgentExecutorConfig{
+	// Create the KAgentExecutor implementing a2asrv.AgentExecutor
+	executor := a2a.NewKAgentExecutor(adkRunner, sessionService, a2a.KAgentExecutorConfig{
 		Stream:           stream,
 		ExecutionTimeout: model.DefaultExecutionTimeout,
-	}, sessionService, taskStore, appName)
+	}, appName)
 
-	taskManager := a2a.NewADKTaskManager(executor, taskStore, pushNotificationStore)
+	// Build handler options
+	var handlerOpts []a2asrv.RequestHandlerOption
+	if taskStore != nil {
+		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskstore.NewA2ATaskStoreAdapter(taskStore)))
+	}
+	if pushNotificationStore != nil {
+		handlerOpts = append(handlerOpts,
+			a2asrv.WithPushNotifications(
+				taskstore.NewA2APushConfigAdapter(pushNotificationStore),
+				push.NewHTTPPushSender(nil),
+			),
+		)
+	}
+
+	// Create a2a-go handler
+	handler := a2asrv.NewHandler(executor, handlerOpts...)
 
 	if agentCard == nil {
-		agentCard = &server.AgentCard{
+		agentCard = &a2aschema.AgentCard{
 			Name:        "go-adk-agent",
 			Description: "Go-based Agent Development Kit",
 			Version:     "0.1.0",
 		}
 	}
 
-	a2aServer, err := server.NewA2AServer(*agentCard, taskManager)
-	if err != nil {
-		logger.Error(err, "Failed to create A2A server")
-		os.Exit(1)
-	}
+	// Create HTTP handlers
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(handler)
+	agentCardHandler := a2asrv.NewStaticAgentCardHandler(agentCard)
 
 	mux := http.NewServeMux()
 
@@ -247,7 +263,8 @@ func main() {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	mux.Handle("/", a2aServer.Handler())
+	mux.Handle("/.well-known/agent.json", agentCardHandler)
+	mux.Handle("/", jsonrpcHandler)
 
 	addr := ":" + port
 	if *host != "" {

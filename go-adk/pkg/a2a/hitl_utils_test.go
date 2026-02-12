@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 )
 
 func TestEscapeMarkdownBackticks(t *testing.T) {
@@ -53,27 +53,27 @@ func TestEscapeMarkdownBackticks(t *testing.T) {
 func TestIsInputRequiredTask(t *testing.T) {
 	tests := []struct {
 		name     string
-		state    protocol.TaskState
+		state    a2aschema.TaskState
 		expected bool
 	}{
 		{
 			name:     "input_required state",
-			state:    protocol.TaskStateInputRequired,
+			state:    a2aschema.TaskStateInputRequired,
 			expected: true,
 		},
 		{
 			name:     "working state",
-			state:    protocol.TaskStateWorking,
+			state:    a2aschema.TaskStateWorking,
 			expected: false,
 		},
 		{
 			name:     "completed state",
-			state:    protocol.TaskStateCompleted,
+			state:    a2aschema.TaskStateCompleted,
 			expected: false,
 		},
 		{
 			name:     "failed state",
-			state:    protocol.TaskStateFailed,
+			state:    a2aschema.TaskStateFailed,
 			expected: false,
 		},
 	}
@@ -92,14 +92,11 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 	approveData := map[string]any{
 		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove,
 	}
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.DataPart{
-				Data: approveData,
-			},
+	message := a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.DataPart{
+			Data: approveData,
 		},
-	}
+	)
 	result := ExtractDecisionFromMessage(message)
 	if result != DecisionApprove {
 		t.Errorf("ExtractDecisionFromMessage(approve DataPart) = %q, want %q", result, DecisionApprove)
@@ -108,14 +105,11 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 	denyData := map[string]any{
 		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
 	}
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.DataPart{
-				Data: denyData,
-			},
+	message = a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.DataPart{
+			Data: denyData,
 		},
-	}
+	)
 	result = ExtractDecisionFromMessage(message)
 	if result != DecisionDeny {
 		t.Errorf("ExtractDecisionFromMessage(deny DataPart) = %q, want %q", result, DecisionDeny)
@@ -123,34 +117,25 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 }
 
 func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "I have approved this action"},
-		},
-	}
+	message := a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.TextPart{Text: "I have approved this action"},
+	)
 	result := ExtractDecisionFromMessage(message)
 	if result != DecisionApprove {
 		t.Errorf("ExtractDecisionFromMessage(approve text) = %q, want %q", result, DecisionApprove)
 	}
 
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "Request denied, do not proceed"},
-		},
-	}
+	message = a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.TextPart{Text: "Request denied, do not proceed"},
+	)
 	result = ExtractDecisionFromMessage(message)
 	if result != DecisionDeny {
 		t.Errorf("ExtractDecisionFromMessage(deny text) = %q, want %q", result, DecisionDeny)
 	}
 
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "APPROVED"},
-		},
-	}
+	message = a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.TextPart{Text: "APPROVED"},
+	)
 	result = ExtractDecisionFromMessage(message)
 	if result != DecisionApprove {
 		t.Errorf("ExtractDecisionFromMessage(APPROVED) = %q, want %q", result, DecisionApprove)
@@ -158,17 +143,14 @@ func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 }
 
 func TestExtractDecisionFromMessage_Priority(t *testing.T) {
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "approved"},
-			&protocol.DataPart{
-				Data: map[string]any{
-					KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
-				},
+	message := a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.TextPart{Text: "approved"},
+		&a2aschema.DataPart{
+			Data: map[string]any{
+				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
 			},
 		},
-	}
+	)
 	result := ExtractDecisionFromMessage(message)
 	if result != DecisionDeny {
 		t.Errorf("ExtractDecisionFromMessage(mixed parts) = %q, want %q (DataPart should take priority)", result, DecisionDeny)
@@ -181,21 +163,16 @@ func TestExtractDecisionFromMessage_EdgeCases(t *testing.T) {
 		t.Errorf("ExtractDecisionFromMessage(nil) = %q, want empty string", result)
 	}
 
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts:     []protocol.Part{},
-	}
+	message := a2aschema.NewMessage(a2aschema.MessageRoleUser)
+	// NewMessage with no parts creates a message with empty parts
 	result = ExtractDecisionFromMessage(message)
 	if result != "" {
 		t.Errorf("ExtractDecisionFromMessage(empty parts) = %q, want empty string", result)
 	}
 
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "This is just a comment"},
-		},
-	}
+	message = a2aschema.NewMessage(a2aschema.MessageRoleUser,
+		&a2aschema.TextPart{Text: "This is just a comment"},
+	)
 	result = ExtractDecisionFromMessage(message)
 	if result != "" {
 		t.Errorf("ExtractDecisionFromMessage(no decision) = %q, want empty string", result)
@@ -213,14 +190,8 @@ func TestFormatToolApprovalTextParts(t *testing.T) {
 
 	textContent := ""
 	for _, p := range parts {
-		var textPart *protocol.TextPart
-		if tp, ok := p.(*protocol.TextPart); ok {
-			textPart = tp
-		} else if tp, ok := p.(protocol.TextPart); ok {
-			textPart = &tp
-		}
-		if textPart != nil {
-			textContent += textPart.Text
+		if tp, ok := p.(*a2aschema.TextPart); ok {
+			textContent += tp.Text
 		}
 	}
 

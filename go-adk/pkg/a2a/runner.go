@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// convertProtocolMessageToGenAIContent converts protocol.Message to genai.Content.
-func convertProtocolMessageToGenAIContent(msg *protocol.Message) (*genai.Content, error) {
+// convertA2AMessageToGenAIContent converts a2a.Message to genai.Content.
+func convertA2AMessageToGenAIContent(msg *a2aschema.Message) (*genai.Content, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("message is nil")
 	}
@@ -19,57 +19,44 @@ func convertProtocolMessageToGenAIContent(msg *protocol.Message) (*genai.Content
 	parts := make([]*genai.Part, 0, len(msg.Parts))
 	for _, part := range msg.Parts {
 		switch p := part.(type) {
-		case *protocol.TextPart:
+		case *a2aschema.TextPart:
 			parts = append(parts, genai.NewPartFromText(p.Text))
-		case protocol.TextPart:
-			parts = append(parts, genai.NewPartFromText(p.Text))
-		case *protocol.FilePart:
+		case *a2aschema.FilePart:
 			if p.File != nil {
-				if uriFile, ok := p.File.(*protocol.FileWithURI); ok {
-					mimeType := ""
-					if uriFile.MimeType != nil {
-						mimeType = *uriFile.MimeType
-					}
-					parts = append(parts, genai.NewPartFromURI(uriFile.URI, mimeType))
-				} else if bytesFile, ok := p.File.(*protocol.FileWithBytes); ok {
-					data, err := base64.StdEncoding.DecodeString(bytesFile.Bytes)
+				switch f := p.File.(type) {
+				case a2aschema.FileURI:
+					parts = append(parts, genai.NewPartFromURI(f.URI, f.MimeType))
+				case a2aschema.FileBytes:
+					data, err := base64.StdEncoding.DecodeString(f.Bytes)
 					if err != nil {
 						return nil, fmt.Errorf("failed to decode base64 file data: %w", err)
 					}
-					mimeType := ""
-					if bytesFile.MimeType != nil {
-						mimeType = *bytesFile.MimeType
-					}
-					parts = append(parts, genai.NewPartFromBytes(data, mimeType))
+					parts = append(parts, genai.NewPartFromBytes(data, f.MimeType))
 				}
 			}
-		case *protocol.DataPart:
+		case *a2aschema.DataPart:
 			if p.Metadata != nil {
 				if partType, ok := p.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)].(string); ok {
 					switch partType {
 					case A2ADataPartMetadataTypeFunctionCall:
-						if funcCallData, ok := p.Data.(map[string]any); ok {
-							name, _ := funcCallData["name"].(string)
-							funcArgs, _ := funcCallData["args"].(map[string]any)
-							if name != "" {
-								genaiPart := genai.NewPartFromFunctionCall(name, funcArgs)
-								if id, ok := funcCallData["id"].(string); ok && id != "" {
-									genaiPart.FunctionCall.ID = id
-								}
-								parts = append(parts, genaiPart)
+						name, _ := p.Data["name"].(string)
+						funcArgs, _ := p.Data["args"].(map[string]any)
+						if name != "" {
+							genaiPart := genai.NewPartFromFunctionCall(name, funcArgs)
+							if id, ok := p.Data["id"].(string); ok && id != "" {
+								genaiPart.FunctionCall.ID = id
 							}
+							parts = append(parts, genaiPart)
 						}
 					case A2ADataPartMetadataTypeFunctionResponse:
-						if funcRespData, ok := p.Data.(map[string]any); ok {
-							name, _ := funcRespData["name"].(string)
-							response, _ := funcRespData["response"].(map[string]any)
-							if name != "" {
-								genaiPart := genai.NewPartFromFunctionResponse(name, response)
-								if id, ok := funcRespData["id"].(string); ok && id != "" {
-									genaiPart.FunctionResponse.ID = id
-								}
-								parts = append(parts, genaiPart)
+						name, _ := p.Data["name"].(string)
+						response, _ := p.Data["response"].(map[string]any)
+						if name != "" {
+							genaiPart := genai.NewPartFromFunctionResponse(name, response)
+							if id, ok := p.Data["id"].(string); ok && id != "" {
+								genaiPart.FunctionResponse.ID = id
 							}
+							parts = append(parts, genaiPart)
 						}
 					default:
 						dataJSON, err := json.Marshal(p.Data)
@@ -88,7 +75,7 @@ func convertProtocolMessageToGenAIContent(msg *protocol.Message) (*genai.Content
 	}
 
 	role := "user"
-	if msg.Role == protocol.MessageRoleAgent {
+	if msg.Role == a2aschema.MessageRoleAgent {
 		role = "model"
 	}
 

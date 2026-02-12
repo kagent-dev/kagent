@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // Part/map keys for GenAI-style content (parts, function_call, function_response, file_data, etc.).
@@ -76,8 +76,8 @@ func GenAIPartStructToMap(part *genai.Part) map[string]any {
 	return m
 }
 
-// GenAIPartToA2APart converts *genai.Part to A2A protocol.Part (single layer: GenAI -> A2A).
-func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
+// GenAIPartToA2APart converts *genai.Part to a2a.Part (single layer: GenAI -> A2A).
+func GenAIPartToA2APart(part *genai.Part) (a2aschema.Part, error) {
 	if part == nil {
 		return nil, fmt.Errorf("part is nil")
 	}
@@ -90,22 +90,20 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 
 // ConvertGenAIPartToA2APart converts a GenAI Part (as map) to an A2A Part.
 // This matches Python's convert_genai_part_to_a2a_part function.
-func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) {
+func ConvertGenAIPartToA2APart(genaiPart map[string]any) (a2aschema.Part, error) {
 	// Handle text parts (matching Python: if part.text)
 	if text, ok := genaiPart[PartKeyText].(string); ok {
-		// thought metadata (part.thought) can be added when A2A protocol supports it
-		return protocol.NewTextPart(text), nil
+		return &a2aschema.TextPart{Text: text}, nil
 	}
 
 	// Handle file_data parts (matching Python: if part.file_data)
 	if fileData, ok := genaiPart[PartKeyFileData].(map[string]any); ok {
 		if uri, ok := fileData[PartKeyFileURI].(string); ok {
 			mimeType, _ := fileData[PartKeyMimeType].(string)
-			return &protocol.FilePart{
-				Kind: "file",
-				File: &protocol.FileWithURI{
+			return &a2aschema.FilePart{
+				File: a2aschema.FileURI{
+					FileMeta: a2aschema.FileMeta{MimeType: mimeType},
 					URI:      uri,
-					MimeType: &mimeType,
 				},
 			}, nil
 		}
@@ -130,12 +128,10 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 
 		if len(data) > 0 {
 			mimeType, _ := inlineData[PartKeyMimeType].(string)
-			// video_metadata can be added when A2A protocol supports it
-			return &protocol.FilePart{
-				Kind: "file",
-				File: &protocol.FileWithBytes{
+			return &a2aschema.FilePart{
+				File: a2aschema.FileBytes{
+					FileMeta: a2aschema.FileMeta{MimeType: mimeType},
 					Bytes:    base64.StdEncoding.EncodeToString(data),
-					MimeType: &mimeType,
 				},
 			}, nil
 		}
@@ -143,15 +139,13 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 
 	// Handle function_call parts (matching Python: if part.function_call)
 	if functionCall, ok := genaiPart[PartKeyFunctionCall].(map[string]any); ok {
-		// Marshal to ensure proper format (matching Python: model_dump(by_alias=True, exclude_none=True))
 		cleanedCall := make(map[string]any)
 		for k, v := range functionCall {
 			if v != nil {
 				cleanedCall[k] = v
 			}
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2aschema.DataPart{
 			Data: cleanedCall,
 			Metadata: map[string]any{
 				GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
@@ -167,16 +161,14 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 				cleanedResponse[k] = v
 			}
 		}
-		// Normalize response so UI gets response.result (ToolResponseData). MCP/GenAI often use
-		// "content" (array or string) or raw map; UI expects response.result for display.
+		// Normalize response so UI gets response.result (ToolResponseData).
 		if resp, ok := cleanedResponse[PartKeyResponse].(map[string]any); ok {
 			normalized := normalizeFunctionResponseForUI(resp)
 			cleanedResponse[PartKeyResponse] = normalized
 		} else if respStr, ok := cleanedResponse[PartKeyResponse].(string); ok {
 			cleanedResponse[PartKeyResponse] = map[string]any{"result": respStr}
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2aschema.DataPart{
 			Data: cleanedResponse,
 			Metadata: map[string]any{
 				GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
@@ -192,8 +184,7 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 				cleanedResult[k] = v
 			}
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2aschema.DataPart{
 			Data: cleanedResult,
 			Metadata: map[string]any{
 				GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeCodeExecutionResult,
@@ -209,8 +200,7 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 				cleanedCode[k] = v
 			}
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2aschema.DataPart{
 			Data: cleanedCode,
 			Metadata: map[string]any{
 				GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeExecutableCode,
@@ -221,9 +211,7 @@ func ConvertGenAIPartToA2APart(genaiPart map[string]any) (protocol.Part, error) 
 	return nil, fmt.Errorf("unsupported genai part type: %v", genaiPart)
 }
 
-// normalizeFunctionResponseForUI ensures the response map has a "result" field the UI expects
-// (ToolResponseData.response.result). Aligns with Python packages: report response as JSON (object),
-// not string.
+// normalizeFunctionResponseForUI ensures the response map has a "result" field the UI expects.
 func normalizeFunctionResponseForUI(resp map[string]any) map[string]any {
 	out := make(map[string]any)
 	for k, v := range resp {
@@ -247,7 +235,6 @@ func normalizeFunctionResponseForUI(resp map[string]any) map[string]any {
 		out["result"] = map[string]any{"content": contentArr}
 		return out
 	}
-	// Fallback: set result to the response object (JSON), matching Python model_dump / message.content
 	out["result"] = resp
 	return out
 }

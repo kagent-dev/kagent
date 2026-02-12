@@ -3,12 +3,25 @@ package a2a
 import (
 	"testing"
 
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/model"
 	adkmodel "google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
 	gogenai "google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
+
+// mockTaskInfoProvider implements a2aschema.TaskInfoProvider for tests.
+type mockTaskInfoProvider struct {
+	taskID    a2aschema.TaskID
+	contextID string
+}
+
+func (m *mockTaskInfoProvider) TaskInfo() a2aschema.TaskInfo {
+	return a2aschema.TaskInfo{
+		TaskID:    m.taskID,
+		ContextID: m.contextID,
+	}
+}
 
 func TestConvertADKEventToA2AEvents_WithTextContent(t *testing.T) {
 	adkEvent := &adksession.Event{
@@ -22,16 +35,17 @@ func TestConvertADKEventToA2AEvents_WithTextContent(t *testing.T) {
 		},
 	}
 
-	result := ConvertADKEventToA2AEvents(adkEvent, "task1", "ctx1", "app", "user", "session")
+	infoProvider := &mockTaskInfoProvider{taskID: "task1", contextID: "ctx1"}
+	result := ConvertADKEventToA2AEvents(adkEvent, infoProvider, "app", "user", "session")
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 event, got %d", len(result))
 	}
 
-	statusEvent, ok := result[0].(*protocol.TaskStatusUpdateEvent)
+	statusEvent, ok := result[0].(*a2aschema.TaskStatusUpdateEvent)
 	if !ok {
 		t.Fatalf("Expected TaskStatusUpdateEvent, got %T", result[0])
 	}
-	if statusEvent.Status.State != protocol.TaskStateWorking {
+	if statusEvent.Status.State != a2aschema.TaskStateWorking {
 		t.Errorf("Expected state working, got %v", statusEvent.Status.State)
 	}
 	if statusEvent.Status.Message == nil || len(statusEvent.Status.Message.Parts) == 0 {
@@ -45,18 +59,19 @@ func TestConvertADKEventToA2AEvents_EmptyContent(t *testing.T) {
 		LLMResponse: adkmodel.LLMResponse{},
 	}
 
-	result := ConvertADKEventToA2AEvents(adkEvent, "task1", "ctx1", "app", "user", "session")
+	infoProvider := &mockTaskInfoProvider{taskID: "task1", contextID: "ctx1"}
+	result := ConvertADKEventToA2AEvents(adkEvent, infoProvider, "app", "user", "session")
 	if len(result) != 0 {
 		t.Errorf("Expected 0 events for empty content, got %d", len(result))
 	}
 }
 
 func TestCreateErrorA2AEvent_Basic(t *testing.T) {
+	infoProvider := &mockTaskInfoProvider{taskID: "test_task", contextID: "test_context"}
 	event := CreateErrorA2AEvent(
 		model.FinishReasonMalformedFunctionCall,
 		"Custom error message",
-		"test_task",
-		"test_context",
+		infoProvider,
 		"test_app",
 		"test_user",
 		"test_session",
@@ -65,7 +80,7 @@ func TestCreateErrorA2AEvent_Basic(t *testing.T) {
 	if event == nil {
 		t.Fatal("Expected non-nil event")
 	}
-	if event.Status.State != protocol.TaskStateFailed {
+	if event.Status.State != a2aschema.TaskStateFailed {
 		t.Errorf("Expected state failed, got %v", event.Status.State)
 	}
 
@@ -79,26 +94,21 @@ func TestCreateErrorA2AEvent_Basic(t *testing.T) {
 	if event.Status.Message == nil || len(event.Status.Message.Parts) == 0 {
 		t.Fatal("Expected error event to have message with parts")
 	}
-	switch tp := event.Status.Message.Parts[0].(type) {
-	case *protocol.TextPart:
-		if tp.Text != "Custom error message" {
-			t.Errorf("Expected custom error message, got %q", tp.Text)
-		}
-	case protocol.TextPart:
-		if tp.Text != "Custom error message" {
-			t.Errorf("Expected custom error message, got %q", tp.Text)
-		}
-	default:
-		t.Fatalf("Expected TextPart, got %T", event.Status.Message.Parts[0])
+	tp, ok := event.Status.Message.Parts[0].(*a2aschema.TextPart)
+	if !ok {
+		t.Fatalf("Expected *TextPart, got %T", event.Status.Message.Parts[0])
+	}
+	if tp.Text != "Custom error message" {
+		t.Errorf("Expected custom error message, got %q", tp.Text)
 	}
 }
 
 func TestCreateErrorA2AEvent_WithoutMessage(t *testing.T) {
+	infoProvider := &mockTaskInfoProvider{taskID: "test_task", contextID: "test_context"}
 	event := CreateErrorA2AEvent(
 		model.FinishReasonMaxTokens,
 		"",
-		"test_task",
-		"test_context",
+		infoProvider,
 		"test_app",
 		"test_user",
 		"test_session",
@@ -112,17 +122,12 @@ func TestCreateErrorA2AEvent_WithoutMessage(t *testing.T) {
 	}
 
 	expectedMessage := model.GetErrorMessage(model.FinishReasonMaxTokens)
-	switch tp := event.Status.Message.Parts[0].(type) {
-	case *protocol.TextPart:
-		if tp.Text != expectedMessage {
-			t.Errorf("Expected error message from GetErrorMessage, got %q, want %q", tp.Text, expectedMessage)
-		}
-	case protocol.TextPart:
-		if tp.Text != expectedMessage {
-			t.Errorf("Expected error message from GetErrorMessage, got %q, want %q", tp.Text, expectedMessage)
-		}
-	default:
-		t.Fatalf("Expected TextPart, got %T", event.Status.Message.Parts[0])
+	tp, ok := event.Status.Message.Parts[0].(*a2aschema.TextPart)
+	if !ok {
+		t.Fatalf("Expected *TextPart, got %T", event.Status.Message.Parts[0])
+	}
+	if tp.Text != expectedMessage {
+		t.Errorf("Expected error message from GetErrorMessage, got %q, want %q", tp.Text, expectedMessage)
 	}
 }
 
@@ -142,10 +147,11 @@ func TestConvertADKEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			},
 			LongRunningToolIDs: []string{"fc1"},
 		}
-		result := ConvertADKEventToA2AEvents(e, "task1", "ctx1", "app", "user", "session")
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		infoProvider := &mockTaskInfoProvider{taskID: "task1", contextID: "ctx1"}
+		result := ConvertADKEventToA2AEvents(e, infoProvider, "app", "user", "session")
+		var statusEvent *a2aschema.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateInputRequired {
+			if se, ok := ev.(*a2aschema.TaskStatusUpdateEvent); ok && se.Status.State == a2aschema.TaskStateInputRequired {
 				statusEvent = se
 				break
 			}
@@ -170,10 +176,11 @@ func TestConvertADKEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			},
 			LongRunningToolIDs: []string{"fc_euc"},
 		}
-		result := ConvertADKEventToA2AEvents(e, "task2", "ctx2", "app", "user", "session")
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		infoProvider := &mockTaskInfoProvider{taskID: "task2", contextID: "ctx2"}
+		result := ConvertADKEventToA2AEvents(e, infoProvider, "app", "user", "session")
+		var statusEvent *a2aschema.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateAuthRequired {
+			if se, ok := ev.(*a2aschema.TaskStatusUpdateEvent); ok && se.Status.State == a2aschema.TaskStateAuthRequired {
 				statusEvent = se
 				break
 			}
@@ -198,10 +205,11 @@ func TestConvertADKEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			},
 			LongRunningToolIDs: nil,
 		}
-		result := ConvertADKEventToA2AEvents(e, "task3", "ctx3", "app", "user", "session")
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		infoProvider := &mockTaskInfoProvider{taskID: "task3", contextID: "ctx3"}
+		result := ConvertADKEventToA2AEvents(e, infoProvider, "app", "user", "session")
+		var statusEvent *a2aschema.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok {
+			if se, ok := ev.(*a2aschema.TaskStatusUpdateEvent); ok {
 				statusEvent = se
 				break
 			}
@@ -209,7 +217,7 @@ func TestConvertADKEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 		if statusEvent == nil {
 			t.Fatal("Expected one TaskStatusUpdateEvent")
 		}
-		if statusEvent.Status.State != protocol.TaskStateWorking {
+		if statusEvent.Status.State != a2aschema.TaskStateWorking {
 			t.Errorf("Expected state working when not long-running, got %v", statusEvent.Status.State)
 		}
 	})

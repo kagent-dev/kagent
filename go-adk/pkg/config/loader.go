@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"trpc.group/trpc-go/trpc-a2a-go/server"
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 )
 
 // LoadAgentConfig loads agent configuration from config.json file
@@ -25,13 +25,13 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 }
 
 // LoadAgentCard loads agent card from agent-card.json file
-func LoadAgentCard(cardPath string) (*server.AgentCard, error) {
+func LoadAgentCard(cardPath string) (*a2aschema.AgentCard, error) {
 	data, err := os.ReadFile(cardPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read agent card file %s: %w", cardPath, err)
 	}
 
-	var card server.AgentCard
+	var card a2aschema.AgentCard
 	if err := json.Unmarshal(data, &card); err != nil {
 		return nil, fmt.Errorf("failed to parse agent card file: %w", err)
 	}
@@ -40,7 +40,7 @@ func LoadAgentCard(cardPath string) (*server.AgentCard, error) {
 }
 
 // LoadAgentConfigs loads both config and agent card from the config directory
-func LoadAgentConfigs(configDir string) (*AgentConfig, *server.AgentCard, error) {
+func LoadAgentConfigs(configDir string) (*AgentConfig, *a2aschema.AgentCard, error) {
 	configPath := filepath.Join(configDir, "config.json")
 	cardPath := filepath.Join(configDir, "agent-card.json")
 

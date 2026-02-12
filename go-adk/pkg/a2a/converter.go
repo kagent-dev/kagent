@@ -3,10 +3,9 @@ package a2a
 import (
 	"time"
 
-	"github.com/google/uuid"
+	a2aschema "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/model"
 	adksession "google.golang.org/adk/session"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 const (
@@ -40,12 +39,12 @@ func getContextMetadata(
 }
 
 // processLongRunningTool processes long-running tool metadata for an A2A part.
-func processLongRunningTool(a2aPart protocol.Part, adkEvent *adksession.Event) {
+func processLongRunningTool(a2aPart a2aschema.Part, adkEvent *adksession.Event) {
 	if adkEvent == nil {
 		return
 	}
 
-	dataPart, ok := a2aPart.(*protocol.DataPart)
+	dataPart, ok := a2aPart.(*a2aschema.DataPart)
 	if !ok {
 		return
 	}
@@ -59,12 +58,7 @@ func processLongRunningTool(a2aPart protocol.Part, adkEvent *adksession.Event) {
 		return
 	}
 
-	dataMap, ok := dataPart.Data.(map[string]any)
-	if !ok {
-		return
-	}
-
-	id, _ := dataMap["id"].(string)
+	id, _ := dataPart.Data["id"].(string)
 	if id == "" {
 		return
 	}
@@ -81,12 +75,11 @@ func processLongRunningTool(a2aPart protocol.Part, adkEvent *adksession.Event) {
 func CreateErrorA2AEvent(
 	errorCode string,
 	errorMsg string,
-	taskID string,
-	contextID string,
+	infoProvider a2aschema.TaskInfoProvider,
 	appName string,
 	userID string,
 	sessionID string,
-) *protocol.TaskStatusUpdateEvent {
+) *a2aschema.TaskStatusUpdateEvent {
 	metadata := map[string]any{
 		GetKAgentMetadataKey("app_name"):           appName,
 		GetKAgentMetadataKey(MetadataKeyUserID):    userID,
@@ -105,39 +98,25 @@ func CreateErrorA2AEvent(
 		messageMetadata[GetKAgentMetadataKey("error_code")] = errorCode
 	}
 
-	return &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
-		ContextID: contextID,
-		Metadata:  metadata,
-		Status: protocol.TaskStatus{
-			State: protocol.TaskStateFailed,
-			Message: &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts: []protocol.Part{
-					protocol.NewTextPart(errorMsg),
-				},
-				Metadata: messageMetadata,
-			},
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-		},
-		Final: false, // Not final - error events are not final (matching Python)
-	}
+	msg := a2aschema.NewMessage(a2aschema.MessageRoleAgent, &a2aschema.TextPart{Text: errorMsg})
+	msg.Metadata = messageMetadata
+
+	event := a2aschema.NewStatusUpdateEvent(infoProvider, a2aschema.TaskStateFailed, msg)
+	event.Metadata = metadata
+	event.Final = false // Not final - error events are not final (matching Python)
+	return event
 }
 
 // ConvertADKEventToA2AEvents converts *adksession.Event to A2A events.
 // Uses genai.Part -> map via GenAIPartStructToMap then ConvertGenAIPartToA2APart.
 func ConvertADKEventToA2AEvents(
 	adkEvent *adksession.Event,
-	taskID string,
-	contextID string,
+	infoProvider a2aschema.TaskInfoProvider,
 	appName string,
 	userID string,
 	sessionID string,
-) []protocol.Event {
-	var a2aEvents []protocol.Event
-	timestamp := time.Now().UTC().Format(time.RFC3339)
+) []a2aschema.Event {
+	var a2aEvents []a2aschema.Event
 	metadata := getContextMetadata(adkEvent, appName, userID, sessionID)
 
 	// Use LLMResponse.Content so tool/progress events are not missed
@@ -150,7 +129,7 @@ func ConvertADKEventToA2AEvents(
 		return a2aEvents
 	}
 
-	var a2aParts []protocol.Part
+	var a2aParts a2aschema.ContentParts
 	for _, part := range content.Parts {
 		a2aPart, err := GenAIPartToA2APart(part)
 		if err != nil || a2aPart == nil {
@@ -169,43 +148,37 @@ func ConvertADKEventToA2AEvents(
 	if isPartial {
 		messageMetadata["adk_partial"] = true
 	}
-	message := &protocol.Message{
-		Kind:      protocol.KindMessage,
-		MessageID: uuid.New().String(),
-		Role:      protocol.MessageRoleAgent,
-		Parts:     a2aParts,
-		Metadata:  messageMetadata,
-	}
+	message := a2aschema.NewMessage(a2aschema.MessageRoleAgent, a2aParts...)
+	message.Metadata = messageMetadata
 
 	// User response and questions: set task state so clients know when to prompt the user.
-	state := protocol.TaskStateWorking
+	state := a2aschema.TaskStateWorking
 	for _, part := range a2aParts {
-		if dataPart, ok := part.(*protocol.DataPart); ok && dataPart.Metadata != nil {
+		if dataPart, ok := part.(*a2aschema.DataPart); ok && dataPart.Metadata != nil {
 			partType, _ := dataPart.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)].(string)
 			isLongRunning, _ := dataPart.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataIsLongRunningKey)].(bool)
 			if partType == A2ADataPartMetadataTypeFunctionCall && isLongRunning {
-				if dataMap, ok := dataPart.Data.(map[string]any); ok {
-					if name, _ := dataMap[PartKeyName].(string); name == requestEucFunctionCallName {
-						state = protocol.TaskStateAuthRequired
-						break
-					}
-					state = protocol.TaskStateInputRequired
+				if name, _ := dataPart.Data["name"].(string); name == requestEucFunctionCallName {
+					state = a2aschema.TaskStateAuthRequired
+					break
 				}
+				state = a2aschema.TaskStateInputRequired
 			}
 		}
 	}
 
-	a2aEvents = append(a2aEvents, &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
-		ContextID: contextID,
-		Status: protocol.TaskStatus{
+	now := time.Now().UTC()
+	event := &a2aschema.TaskStatusUpdateEvent{
+		TaskID:    infoProvider.TaskInfo().TaskID,
+		ContextID: infoProvider.TaskInfo().ContextID,
+		Status: a2aschema.TaskStatus{
 			State:     state,
-			Timestamp: timestamp,
+			Timestamp: &now,
 			Message:   message,
 		},
 		Metadata: metadata,
 		Final:    false,
-	})
+	}
+	a2aEvents = append(a2aEvents, event)
 	return a2aEvents
 }
