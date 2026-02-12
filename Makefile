@@ -291,6 +291,8 @@ helm-agents:
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/kgateway
 	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
+	VERSION=$(VERSION) envsubst < helm/agents/linkerd/Chart-template.yaml > helm/agents/linkerd/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/linkerd
 	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
 	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
@@ -327,7 +329,7 @@ helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
-		--history-max 2    \
+		--history-max 2 \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
@@ -335,7 +337,7 @@ helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
-		--history-max 2    \
+		--history-max 2 \
 		--timeout 5m       \
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
@@ -380,6 +382,7 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
+	helm push ./$(HELM_DIST_FOLDER)/linkerd-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
