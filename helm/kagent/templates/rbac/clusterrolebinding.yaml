@@ -1,3 +1,4 @@
+{{- if .Values.rbac.clusterRoleEnabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -27,3 +28,4 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "kagent.fullname" . }}-controller
   namespace: {{ .Release.Namespace }}
+{{- end }}
