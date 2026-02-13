@@ -11,6 +11,7 @@ import (
 // Handlers holds all the HTTP handler components
 type Handlers struct {
 	Health          *HealthHandler
+	CurrentUser     *CurrentUserHandler
 	ModelConfig     *ModelConfigHandler
 	Model           *ModelHandler
 	Provider        *ProviderHandler
@@ -46,6 +47,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 
 	return &Handlers{
 		Health:          NewHealthHandler(),
+		CurrentUser:     NewCurrentUserHandler(),
 		ModelConfig:     NewModelConfigHandler(base),
 		Model:           NewModelHandler(base),
 		Provider:        NewProviderHandler(base),

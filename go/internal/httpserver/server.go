@@ -22,6 +22,7 @@ const (
 	// API Path constants
 	APIPathHealth          = "/health"
 	APIPathVersion         = "/version"
+	APIPathMe              = "/api/me"
 	APIPathModelConfig     = "/api/modelconfigs"
 	APIPathRuns            = "/api/runs"
 	APIPathSessions        = "/api/sessions"
@@ -110,8 +111,10 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 			log.Error(err, "Failed to properly shutdown HTTP server")
 		}
 		// Close database connection
-		if err := s.dbManager.Close(); err != nil {
-			log.Error(err, "Failed to close database connection")
+		if s.dbManager != nil {
+			if err := s.dbManager.Close(); err != nil {
+				log.Error(err, "Failed to close database connection")
+			}
 		}
 	}()
 
@@ -145,6 +148,11 @@ func (s *HTTPServer) setupRoutes() {
 			BuildDate:     version.BuildDate,
 		}
 		handlers.RespondWithJSON(erw, http.StatusOK, versionResponse)
+	})).Methods(http.MethodGet)
+
+	// Current user
+	s.router.HandleFunc(APIPathMe, adaptHandler(func(erw handlers.ErrorResponseWriter, r *http.Request) {
+		s.handlers.CurrentUser.HandleGetCurrentUser(erw, r)
 	})).Methods(http.MethodGet)
 
 	// Model configs

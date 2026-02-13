@@ -106,3 +106,11 @@ Engine labels
 {{ include "kagent.labels" . }}
 app.kubernetes.io/component: engine
 {{- end }}
+
+{{/*
+Check if network policies should be enabled for auth enforcement
+Requires both oauth2-proxy to be enabled AND controller auth mode to be proxy
+*/}}
+{{- define "kagent.networkPolicy.enabled" -}}
+{{- and (index .Values "oauth2-proxy" "enabled") (eq .Values.controller.auth.mode "proxy") .Values.networkPolicy.enabled -}}
+{{- end -}}

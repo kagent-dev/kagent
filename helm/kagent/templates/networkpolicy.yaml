@@ -1,0 +1,79 @@
+{{- if eq (include "kagent.networkPolicy.enabled" .) "true" }}
+---
+# UI NetworkPolicy - only oauth2-proxy can reach the UI
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.ui.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kagent.ui.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from oauth2-proxy
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              {{- with .Values.networkPolicy.oauth2ProxySelector }}
+              {{- toYaml . | nindent 14 }}
+              {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ui.service.ports.targetPort }}
+---
+# Controller NetworkPolicy - allow from oauth2-proxy, UI, engine, and tools
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from oauth2-proxy (direct API access)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controller.service.ports.targetPort }}
+    # Allow from UI pods
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "kagent.ui.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controller.service.ports.targetPort }}
+    # Allow from engine pods (A2A communication)
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "kagent.engine.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controller.service.ports.targetPort }}
+    # Allow from kagent-tools pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kagent-tools
+      ports:
+        - protocol: TCP
+          port: {{ .Values.controller.service.ports.targetPort }}
+{{- end }}

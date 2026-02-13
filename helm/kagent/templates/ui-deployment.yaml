@@ -43,6 +43,10 @@ spec:
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: "http://{{ include "kagent.fullname" . }}-controller.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}/api"
+            {{- if .Values.ui.auth }}
+            - name: SSO_REDIRECT_PATH
+              value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
+            {{- end }}
             {{- with .Values.ui.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

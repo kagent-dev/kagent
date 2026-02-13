@@ -13,7 +13,6 @@ export interface ModelConfig {
 export interface CreateSessionRequest {
   agent_ref?: string;
   name?: string;
-  user_id: string;
   id?: string;
 }
 

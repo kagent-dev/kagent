@@ -5,7 +5,7 @@ import { Server, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, Functi
 import { Button } from "@/components/ui/button";
 import { ToolServerResponse, ToolServerCreateRequest } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers, getToolServerTypes } from "../actions/servers";
+import { createServer, deleteServer, getServers, getToolServerTypes } from "@/app/actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";

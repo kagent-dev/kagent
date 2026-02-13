@@ -22,16 +22,20 @@ type Resource struct {
 
 type User struct {
 	ID    string
+	Email string
+	Name  string
 	Roles []string
 }
+
 type Agent struct {
 	ID string
 }
 
 // Authn
 type Principal struct {
-	User  User
-	Agent Agent
+	User   User
+	Agent  Agent
+	Groups []string
 }
 
 type Session interface {
@@ -75,6 +79,11 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip authentication for health and version endpoints (used by probes)
+			if r.URL.Path == "/health" || r.URL.Path == "/version" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			session, err := authn.Authenticate(r.Context(), r.Header, r.URL.Query())
 			if err != nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
