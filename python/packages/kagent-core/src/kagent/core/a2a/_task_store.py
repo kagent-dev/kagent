@@ -6,6 +6,8 @@ from a2a.types import Message, Task
 from pydantic import BaseModel
 from typing_extensions import override
 
+from kagent.core.a2a import get_kagent_metadata_key
+
 
 class KAgentTaskResponse(BaseModel):
     """Wrapper for KAgent controller API responses.
@@ -38,7 +40,7 @@ class KAgentTaskStore(TaskStore):
     def _is_partial_event(self, item: Message) -> bool:
         """Check if a history item is a partial ADK streaming event."""
         metadata = item.metadata or {}
-        return metadata.get("adk_partial") is True
+        return metadata.get(get_kagent_metadata_key("adk_partial")) is True
 
     def _clean_partial_events(self, history: list[Message]) -> list[Message]:
         """Remove partial streaming events from history."""

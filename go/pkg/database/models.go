@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/internal/adk"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )

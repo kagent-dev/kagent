@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +31,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range numUpserts {
-				agent := &Agent{
+				agent := &dbpkg.Agent{
 					ID:   agentID,
 					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
 				}
@@ -67,7 +69,7 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range numUpserts {
-				toolServer := &ToolServer{
+				toolServer := &dbpkg.ToolServer{
 					Name:        serverName,
 					GroupKind:   groupKind,
 					Description: fmt.Sprintf("Description from goroutine %d iteration %d", goroutineID, j),
@@ -98,7 +100,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	groupKind := "RemoteMCPServer"
 
 	// Create the tool server first
-	_, err := client.StoreToolServer(&ToolServer{
+	_, err := client.StoreToolServer(&dbpkg.ToolServer{
 		Name:        serverName,
 		GroupKind:   groupKind,
 		Description: "Test server",
@@ -139,7 +141,7 @@ func TestStoreAgentIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 
-	agent := &Agent{
+	agent := &dbpkg.Agent{
 		ID:   "idempotent-agent",
 		Type: "declarative",
 	}
@@ -168,7 +170,7 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 
-	server := &ToolServer{
+	server := &dbpkg.ToolServer{
 		Name:        "idempotent-server",
 		GroupKind:   "RemoteMCPServer",
 		Description: "Original description",
@@ -215,4 +217,92 @@ func setupTestDB(t *testing.T) *Manager {
 	})
 
 	return manager
+}
+func TestListEventsForSession(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	userID := "test-user"
+	sessionID := "test-session"
+
+	// Create 3 events
+	for i := range 3 {
+		event := &dbpkg.Event{
+			ID:        fmt.Sprintf("event-%d", i),
+			SessionID: sessionID,
+			UserID:    userID,
+			Data:      "{}",
+		}
+		err := client.StoreEvents(event)
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name          string
+		limit         int
+		expectedCount int
+	}{
+		{"Limit 1", 1, 1},
+		{"Limit 2", 2, 2},
+		{"Limit 0 (No limit)", 0, 3},
+		{"Limit -1 (No limit)", -1, 3},
+		{"Limit 5 (More than exists)", 5, 3},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := dbpkg.QueryOptions{
+				Limit: tc.limit,
+			}
+			events, err := client.ListEventsForSession(sessionID, userID, opts)
+			require.NoError(t, err)
+			assert.Len(t, events, tc.expectedCount)
+		})
+	}
+}
+
+func TestListEventsForSessionOrdering(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	userID := "test-user"
+	sessionID := "test-session"
+
+	// Create events with specific timestamps
+	// Using a significant gap to ensure database resolution handles it correctly
+	baseTime := time.Now().Add(-10 * time.Hour)
+
+	for i := range 3 {
+		event := &dbpkg.Event{
+			ID:        fmt.Sprintf("event-%d", i),
+			SessionID: sessionID,
+			UserID:    userID,
+			CreatedAt: baseTime.Add(time.Duration(i) * time.Hour),
+			Data:      "{}",
+		}
+		err := client.StoreEvents(event)
+		require.NoError(t, err)
+	}
+
+	t.Run("Default (Desc)", func(t *testing.T) {
+		opts := dbpkg.QueryOptions{}
+		events, err := client.ListEventsForSession(sessionID, userID, opts)
+		require.NoError(t, err)
+		require.Len(t, events, 3)
+		// Should be 2, 1, 0
+		assert.Equal(t, "event-2", events[0].ID)
+		assert.Equal(t, "event-1", events[1].ID)
+		assert.Equal(t, "event-0", events[2].ID)
+	})
+
+	t.Run("Ascending", func(t *testing.T) {
+		opts := dbpkg.QueryOptions{
+			OrderAsc: true,
+		}
+		events, err := client.ListEventsForSession(sessionID, userID, opts)
+		require.NoError(t, err)
+		require.Len(t, events, 3)
+		// Should be 0, 1, 2
+		assert.Equal(t, "event-0", events[0].ID)
+		assert.Equal(t, "event-1", events[1].ID)
+		assert.Equal(t, "event-2", events[2].ID)
+	})
 }
