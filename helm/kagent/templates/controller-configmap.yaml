@@ -34,14 +34,14 @@ data:
   # Using separate endpoints for traces and logs
   {{- if $tracesEndpoint }}
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
-  {{- end }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  {{- end }}
   {{- if $logsEndpoint }}
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ $logsEndpoint | quote }}
-  {{- end }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  {{- end }}
   {{- end }}
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
