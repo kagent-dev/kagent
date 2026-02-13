@@ -103,7 +103,7 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             or os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
             or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
         )
-        logging.info(f"Log endpoint configured: {log_endpoint}")
+        logging.info("Log endpoint: %s", log_endpoint or "<default>")
 
         # Add OTLP exporter
         if log_endpoint:

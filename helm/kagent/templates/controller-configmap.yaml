@@ -21,19 +21,25 @@ data:
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
-  {{- if eq .Values.otel.tracing.exporter.otlp.endpoint .Values.otel.logging.exporter.otlp.endpoint }}
+  {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
+  {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
+  {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}
   # Using unified OTEL endpoint (same for traces and logs)
-  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ $tracesEndpoint | quote }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
   {{- else }}
   # Using separate endpoints for traces and logs
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  {{- if $tracesEndpoint }}
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
+  {{- end }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
+  {{- if $logsEndpoint }}
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ $logsEndpoint | quote }}
+  {{- end }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
   {{- end }}
