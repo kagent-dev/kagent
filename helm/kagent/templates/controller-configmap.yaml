@@ -18,15 +18,25 @@ data:
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
+  # OpenTelemetry Configuration
+  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  {{- if eq .Values.otel.tracing.exporter.otlp.endpoint .Values.otel.logging.exporter.otlp.endpoint }}
+  # Using unified OTEL endpoint (same for traces and logs)
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  {{- else }}
+  # Using separate endpoints for traces and logs
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
-  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
-  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
-  OTEL_TRACING_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  {{- end }}
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
