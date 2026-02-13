@@ -7,6 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 )
 
 // Handlers holds all the HTTP handler components

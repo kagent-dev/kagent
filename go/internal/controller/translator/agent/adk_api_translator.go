@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/adk"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"github.com/kagent-dev/kagent/go/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -130,9 +130,13 @@ type tState struct {
 }
 
 func (s *tState) with(agent *v1alpha2.Agent) *tState {
-	s.depth++
-	s.visitedAgents = append(s.visitedAgents, utils.GetObjectRef(agent))
-	return s
+	visited := make([]string, len(s.visitedAgents), len(s.visitedAgents)+1)
+	copy(visited, s.visitedAgents)
+	visited = append(visited, utils.GetObjectRef(agent))
+	return &tState{
+		depth:         s.depth + 1,
+		visitedAgents: visited,
+	}
 }
 
 func (t *tState) isVisited(agentName string) bool {

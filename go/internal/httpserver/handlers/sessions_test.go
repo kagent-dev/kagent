@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
@@ -15,13 +16,13 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/internal/database"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -261,6 +262,48 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("OrderAsc", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler()
+			userID := "test-user"
+			sessionID := "test-session"
+
+			// Create test session
+			agentID := "1"
+			createTestSession(dbClient, sessionID, userID, agentID)
+
+			// Create events with different timestamps
+			event1 := &database.Event{
+				ID:        "event-1",
+				SessionID: sessionID,
+				UserID:    userID,
+				CreatedAt: time.Now().Add(-2 * time.Hour),
+				Data:      "{}",
+			}
+			event2 := &database.Event{
+				ID:        "event-2",
+				SessionID: sessionID,
+				UserID:    userID,
+				CreatedAt: time.Now().Add(-1 * time.Hour),
+				Data:      "{}",
+			}
+			dbClient.StoreEvents(event1, event2)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"?order=asc", nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var response api.StandardResponse[handlers.SessionResponse]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			require.NoError(t, err)
+			require.Len(t, response.Data.Events, 2)
+			assert.Equal(t, event1.ID, response.Data.Events[0].ID)
+			assert.Equal(t, event2.ID, response.Data.Events[1].ID)
 		})
 	})
 

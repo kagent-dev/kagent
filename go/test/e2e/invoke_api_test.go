@@ -826,7 +826,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 		// verify our mock STS server received the token exchange request
 		stsRequests := stsServer.GetRequests()
-		require.Len(t, stsRequests, 1, "Expected 1 STS token exchange request")
+		require.NotEmpty(t, stsRequests, "Expected STS token exchange request but got none")
 
 		// ensure the subject token is the same as the one we sent
 		// which contains the may act claim

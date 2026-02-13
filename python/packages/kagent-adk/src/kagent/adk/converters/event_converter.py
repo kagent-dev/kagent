@@ -51,7 +51,7 @@ def _serialize_metadata_value(value: Any) -> str:
     return str(value)
 
 
-def _get_context_metadata(event: Event, invocation_context: InvocationContext) -> Dict[str, str]:
+def _get_context_metadata(event: Event, invocation_context: InvocationContext) -> Dict[str, Any]:
     """Gets the context metadata for the event.
 
     Args:
@@ -70,7 +70,8 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
         raise ValueError("Invocation context cannot be None")
 
     try:
-        metadata = {
+        metadata: Dict[str, Any] = {
+            get_kagent_metadata_key("adk_partial"): event.partial,
             get_kagent_metadata_key("app_name"): invocation_context.app_name,
             get_kagent_metadata_key("user_id"): invocation_context.user_id,
             get_kagent_metadata_key("session_id"): invocation_context.session.id,
@@ -166,9 +167,7 @@ def convert_event_to_a2a_message(
                 _process_long_running_tool(a2a_part, event)
 
         if a2a_parts:
-            # Include adk_partial in message metadata so TaskStore can filter
-            # partial streaming messages from history before saving
-            message_metadata = {"adk_partial": event.partial}
+            message_metadata = _get_context_metadata(event, invocation_context)
             return Message(message_id=str(uuid.uuid4()), role=role, parts=a2a_parts, metadata=message_metadata)
 
     except Exception as e:
