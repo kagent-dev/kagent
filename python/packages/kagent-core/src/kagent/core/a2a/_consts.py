@@ -1,3 +1,7 @@
+# A2A DataPart metadata constants.
+# These values MUST match the upstream google-adk definitions in
+# google.adk.a2a.converters.part_converter. A sync-check test in
+# kagent-adk verifies they stay in sync.
 A2A_DATA_PART_METADATA_TYPE_KEY = "type"
 A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY = "is_long_running"
 A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL = "function_call"
