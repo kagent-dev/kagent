@@ -10,10 +10,15 @@ data:
   KAGENT_LOG_LEVEL: {{ .Values.logLevel | quote }}
   PORT: {{ .Values.service.port | quote }}
   TRANSPORT_TYPE: "http"
+  # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  {{- if .Values.otel.tracing.exporter.otlp.endpoint }}
+  # Standard OTEL environment variables
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  {{- end }}
 
   # Custom configuration
   {{- range $key, $value := .Values.config }}
