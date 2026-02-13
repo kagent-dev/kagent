@@ -1,23 +1,13 @@
-# Re-export A2A DataPart metadata constants from upstream google-adk.
-# These are the canonical definitions — kagent should not redefine them.
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY as A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-)
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT as A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
-)
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE as A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE,
-)
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL as A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-)
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE as A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-)
-from google.adk.a2a.converters.part_converter import (
-    A2A_DATA_PART_METADATA_TYPE_KEY as A2A_DATA_PART_METADATA_TYPE_KEY,
-)
+# A2A DataPart metadata constants.
+# These values MUST match the upstream google-adk definitions in
+# google.adk.a2a.converters.part_converter. A sync-check test in
+# kagent-adk verifies they stay in sync.
+A2A_DATA_PART_METADATA_TYPE_KEY = "type"
+A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY = "is_long_running"
+A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL = "function_call"
+A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE = "function_response"
+A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT = "code_execution_result"
+A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE = "executable_code"
 
 KAGENT_METADATA_KEY_PREFIX = "kagent_"
 
