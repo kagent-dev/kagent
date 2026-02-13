@@ -39,6 +39,14 @@ func (f *fakeReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req
 	return nil
 }
 
+func (f *fakeReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	return ctrl.Result{}, nil
+}
+
+func (f *fakeReconciler) RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakeReconciler) GetOwnedResourceTypes() []client.Object {
 	return nil
 }

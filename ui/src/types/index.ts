@@ -34,6 +34,8 @@ export interface Provider {
   type: string;
   requiredParams: string[];
   optionalParams: string[];
+  source?: 'stock' | 'configured'; // Distinguishes between stock and configured providers
+  endpoint?: string; // Only present for configured providers
 }
 
 export type ProviderModel = {
@@ -43,6 +45,19 @@ export type ProviderModel = {
 
 // Define the type for the expected API response structure
 export type ProviderModelsResponse = Record<string, ProviderModel[]>;
+
+// ConfiguredProvider is the response from /api/providers/configured
+export interface ConfiguredProvider {
+  name: string;
+  type: string;
+  endpoint: string;
+}
+
+// ConfiguredProviderModelsResponse is the response from /api/providers/configured/{name}/models
+export interface ConfiguredProviderModelsResponse {
+  provider: string;
+  models: string[];
+}
 
 // Export OpenAIConfigPayload
 export interface OpenAIConfigPayload {
@@ -207,7 +222,6 @@ export interface TypedLocalReference {
   kind?: string;
   apiGroup?: string;
   name: string;
-  namespace?: string;
 }
 
 export interface McpServerTool extends TypedLocalReference {
