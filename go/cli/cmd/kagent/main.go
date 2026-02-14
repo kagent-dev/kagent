@@ -39,6 +39,35 @@ func main() {
 		Short: "kagent is a CLI and TUI for kagent",
 		Long:  "kagent is a CLI and TUI for kagent",
 		Run:   runInteractive,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Load config from ~/.kagent/config.yaml so that file-based
+			// values are used as defaults for subcommands. Explicit CLI flags
+			// still win because cobra marks them as Changed.
+			// Note: runInteractive (the root Run handler) calls config.Get()
+			// directly, so this hook only affects subcommands.
+			fileCfg, err := config.Get()
+			if err != nil {
+				return fmt.Errorf("error loading config: %w", err)
+			}
+			// Only apply file values for flags the user did not set on the
+			// command line, so explicit flags always take precedence.
+			if !cmd.Flags().Changed("kagent-url") && fileCfg.KAgentURL != "" {
+				cfg.KAgentURL = fileCfg.KAgentURL
+			}
+			if !cmd.Flags().Changed("namespace") && fileCfg.Namespace != "" {
+				cfg.Namespace = fileCfg.Namespace
+			}
+			if !cmd.Flags().Changed("output-format") && fileCfg.OutputFormat != "" {
+				cfg.OutputFormat = fileCfg.OutputFormat
+			}
+			if !cmd.Flags().Changed("verbose") {
+				cfg.Verbose = fileCfg.Verbose
+			}
+			if !cmd.Flags().Changed("timeout") && fileCfg.Timeout != 0 {
+				cfg.Timeout = fileCfg.Timeout
+			}
+			return nil
+		},
 	}
 
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", "http://localhost:8083", "KAgent URL")
