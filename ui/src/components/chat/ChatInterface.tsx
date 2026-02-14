@@ -58,6 +58,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+  const [isMac, setIsMac] = useState(false);
 
   const {
     isListening,
@@ -85,6 +86,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       agentName: selectedAgentName
     }
   });
+
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.userAgent));
+  }, []);
 
   useEffect(() => {
     async function initializeChat() {
@@ -442,7 +447,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           <div className="flex items-center justify-end gap-2 mt-4">
             <span className="text-xs text-muted-foreground mr-auto">
-              {typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to send
+              {isMac ? "⌘" : "Ctrl"}+Enter to send
             </span>
             {isVoiceSupported && (
               <TooltipProvider>
