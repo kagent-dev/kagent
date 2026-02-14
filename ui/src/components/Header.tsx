@@ -37,7 +37,7 @@ export function Header() {
           
           {/* Mobile menu button */}
           <button 
-            className="lg:hidden p-2 focus:outline-none"
+            className="lg:hidden p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary"
             onClick={toggleMenu}
             aria-label="Toggle menu"
           >
