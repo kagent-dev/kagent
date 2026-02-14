@@ -74,7 +74,16 @@ export function A2ASkillsSection({ skills, onChange, disabled, error }: A2ASkill
             <div key={index} className="border rounded-md">
               <div
                 className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50"
+                role="button"
+                tabIndex={0}
+                aria-expanded={isExpanded}
                 onClick={() => setExpandedIndex(isExpanded ? null : index)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setExpandedIndex(isExpanded ? null : index);
+                  }
+                }}
               >
                 <div className="flex items-center gap-2">
                   {isExpanded ? (
@@ -192,7 +201,7 @@ export function A2ASkillsSection({ skills, onChange, disabled, error }: A2ASkill
         variant="outline"
         size="sm"
         onClick={addSkill}
-        disabled={disabled || skills.length >= 20}
+        disabled={disabled}
         className="w-full"
       >
         <PlusCircle className="h-4 w-4 mr-2" />
