@@ -575,6 +575,51 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
+	// Translate context management configuration
+	if agent.Spec.Declarative.Context != nil {
+		contextCfg := &adk.AgentContextConfig{}
+
+		if agent.Spec.Declarative.Context.Compaction != nil {
+			comp := agent.Spec.Declarative.Context.Compaction
+			compCfg := &adk.AgentCompressionConfig{
+				CompactionInterval: comp.CompactionInterval,
+				OverlapSize:        comp.OverlapSize,
+				TokenThreshold:     comp.TokenThreshold,
+				EventRetentionSize: comp.EventRetentionSize,
+			}
+
+			if comp.Summarizer != nil {
+				// Resolve summarizer model - use agent's model if not specified
+				summarizerModelConfigName := agent.Spec.Declarative.ModelConfig
+				if comp.Summarizer.ModelConfig != "" {
+					summarizerModelConfigName = comp.Summarizer.ModelConfig
+				}
+				summarizerModelCfg := &v1alpha2.ModelConfig{}
+				err := a.kube.Get(ctx, types.NamespacedName{
+					Namespace: agent.Namespace,
+					Name:      summarizerModelConfigName,
+				}, summarizerModelCfg)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to resolve summarizer model config %q: %w", summarizerModelConfigName, err)
+				}
+				compCfg.SummarizerModelName = summarizerModelCfg.Spec.Model
+				compCfg.PromptTemplate = comp.Summarizer.PromptTemplate
+			}
+
+			contextCfg.Compaction = compCfg
+		}
+
+		if agent.Spec.Declarative.Context.Cache != nil {
+			contextCfg.Cache = &adk.AgentCacheConfig{
+				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
+				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
+				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
+			}
+		}
+
+		cfg.ContextConfig = contextCfg
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {
