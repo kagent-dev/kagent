@@ -1,7 +1,6 @@
 """Tests for context management configuration types and builder."""
 
 import json
-from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError

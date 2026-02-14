@@ -215,13 +215,6 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
-class ContextSummarizerSettings(BaseModel):
-    """Settings for the LLM-based event summarizer."""
-
-    summarizer_model_name: str | None = None
-    prompt_template: str | None = None
-
-
 class ContextCompressionSettings(BaseModel):
     """Settings for event history compaction/compression."""
 
@@ -467,11 +460,18 @@ def build_adk_context_configs(
                     prompt_template=comp.prompt_template,
                 )
 
-        events_compaction_config = EventsCompactionConfig(
-            compaction_interval=comp.compaction_interval,
-            overlap_size=comp.overlap_size,
-            summarizer=summarizer,
-        )
+        compaction_kwargs: dict = {
+            "compaction_interval": comp.compaction_interval,
+            "overlap_size": comp.overlap_size,
+            "summarizer": summarizer,
+        }
+        # Forward-compatible: pass token_threshold/event_retention_size
+        # when the ADK version supports them.
+        if comp.token_threshold is not None and hasattr(EventsCompactionConfig, "token_threshold"):
+            compaction_kwargs["token_threshold"] = comp.token_threshold
+        if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
+            compaction_kwargs["event_retention_size"] = comp.event_retention_size
+        events_compaction_config = EventsCompactionConfig(**compaction_kwargs)
 
     if context_config.cache is not None:
         cache = context_config.cache
