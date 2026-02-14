@@ -441,6 +441,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            <span className="text-xs text-muted-foreground mr-auto">
+              {typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to send
+            </span>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
