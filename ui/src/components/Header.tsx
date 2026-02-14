@@ -28,8 +28,8 @@ export function Header() {
   };
 
   return (
-    <nav className="py-4 md:py-8 border-b">
-      <div className="max-w-6xl mx-auto px-4 md:px-6">
+    <nav className="py-4 lg:py-8 border-b">
+      <div className="max-w-6xl mx-auto px-4 lg:px-6">
         <div className="flex justify-between items-center">
           <Link href="/">
             <KAgentLogoWithText className="h-5" />
@@ -37,7 +37,7 @@ export function Header() {
           
           {/* Mobile menu button */}
           <button 
-            className="md:hidden p-2 focus:outline-none"
+            className="lg:hidden p-2 focus:outline-none"
             onClick={toggleMenu}
             aria-label="Toggle menu"
           >
@@ -45,7 +45,7 @@ export function Header() {
           </button>
           
           {/* Desktop navigation */}
-          <div className="hidden md:flex items-center space-x-2 lg:space-x-4">
+          <div className="hidden lg:flex items-center space-x-4">
             <Button variant="link" className="text-secondary-foreground" asChild>
               <Link href="/" className="gap-1">
                 <HomeIcon className="h-4 w-4" />
@@ -136,7 +136,7 @@ export function Header() {
         
         {/* Mobile menu */}
         {isMenuOpen && (
-          <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
+          <div className="lg:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
             <div className="flex flex-col space-y-1">
               {/* Mobile Home Link */}
               <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-2" asChild>
