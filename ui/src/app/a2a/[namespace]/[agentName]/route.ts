@@ -72,6 +72,11 @@ export async function POST(
           keepAliveTimer = setTimeout(sendKeepAlive, KEEP_ALIVE_INTERVAL_MS);
         };
 
+        const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB
+        const CHUNK_SIZE = 16 * 1024;              // 16 KB
+        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+        let processedSize = 0;
+
         const pump = (): Promise<void> => {
           return reader.read().then(({ done, value }): Promise<void> => {
             if (done) {
@@ -86,6 +91,21 @@ export async function POST(
             }
 
             buffer += decoder.decode(value, { stream: true });
+
+            processedSize += value.length;
+            if (processedSize > MAX_MESSAGE_SIZE) {
+              throw new Error('Message size exceeds maximum allowed limit of 10MB');
+            }
+
+            if (buffer.length > MAX_BUFFER_SIZE) {
+              const lines = buffer.split('\n');
+              const lastLine = lines.pop() || '';
+              buffer = lastLine;
+              if (buffer.length > MAX_BUFFER_SIZE) {
+                buffer = buffer.slice(-CHUNK_SIZE);
+                console.warn('SSE buffer truncated due to size limit');
+              }
+            }
 
             // Process complete SSE events (delimited by \n\n)
             let eventEndIndex;
