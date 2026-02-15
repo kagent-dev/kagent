@@ -10,7 +10,7 @@ from a2a.types import DataPart, Message, Role, Task, TaskState, TaskStatus, Task
 from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
-from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
+from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, REQUEST_EUC_FUNCTION_CALL_NAME
 from google.genai import types as genai_types
 
 from kagent.core.a2a import (
@@ -257,6 +257,15 @@ def _create_status_update_event(
         if part.root.metadata
     ):
         status.state = TaskState.auth_required
+    elif any(
+        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
+        and part.root.data.get("name") == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
+        for part in message.parts
+        if part.root.metadata
+    ):
+        status.state = TaskState.input_required
     elif any(
         part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
