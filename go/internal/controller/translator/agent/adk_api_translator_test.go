@@ -905,11 +905,195 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 			},
 		}
 
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), agentA)
-		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
-	})
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	_, err := trans.TranslateAgent(context.Background(), agentA)
+	require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
+})
+}
+
+// Test_AdkApiTranslator_McpServerToolConfirm tests that the Confirm field
+// on McpServerTool flows through the translator to the resulting ADK config.
+func Test_AdkApiTranslator_McpServerToolConfirm(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "test-ns"
+	modelName := "test-model"
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	remoteMCPServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mcp-server",
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			Description: "Test MCP Server",
+			URL:         "http://mcp.example.com/mcp",
+		},
+	}
+
+	tests := []struct {
+		name                string
+		confirm             *v1alpha2.ToolConfirmation
+		wantConfirmPresent  bool
+		wantExceptReadOnly  *bool
+		wantExceptTools     []string
+		protocol            v1alpha2.RemoteMCPServerProtocol
+		checkHttpTools      bool
+		checkSseTools       bool
+	}{
+		{
+			name: "Confirm present with ExceptReadOnly=true flows through to HTTP tools",
+			confirm: &v1alpha2.ToolConfirmation{
+				ExceptReadOnly: ptr.To(true),
+				ExceptTools:    []string{"foo", "bar"},
+			},
+			wantConfirmPresent: true,
+			wantExceptReadOnly: ptr.To(true),
+			wantExceptTools:    []string{"foo", "bar"},
+			protocol:           v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			checkHttpTools:     true,
+		},
+		{
+			name: "Confirm present with ExceptReadOnly=true flows through to SSE tools",
+			confirm: &v1alpha2.ToolConfirmation{
+				ExceptReadOnly: ptr.To(true),
+				ExceptTools:    []string{"foo", "bar"},
+			},
+			wantConfirmPresent: true,
+			wantExceptReadOnly: ptr.To(true),
+			wantExceptTools:    []string{"foo", "bar"},
+			protocol:           v1alpha2.RemoteMCPServerProtocolSse,
+			checkSseTools:      true,
+		},
+		{
+			name:               "Confirm nil results in no confirm on HTTP tools (backward compat)",
+			confirm:            nil,
+			wantConfirmPresent: false,
+			protocol:           v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			checkHttpTools:     true,
+		},
+		{
+			name:               "Confirm nil results in no confirm on SSE tools (backward compat)",
+			confirm:            nil,
+			wantConfirmPresent: false,
+			protocol:           v1alpha2.RemoteMCPServerProtocolSse,
+			checkSseTools:      true,
+		},
+		{
+			name: "Confirm with all exception fields set",
+			confirm: &v1alpha2.ToolConfirmation{
+				ExceptReadOnly:       ptr.To(true),
+				ExceptIdempotent:     ptr.To(false),
+				ExceptNonDestructive: ptr.To(true),
+				ExceptTools:          []string{"safe-tool"},
+			},
+			wantConfirmPresent: true,
+			wantExceptReadOnly: ptr.To(true),
+			wantExceptTools:    []string{"safe-tool"},
+			protocol:           v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			checkHttpTools:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create agent with the test confirm config
+			agent := &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-agent",
+					Namespace: namespace,
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Test Agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "You are a test agent",
+						ModelConfig:   modelName,
+						Tools: []*v1alpha2.Tool{
+							{
+								Type: v1alpha2.ToolProviderType_McpServer,
+								McpServer: &v1alpha2.McpServerTool{
+									TypedLocalReference: v1alpha2.TypedLocalReference{
+										Kind:      "RemoteMCPServer",
+										ApiGroup:  "kagent.dev",
+										Name:      "test-mcp-server",
+										Namespace: namespace,
+									},
+									ToolNames: []string{"test-tool"},
+									Confirm:   tt.confirm,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// Create a copy of the RemoteMCPServer with the test protocol
+			testMCPServer := remoteMCPServer.DeepCopy()
+			testMCPServer.Spec.Protocol = tt.protocol
+
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(ns, modelConfig, testMCPServer, agent).
+				Build()
+
+			defaultModel := types.NamespacedName{
+				Namespace: namespace,
+				Name:      modelName,
+			}
+
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), agent)
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+
+			if tt.checkHttpTools {
+				require.Len(t, outputs.Config.HttpTools, 1, "Expected exactly one HTTP tool")
+				tool := outputs.Config.HttpTools[0]
+
+				if tt.wantConfirmPresent {
+					require.NotNil(t, tool.Confirm, "Expected Confirm to be present")
+					assert.Equal(t, tt.wantExceptReadOnly, tool.Confirm.ExceptReadOnly)
+					assert.Equal(t, tt.wantExceptTools, tool.Confirm.ExceptTools)
+				} else {
+					assert.Nil(t, tool.Confirm, "Expected Confirm to be nil")
+				}
+			}
+
+			if tt.checkSseTools {
+				require.Len(t, outputs.Config.SseTools, 1, "Expected exactly one SSE tool")
+				tool := outputs.Config.SseTools[0]
+
+				if tt.wantConfirmPresent {
+					require.NotNil(t, tool.Confirm, "Expected Confirm to be present")
+					assert.Equal(t, tt.wantExceptReadOnly, tool.Confirm.ExceptReadOnly)
+					assert.Equal(t, tt.wantExceptTools, tool.Confirm.ExceptTools)
+				} else {
+					assert.Nil(t, tool.Confirm, "Expected Confirm to be nil")
+				}
+			}
+		})
+	}
 }
