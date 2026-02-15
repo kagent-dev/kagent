@@ -168,6 +168,10 @@
                     }
                   },
                   {
+                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+                    "value": "delta"
+                  },
+                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -279,6 +283,7 @@
       "spec": {
         "ports": [
           {
+            "appProtocol": "kgateway.dev/a2a",
             "name": "http",
             "port": 8080,
             "targetPort": 8080
