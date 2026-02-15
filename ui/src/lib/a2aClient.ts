@@ -100,20 +100,11 @@ export class KagentA2AClient {
 
         processedSize += value.length;
         if (processedSize > MAX_MESSAGE_SIZE) {
+          await reader.cancel();
           throw new Error('Message size exceeds maximum allowed limit of 10MB');
         }
 
-        if (buffer.length > MAX_BUFFER_SIZE) {
-          const lines = buffer.split('\n');
-          const lastLine = lines.pop() || '';
-          buffer = lastLine;
-          if (buffer.length > MAX_BUFFER_SIZE) {
-            buffer = buffer.slice(-CHUNK_SIZE);
-            console.warn('SSE buffer truncated due to size limit');
-          }
-        }
-
-        // Process complete SSE events (delimited by \n\n)
+        // Process complete SSE events (delimited by \n\n) before checking buffer size
         let eventEndIndex;
         while ((eventEndIndex = buffer.indexOf('\n\n')) >= 0) {
           const eventText = buffer.substring(0, eventEndIndex);
@@ -138,6 +129,12 @@ export class KagentA2AClient {
               }
             }
           }
+        }
+
+        // Truncate remaining buffer if it exceeds the limit (only incomplete data remains)
+        if (buffer.length > MAX_BUFFER_SIZE) {
+          buffer = buffer.slice(-CHUNK_SIZE);
+          console.warn('SSE buffer truncated due to size limit');
         }
       }
     } finally {
