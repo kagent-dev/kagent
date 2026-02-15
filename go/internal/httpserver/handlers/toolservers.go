@@ -189,6 +189,239 @@ func (h *ToolServersHandler) handleCreateMCPServer(w ErrorResponseWriter, r *htt
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
+// HandleGetToolServer handles GET /api/toolservers/{namespace}/{name} requests
+func (h *ToolServersHandler) HandleGetToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "get")
+	log.Info("Received request to get ToolServer")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		log.Error(err, "Failed to get namespace from path")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	toolServerName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	log = log.WithValues(
+		"toolServerNamespace", namespace,
+		"toolServerName", toolServerName,
+	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: toolServerName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	// Find the tool server in the database to get its groupKind
+	ref := fmt.Sprintf("%s/%s", namespace, toolServerName)
+	toolServers, err := h.DatabaseService.ListToolServers()
+	if err != nil {
+		log.Error(err, "Failed to list tool servers from database")
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tool servers from database", err))
+		return
+	}
+
+	var groupKind string
+	for _, ts := range toolServers {
+		if ts.Name == ref {
+			groupKind = ts.GroupKind
+			break
+		}
+	}
+
+	if groupKind == "" {
+		log.Info("ToolServer not found in database")
+		w.RespondWithError(errors.NewNotFoundError("ToolServer not found", nil))
+		return
+	}
+
+	// Get discovered tools
+	tools, err := h.DatabaseService.ListToolsForServer(ref, groupKind)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
+		return
+	}
+
+	discoveredTools := make([]*v1alpha2.MCPTool, len(tools))
+	for j, tool := range tools {
+		discoveredTools[j] = &v1alpha2.MCPTool{
+			Name:        tool.ID,
+			Description: tool.Description,
+		}
+	}
+
+	response := api.ToolServerDetailResponse{
+		Ref:             ref,
+		GroupKind:       groupKind,
+		DiscoveredTools: discoveredTools,
+	}
+
+	// Fetch the full CRD based on groupKind
+	switch groupKind {
+	case "RemoteMCPServer.kagent.dev":
+		toolServer := &v1alpha2.RemoteMCPServer{}
+		err = h.KubeClient.Get(
+			r.Context(),
+			client.ObjectKey{
+				Namespace: namespace,
+				Name:      toolServerName,
+			},
+			toolServer,
+		)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
+				return
+			}
+			w.RespondWithError(errors.NewInternalServerError("Failed to get RemoteMCPServer", err))
+			return
+		}
+		response.RemoteMCPServer = toolServer
+
+	case "MCPServer.kagent.dev":
+		toolServer := &v1alpha1.MCPServer{}
+		err = h.KubeClient.Get(
+			r.Context(),
+			client.ObjectKey{
+				Namespace: namespace,
+				Name:      toolServerName,
+			},
+			toolServer,
+		)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
+				return
+			}
+			w.RespondWithError(errors.NewInternalServerError("Failed to get MCPServer", err))
+			return
+		}
+		response.MCPServer = toolServer
+
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unknown tool server type", nil))
+		return
+	}
+
+	log.Info("Successfully retrieved ToolServer")
+	data := api.NewResponse(response, "Successfully retrieved ToolServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleUpdateToolServer handles PUT /api/toolservers/{namespace}/{name} requests
+func (h *ToolServersHandler) HandleUpdateToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "update")
+	log.Info("Received request to update ToolServer")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		log.Error(err, "Failed to get namespace from path")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	toolServerName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	log = log.WithValues(
+		"toolServerNamespace", namespace,
+		"toolServerName", toolServerName,
+	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: toolServerName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	var toolServerRequest ToolServerCreateRequest
+	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
+		log.Error(err, "Invalid request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	switch toolServerRequest.Type {
+	case ToolServerTypeRemoteMCPServer:
+		if toolServerRequest.RemoteMCPServer == nil {
+			w.RespondWithError(errors.NewBadRequestError("RemoteMCPServer data is required when type is RemoteMCPServer", nil))
+			return
+		}
+		h.handleUpdateRemoteMCPServer(w, r, namespace, toolServerName, toolServerRequest.RemoteMCPServer, log)
+	case ToolServerTypeMCPServer:
+		if toolServerRequest.MCPServer == nil {
+			w.RespondWithError(errors.NewBadRequestError("MCPServer data is required when type is MCPServer", nil))
+			return
+		}
+		h.handleUpdateMCPServer(w, r, namespace, toolServerName, toolServerRequest.MCPServer, log)
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Invalid tool server type", nil))
+	}
+}
+
+// handleUpdateRemoteMCPServer handles updating a RemoteMCPServer
+func (h *ToolServersHandler) handleUpdateRemoteMCPServer(w ErrorResponseWriter, r *http.Request, namespace, name string, update *v1alpha2.RemoteMCPServer, log logr.Logger) {
+	existing := &v1alpha2.RemoteMCPServer{}
+	err := h.KubeClient.Get(
+		r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name},
+		existing,
+	)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to get RemoteMCPServer", err))
+		return
+	}
+
+	existing.Spec = update.Spec
+
+	if err := h.KubeClient.Update(r.Context(), existing); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to update RemoteMCPServer", err))
+		return
+	}
+
+	log.Info("Successfully updated RemoteMCPServer")
+	data := api.NewResponse(existing, "Successfully updated RemoteMCPServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// handleUpdateMCPServer handles updating an MCPServer
+func (h *ToolServersHandler) handleUpdateMCPServer(w ErrorResponseWriter, r *http.Request, namespace, name string, update *v1alpha1.MCPServer, log logr.Logger) {
+	existing := &v1alpha1.MCPServer{}
+	err := h.KubeClient.Get(
+		r.Context(),
+		client.ObjectKey{Namespace: namespace, Name: name},
+		existing,
+	)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to get MCPServer", err))
+		return
+	}
+
+	existing.Spec = update.Spec
+
+	if err := h.KubeClient.Update(r.Context(), existing); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to update MCPServer", err))
+		return
+	}
+
+	log.Info("Successfully updated MCPServer")
+	data := api.NewResponse(existing, "Successfully updated MCPServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
 // HandleDeleteToolServer handles DELETE /api/toolservers/{namespace}/{name} requests
 func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "delete")

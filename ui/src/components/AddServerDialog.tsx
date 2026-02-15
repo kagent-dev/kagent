@@ -18,6 +18,14 @@ interface AddServerDialogProps {
   onOpenChange: (open: boolean) => void;
   onAddServer: (serverRequest: ToolServerCreateRequest) => void;
   onError?: (error: string) => void;
+  editMode?: boolean;
+  editServerData?: {
+    name: string;
+    namespace: string;
+    type: "RemoteMCPServer" | "MCPServer";
+    remoteMCPServer?: RemoteMCPServer;
+    mcpServer?: MCPServer;
+  };
 }
 
 interface ArgPair {
@@ -29,7 +37,7 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
+export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, onAddServer, onError, editMode = false, editServerData }: AddServerDialogProps) {
   const [activeTab, setActiveTab] = useState<"command" | "url">("url");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +131,55 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     // Directly set the server name without an intermediate variable
     setServerName(generatedName);
   }, [activeTab, packageName, url, userEditedName]);
+
+  // Populate form fields when editing an existing server
+  useEffect(() => {
+    if (!editMode || !editServerData || !open) return;
+
+    setServerName(editServerData.name);
+    setServerNamespace(editServerData.namespace);
+    setUserEditedName(true); // Prevent auto-generation from overwriting
+
+    if (editServerData.type === "RemoteMCPServer" && editServerData.remoteMCPServer) {
+      setActiveTab("url");
+      const spec = editServerData.remoteMCPServer.spec;
+      setUrl(spec.url || "");
+      setUseStreamableHttp(spec.protocol === "STREAMABLE_HTTP");
+      setTimeout(spec.timeout || "5s");
+      setSseReadTimeout(spec.sseReadTimeout || "300s");
+      setTerminateOnClose(spec.terminateOnClose ?? true);
+      if (spec.headersFrom && spec.headersFrom.length > 0) {
+        const headerObj: Record<string, string> = {};
+        spec.headersFrom.forEach(h => {
+          if (h.value) headerObj[h.name] = h.value;
+        });
+        if (Object.keys(headerObj).length > 0) {
+          setHeaders(JSON.stringify(headerObj));
+        }
+      }
+    } else if (editServerData.type === "MCPServer" && editServerData.mcpServer) {
+      setActiveTab("command");
+      const spec = editServerData.mcpServer.spec;
+      const cmd = spec.deployment.cmd || "npx";
+      setCommandType(cmd === "uvx" ? "uvx" : "npx");
+
+      const args = spec.deployment.args || [];
+      if (args.length > 0) {
+        // Last arg is the package name
+        setPackageName(args[args.length - 1]);
+        // Remaining args
+        const remainingArgs = args.slice(0, -1);
+        setArgPairs(remainingArgs.length > 0 ? remainingArgs.map(a => ({ value: a })) : [{ value: "" }]);
+      }
+
+      const env = spec.deployment.env;
+      if (env && Object.keys(env).length > 0) {
+        setEnvPairs(Object.entries(env).map(([key, value]) => ({ key, value })));
+      } else {
+        setEnvPairs([{ key: "", value: "" }]);
+      }
+    }
+  }, [editMode, editServerData, open]);
 
   useEffect(() => {
     if (activeTab === "command") {
@@ -438,7 +495,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
         <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
-          <DialogTitle>Add MCP Server</DialogTitle>
+          <DialogTitle>{editMode ? "Edit MCP Server" : "Add MCP Server"}</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6">
@@ -469,11 +526,12 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Input 
-                id="server-name" 
-                placeholder="e.g., my-tool-server" 
-                value={serverName} 
+              <Input
+                id="server-name"
+                placeholder="e.g., my-tool-server"
+                value={serverName}
                 onChange={handleServerNameChange}
+                disabled={editMode}
                 className={!isResourceNameValid(serverName) && serverName ? "border-red-300" : ""}
               />
               {!isResourceNameValid(serverName) && serverName && (
@@ -500,12 +558,13 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
               <NamespaceCombobox
                 value={serverNamespace}
                 onValueChange={setServerNamespace}
+                disabled={editMode}
               />
             </div>
 
-            <Tabs defaultValue="url" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
+            <Tabs defaultValue="url" value={activeTab} onValueChange={(v) => !editMode && setActiveTab(v as "command" | "url")}>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="url" className="flex items-center gap-2">
+                <TabsTrigger value="url" className="flex items-center gap-2" disabled={editMode && activeTab !== "url"}>
                   <Globe className="h-4 w-4" />
                   URL
                 </TabsTrigger>
@@ -513,8 +572,10 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                   "command",
                   <Terminal className="h-4 w-4" />,
                   "Command",
-                  !isToolServerTypeSupported("MCPServer"),
-                  "KMCP integration disabled: MCPServer CRD not found in cluster."
+                  !isToolServerTypeSupported("MCPServer") || (editMode && activeTab !== "command"),
+                  !isToolServerTypeSupported("MCPServer")
+                    ? "KMCP integration disabled: MCPServer CRD not found in cluster."
+                    : undefined
                 )}
               </TabsList>
 
@@ -654,10 +715,10 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Adding...
+                {editMode ? "Saving..." : "Adding..."}
               </>
             ) : (
-              "Add Server"
+              editMode ? "Save Changes" : "Add Server"
             )}
           </Button>
         </DialogFooter>
