@@ -1,6 +1,5 @@
 """Tests for LangGraphAgentExecutorConfig."""
 
-import importlib
 import os
 from unittest.mock import patch
 
@@ -11,8 +10,10 @@ def test_recursion_limit_default():
     """Test that default recursion_limit is 25 (LangGraph's default)."""
     from kagent.langgraph._executor import LangGraphAgentExecutorConfig
 
-    config = LangGraphAgentExecutorConfig()
-    assert config.recursion_limit == 25
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("LANGGRAPH_RECURSION_LIMIT", None)
+        config = LangGraphAgentExecutorConfig()
+        assert config.recursion_limit == 25
 
 
 def test_recursion_limit_from_env_var():
