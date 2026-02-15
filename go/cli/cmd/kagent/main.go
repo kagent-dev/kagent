@@ -38,13 +38,10 @@ func main() {
 		Use:   "kagent",
 		Short: "kagent is a CLI and TUI for kagent",
 		Long:  "kagent is a CLI and TUI for kagent",
-		Run:   runInteractive,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Load config from ~/.kagent/config.yaml so that file-based
-			// values are used as defaults for subcommands. Explicit CLI flags
-			// still win because cobra marks them as Changed.
-			// Note: runInteractive (the root Run handler) calls config.Get()
-			// directly, so this hook only affects subcommands.
+			// values are used as defaults. Explicit CLI flags still win
+			// because cobra marks them as Changed.
 			fileCfg, err := config.Get()
 			if err != nil {
 				return fmt.Errorf("error loading config: %w", err)
@@ -67,6 +64,11 @@ func main() {
 				cfg.Timeout = fileCfg.Timeout
 			}
 			return nil
+		},
+		Run: func(cmd *cobra.Command, args []string) {
+			// Use the shared cfg that PersistentPreRunE already populated
+			// with file-based defaults merged with CLI flag overrides.
+			runInteractive(cmd, cfg)
 		},
 	}
 
@@ -457,21 +459,18 @@ Examples:
 	}
 }
 
-func runInteractive(cmd *cobra.Command, args []string) {
-	cfg, err := config.Get()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting config: %v\n", err)
-		os.Exit(1)
-	}
-
+// runInteractive launches the TUI workspace using the shared cfg that was
+// already populated by PersistentPreRunE (file defaults + CLI flag overrides).
+func runInteractive(cmd *cobra.Command, cfg *config.Config) {
 	client := cfg.Client()
 
 	// Start port forward and ensure it is healthy.
 	var pf *cli.PortForward
 	if err := cli.CheckServerConnection(cmd.Context(), client); err != nil {
-		pf, err = cli.NewPortForward(cmd.Context(), cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
+		var pfErr error
+		pf, pfErr = cli.NewPortForward(cmd.Context(), cfg)
+		if pfErr != nil {
+			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", pfErr)
 			return
 		}
 		defer pf.Stop()
