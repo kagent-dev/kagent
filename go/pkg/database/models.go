@@ -118,7 +118,7 @@ const (
 // Feedback represents user feedback on agent responses
 type Feedback struct {
 	gorm.Model
-	UserID       string             `gorm:"primaryKey;not null" json:"user_id"`
+	UserID       string             `gorm:"not null;index" json:"user_id"`
 	MessageID    uint               `gorm:"index;constraint:OnDelete:CASCADE" json:"message_id"`
 	IsPositive   bool               `gorm:"default:false" json:"is_positive"`
 	FeedbackText string             `gorm:"not null" json:"feedback_text"`
