@@ -209,6 +209,7 @@ export type MessageHandlers = {
   setStreamingContent: (updater: (prev: string) => string) => void;
   setTokenStats: (updater: (prev: TokenStats) => TokenStats) => void;
   setChatStatus?: (status: ChatStatus) => void;
+  onToolApprovalRequired?: (toolCalls: Array<{name: string, args: Record<string, unknown>, id: string}>, taskId: string, contextId: string) => void;
   agentContext?: {
     namespace: string;
     agentName: string;
@@ -368,6 +369,20 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
             if (partMetadata?.kagent_type === "function_call") {
               const toolData = data as unknown as ToolCallData;
+
+              // Check if this is an adk_request_confirmation function call
+              if (toolData.name === "adk_request_confirmation" && handlers.onToolApprovalRequired) {
+                const originalFunctionCall = toolData.args?.originalFunctionCall as { name: string; args: Record<string, unknown>; id: string } | undefined;
+                if (originalFunctionCall) {
+                  handlers.onToolApprovalRequired(
+                    [{ name: originalFunctionCall.name, args: originalFunctionCall.args || {}, id: originalFunctionCall.id }],
+                    statusUpdate.taskId || "",
+                    statusUpdate.contextId || ""
+                  );
+                  continue;
+                }
+              }
+
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 

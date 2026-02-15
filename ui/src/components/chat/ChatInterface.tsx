@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
+import { ToolApprovalDialog, ToolCallInfo } from "./ToolApprovalDialog";
 import TokenStatsDisplay from "./TokenStats";
 import type { TokenStats, Session, ChatStatus } from "@/types";
 import StatusDisplay from "./StatusDisplay";
@@ -56,6 +57,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const isFirstAssistantChunkRef = useRef(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
+  const [pendingApproval, setPendingApproval] = useState<{
+    toolCalls: ToolCallInfo[];
+    taskId: string;
+    contextId: string;
+  } | null>(null);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
 
@@ -80,6 +86,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setStreamingContent,
     setTokenStats,
     setChatStatus,
+    onToolApprovalRequired: (toolCalls, taskId, contextId) => {
+      setPendingApproval({ toolCalls, taskId, contextId });
+    },
     agentContext: {
       namespace: selectedNamespace,
       agentName: selectedAgentName
@@ -352,6 +361,97 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
+  const sendToolDecision = async (decisionType: "approve" | "deny") => {
+    if (!pendingApproval) return;
+
+    const { taskId, contextId } = pendingApproval;
+    setPendingApproval(null);
+    setChatStatus("thinking");
+    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStreamingMessages([]);
+    setStreamingContent("");
+
+    try {
+      abortControllerRef.current = new AbortController();
+
+      const a2aMessage: Message = {
+        kind: "message",
+        messageId: uuidv4(),
+        role: "user",
+        parts: [{
+          kind: "data",
+          data: { decision_type: decisionType }
+        }],
+        contextId,
+        taskId,
+      };
+
+      const sendParams = {
+        message: a2aMessage,
+        metadata: {}
+      };
+
+      const stream = await kagentA2AClient.sendMessageStream(
+        selectedNamespace,
+        selectedAgentName,
+        sendParams,
+        abortControllerRef.current?.signal
+      );
+
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      let streamActive = true;
+      const streamTimeout = 600000;
+
+      const handleTimeout = () => {
+        if (streamActive) {
+          console.error("Stream timeout - no events received for 10 minutes");
+          toast.error("Stream timed out - no events received for 10 minutes");
+          streamActive = false;
+          if (abortControllerRef.current) abortControllerRef.current.abort();
+        }
+      };
+
+      const startTimeout = () => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+      };
+      startTimeout();
+
+      try {
+        for await (const event of stream) {
+          startTimeout();
+          try {
+            handleMessageEvent(event);
+          } catch (error) {
+            console.error(`Error handling event: ${error}\nEvent: ${event}`);
+          }
+          if (abortControllerRef.current?.signal.aborted) {
+            streamActive = false;
+            break;
+          }
+        }
+      } finally {
+        streamActive = false;
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
+        toast.info("Request cancelled");
+        setChatStatus("ready");
+      } else {
+        toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        setChatStatus("error");
+      }
+      setIsStreaming(false);
+      setStreamingContent("");
+    } finally {
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleToolApprove = () => sendToolDecision("approve");
+  const handleToolReject = () => sendToolDecision("deny");
+
   if (sessionNotFound) {
     return (
       <div className="flex flex-col items-center justify-center w-full h-full">
@@ -429,6 +529,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <StatusDisplay chatStatus={chatStatus} />
           <TokenStatsDisplay stats={tokenStats} />
         </div>
+
+        <ToolApprovalDialog
+          open={pendingApproval !== null}
+          onOpenChange={(open) => { if (!open) setPendingApproval(null); }}
+          toolCalls={pendingApproval?.toolCalls ?? []}
+          onApprove={handleToolApprove}
+          onReject={handleToolReject}
+        />
 
         <form onSubmit={handleSendMessage}>
           <Textarea

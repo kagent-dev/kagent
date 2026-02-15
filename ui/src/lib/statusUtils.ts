@@ -53,8 +53,8 @@ export const getStatusInfo = (status: ChatStatus): StatusInfo => {
       };
     case "input_required":
       return {
-        text: "Input required...",
-        placeholder: "Input required..."
+        text: "Approval required",
+        placeholder: "Waiting for tool approval..."
       };
     case "auth_required":
       return {
