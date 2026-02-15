@@ -10,8 +10,13 @@ import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { useAgents } from "@/components/AgentsProvider";
 
 export default function ServersPage() {
+  const router = useRouter();
+  const { refreshTools } = useAgents();
+
   // State for servers and tools
   const [servers, setServers] = useState<ToolServerResponse[]>([]);
   const [toolServerTypes, setToolServerTypes] = useState<string[]>([]);
@@ -83,7 +88,9 @@ export default function ServersPage() {
 
       if (!response.error) {
         toast.success("Server deleted successfully");
-        fetchServers();
+        await fetchServers();
+        refreshTools();
+        router.refresh();
       } else {
         toast.error(response.error || "Failed to delete server");
       }
@@ -109,7 +116,9 @@ export default function ServersPage() {
 
       toast.success("Server added successfully");
       setShowAddServer(false);
-      fetchServers();
+      await fetchServers();
+      refreshTools();
+      router.refresh();
     } catch (error) {
       console.error("Error adding server:", error);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
