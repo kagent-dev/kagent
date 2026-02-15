@@ -4,6 +4,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/database"
+	kmcpv1alpha1 "github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 // Common types
@@ -139,6 +140,15 @@ type ToolServerResponse struct {
 	Ref             string              `json:"ref"`
 	GroupKind       string              `json:"groupKind"`
 	DiscoveredTools []*v1alpha2.MCPTool `json:"discoveredTools"`
+}
+
+// ToolServerDetailResponse represents a detailed tool server response including full spec
+type ToolServerDetailResponse struct {
+	Ref             string                    `json:"ref"`
+	GroupKind       string                    `json:"groupKind"`
+	DiscoveredTools []*v1alpha2.MCPTool       `json:"discoveredTools"`
+	RemoteMCPServer *v1alpha2.RemoteMCPServer `json:"remoteMCPServer,omitempty"`
+	MCPServer       *kmcpv1alpha1.MCPServer   `json:"mcpServer,omitempty"`
 }
 
 // Memory types
