@@ -1306,6 +1306,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Params:         *tool,
 			Tools:          mcpServerTool.ToolNames,
 			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Confirm:        translateToolConfirmation(mcpServerTool.Confirm),
 		})
 	default:
 		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -1316,9 +1317,22 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Params:         *tool,
 			Tools:          mcpServerTool.ToolNames,
 			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Confirm:        translateToolConfirmation(mcpServerTool.Confirm),
 		})
 	}
 	return nil
+}
+
+func translateToolConfirmation(confirm *v1alpha2.ToolConfirmation) *adk.ToolConfirmationConfig {
+	if confirm == nil {
+		return nil
+	}
+	return &adk.ToolConfirmationConfig{
+		ExceptReadOnly:       confirm.ExceptReadOnly,
+		ExceptIdempotent:     confirm.ExceptIdempotent,
+		ExceptNonDestructive: confirm.ExceptNonDestructive,
+		ExceptTools:          confirm.ExceptTools,
+	}
 }
 
 // Helper functions
