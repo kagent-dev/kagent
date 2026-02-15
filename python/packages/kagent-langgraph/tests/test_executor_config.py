@@ -46,3 +46,12 @@ def test_recursion_limit_rejects_negative():
 
     with pytest.raises(Exception):
         LangGraphAgentExecutorConfig(recursion_limit=-5)
+
+
+def test_recursion_limit_invalid_env_var():
+    """Test that a non-numeric LANGGRAPH_RECURSION_LIMIT env var raises an error."""
+    import kagent.langgraph._executor as executor_mod
+
+    with patch.dict(os.environ, {"LANGGRAPH_RECURSION_LIMIT": "abc"}):
+        with pytest.raises((ValueError, Exception)):
+            executor_mod.LangGraphAgentExecutorConfig()
