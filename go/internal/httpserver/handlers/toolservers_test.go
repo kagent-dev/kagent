@@ -508,4 +508,424 @@ func TestToolServersHandler(t *testing.T) {
 			require.NotNil(t, responseRecorder.errorReceived)
 		})
 	})
+
+	t.Run("HandleGetToolServer", func(t *testing.T) {
+		t.Run("Success_RemoteMCPServer", func(t *testing.T) {
+			handler, kubeClient, dbClient, responseRecorder := setupHandler()
+
+			// Create tool server in Kubernetes
+			toolServer := &v1alpha2.RemoteMCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-toolserver",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.RemoteMCPServerSpec{
+					Description: "Test remote tool server",
+					Protocol:    v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+					URL:         "https://example.com/streamable",
+				},
+			}
+			err := kubeClient.Create(context.Background(), toolServer)
+			require.NoError(t, err)
+
+			// Register in database with correct groupKind
+			_, err = dbClient.StoreToolServer(&database.ToolServer{
+				Name:      "default/test-toolserver",
+				GroupKind: "RemoteMCPServer.kagent.dev",
+			})
+			require.NoError(t, err)
+
+			// Add a discovered tool
+			err = dbClient.CreateTool(&database.Tool{
+				ID:          "test-tool",
+				ServerName:  "default/test-toolserver",
+				GroupKind:   "RemoteMCPServer.kagent.dev",
+				Description: "Test tool",
+			})
+			require.NoError(t, err)
+
+			req := httptest.NewRequest("GET", "/api/toolservers/default/test-toolserver", nil)
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleGetToolServer(responseRecorder, r)
+			}).Methods("GET")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			var resp api.StandardResponse[api.ToolServerDetailResponse]
+			err = json.Unmarshal(responseRecorder.Body.Bytes(), &resp)
+			require.NoError(t, err)
+			assert.Equal(t, "default/test-toolserver", resp.Data.Ref)
+			assert.Equal(t, "RemoteMCPServer.kagent.dev", resp.Data.GroupKind)
+			require.NotNil(t, resp.Data.RemoteMCPServer)
+			assert.Equal(t, "https://example.com/streamable", resp.Data.RemoteMCPServer.Spec.URL)
+			require.Len(t, resp.Data.DiscoveredTools, 1)
+			assert.Equal(t, "test-tool", resp.Data.DiscoveredTools[0].Name)
+		})
+
+		t.Run("Success_MCPServer", func(t *testing.T) {
+			handler, kubeClient, dbClient, responseRecorder := setupHandler()
+
+			// Create MCPServer in Kubernetes
+			toolServer := &v1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-stdio-server",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.MCPServerSpec{
+					Deployment: v1alpha1.MCPServerDeployment{
+						Image: "my-mcp-server:latest",
+						Port:  8080,
+					},
+					TransportType:  v1alpha1.TransportTypeStdio,
+					StdioTransport: &v1alpha1.StdioTransport{},
+				},
+			}
+			err := kubeClient.Create(context.Background(), toolServer)
+			require.NoError(t, err)
+
+			// Register in database
+			_, err = dbClient.StoreToolServer(&database.ToolServer{
+				Name:      "default/test-stdio-server",
+				GroupKind: "MCPServer.kagent.dev",
+			})
+			require.NoError(t, err)
+
+			req := httptest.NewRequest("GET", "/api/toolservers/default/test-stdio-server", nil)
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleGetToolServer(responseRecorder, r)
+			}).Methods("GET")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			var resp api.StandardResponse[api.ToolServerDetailResponse]
+			err = json.Unmarshal(responseRecorder.Body.Bytes(), &resp)
+			require.NoError(t, err)
+			assert.Equal(t, "default/test-stdio-server", resp.Data.Ref)
+			assert.Equal(t, "MCPServer.kagent.dev", resp.Data.GroupKind)
+			require.NotNil(t, resp.Data.MCPServer)
+			assert.Equal(t, "my-mcp-server:latest", resp.Data.MCPServer.Spec.Deployment.Image)
+		})
+
+		t.Run("NotFound", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/toolservers/default/nonexistent", nil)
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleGetToolServer(responseRecorder, r)
+			}).Methods("GET")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusNotFound, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("MissingNamespaceParam", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/toolservers/", nil)
+			req = setUser(req, "test-user")
+			handler.HandleGetToolServer(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+	})
+
+	t.Run("HandleUpdateToolServer", func(t *testing.T) {
+		t.Run("Success_RemoteMCPServer", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler()
+
+			// Create existing RemoteMCPServer in Kubernetes
+			existing := &v1alpha2.RemoteMCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-toolserver",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.RemoteMCPServerSpec{
+					Description: "Original description",
+					Protocol:    v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+					URL:         "https://example.com/original",
+				},
+			}
+			err := kubeClient.Create(context.Background(), existing)
+			require.NoError(t, err)
+
+			// Update request with new spec
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "Updated description",
+						Protocol:    v1alpha2.RemoteMCPServerProtocolSse,
+						URL:         "https://example.com/updated",
+					},
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			var resp api.StandardResponse[v1alpha2.RemoteMCPServer]
+			err = json.Unmarshal(responseRecorder.Body.Bytes(), &resp)
+			require.NoError(t, err)
+			assert.Equal(t, "test-toolserver", resp.Data.Name)
+			assert.Equal(t, "Updated description", resp.Data.Spec.Description)
+			assert.Equal(t, v1alpha2.RemoteMCPServerProtocolSse, resp.Data.Spec.Protocol)
+			assert.Equal(t, "https://example.com/updated", resp.Data.Spec.URL)
+		})
+
+		t.Run("Success_MCPServer", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler()
+
+			// Create existing MCPServer in Kubernetes
+			existing := &v1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-stdio-server",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.MCPServerSpec{
+					Deployment: v1alpha1.MCPServerDeployment{
+						Image: "old-image:v1",
+						Port:  8080,
+					},
+					TransportType:  v1alpha1.TransportTypeStdio,
+					StdioTransport: &v1alpha1.StdioTransport{},
+				},
+			}
+			err := kubeClient.Create(context.Background(), existing)
+			require.NoError(t, err)
+
+			// Update request with new spec
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				MCPServer: &v1alpha1.MCPServer{
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
+							Image: "new-image:v2",
+							Port:  9090,
+						},
+						TransportType:  v1alpha1.TransportTypeStdio,
+						StdioTransport: &v1alpha1.StdioTransport{},
+					},
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-stdio-server", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			var resp api.StandardResponse[v1alpha1.MCPServer]
+			err = json.Unmarshal(responseRecorder.Body.Bytes(), &resp)
+			require.NoError(t, err)
+			assert.Equal(t, "test-stdio-server", resp.Data.Name)
+			assert.Equal(t, "new-image:v2", resp.Data.Spec.Deployment.Image)
+			assert.Equal(t, uint16(9090), resp.Data.Spec.Deployment.Port)
+		})
+
+		t.Run("NotFound_RemoteMCPServer", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "Updated description",
+						URL:         "https://example.com/updated",
+					},
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/nonexistent", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusNotFound, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("NotFound_MCPServer", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				MCPServer: &v1alpha1.MCPServer{
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
+							Image: "some-image:latest",
+						},
+					},
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/nonexistent", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusNotFound, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("InvalidJSON", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBufferString("invalid json"))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("MissingRemoteMCPServerData", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				// RemoteMCPServer is nil
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("MissingMCPServerData", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				// MCPServer is nil
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("InvalidType", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "InvalidType",
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateToolServer(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("MissingNamespaceParam", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler()
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "test",
+						URL:         "https://example.com/test",
+					},
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+			handler.HandleUpdateToolServer(responseRecorder, req)
+
+			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			require.NotNil(t, responseRecorder.errorReceived)
+		})
+	})
 }
