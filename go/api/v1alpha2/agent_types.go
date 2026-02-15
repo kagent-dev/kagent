@@ -239,6 +239,27 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 	return result, nil
 }
 
+// ToolConfirmation configures tool confirmation (human-in-the-loop) for an MCP server's tools.
+// When present, all tools from this server require user approval before execution,
+// unless exempted by one of the exception rules below.
+type ToolConfirmation struct {
+	// Skip confirmation for tools whose MCP annotations have readOnlyHint=true
+	// +optional
+	ExceptReadOnly *bool `json:"exceptReadOnly,omitempty"`
+
+	// Skip confirmation for tools whose MCP annotations have idempotentHint=true
+	// +optional
+	ExceptIdempotent *bool `json:"exceptIdempotent,omitempty"`
+
+	// Skip confirmation for tools whose MCP annotations have destructiveHint=false
+	// +optional
+	ExceptNonDestructive *bool `json:"exceptNonDestructive,omitempty"`
+
+	// Skip confirmation for tools with these specific names
+	// +optional
+	ExceptTools []string `json:"exceptTools,omitempty"`
+}
+
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// +optional
@@ -262,6 +283,12 @@ type McpServerTool struct {
 	// Example: ["x-user-email", "x-tenant-id"]
 	// +optional
 	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
+
+	// Confirm configures tool confirmation (human-in-the-loop) for this server's tools.
+	// When present, all tools from this server require user approval before execution,
+	// unless exempted by one of the exception rules.
+	// +optional
+	Confirm *ToolConfirmation `json:"confirm,omitempty"`
 }
 
 type TypedLocalReference struct {

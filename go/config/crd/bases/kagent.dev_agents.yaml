@@ -9976,6 +9976,31 @@ spec:
                               type: array
                             apiGroup:
                               type: string
+                            confirm:
+                              description: |-
+                                Confirm configures tool confirmation (human-in-the-loop) for this server's tools.
+                                When present, all tools from this server require user approval before execution,
+                                unless exempted by one of the exception rules.
+                              properties:
+                                exceptIdempotent:
+                                  description: Skip confirmation for tools whose MCP
+                                    annotations have idempotentHint=true
+                                  type: boolean
+                                exceptNonDestructive:
+                                  description: Skip confirmation for tools whose MCP
+                                    annotations have destructiveHint=false
+                                  type: boolean
+                                exceptReadOnly:
+                                  description: Skip confirmation for tools whose MCP
+                                    annotations have readOnlyHint=true
+                                  type: boolean
+                                exceptTools:
+                                  description: Skip confirmation for tools with these
+                                    specific names
+                                  items:
+                                    type: string
+                                  type: array
+                              type: object
                             kind:
                               type: string
                             name:

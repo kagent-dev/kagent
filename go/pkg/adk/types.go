@@ -15,10 +15,19 @@ type StreamableHTTPConnectionParams struct {
 	TerminateOnClose *bool             `json:"terminate_on_close,omitempty"`
 }
 
+// ToolConfirmationConfig configures per-tool confirmation for an MCP server.
+type ToolConfirmationConfig struct {
+	ExceptReadOnly       *bool    `json:"except_read_only,omitempty"`
+	ExceptIdempotent     *bool    `json:"except_idempotent,omitempty"`
+	ExceptNonDestructive *bool    `json:"except_non_destructive,omitempty"`
+	ExceptTools          []string `json:"except_tools,omitempty"`
+}
+
 type HttpMcpServerConfig struct {
 	Params         StreamableHTTPConnectionParams `json:"params"`
 	Tools          []string                       `json:"tools"`
 	AllowedHeaders []string                       `json:"allowed_headers,omitempty"`
+	Confirm        *ToolConfirmationConfig        `json:"confirm,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -29,9 +38,10 @@ type SseConnectionParams struct {
 }
 
 type SseMcpServerConfig struct {
-	Params         SseConnectionParams `json:"params"`
-	Tools          []string            `json:"tools"`
-	AllowedHeaders []string            `json:"allowed_headers,omitempty"`
+	Params         SseConnectionParams     `json:"params"`
+	Tools          []string                `json:"tools"`
+	AllowedHeaders []string                `json:"allowed_headers,omitempty"`
+	Confirm        *ToolConfirmationConfig `json:"confirm,omitempty"`
 }
 
 type Model interface {
