@@ -138,16 +138,31 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     return converted
 
 
+class ToolConfirmationConfig(BaseModel):
+    """Configures tool confirmation (human-in-the-loop) for an MCP server's tools.
+
+    When present on a server config, all tools from that server require user approval
+    before execution, unless exempted by one of the exception rules.
+    """
+
+    except_read_only: bool | None = None
+    except_idempotent: bool | None = None
+    except_non_destructive: bool | None = None
+    except_tools: list[str] | None = None
+
+
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    confirm: ToolConfirmationConfig | None = None
 
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    confirm: ToolConfirmationConfig | None = None
 
 
 class RemoteAgentConfig(BaseModel):
@@ -247,6 +262,7 @@ class AgentConfig(BaseModel):
                         connection_params=http_tool.params,
                         tool_filter=http_tool.tools,
                         header_provider=tool_header_provider,
+                        confirm_config=http_tool.confirm,
                     )
                 )
         if self.sse_tools:
@@ -261,6 +277,7 @@ class AgentConfig(BaseModel):
                         connection_params=sse_tool.params,
                         tool_filter=sse_tool.tools,
                         header_provider=tool_header_provider,
+                        confirm_config=sse_tool.confirm,
                     )
                 )
         if self.remote_agents:
