@@ -81,7 +81,7 @@ This configuration is suitable for quick demos and local experimentation but **n
 |----------|---------|-------------|
 | `DATABASE_TYPE` | `sqlite` | Database backend (`sqlite` or `postgres`) |
 | `SQLITE_DATABASE_PATH` | `/sqlite-volume/kagent.db` (Helm) or `./kagent.db` (binary) | Path to SQLite file |
-| `POSTGRES_DATABASE_URL` | `postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres` | PostgreSQL connection URL |
+| `POSTGRES_DATABASE_URL` | `postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres` (Helm) or `postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud` (binary) | PostgreSQL connection URL |
 
 ### CLI Flags
 
@@ -89,7 +89,7 @@ This configuration is suitable for quick demos and local experimentation but **n
 |------|---------|-------------|
 | `--database-type` | `sqlite` | Database backend |
 | `--sqlite-database-path` | `./kagent.db` | SQLite file path |
-| `--postgres-database-url` | (see above) | PostgreSQL connection URL |
+| `--postgres-database-url` | `postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud` | PostgreSQL connection URL |
 
 ## Data Retention
 
