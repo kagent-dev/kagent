@@ -144,11 +144,11 @@ type ToolServerResponse struct {
 
 // ToolServerDetailResponse represents a detailed tool server response including full spec
 type ToolServerDetailResponse struct {
-	Ref             string                        `json:"ref"`
-	GroupKind       string                        `json:"groupKind"`
-	DiscoveredTools []*v1alpha2.MCPTool           `json:"discoveredTools"`
-	RemoteMCPServer *v1alpha2.RemoteMCPServer     `json:"remoteMCPServer,omitempty"`
-	MCPServer       *kmcpv1alpha1.MCPServer       `json:"mcpServer,omitempty"`
+	Ref             string                    `json:"ref"`
+	GroupKind       string                    `json:"groupKind"`
+	DiscoveredTools []*v1alpha2.MCPTool       `json:"discoveredTools"`
+	RemoteMCPServer *v1alpha2.RemoteMCPServer `json:"remoteMCPServer,omitempty"`
+	MCPServer       *kmcpv1alpha1.MCPServer   `json:"mcpServer,omitempty"`
 }
 
 // Memory types
