@@ -23,6 +23,7 @@ func TestValidateAgentName(t *testing.T) {
 		{name: "invalid starts with dash", input: "-agent", wantErr: true},
 		{name: "single letter", input: "a", wantErr: false},
 		{name: "single underscore", input: "_", wantErr: false},
+		{name: "valid unicode letter start", input: "α_agent", wantErr: false},
 	}
 
 	for _, tt := range tests {

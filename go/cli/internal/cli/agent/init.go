@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks"
@@ -112,7 +113,7 @@ func validateAgentName(name string) error {
 		return fmt.Errorf("agent name cannot be empty")
 	}
 
-	first := rune(name[0])
+	first, _ := utf8.DecodeRuneInString(name)
 	if !unicode.IsLetter(first) && first != '_' {
 		return fmt.Errorf("invalid agent name %q: must start with a letter or underscore", name)
 	}
