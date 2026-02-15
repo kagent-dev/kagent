@@ -24,6 +24,7 @@ from a2a.types import (
 from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
+from google.genai import types as genai_types
 from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
@@ -36,6 +37,8 @@ from kagent.core.tracing._span_processor import (
 
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
+
+REQUEST_CONFIRMATION_FUNCTION_CALL_NAME = "adk_request_confirmation"
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -109,6 +112,11 @@ class A2aAgentExecutor(AgentExecutor):
         """
         if not context.message:
             raise ValueError("A2A request must have a message")
+
+        # Check if this is a resume for a tool confirmation
+        if self._is_confirmation_resume(context):
+            await self._handle_confirmation_resume(context, event_queue)
+            return
 
         # Convert the a2a request to ADK run args
         stream = self._config.stream if self._config is not None else False
@@ -282,7 +290,22 @@ class A2aAgentExecutor(AgentExecutor):
                     await event_queue.enqueue_event(a2a_event)
 
         # publish the task result event - this is final
-        if (
+        # Check if the task is waiting for user input (confirmation or auth)
+        if task_result_aggregator.task_state in (TaskState.input_required, TaskState.auth_required):
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=task_result_aggregator.task_state,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=task_result_aggregator.task_status_message,
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                    metadata=run_metadata,
+                )
+            )
+        elif (
             task_result_aggregator.task_state == TaskState.working
             and task_result_aggregator.task_status_message is not None
             and task_result_aggregator.task_status_message.parts
@@ -327,6 +350,107 @@ class A2aAgentExecutor(AgentExecutor):
                     metadata=run_metadata,
                 )
             )
+
+    def _is_confirmation_resume(self, context: RequestContext) -> bool:
+        """Check if this request is a resume for a pending tool confirmation."""
+        if not context.current_task:
+            return False
+        task = context.current_task
+        if hasattr(task, "status") and task.status and task.status.state == TaskState.input_required:
+            return True
+        return False
+
+    async def _handle_confirmation_resume(self, context: RequestContext, event_queue: EventQueue):
+        """Handle a resume message for a pending tool confirmation."""
+        stream = self._config.stream if self._config is not None else False
+        run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
+
+        # Extract the decision from the user's message
+        decision = self._extract_decision(context.message)
+        confirmed = decision == "approve"
+
+        # Extract the function call ID from the task's last status message
+        function_call_id = self._extract_confirmation_function_call_id(context.current_task)
+
+        # Construct the ADK FunctionResponse content
+        confirmation_response = genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                        id=function_call_id or "confirmation_response",
+                        response={"confirmed": confirmed},
+                    )
+                )
+            ],
+        )
+
+        # Override the new_message with our confirmation response
+        run_args["new_message"] = confirmation_response
+
+        span_attributes = {}
+        if run_args.get("user_id"):
+            span_attributes["kagent.user_id"] = run_args["user_id"]
+        if context.task_id:
+            span_attributes["gen_ai.task.id"] = context.task_id
+        if run_args.get("session_id"):
+            span_attributes["gen_ai.conversation.id"] = run_args["session_id"]
+
+        context_token = set_kagent_span_attributes(span_attributes)
+        runner = None
+        try:
+            runner = await self._resolve_runner()
+            await self._handle_request(context, event_queue, runner, run_args)
+        except asyncio.CancelledError as e:
+            logger.error("Confirmation resume was cancelled", exc_info=True)
+            await self._publish_failed_status_event(context, event_queue, str(e) or "Confirmation resume cancelled")
+        except Exception as e:
+            logger.error("Error during confirmation resume: %s", e, exc_info=True)
+            await self._publish_failed_status_event(context, event_queue, str(e))
+        finally:
+            clear_kagent_span_attributes(context_token)
+            if runner is not None:
+                await runner.close()
+
+    def _extract_decision(self, message: Message) -> str:
+        """Extract approval decision from the user's A2A message."""
+        if not message or not message.parts:
+            return "deny"
+
+        for part in message.parts:
+            root = part.root if hasattr(part, "root") else part
+            # Check for DataPart with decision_type
+            if hasattr(root, "data") and isinstance(root.data, dict):
+                decision = root.data.get("decision_type", "")
+                if decision in ("approve", "deny"):
+                    return decision
+            # Check for TextPart with approve/deny text
+            if hasattr(root, "text") and root.text:
+                text = root.text.strip().lower()
+                if text in ("approve", "approved", "yes", "y", "accept"):
+                    return "approve"
+                if text in ("deny", "denied", "reject", "rejected", "no", "n"):
+                    return "deny"
+
+        return "deny"
+
+    def _extract_confirmation_function_call_id(self, task) -> str | None:
+        """Extract the function call ID from the task's last status message."""
+        if not task or not hasattr(task, "status") or not task.status:
+            return None
+
+        status_message = task.status.message
+        if not status_message or not status_message.parts:
+            return None
+
+        for part in status_message.parts:
+            root = part.root if hasattr(part, "root") else part
+            if hasattr(root, "data") and isinstance(root.data, dict):
+                if root.data.get("name") == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME:
+                    return root.data.get("id")
+
+        return None
 
     async def _prepare_session(self, context: RequestContext, run_args: dict[str, Any], runner: Runner):
         session_id = run_args["session_id"]
