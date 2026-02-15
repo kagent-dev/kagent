@@ -77,9 +77,11 @@ export async function POST(
           try { await reader.cancel(); } catch { /* ignore */ }
         };
 
-        const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB (character count)
-        const CHUNK_SIZE = 16 * 1024;              // 16 KB (character count)
-        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB (byte count)
+        // Note: MAX_BUFFER_SIZE and CHUNK_SIZE are measured in UTF-16 code units (JS string length),
+        // which approximates bytes for ASCII/JSON SSE data but may undercount for multi-byte characters.
+        const MAX_BUFFER_SIZE = 1024 * 1024;       // ~1 MB in characters
+        const CHUNK_SIZE = 16 * 1024;              // ~16 KB in characters
+        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes (from Uint8Array.length)
         let processedSize = 0;
 
         const pump = async (): Promise<void> => {
