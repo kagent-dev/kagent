@@ -4,6 +4,8 @@ import importlib
 import os
 from unittest.mock import patch
 
+import pytest
+
 
 def test_recursion_limit_default():
     """Test that default recursion_limit is 25 (LangGraph's default)."""
@@ -14,18 +16,12 @@ def test_recursion_limit_default():
 
 
 def test_recursion_limit_from_env_var():
-    """Test that LANGGRAPH_RECURSION_LIMIT env var is picked up."""
-    with patch.dict(os.environ, {"LANGGRAPH_RECURSION_LIMIT": "50"}):
-        # Re-import to pick up new env var value
-        import kagent.langgraph._executor as executor_mod
+    """Test that LANGGRAPH_RECURSION_LIMIT env var is picked up at instance creation."""
+    import kagent.langgraph._executor as executor_mod
 
-        importlib.reload(executor_mod)
+    with patch.dict(os.environ, {"LANGGRAPH_RECURSION_LIMIT": "50"}):
         config = executor_mod.LangGraphAgentExecutorConfig()
         assert config.recursion_limit == 50
-
-    # Restore default
-    os.environ.pop("LANGGRAPH_RECURSION_LIMIT", None)
-    importlib.reload(executor_mod)
 
 
 def test_recursion_limit_explicit_override():
@@ -34,3 +30,19 @@ def test_recursion_limit_explicit_override():
 
     config = LangGraphAgentExecutorConfig(recursion_limit=100)
     assert config.recursion_limit == 100
+
+
+def test_recursion_limit_rejects_zero():
+    """Test that recursion_limit=0 is rejected by gt=0 validation."""
+    from kagent.langgraph._executor import LangGraphAgentExecutorConfig
+
+    with pytest.raises(Exception):
+        LangGraphAgentExecutorConfig(recursion_limit=0)
+
+
+def test_recursion_limit_rejects_negative():
+    """Test that negative recursion_limit is rejected by gt=0 validation."""
+    from kagent.langgraph._executor import LangGraphAgentExecutorConfig
+
+    with pytest.raises(Exception):
+        LangGraphAgentExecutorConfig(recursion_limit=-5)

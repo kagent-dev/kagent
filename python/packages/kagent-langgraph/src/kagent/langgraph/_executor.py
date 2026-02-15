@@ -40,7 +40,7 @@ from kagent.core.tracing._span_processor import (
     set_kagent_span_attributes,
 )
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -62,7 +62,11 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Maximum number of steps before LangGraph raises a recursion error.
     # Configurable via LANGGRAPH_RECURSION_LIMIT env var. Default is 25 (LangGraph's default).
-    recursion_limit: int = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "25"))
+    recursion_limit: int = Field(
+        default_factory=lambda: int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "25")),
+        gt=0,
+        description="Maximum number of steps before LangGraph raises a recursion error",
+    )
 
 
 class LangGraphAgentExecutor(AgentExecutor):
