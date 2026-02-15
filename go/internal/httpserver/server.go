@@ -223,6 +223,8 @@ func (s *HTTPServer) setupRoutes() {
 	// Tool Servers
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleGetToolServer)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleUpdateToolServer)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
 	// Tool Server Types
