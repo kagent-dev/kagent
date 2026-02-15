@@ -72,13 +72,20 @@ export async function POST(
           keepAliveTimer = setTimeout(sendKeepAlive, KEEP_ALIVE_INTERVAL_MS);
         };
 
-        const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB
-        const CHUNK_SIZE = 16 * 1024;              // 16 KB
-        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+        const cleanup = async () => {
+          if (keepAliveTimer) clearTimeout(keepAliveTimer);
+          try { await reader.cancel(); } catch { /* ignore */ }
+        };
+
+        const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB (character count)
+        const CHUNK_SIZE = 16 * 1024;              // 16 KB (character count)
+        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB (byte count)
         let processedSize = 0;
 
-        const pump = (): Promise<void> => {
-          return reader.read().then(({ done, value }): Promise<void> => {
+        const pump = async (): Promise<void> => {
+          try {
+            const { done, value } = await reader.read();
+
             if (done) {
               if (!isClosed) {
                 if (keepAliveTimer) clearTimeout(keepAliveTimer);
@@ -86,16 +93,19 @@ export async function POST(
                 isClosed = true;
                 console.log('A2A Proxy: Backend connection closed.');
               }
-
-              return Promise.resolve();
+              return;
             }
 
             buffer += decoder.decode(value, { stream: true });
 
             processedSize += value.length;
             if (processedSize > MAX_MESSAGE_SIZE) {
-              await reader.cancel();
-              throw new Error('Message size exceeds maximum allowed limit of 10MB');
+              await cleanup();
+              if (!isClosed) {
+                controller.error(new Error('Message size exceeds maximum allowed limit of 10MB'));
+                isClosed = true;
+              }
+              return;
             }
 
             // Process complete SSE events (delimited by \n\n) before checking buffer size
@@ -120,17 +130,15 @@ export async function POST(
             }
 
             return pump();
-          }).catch(error => {
+          } catch (error) {
             console.error('A2A Proxy: Error in stream pump:', error);
-            if (keepAliveTimer) clearTimeout(keepAliveTimer);
-            
+            await cleanup();
+
             if (!isClosed) {
               controller.error(error);
               isClosed = true;
             }
-
-            return Promise.resolve();
-          });
+          }
         };
 
         pump();

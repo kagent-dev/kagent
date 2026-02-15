@@ -83,9 +83,9 @@ export class KagentA2AClient {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB
-    const CHUNK_SIZE = 16 * 1024;              // 16 KB
-    const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+    const MAX_BUFFER_SIZE = 1024 * 1024;       // 1 MB (character count)
+    const CHUNK_SIZE = 16 * 1024;              // 16 KB (character count)
+    const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB (byte count)
     let processedSize = 0;
 
     try {
@@ -100,7 +100,6 @@ export class KagentA2AClient {
 
         processedSize += value.length;
         if (processedSize > MAX_MESSAGE_SIZE) {
-          await reader.cancel();
           throw new Error('Message size exceeds maximum allowed limit of 10MB');
         }
 
@@ -138,6 +137,7 @@ export class KagentA2AClient {
         }
       }
     } finally {
+      await reader.cancel();
       reader.releaseLock();
     }
   }
