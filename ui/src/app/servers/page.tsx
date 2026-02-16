@@ -25,6 +25,7 @@ export default function ServersPage() {
   const [editServerData, setEditServerData] = useState<{
     name: string;
     namespace: string;
+    groupKind: string;
     type: "RemoteMCPServer" | "MCPServer";
     remoteMCPServer?: ToolServerDetailResponse["remoteMCPServer"];
     mcpServer?: ToolServerDetailResponse["mcpServer"];
@@ -128,10 +129,10 @@ export default function ServersPage() {
   };
 
   // Handle editing a server - fetch full details and open dialog
-  const handleEditServer = async (serverRef: string) => {
+  const handleEditServer = async (serverRef: string, groupKind: string) => {
     try {
       setIsLoading(true);
-      const response = await getServer(serverRef);
+      const response = await getServer(serverRef, groupKind);
 
       if (response.error || !response.data) {
         toast.error(response.error || "Failed to fetch server details");
@@ -147,6 +148,7 @@ export default function ServersPage() {
       setEditServerData({
         name,
         namespace,
+        groupKind: detail.groupKind,
         type: serverType,
         remoteMCPServer: detail.remoteMCPServer,
         mcpServer: detail.mcpServer,
@@ -167,7 +169,7 @@ export default function ServersPage() {
     try {
       setIsLoading(true);
       const serverRef = `${editServerData.namespace}/${editServerData.name}`;
-      const response = await updateServer(serverRef, serverRequest);
+      const response = await updateServer(serverRef, editServerData.groupKind, serverRequest);
 
       if (response.error) {
         throw new Error(response.error || "Failed to update server");
@@ -263,7 +265,7 @@ export default function ServersPage() {
                             onSelect={(e) => {
                               e.preventDefault();
                               setOpenDropdownMenu(null);
-                              handleEditServer(serverName);
+                              handleEditServer(serverName, server.groupKind);
                             }}
                           >
                             <Pencil className="h-4 w-4 mr-2" />

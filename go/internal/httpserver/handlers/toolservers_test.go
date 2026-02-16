@@ -544,11 +544,11 @@ func TestToolServersHandler(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			req := httptest.NewRequest("GET", "/api/toolservers/default/test-toolserver", nil)
+			req := httptest.NewRequest("GET", "/api/toolservers/default/test-toolserver/RemoteMCPServer.kagent.dev", nil)
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleGetToolServer(responseRecorder, r)
 			}).Methods("GET")
 
@@ -595,11 +595,11 @@ func TestToolServersHandler(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			req := httptest.NewRequest("GET", "/api/toolservers/default/test-stdio-server", nil)
+			req := httptest.NewRequest("GET", "/api/toolservers/default/test-stdio-server/MCPServer.kagent.dev", nil)
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleGetToolServer(responseRecorder, r)
 			}).Methods("GET")
 
@@ -619,11 +619,11 @@ func TestToolServersHandler(t *testing.T) {
 		t.Run("NotFound", func(t *testing.T) {
 			handler, _, _, responseRecorder := setupHandler()
 
-			req := httptest.NewRequest("GET", "/api/toolservers/default/nonexistent", nil)
+			req := httptest.NewRequest("GET", "/api/toolservers/default/nonexistent/RemoteMCPServer.kagent.dev", nil)
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleGetToolServer(responseRecorder, r)
 			}).Methods("GET")
 
@@ -677,12 +677,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver/RemoteMCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
@@ -736,12 +736,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-stdio-server", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-stdio-server/MCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
@@ -757,74 +757,51 @@ func TestToolServersHandler(t *testing.T) {
 			assert.Equal(t, uint16(9090), resp.Data.Spec.Deployment.Port)
 		})
 
-		t.Run("NotFound_RemoteMCPServer", func(t *testing.T) {
+		t.Run("SSA_CreatesIfNotExists_RemoteMCPServer", func(t *testing.T) {
 			handler, _, _, responseRecorder := setupHandler()
 
+			// Server-side apply creates the resource if it doesn't exist
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
 				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
 					Spec: v1alpha2.RemoteMCPServerSpec{
-						Description: "Updated description",
-						URL:         "https://example.com/updated",
+						Description: "New via SSA",
+						URL:         "https://example.com/ssa-new",
 					},
 				},
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/nonexistent", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/ssa-new-server/RemoteMCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
 			router.ServeHTTP(responseRecorder, req)
 
-			require.Equal(t, http.StatusNotFound, responseRecorder.Code)
-			require.NotNil(t, responseRecorder.errorReceived)
-		})
+			// SSA creates the object if it doesn't exist
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
 
-		t.Run("NotFound_MCPServer", func(t *testing.T) {
-			handler, _, _, responseRecorder := setupHandler()
-
-			reqBody := &handlers.ToolServerCreateRequest{
-				Type: "MCPServer",
-				MCPServer: &v1alpha1.MCPServer{
-					Spec: v1alpha1.MCPServerSpec{
-						Deployment: v1alpha1.MCPServerDeployment{
-							Image: "some-image:latest",
-						},
-					},
-				},
-			}
-
-			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/nonexistent", bytes.NewBuffer(jsonBody))
-			req.Header.Set("Content-Type", "application/json")
-			req = setUser(req, "test-user")
-
-			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleUpdateToolServer(responseRecorder, r)
-			}).Methods("PUT")
-
-			router.ServeHTTP(responseRecorder, req)
-
-			require.Equal(t, http.StatusNotFound, responseRecorder.Code)
-			require.NotNil(t, responseRecorder.errorReceived)
+			var resp api.StandardResponse[v1alpha2.RemoteMCPServer]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &resp)
+			require.NoError(t, err)
+			assert.Equal(t, "ssa-new-server", resp.Data.Name)
+			assert.Equal(t, "New via SSA", resp.Data.Spec.Description)
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {
 			handler, _, _, responseRecorder := setupHandler()
 
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBufferString("invalid json"))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver/RemoteMCPServer.kagent.dev", bytes.NewBufferString("invalid json"))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
@@ -843,12 +820,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver/RemoteMCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
@@ -867,12 +844,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver/MCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
@@ -890,12 +867,12 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/toolservers/default/test-toolserver/RemoteMCPServer.kagent.dev", bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
 			req = setUser(req, "test-user")
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/toolservers/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			router.HandleFunc("/api/toolservers/{namespace}/{name}/{groupKind}", func(w http.ResponseWriter, r *http.Request) {
 				handler.HandleUpdateToolServer(responseRecorder, r)
 			}).Methods("PUT")
 
