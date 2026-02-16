@@ -104,18 +104,12 @@ class TestInstallMcpContentTypeFilter:
     def test_installs_filter_on_mcp_logger(self):
         mcp_logger = logging.getLogger(_MCP_STREAMABLE_HTTP_LOGGER)
         # Remove any pre-existing filters (e.g., from kagent.adk.__init__)
-        mcp_logger.filters = [
-            f for f in mcp_logger.filters if not isinstance(f, _UnexpectedContentTypeFilter)
-        ]
-        assert len(
-            [f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)]
-        ) == 0
+        mcp_logger.filters = [f for f in mcp_logger.filters if not isinstance(f, _UnexpectedContentTypeFilter)]
+        assert len([f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)]) == 0
 
         install_mcp_content_type_filter()
 
-        count = len(
-            [f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)]
-        )
+        count = len([f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)])
         assert count == 1
 
     def test_idempotent(self):
@@ -126,9 +120,7 @@ class TestInstallMcpContentTypeFilter:
         install_mcp_content_type_filter()
 
         mcp_logger = logging.getLogger(_MCP_STREAMABLE_HTTP_LOGGER)
-        count = len(
-            [f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)]
-        )
+        count = len([f for f in mcp_logger.filters if isinstance(f, _UnexpectedContentTypeFilter)])
         assert count == 1
 
     def test_integration_error_becomes_debug(self, caplog):
@@ -144,8 +136,7 @@ class TestInstallMcpContentTypeFilter:
         matching = [
             r
             for r in caplog.records
-            if r.name == _MCP_STREAMABLE_HTTP_LOGGER
-            and "Unexpected content type" in r.message
+            if r.name == _MCP_STREAMABLE_HTTP_LOGGER and "Unexpected content type" in r.message
         ]
         assert len(matching) == 1
         assert matching[0].levelno == logging.DEBUG
