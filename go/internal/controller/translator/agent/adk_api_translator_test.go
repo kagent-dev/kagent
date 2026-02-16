@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -1093,6 +1094,192 @@ func Test_AdkApiTranslator_McpServerToolConfirm(t *testing.T) {
 				} else {
 					assert.Nil(t, tool.Confirm, "Expected Confirm to be nil")
 				}
+			}
+		})
+	}
+}
+
+func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	summarizerModelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "summarizer-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4o-mini",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	makeAgent := func(context *v1alpha2.ContextConfig) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a test agent",
+					ModelConfig:   "test-model",
+					Context:       context,
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		agent        *v1alpha2.Agent
+		extraObjects []client.Object
+		wantErr      bool
+		errContains  string
+		assertConfig func(t *testing.T, cfg *adk.AgentConfig)
+	}{
+		{
+			name:  "no context config",
+			agent: makeAgent(nil),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				assert.Nil(t, cfg.ContextConfig)
+			},
+		},
+		{
+			name: "compaction only",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: 5,
+					OverlapSize:        2,
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, 5, cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, 2, cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Empty(t, cfg.ContextConfig.Compaction.SummarizerModelName)
+				assert.Nil(t, cfg.ContextConfig.Cache)
+			},
+		},
+		{
+			name: "cache only",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Cache: &v1alpha2.ContextCacheConfig{
+					CacheIntervals: ptr.To(20),
+					TTLSeconds:     ptr.To(3600),
+					MinTokens:      ptr.To(100),
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				assert.Nil(t, cfg.ContextConfig.Compaction)
+				require.NotNil(t, cfg.ContextConfig.Cache)
+				assert.Equal(t, ptr.To(20), cfg.ContextConfig.Cache.CacheIntervals)
+				assert.Equal(t, ptr.To(3600), cfg.ContextConfig.Cache.TTLSeconds)
+				assert.Equal(t, ptr.To(100), cfg.ContextConfig.Cache.MinTokens)
+			},
+		},
+		{
+			name: "both compaction and cache",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: 10,
+					OverlapSize:        3,
+					TokenThreshold:     ptr.To(1000),
+					EventRetentionSize: ptr.To(5),
+				},
+				Cache: &v1alpha2.ContextCacheConfig{
+					CacheIntervals: ptr.To(15),
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, 10, cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, 3, cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Equal(t, ptr.To(1000), cfg.ContextConfig.Compaction.TokenThreshold)
+				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.EventRetentionSize)
+				require.NotNil(t, cfg.ContextConfig.Cache)
+				assert.Equal(t, ptr.To(15), cfg.ContextConfig.Cache.CacheIntervals)
+			},
+		},
+		{
+			name: "compaction with summarizer using agent model",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: 5,
+					OverlapSize:        2,
+					Summarizer: &v1alpha2.ContextSummarizerConfig{
+						PromptTemplate: "Summarize: {{events}}",
+					},
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, "gpt-4", cfg.ContextConfig.Compaction.SummarizerModelName)
+				assert.Equal(t, "Summarize: {{events}}", cfg.ContextConfig.Compaction.PromptTemplate)
+			},
+		},
+		{
+			name: "compaction with summarizer using separate model",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: 5,
+					OverlapSize:        2,
+					Summarizer: &v1alpha2.ContextSummarizerConfig{
+						ModelConfig: "summarizer-model",
+					},
+				},
+			}),
+			extraObjects: []client.Object{summarizerModelConfig.DeepCopy()},
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, "gpt-4o-mini", cfg.ContextConfig.Compaction.SummarizerModelName)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := []client.Object{modelConfig.DeepCopy()}
+			for _, obj := range tt.extraObjects {
+				objects = append(objects, obj)
+			}
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objects...).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+			if tt.assertConfig != nil {
+				tt.assertConfig(t, outputs.Config)
 			}
 		})
 	}

@@ -297,16 +297,42 @@ type AgentConfig struct {
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	ExecuteCode  bool                  `json:"execute_code,omitempty"`
 	Stream       bool                  `json:"stream"`
+	// Context management configuration
+	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
+}
+
+// AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
+type AgentContextConfig struct {
+	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
+	Cache      *AgentCacheConfig       `json:"cache,omitempty"`
+}
+
+// AgentCompressionConfig maps to Python's ContextCompressionSettings.
+type AgentCompressionConfig struct {
+	CompactionInterval int    `json:"compaction_interval"`
+	OverlapSize        int    `json:"overlap_size"`
+	SummarizerModelName string `json:"summarizer_model_name,omitempty"`
+	PromptTemplate     string `json:"prompt_template,omitempty"`
+	TokenThreshold     *int   `json:"token_threshold,omitempty"`
+	EventRetentionSize *int   `json:"event_retention_size,omitempty"`
+}
+
+// AgentCacheConfig maps to Python's ContextCacheSettings.
+type AgentCacheConfig struct {
+	CacheIntervals *int `json:"cache_intervals,omitempty"`
+	TTLSeconds     *int `json:"ttl_seconds,omitempty"`
+	MinTokens      *int `json:"min_tokens,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model         json.RawMessage       `json:"model"`
+		Description   string                `json:"description"`
+		Instruction   string                `json:"instruction"`
+		HttpTools     []HttpMcpServerConfig `json:"http_tools"`
+		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
+		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -321,6 +347,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.ContextConfig = tmp.ContextConfig
 	return nil
 }
 

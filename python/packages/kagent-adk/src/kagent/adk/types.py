@@ -230,6 +230,32 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
+class ContextCompressionSettings(BaseModel):
+    """Settings for event history compaction/compression."""
+
+    compaction_interval: int
+    overlap_size: int
+    summarizer_model_name: str | None = None
+    prompt_template: str | None = None
+    token_threshold: int | None = None
+    event_retention_size: int | None = None
+
+
+class ContextCacheSettings(BaseModel):
+    """Settings for prefix context caching."""
+
+    cache_intervals: int | None = None
+    ttl_seconds: int | None = None
+    min_tokens: int | None = None
+
+
+class ContextConfig(BaseModel):
+    """Context management configuration containing compaction and cache settings."""
+
+    compaction: ContextCompressionSettings | None = None
+    cache: ContextCacheSettings | None = None
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -242,6 +268,7 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     # This stream option refers to LLM response streaming, not A2A streaming
     stream: bool | None = None
+    context_config: ContextConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -412,3 +439,66 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
         )
+
+
+def build_adk_context_configs(
+    context_config: ContextConfig,
+    agent_model_name: str | None = None,
+) -> tuple:
+    """Build Google ADK context config objects from kagent settings.
+
+    Args:
+        context_config: The kagent context configuration
+        agent_model_name: The agent's model name, used as fallback for summarizer
+
+    Returns:
+        Tuple of (events_compaction_config, context_cache_config), either may be None
+    """
+    from google.adk.apps.app import EventsCompactionConfig
+    from google.adk.agents.context_cache_config import (
+        ContextCacheConfig as AdkContextCacheConfig,
+    )
+
+    events_compaction_config = None
+    context_cache_config = None
+
+    if context_config.compaction is not None:
+        comp = context_config.compaction
+        summarizer = None
+
+        if comp.summarizer_model_name or comp.prompt_template:
+            from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+
+            model_name = comp.summarizer_model_name or agent_model_name
+            if model_name:
+                summarizer_llm = LiteLlm(model=model_name)
+                summarizer = LlmEventSummarizer(
+                    llm=summarizer_llm,
+                    prompt_template=comp.prompt_template,
+                )
+
+        compaction_kwargs: dict = {
+            "compaction_interval": comp.compaction_interval,
+            "overlap_size": comp.overlap_size,
+            "summarizer": summarizer,
+        }
+        # Forward-compatible: pass token_threshold/event_retention_size
+        # when the ADK version supports them.
+        if comp.token_threshold is not None and hasattr(EventsCompactionConfig, "token_threshold"):
+            compaction_kwargs["token_threshold"] = comp.token_threshold
+        if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
+            compaction_kwargs["event_retention_size"] = comp.event_retention_size
+        events_compaction_config = EventsCompactionConfig(**compaction_kwargs)
+
+    if context_config.cache is not None:
+        cache = context_config.cache
+        kwargs = {}
+        if cache.cache_intervals is not None:
+            kwargs["cache_intervals"] = cache.cache_intervals
+        if cache.ttl_seconds is not None:
+            kwargs["ttl_seconds"] = cache.ttl_seconds
+        if cache.min_tokens is not None:
+            kwargs["min_tokens"] = cache.min_tokens
+        context_cache_config = AdkContextCacheConfig(**kwargs)
+
+    return events_compaction_config, context_cache_config
