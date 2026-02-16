@@ -544,8 +544,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
         <div className="flex items-center justify-between mb-4">
+          <StatusDisplay chatStatus={chatStatus} />
           <div className="flex items-center gap-2">
-            <StatusDisplay chatStatus={chatStatus} />
+            <TokenStatsDisplay stats={tokenStats} />
             {sessionId && chatStatus === "ready" && storedMessages.length > 0 && agent?.spec?.declarative?.context?.compaction && (
               <TooltipProvider>
                 <Tooltip>
@@ -553,7 +554,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 ml-2"
+                      className="h-6 w-6"
                       onClick={async () => {
                         if (sessionId) {
                           try {
@@ -579,7 +580,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </TooltipProvider>
             )}
           </div>
-          <TokenStatsDisplay stats={tokenStats} />
         </div>
 
         <ToolApprovalDialog
