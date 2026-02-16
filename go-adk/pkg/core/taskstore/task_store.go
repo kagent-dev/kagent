@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
 
 // KAgentTaskStore persists A2A tasks to KAgent via REST API
@@ -35,14 +35,14 @@ func NewKAgentTaskStoreWithClient(baseURL string, client *http.Client) *KAgentTa
 
 // KAgentTaskResponse wraps KAgent controller API responses
 type KAgentTaskResponse struct {
-	Error   bool           `json:"error"`
-	Data    *protocol.Task `json:"data,omitempty"`
-	Message string         `json:"message,omitempty"`
+	Error   bool            `json:"error"`
+	Data    *a2atype.Task   `json:"data,omitempty"`
+	Message string          `json:"message,omitempty"`
 }
 
 // isPartialEvent checks if a history item is a partial ADK streaming event
-func (s *KAgentTaskStore) isPartialEvent(item protocol.Message) bool {
-	if item.Metadata == nil {
+func (s *KAgentTaskStore) isPartialEvent(item *a2atype.Message) bool {
+	if item == nil || item.Metadata == nil {
 		return false
 	}
 	if partial, ok := item.Metadata["adk_partial"].(bool); ok {
@@ -51,9 +51,10 @@ func (s *KAgentTaskStore) isPartialEvent(item protocol.Message) bool {
 	return false
 }
 
-// cleanPartialEvents removes partial streaming events from history
-func (s *KAgentTaskStore) cleanPartialEvents(history []protocol.Message) []protocol.Message {
-	var cleaned []protocol.Message
+// cleanPartialEvents removes partial streaming events from history.
+// History in a2a-go Task is []*Message.
+func (s *KAgentTaskStore) cleanPartialEvents(history []*a2atype.Message) []*a2atype.Message {
+	var cleaned []*a2atype.Message
 	for _, item := range history {
 		if !s.isPartialEvent(item) {
 			cleaned = append(cleaned, item)
@@ -63,7 +64,7 @@ func (s *KAgentTaskStore) cleanPartialEvents(history []protocol.Message) []proto
 }
 
 // Save saves a task to KAgent
-func (s *KAgentTaskStore) Save(ctx context.Context, task *protocol.Task) error {
+func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 	// Clean any partial events from history before saving
 	if task.History != nil {
 		task.History = s.cleanPartialEvents(task.History)
@@ -93,11 +94,11 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *protocol.Task) error {
 
 	// Signal that save completed (event-based sync) - notify all waiters
 	s.mu.Lock()
-	if channels, ok := s.saveEvents[task.ID]; ok {
+	if channels, ok := s.saveEvents[string(task.ID)]; ok {
 		for _, ch := range channels {
 			close(ch)
 		}
-		delete(s.saveEvents, task.ID)
+		delete(s.saveEvents, string(task.ID))
 	}
 	s.mu.Unlock()
 
@@ -105,7 +106,7 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *protocol.Task) error {
 }
 
 // Get retrieves a task from KAgent
-func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*protocol.Task, error) {
+func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*a2atype.Task, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", s.BaseURL+"/api/tasks/"+taskID, nil)
 	if err != nil {
 		return nil, err

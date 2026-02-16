@@ -3,14 +3,16 @@ package converter
 import (
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/event"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/genai"
 	adksession "google.golang.org/adk/session"
 	gogenai "google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
+
+func timePtr(t time.Time) *time.Time { return &t }
 
 const (
 	// RequestEucFunctionCallName is the name of the request_euc function call
@@ -83,10 +85,10 @@ func getContextMetadata(e interface{}, cc a2a.ConversionContext) map[string]inte
 
 // processLongRunningTool processes long-running tool metadata for an A2A part.
 // This matches Python's _process_long_running_tool function.
-func processLongRunningTool(a2aPart protocol.Part, e interface{}) {
+func processLongRunningTool(a2aPart a2atype.Part, e interface{}) {
 	longRunningToolIDs := extractLongRunningToolIDs(e)
 
-	dataPart, ok := a2aPart.(*protocol.DataPart)
+	dataPart, ok := a2aPart.(*a2atype.DataPart)
 	if !ok {
 		return
 	}
@@ -100,8 +102,8 @@ func processLongRunningTool(a2aPart protocol.Part, e interface{}) {
 		return
 	}
 
-	dataMap, ok := dataPart.Data.(map[string]interface{})
-	if !ok {
+	dataMap := dataPart.Data
+	if dataMap == nil {
 		return
 	}
 
@@ -131,7 +133,7 @@ func extractLongRunningToolIDs(e interface{}) []string {
 
 // createErrorStatusEvent creates a TaskStatusUpdateEvent for error scenarios.
 // This matches Python's _create_error_status_event function
-func createErrorStatusEvent(event interface{}, cc a2a.ConversionContext) *protocol.TaskStatusUpdateEvent {
+func createErrorStatusEvent(event interface{}, cc a2a.ConversionContext) *a2atype.TaskStatusUpdateEvent {
 	errorCode := extractErrorCode(event)
 	errorMessage := extractErrorMessage(event)
 
@@ -146,22 +148,21 @@ func createErrorStatusEvent(event interface{}, cc a2a.ConversionContext) *protoc
 		messageMetadata[a2a.MetadataKeyErrorCode] = errorCode
 	}
 
-	return &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    cc.TaskID,
+	return &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(cc.TaskID),
 		ContextID: cc.ContextID,
 		Metadata:  metadata,
-		Status: protocol.TaskStatus{
-			State: protocol.TaskStateFailed,
-			Message: &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts: []protocol.Part{
-					protocol.NewTextPart(errorMessage),
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateFailed,
+			Message: &a2atype.Message{
+				ID:   uuid.New().String(),
+				Role: a2atype.MessageRoleAgent,
+				Parts: a2atype.ContentParts{
+					a2atype.TextPart{Text: errorMessage},
 				},
 				Metadata: messageMetadata,
 			},
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Timestamp: timePtr(time.Now()),
 		},
 		Final: false, // Not final - error events are not final (matching Python)
 	}
@@ -169,7 +170,7 @@ func createErrorStatusEvent(event interface{}, cc a2a.ConversionContext) *protoc
 
 // ConvertEventToA2AEvents converts runner events to A2A events. Uses only *adksession.Event (Google ADK) and RunnerErrorEvent.
 // No internal event/content types: GenAI parts from ADK → A2A only.
-func ConvertEventToA2AEvents(event interface{}, cc a2a.ConversionContext) []protocol.Event {
+func ConvertEventToA2AEvents(event interface{}, cc a2a.ConversionContext) []a2atype.Event {
 	if adkEvent, ok := event.(*adksession.Event); ok {
 		return convertADKEventToA2AEvents(adkEvent, cc)
 	}
@@ -177,18 +178,18 @@ func ConvertEventToA2AEvents(event interface{}, cc a2a.ConversionContext) []prot
 	// RunnerErrorEvent or any type with ErrorCode: only error path
 	errorCode := extractErrorCode(event)
 	if errorCode != "" && !genai.IsNormalCompletion(errorCode) {
-		return []protocol.Event{createErrorStatusEvent(event, cc)}
+		return []a2atype.Event{createErrorStatusEvent(event, cc)}
 	}
 	// STOP with no content or unknown type: no events
 	return nil
 }
 
 // convertADKEventToA2AEvents converts *adksession.Event to A2A events (like Python convert_event_to_a2a_events(adk_event)).
-// Uses GenAIPartToA2APart for direct genai.Part → protocol.Part conversion.
-func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionContext) []protocol.Event {
+// Uses GenAIPartToA2APart for direct genai.Part → A2A Part conversion.
+func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionContext) []a2atype.Event {
 	errorCode := extractErrorCode(adkEvent)
 	if errorCode != "" && !genai.IsNormalCompletion(errorCode) {
-		return []protocol.Event{createErrorStatusEvent(adkEvent, cc)}
+		return []a2atype.Event{createErrorStatusEvent(adkEvent, cc)}
 	}
 
 	// Use LLMResponse.Content with fallback to Content so tool/progress events are not missed
@@ -200,7 +201,7 @@ func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionCon
 		return nil
 	}
 
-	var a2aParts []protocol.Part
+	var a2aParts a2atype.ContentParts
 	for _, part := range content.Parts {
 		a2aPart, err := GenAIPartToA2APart(part)
 		if err != nil || a2aPart == nil {
@@ -218,24 +219,22 @@ func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionCon
 	if adkEvent.Partial {
 		messageMetadata["adk_partial"] = true
 	}
-	message := &protocol.Message{
-		Kind:      protocol.KindMessage,
-		MessageID: uuid.New().String(),
-		Role:      protocol.MessageRoleAgent,
-		Parts:     a2aParts,
-		Metadata:  messageMetadata,
+	message := &a2atype.Message{
+		ID:       uuid.New().String(),
+		Role:     a2atype.MessageRoleAgent,
+		Parts:    a2aParts,
+		Metadata: messageMetadata,
 	}
 
 	state := determineTaskState(a2aParts)
 	metadata := getContextMetadata(adkEvent, cc)
 
-	return []protocol.Event{&protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    cc.TaskID,
+	return []a2atype.Event{&a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(cc.TaskID),
 		ContextID: cc.ContextID,
-		Status: protocol.TaskStatus{
+		Status: a2atype.TaskStatus{
 			State:     state,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Timestamp: timePtr(time.Now()),
 			Message:   message,
 		},
 		Metadata: metadata,
@@ -246,21 +245,21 @@ func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionCon
 // determineTaskState inspects converted parts to decide the A2A task state.
 // working by default; auth_required if any part is long-running function_call with name "request_euc";
 // else input_required if any part is long-running function_call.
-func determineTaskState(parts []protocol.Part) protocol.TaskState {
-	state := protocol.TaskStateWorking
+func determineTaskState(parts a2atype.ContentParts) a2atype.TaskState {
+	state := a2atype.TaskStateWorking
 	for _, part := range parts {
-		dataPart, ok := part.(*protocol.DataPart)
+		dataPart, ok := part.(*a2atype.DataPart)
 		if !ok || dataPart.Metadata == nil {
 			continue
 		}
 		partType, _ := dataPart.Metadata[a2a.MetadataKeyType].(string)
 		isLongRunning, _ := dataPart.Metadata[a2a.MetadataKeyIsLongRunning].(bool)
 		if partType == a2a.A2ADataPartMetadataTypeFunctionCall && isLongRunning {
-			if dataMap, ok := dataPart.Data.(map[string]interface{}); ok {
+			if dataMap := dataPart.Data; dataMap != nil {
 				if name, _ := dataMap[a2a.PartKeyName].(string); name == requestEucFunctionCallName {
-					return protocol.TaskStateAuthRequired
+					return a2atype.TaskStateAuthRequired
 				}
-				state = protocol.TaskStateInputRequired
+				state = a2atype.TaskStateInputRequired
 			}
 		}
 	}

@@ -3,16 +3,16 @@ package adk
 import (
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/converter"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func TestA2AMessageToGenAIContent_FunctionCall(t *testing.T) {
-	msg := &protocol.Message{
-		Role: protocol.MessageRoleUser,
-		Parts: []protocol.Part{
-			&protocol.DataPart{
+	msg := &a2atype.Message{
+		Role: a2atype.MessageRoleUser,
+		Parts: a2atype.ContentParts{
+			&a2atype.DataPart{
 				Data: map[string]interface{}{
 					"name": "my_func",
 					"args": map[string]interface{}{"key": "value"},
@@ -41,10 +41,10 @@ func TestA2AMessageToGenAIContent_FunctionCall(t *testing.T) {
 }
 
 func TestA2AMessageToGenAIContent_FunctionResponse(t *testing.T) {
-	msg := &protocol.Message{
-		Role: protocol.MessageRoleAgent,
-		Parts: []protocol.Part{
-			&protocol.DataPart{
+	msg := &a2atype.Message{
+		Role: a2atype.MessageRoleAgent,
+		Parts: a2atype.ContentParts{
+			&a2atype.DataPart{
 				Data: map[string]interface{}{
 					"name":     "my_func",
 					"response": map[string]interface{}{"result": "ok"},
@@ -73,10 +73,10 @@ func TestA2AMessageToGenAIContent_FunctionResponse(t *testing.T) {
 }
 
 func TestA2AMessageToGenAIContent_TextPart(t *testing.T) {
-	msg := &protocol.Message{
-		Role: protocol.MessageRoleUser,
-		Parts: []protocol.Part{
-			protocol.NewTextPart("hello world"),
+	msg := &a2atype.Message{
+		Role: a2atype.MessageRoleUser,
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "hello world"},
 		},
 	}
 
@@ -96,10 +96,10 @@ func TestA2AMessageToGenAIContent_TextPart(t *testing.T) {
 }
 
 func TestA2AMessageToGenAIContent_AgentRole(t *testing.T) {
-	msg := &protocol.Message{
-		Role: protocol.MessageRoleAgent,
-		Parts: []protocol.Part{
-			protocol.NewTextPart("model response"),
+	msg := &a2atype.Message{
+		Role: a2atype.MessageRoleAgent,
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "model response"},
 		},
 	}
 

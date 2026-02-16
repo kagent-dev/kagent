@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
 
 // KAgentPushNotificationStore handles push notification operations via KAgent API
@@ -27,13 +27,13 @@ func NewKAgentPushNotificationStoreWithClient(baseURL string, client *http.Clien
 
 // KAgentPushNotificationResponse wraps KAgent controller API responses for push notifications
 type KAgentPushNotificationResponse struct {
-	Error   bool                                 `json:"error"`
-	Data    *protocol.TaskPushNotificationConfig `json:"data,omitempty"`
-	Message string                               `json:"message,omitempty"`
+	Error   bool                    `json:"error"`
+	Data    *a2atype.TaskPushConfig `json:"data,omitempty"`
+	Message string                  `json:"message,omitempty"`
 }
 
 // Set stores a push notification configuration
-func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.TaskPushNotificationConfig) (*protocol.TaskPushNotificationConfig, error) {
+func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *a2atype.TaskPushConfig) (*a2atype.TaskPushConfig, error) {
 	if config == nil {
 		return nil, fmt.Errorf("push notification config cannot be nil")
 	}
@@ -47,7 +47,7 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 	}
 
 	// Use /api/tasks/{task_id}/push-notifications endpoint
-	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, config.TaskID)
+	url := fmt.Sprintf("%s/api/tasks/%s/push-notifications", s.BaseURL, string(config.TaskID))
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(configJSON))
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (s *KAgentPushNotificationStore) Set(ctx context.Context, config *protocol.
 }
 
 // Get retrieves a push notification configuration
-func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID string) (*protocol.TaskPushNotificationConfig, error) {
+func (s *KAgentPushNotificationStore) Get(ctx context.Context, taskID, configID string) (*a2atype.TaskPushConfig, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("taskID cannot be empty")
 	}

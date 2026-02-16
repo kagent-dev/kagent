@@ -9,20 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
-	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
 
 // ServerConfig holds configuration for the A2A server.
 type ServerConfig struct {
-	// Host is the address to bind to (empty binds to all interfaces)
-	Host string
-
-	// Port is the port to listen on
-	Port string
-
-	// ShutdownTimeout is the timeout for graceful shutdown
+	Host            string
+	Port            string
 	ShutdownTimeout time.Duration
 }
 
@@ -41,53 +36,51 @@ func DefaultServerConfig() ServerConfig {
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
 type A2AServer struct {
-	agentCard   server.AgentCard
-	taskManager taskmanager.TaskManager
-	httpServer  *http.Server
-	logger      logr.Logger
-	config      ServerConfig
+	httpServer *http.Server
+	logger     logr.Logger
+	config     ServerConfig
 }
 
-// NewA2AServer creates a new A2A server wrapper.
-func NewA2AServer(agentCard server.AgentCard, taskManager taskmanager.TaskManager, logger logr.Logger, config ServerConfig) (*A2AServer, error) {
+// NewA2AServer creates a new A2A server using a2asrv.
+func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
+	// Create request handler with the agent executor
+	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
+
+	// Create JSONRPC HTTP handler
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+
+	// Create mux to handle both A2A routes and health endpoints
+	mux := http.NewServeMux()
+
+	// Register health endpoints first
+	RegisterHealthEndpoints(mux)
+
+	// Register agent card endpoint
+	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
+
+	// All other routes go to the A2A JSONRPC handler
+	mux.Handle("/", jsonrpcHandler)
+
+	// Create HTTP server
+	addr := ":" + config.Port
+	if config.Host != "" {
+		addr = config.Host + ":" + config.Port
+	}
+
 	return &A2AServer{
-		agentCard:   agentCard,
-		taskManager: taskManager,
-		logger:      logger,
-		config:      config,
+		httpServer: &http.Server{
+			Addr:    addr,
+			Handler: mux,
+		},
+		logger: logger,
+		config: config,
 	}, nil
 }
 
 // Start initializes and starts the HTTP server.
 func (s *A2AServer) Start() error {
-	// Initialize A2A server with agent card
-	a2aServer, err := server.NewA2AServer(s.agentCard, s.taskManager)
-	if err != nil {
-		return fmt.Errorf("failed to create A2A server: %w", err)
-	}
+	s.logger.Info("Starting Go ADK server!", "addr", s.httpServer.Addr)
 
-	// Create mux to handle both A2A routes and health endpoints
-	mux := http.NewServeMux()
-
-	// Register health endpoints first (before catch-all "/" route)
-	RegisterHealthEndpoints(mux)
-
-	// All other routes go to A2A server
-	mux.Handle("/", a2aServer.Handler())
-
-	// Create HTTP server
-	addr := ":" + s.config.Port
-	if s.config.Host != "" {
-		addr = s.config.Host + ":" + s.config.Port
-	}
-	s.httpServer = &http.Server{
-		Addr:    addr,
-		Handler: mux,
-	}
-
-	s.logger.Info("Starting Go ADK server!", "addr", addr, "host", s.config.Host, "port", s.config.Port)
-
-	// Start server in goroutine
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.logger.Error(err, "Server failed")

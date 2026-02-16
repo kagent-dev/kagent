@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
 
 const (
@@ -67,24 +67,31 @@ func ExtractDecisionFromText(text string) DecisionType {
 }
 
 // ExtractDecisionFromMessage extracts decision from A2A message.
-func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
+func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 	if message == nil || len(message.Parts) == 0 {
 		return ""
 	}
 
 	// Priority 1: Scan for DataPart with decision_type
 	for _, part := range message.Parts {
-		if dataPart, ok := part.(*protocol.DataPart); ok {
-			if dataMap, ok := dataPart.Data.(map[string]interface{}); ok {
-				if decision, ok := dataMap[KAgentHitlDecisionTypeKey].(string); ok {
-					switch decision {
-					case KAgentHitlDecisionTypeApprove:
-						return DecisionApprove
-					case KAgentHitlDecisionTypeDeny:
-						return DecisionDeny
-					case KAgentHitlDecisionTypeReject:
-						return DecisionReject
-					}
+		var dataMap map[string]any
+		switch dp := part.(type) {
+		case *a2atype.DataPart:
+			dataMap = dp.Data
+		case a2atype.DataPart:
+			dataMap = dp.Data
+		default:
+			continue
+		}
+		if dataMap != nil {
+			if decision, ok := dataMap[KAgentHitlDecisionTypeKey].(string); ok {
+				switch decision {
+				case KAgentHitlDecisionTypeApprove:
+					return DecisionApprove
+				case KAgentHitlDecisionTypeDeny:
+					return DecisionDeny
+				case KAgentHitlDecisionTypeReject:
+					return DecisionReject
 				}
 			}
 		}
@@ -92,7 +99,7 @@ func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
 
 	// Priority 2: Fallback to TextPart keyword matching
 	for _, part := range message.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok {
+		if textPart, ok := part.(a2atype.TextPart); ok {
 			if decision := ExtractDecisionFromText(textPart.Text); decision != "" {
 				return decision
 			}
@@ -104,13 +111,13 @@ func ExtractDecisionFromMessage(message *protocol.Message) DecisionType {
 
 // IsInputRequiredTask checks if task state indicates waiting for user input.
 // This matches Python's is_input_required_task function.
-func IsInputRequiredTask(state protocol.TaskState) bool {
-	return state == protocol.TaskStateInputRequired
+func IsInputRequiredTask(state a2atype.TaskState) bool {
+	return state == a2atype.TaskStateInputRequired
 }
 
 // EventQueue is an interface for publishing A2A events.
 type EventQueue interface {
-	EnqueueEvent(ctx context.Context, event protocol.Event) error
+	EnqueueEvent(ctx context.Context, event a2atype.Event) error
 }
 
 // TaskStore is an interface for task persistence and synchronization.
@@ -128,27 +135,27 @@ func escapeMarkdownBackticks(text interface{}) string {
 
 // formatToolApprovalTextParts formats tool approval requests as human-readable TextParts
 // with proper markdown escaping to prevent rendering issues (matching Python implementation)
-func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []protocol.Part {
-	var parts []protocol.Part
+func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []a2atype.Part {
+	var parts []a2atype.Part
 
 	// Add header
-	parts = append(parts, protocol.NewTextPart("**Approval Required**\n\n"))
-	parts = append(parts, protocol.NewTextPart("The following actions require your approval:\n\n"))
+	parts = append(parts, a2atype.TextPart{Text: "**Approval Required**\n\n"})
+	parts = append(parts, a2atype.TextPart{Text: "The following actions require your approval:\n\n"})
 
 	// List each action
 	for _, action := range actionRequests {
 		// Escape backticks to prevent markdown breaking
 		escapedToolName := escapeMarkdownBackticks(action.Name)
-		parts = append(parts, protocol.NewTextPart(fmt.Sprintf("**Tool**: `%s`\n", escapedToolName)))
-		parts = append(parts, protocol.NewTextPart("**Arguments**:\n"))
+		parts = append(parts, a2atype.TextPart{Text: fmt.Sprintf("**Tool**: `%s`\n", escapedToolName)})
+		parts = append(parts, a2atype.TextPart{Text: "**Arguments**:\n"})
 
 		for key, value := range action.Args {
 			escapedKey := escapeMarkdownBackticks(key)
 			escapedValue := escapeMarkdownBackticks(value)
-			parts = append(parts, protocol.NewTextPart(fmt.Sprintf("  • %s: `%s`\n", escapedKey, escapedValue)))
+			parts = append(parts, a2atype.TextPart{Text: fmt.Sprintf("  • %s: `%s`\n", escapedKey, escapedValue)})
 		}
 
-		parts = append(parts, protocol.NewTextPart("\n"))
+		parts = append(parts, a2atype.TextPart{Text: "\n"})
 	}
 
 	return parts
@@ -193,15 +200,13 @@ func HandleToolApprovalInterrupt(
 		}
 	}
 
-	interruptData := map[string]interface{}{
-		"interrupt_type":  KAgentHitlInterruptTypeToolApproval,
-		"action_requests": actionRequestsData,
-	}
-
-	dataPart := &protocol.DataPart{
-		Kind: "data",
-		Data: interruptData,
-		Metadata: map[string]interface{}{
+	timestamp := time.Now()
+	dataPart := a2atype.DataPart{
+		Data: map[string]any{
+			"interrupt_type":  KAgentHitlInterruptTypeToolApproval,
+			"action_requests": actionRequestsData,
+		},
+		Metadata: map[string]any{
 			GetKAgentMetadataKey("type"): "interrupt_data",
 		},
 	}
@@ -210,7 +215,7 @@ func HandleToolApprovalInterrupt(
 	allParts := append(textParts, dataPart)
 
 	// Build event metadata (only add app_name if provided, matching Python behavior)
-	eventMetadata := map[string]interface{}{
+	eventMetadata := map[string]any{
 		"interrupt_type": KAgentHitlInterruptTypeToolApproval,
 	}
 	if appName != "" {
@@ -218,17 +223,16 @@ func HandleToolApprovalInterrupt(
 	}
 
 	// Send input_required event (matching Python: final=False - not final, waiting for user input)
-	event := &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
+	event := &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
-		Status: protocol.TaskStatus{
-			State:     protocol.TaskStateInputRequired,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Message: &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts:     allParts,
+		Status: a2atype.TaskStatus{
+			State:     a2atype.TaskStateInputRequired,
+			Timestamp: &timestamp,
+			Message: &a2atype.Message{
+				ID:    uuid.New().String(),
+				Role:  a2atype.MessageRoleAgent,
+				Parts: allParts,
 			},
 		},
 		Final:    false, // Not final - waiting for user input (matching Python)

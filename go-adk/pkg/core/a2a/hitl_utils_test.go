@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
 
 func TestEscapeMarkdownBackticks(t *testing.T) {
@@ -53,27 +53,27 @@ func TestEscapeMarkdownBackticks(t *testing.T) {
 func TestIsInputRequiredTask(t *testing.T) {
 	tests := []struct {
 		name     string
-		state    protocol.TaskState
+		state    a2atype.TaskState
 		expected bool
 	}{
 		{
 			name:     "input_required state",
-			state:    protocol.TaskStateInputRequired,
+			state:    a2atype.TaskStateInputRequired,
 			expected: true,
 		},
 		{
 			name:     "working state",
-			state:    protocol.TaskStateWorking,
+			state:    a2atype.TaskStateWorking,
 			expected: false,
 		},
 		{
 			name:     "completed state",
-			state:    protocol.TaskStateCompleted,
+			state:    a2atype.TaskStateCompleted,
 			expected: false,
 		},
 		{
 			name:     "failed state",
-			state:    protocol.TaskStateFailed,
+			state:    a2atype.TaskStateFailed,
 			expected: false,
 		},
 	}
@@ -93,10 +93,10 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 	approveData := map[string]interface{}{
 		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove,
 	}
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.DataPart{
+	message := &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			&a2atype.DataPart{
 				Data: approveData,
 			},
 		},
@@ -110,10 +110,10 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 	denyData := map[string]interface{}{
 		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
 	}
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.DataPart{
+	message = &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			&a2atype.DataPart{
 				Data: denyData,
 			},
 		},
@@ -126,10 +126,10 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 
 func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 	// Test approve keyword
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "I have approved this action"},
+	message := &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "I have approved this action"},
 		},
 	}
 	result := ExtractDecisionFromMessage(message)
@@ -138,10 +138,10 @@ func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 	}
 
 	// Test deny keyword
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "Request denied, do not proceed"},
+	message = &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "Request denied, do not proceed"},
 		},
 	}
 	result = ExtractDecisionFromMessage(message)
@@ -150,10 +150,10 @@ func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 	}
 
 	// Test case insensitive
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "APPROVED"},
+	message = &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "APPROVED"},
 		},
 	}
 	result = ExtractDecisionFromMessage(message)
@@ -164,11 +164,11 @@ func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 
 func TestExtractDecisionFromMessage_Priority(t *testing.T) {
 	// Test DataPart takes priority over TextPart
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "approved"}, // Would detect as approve
-			&protocol.DataPart{
+	message := &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "approved"}, // Would detect as approve
+			&a2atype.DataPart{
 				Data: map[string]interface{}{
 					KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny, // But deny wins
 				},
@@ -189,9 +189,9 @@ func TestExtractDecisionFromMessage_EdgeCases(t *testing.T) {
 	}
 
 	// Test message with no parts
-	message := &protocol.Message{
-		MessageID: "test",
-		Parts:     []protocol.Part{},
+	message := &a2atype.Message{
+		ID:    "test",
+		Parts: a2atype.ContentParts{},
 	}
 	result = ExtractDecisionFromMessage(message)
 	if result != "" {
@@ -199,10 +199,10 @@ func TestExtractDecisionFromMessage_EdgeCases(t *testing.T) {
 	}
 
 	// Test message with no decision found
-	message = &protocol.Message{
-		MessageID: "test",
-		Parts: []protocol.Part{
-			&protocol.TextPart{Text: "This is just a comment"},
+	message = &a2atype.Message{
+		ID: "test",
+		Parts: a2atype.ContentParts{
+			a2atype.TextPart{Text: "This is just a comment"},
 		},
 	}
 	result = ExtractDecisionFromMessage(message)
@@ -223,10 +223,10 @@ func TestFormatToolApprovalTextParts(t *testing.T) {
 	// Convert parts to text for checking
 	textContent := ""
 	for _, p := range parts {
-		var textPart *protocol.TextPart
-		if tp, ok := p.(*protocol.TextPart); ok {
+		var textPart *a2atype.TextPart
+		if tp, ok := p.(*a2atype.TextPart); ok {
 			textPart = tp
-		} else if tp, ok := p.(protocol.TextPart); ok {
+		} else if tp, ok := p.(a2atype.TextPart); ok {
 			textPart = &tp
 		}
 		if textPart != nil {

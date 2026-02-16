@@ -4,13 +4,13 @@ import (
 	"encoding/base64"
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func TestA2APartToGenAIPart_TextPart(t *testing.T) {
-	textPart := &protocol.TextPart{Text: "Hello, world!"}
+	textPart := a2atype.TextPart{Text: "Hello, world!"}
 	result, err := A2APartToGenAIPart(textPart)
 	if err != nil {
 		t.Fatalf("A2APartToGenAIPart() error = %v", err)
@@ -21,11 +21,10 @@ func TestA2APartToGenAIPart_TextPart(t *testing.T) {
 }
 
 func TestA2APartToGenAIPart_FilePartWithURI(t *testing.T) {
-	mimeType := "image/png"
-	filePart := &protocol.FilePart{
-		File: &protocol.FileWithURI{
+	filePart := a2atype.FilePart{
+		File: a2atype.FileURI{
 			URI:      "gs://bucket/file.png",
-			MimeType: &mimeType,
+			FileMeta: a2atype.FileMeta{MimeType: "image/png"},
 		},
 	}
 
@@ -45,14 +44,13 @@ func TestA2APartToGenAIPart_FilePartWithURI(t *testing.T) {
 }
 
 func TestA2APartToGenAIPart_FilePartWithBytes(t *testing.T) {
-	mimeType := "text/plain"
 	testData := []byte("test file content")
 	encodedBytes := base64.StdEncoding.EncodeToString(testData)
 
-	filePart := &protocol.FilePart{
-		File: &protocol.FileWithBytes{
+	filePart := a2atype.FilePart{
+		File: a2atype.FileBytes{
 			Bytes:    encodedBytes,
-			MimeType: &mimeType,
+			FileMeta: a2atype.FileMeta{MimeType: "text/plain"},
 		},
 	}
 
@@ -72,12 +70,12 @@ func TestA2APartToGenAIPart_FilePartWithBytes(t *testing.T) {
 }
 
 func TestA2APartToGenAIPart_DataPartFunctionCall(t *testing.T) {
-	dataPart := &protocol.DataPart{
-		Data: map[string]interface{}{
+	dataPart := &a2atype.DataPart{
+		Data: map[string]any{
 			a2a.PartKeyName: "search",
-			a2a.PartKeyArgs: map[string]interface{}{"query": "test"},
+			a2a.PartKeyArgs: map[string]any{"query": "test"},
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionCall,
 		},
 	}
@@ -95,12 +93,12 @@ func TestA2APartToGenAIPart_DataPartFunctionCall(t *testing.T) {
 }
 
 func TestA2APartToGenAIPart_DataPartFunctionResponse(t *testing.T) {
-	dataPart := &protocol.DataPart{
-		Data: map[string]interface{}{
+	dataPart := &a2atype.DataPart{
+		Data: map[string]any{
 			a2a.PartKeyName:     "search",
-			a2a.PartKeyResponse: map[string]interface{}{"result": "search results"},
+			a2a.PartKeyResponse: map[string]any{"result": "search results"},
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionResponse,
 		},
 	}
@@ -118,8 +116,8 @@ func TestA2APartToGenAIPart_DataPartFunctionResponse(t *testing.T) {
 }
 
 func TestA2APartToGenAIPart_DataPartDefault(t *testing.T) {
-	dataPart := &protocol.DataPart{
-		Data:     map[string]interface{}{"key": "value"},
+	dataPart := &a2atype.DataPart{
+		Data:     map[string]any{"key": "value"},
 		Metadata: nil,
 	}
 
@@ -142,11 +140,9 @@ func TestGenAIPartToA2APart_TextPart(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	var textPart *protocol.TextPart
-	if tp, ok := result.(*protocol.TextPart); ok {
+	var textPart a2atype.TextPart
+	if tp, ok := result.(a2atype.TextPart); ok {
 		textPart = tp
-	} else if tp, ok := result.(protocol.TextPart); ok {
-		textPart = &tp
 	} else {
 		t.Fatalf("Expected TextPart, got %T", result)
 	}
@@ -168,19 +164,19 @@ func TestGenAIPartToA2APart_FilePartWithURI(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	filePart, ok := result.(*protocol.FilePart)
+	filePart, ok := result.(a2atype.FilePart)
 	if !ok {
 		t.Fatalf("Expected FilePart, got %T", result)
 	}
-	uriFile, ok := filePart.File.(*protocol.FileWithURI)
+	uriFile, ok := filePart.File.(a2atype.FileURI)
 	if !ok {
-		t.Fatalf("Expected FileWithURI, got %T", filePart.File)
+		t.Fatalf("Expected FileURI, got %T", filePart.File)
 	}
 	if uriFile.URI != "gs://bucket/file.png" {
 		t.Errorf("Expected URI = %q, got %q", "gs://bucket/file.png", uriFile.URI)
 	}
-	if uriFile.MimeType == nil || *uriFile.MimeType != "image/png" {
-		t.Errorf("Expected MimeType = %q, got %v", "image/png", uriFile.MimeType)
+	if uriFile.FileMeta.MimeType != "image/png" {
+		t.Errorf("Expected MimeType = %q, got %q", "image/png", uriFile.FileMeta.MimeType)
 	}
 }
 
@@ -198,13 +194,13 @@ func TestGenAIPartToA2APart_FilePartWithBytes(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	filePart, ok := result.(*protocol.FilePart)
+	filePart, ok := result.(a2atype.FilePart)
 	if !ok {
 		t.Fatalf("Expected FilePart, got %T", result)
 	}
-	bytesFile, ok := filePart.File.(*protocol.FileWithBytes)
+	bytesFile, ok := filePart.File.(a2atype.FileBytes)
 	if !ok {
-		t.Fatalf("Expected FileWithBytes, got %T", filePart.File)
+		t.Fatalf("Expected FileBytes, got %T", filePart.File)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(bytesFile.Bytes)
 	if err != nil {
@@ -228,7 +224,7 @@ func TestGenAIPartToA2APart_FunctionCall(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	dataPart, ok := result.(*protocol.DataPart)
+	dataPart, ok := result.(*a2atype.DataPart)
 	if !ok {
 		t.Fatalf("Expected DataPart, got %T", result)
 	}
@@ -238,10 +234,10 @@ func TestGenAIPartToA2APart_FunctionCall(t *testing.T) {
 	} else if partType != a2a.A2ADataPartMetadataTypeFunctionCall {
 		t.Errorf("Expected type = %q, got %q", a2a.A2ADataPartMetadataTypeFunctionCall, partType)
 	}
-	if functionCall, ok := dataPart.Data.(map[string]interface{}); !ok {
-		t.Errorf("Expected function_call data, got %T", dataPart.Data)
-	} else if name, ok := functionCall[a2a.PartKeyName].(string); !ok || name != "search" {
-		t.Errorf("Expected name = %q, got %v", "search", functionCall[a2a.PartKeyName])
+	if dataPart.Data != nil {
+		if name, ok := dataPart.Data[a2a.PartKeyName].(string); !ok || name != "search" {
+			t.Errorf("Expected name = %q, got %v", "search", dataPart.Data[a2a.PartKeyName])
+		}
 	}
 }
 
@@ -258,7 +254,7 @@ func TestGenAIPartToA2APart_FunctionResponse(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	dataPart, ok := result.(*protocol.DataPart)
+	dataPart, ok := result.(*a2atype.DataPart)
 	if !ok {
 		t.Fatalf("Expected DataPart, got %T", result)
 	}
@@ -289,13 +285,13 @@ func TestGenAIPartToA2APart_FunctionResponseMCPContent(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	dataPart, ok := result.(*protocol.DataPart)
+	dataPart, ok := result.(*a2atype.DataPart)
 	if !ok {
 		t.Fatalf("Expected DataPart, got %T", result)
 	}
-	data, ok := dataPart.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected Data map, got %T", dataPart.Data)
+	data := dataPart.Data
+	if data == nil {
+		t.Fatalf("Expected Data map, got nil")
 	}
 	resp, ok := data[a2a.PartKeyResponse].(map[string]interface{})
 	if !ok {

@@ -3,13 +3,13 @@ package converter
 import (
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/event"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/genai"
 	"google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
 	gogenai "google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func testCC(taskID, contextID string) a2a.ConversionContext {
@@ -28,11 +28,11 @@ func TestConvertEventToA2AEvents_StopWithEmptyContent(t *testing.T) {
 
 	var errorEvents, workingEvents int
 	for _, e := range result1 {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
 			switch statusUpdate.Status.State {
-			case protocol.TaskStateFailed:
+			case a2atype.TaskStateFailed:
 				errorEvents++
-			case protocol.TaskStateWorking:
+			case a2atype.TaskStateWorking:
 				workingEvents++
 			}
 		}
@@ -55,11 +55,11 @@ func TestConvertEventToA2AEvents_StopWithEmptyParts(t *testing.T) {
 
 	var errorEvents, workingEvents int
 	for _, e := range result2 {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
 			switch statusUpdate.Status.State {
-			case protocol.TaskStateFailed:
+			case a2atype.TaskStateFailed:
 				errorEvents++
-			case protocol.TaskStateWorking:
+			case a2atype.TaskStateWorking:
 				workingEvents++
 			}
 		}
@@ -82,11 +82,11 @@ func TestConvertEventToA2AEvents_StopWithMissingContent(t *testing.T) {
 
 	var errorEvents, workingEvents int
 	for _, e := range result3 {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
 			switch statusUpdate.Status.State {
-			case protocol.TaskStateFailed:
+			case a2atype.TaskStateFailed:
 				errorEvents++
-			case protocol.TaskStateWorking:
+			case a2atype.TaskStateWorking:
 				workingEvents++
 			}
 		}
@@ -106,10 +106,10 @@ func TestConvertEventToA2AEvents_ActualErrorCode(t *testing.T) {
 
 	result4 := ConvertEventToA2AEvents(event4, testCC("test_task_4", "test_context_4"))
 
-	var errorEvents []*protocol.TaskStatusUpdateEvent
+	var errorEvents []*a2atype.TaskStatusUpdateEvent
 	for _, e := range result4 {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == protocol.TaskStateFailed {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
+			if statusUpdate.Status.State == a2atype.TaskStateFailed {
 				errorEvents = append(errorEvents, statusUpdate)
 			}
 		}
@@ -136,10 +136,10 @@ func TestConvertEventToA2AEvents_ErrorCodeWithErrorMessage(t *testing.T) {
 
 	result := ConvertEventToA2AEvents(evt, testCC("test_task", "test_context"))
 
-	var errorEvents []*protocol.TaskStatusUpdateEvent
+	var errorEvents []*a2atype.TaskStatusUpdateEvent
 	for _, e := range result {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == protocol.TaskStateFailed {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
+			if statusUpdate.Status.State == a2atype.TaskStateFailed {
 				errorEvents = append(errorEvents, statusUpdate)
 			}
 		}
@@ -154,11 +154,9 @@ func TestConvertEventToA2AEvents_ErrorCodeWithErrorMessage(t *testing.T) {
 		t.Fatal("Expected error event to have message with parts")
 	}
 
-	var textPart *protocol.TextPart
-	if tp, ok := errorEvent.Status.Message.Parts[0].(*protocol.TextPart); ok {
+	var textPart a2atype.TextPart
+	if tp, ok := errorEvent.Status.Message.Parts[0].(a2atype.TextPart); ok {
 		textPart = tp
-	} else if tp, ok := errorEvent.Status.Message.Parts[0].(protocol.TextPart); ok {
-		textPart = &tp
 	} else {
 		t.Fatalf("Expected TextPart, got %T", errorEvent.Status.Message.Parts[0])
 	}
@@ -176,10 +174,10 @@ func TestConvertEventToA2AEvents_ErrorCodeWithoutErrorMessage(t *testing.T) {
 
 	result := ConvertEventToA2AEvents(evt, testCC("test_task", "test_context"))
 
-	var errorEvents []*protocol.TaskStatusUpdateEvent
+	var errorEvents []*a2atype.TaskStatusUpdateEvent
 	for _, e := range result {
-		if statusUpdate, ok := e.(*protocol.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == protocol.TaskStateFailed {
+		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
+			if statusUpdate.Status.State == a2atype.TaskStateFailed {
 				errorEvents = append(errorEvents, statusUpdate)
 			}
 		}
@@ -194,11 +192,9 @@ func TestConvertEventToA2AEvents_ErrorCodeWithoutErrorMessage(t *testing.T) {
 		t.Fatal("Expected error event to have message with parts")
 	}
 
-	var textPart *protocol.TextPart
-	if tp, ok := errorEvent.Status.Message.Parts[0].(*protocol.TextPart); ok {
+	var textPart a2atype.TextPart
+	if tp, ok := errorEvent.Status.Message.Parts[0].(a2atype.TextPart); ok {
 		textPart = tp
-	} else if tp, ok := errorEvent.Status.Message.Parts[0].(protocol.TextPart); ok {
-		textPart = &tp
 	} else {
 		t.Fatalf("Expected TextPart, got %T", errorEvent.Status.Message.Parts[0])
 	}
@@ -226,9 +222,9 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: []string{"fc1"},
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task1", "ctx1"))
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		var statusEvent *a2atype.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateInputRequired {
+			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateInputRequired {
 				statusEvent = se
 				break
 			}
@@ -254,9 +250,9 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: []string{"fc_euc"},
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task2", "ctx2"))
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		var statusEvent *a2atype.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok && se.Status.State == protocol.TaskStateAuthRequired {
+			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateAuthRequired {
 				statusEvent = se
 				break
 			}
@@ -282,9 +278,9 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: nil,
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task3", "ctx3"))
-		var statusEvent *protocol.TaskStatusUpdateEvent
+		var statusEvent *a2atype.TaskStatusUpdateEvent
 		for _, ev := range result {
-			if se, ok := ev.(*protocol.TaskStatusUpdateEvent); ok {
+			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok {
 				statusEvent = se
 				break
 			}
@@ -292,7 +288,7 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 		if statusEvent == nil {
 			t.Fatal("Expected one TaskStatusUpdateEvent")
 		}
-		if statusEvent.Status.State != protocol.TaskStateWorking {
+		if statusEvent.Status.State != a2atype.TaskStateWorking {
 			t.Errorf("Expected state working when not long-running, got %v", statusEvent.Status.State)
 		}
 	})

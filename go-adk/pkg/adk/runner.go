@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/converter"
 	"github.com/kagent-dev/kagent/go-adk/pkg/adk/event"
@@ -20,7 +21,6 @@ import (
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // Compile-time interface compliance check
@@ -113,7 +113,7 @@ func (r *ADKRunner) Run(ctx context.Context, args map[string]interface{}) (<-cha
 	}
 
 	if r.logger.GetSink() != nil {
-		r.logger.Info("Executing agent with Google ADK Runner", "messageID", message.MessageID, "partsCount", len(message.Parts))
+		r.logger.Info("Executing agent with Google ADK Runner", "messageID", message.ID, "partsCount", len(message.Parts))
 	}
 
 	// Execute the Google ADK runner
@@ -304,7 +304,7 @@ func (r *ADKRunner) logCompletion(eventCount int, startTime time.Time) {
 	}
 }
 
-func extractMessageFromArgs(args map[string]interface{}, logger logr.Logger) *protocol.Message {
+func extractMessageFromArgs(args map[string]interface{}, logger logr.Logger) *a2atype.Message {
 	val := args[a2a.ArgKeyMessage]
 	if val == nil {
 		if logger.GetSink() != nil {
@@ -312,15 +312,15 @@ func extractMessageFromArgs(args map[string]interface{}, logger logr.Logger) *pr
 		}
 		return nil
 	}
-	if msg, ok := val.(*protocol.Message); ok {
+	if msg, ok := val.(*a2atype.Message); ok {
 		if logger.GetSink() != nil {
-			logger.Info("Found message in args", "messageID", msg.MessageID, "role", msg.Role, "partsCount", len(msg.Parts))
+			logger.Info("Found message in args", "messageID", msg.ID, "role", msg.Role, "partsCount", len(msg.Parts))
 		}
 		return msg
 	}
-	if msg, ok := val.(protocol.Message); ok {
+	if msg, ok := val.(a2atype.Message); ok {
 		if logger.GetSink() != nil {
-			logger.Info("Found message in args (non-pointer)", "messageID", msg.MessageID, "role", msg.Role, "partsCount", len(msg.Parts))
+			logger.Info("Found message in args (non-pointer)", "messageID", msg.ID, "role", msg.Role, "partsCount", len(msg.Parts))
 		}
 		return &msg
 	}
@@ -372,7 +372,7 @@ func extractRunArgs(args map[string]interface{}) runArgs {
 }
 
 func buildGenAIContentFromArgs(args map[string]interface{}) (*genai.Content, error) {
-	if msg, ok := args[a2a.ArgKeyMessage].(*protocol.Message); ok {
+	if msg, ok := args[a2a.ArgKeyMessage].(*a2atype.Message); ok {
 		return converter.A2AMessageToGenAIContent(msg)
 	}
 	return nil, nil

@@ -4,14 +4,14 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// GenAIPartToA2APart converts *genai.Part directly to A2A protocol.Part.
+// GenAIPartToA2APart converts *genai.Part directly to A2A protocol Part.
 // This is the primary conversion function - no intermediate map representation.
-func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
+func GenAIPartToA2APart(part *genai.Part) (a2atype.Part, error) {
 	if part == nil {
 		return nil, fmt.Errorf("part is nil")
 	}
@@ -19,17 +19,16 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 	// Handle text parts
 	if part.Text != "" {
 		// thought metadata (part.thought) can be added when A2A protocol supports it
-		return protocol.NewTextPart(part.Text), nil
+		return a2atype.TextPart{Text: part.Text}, nil
 	}
 
 	// Handle file_data parts
 	if part.FileData != nil {
 		mimeType := part.FileData.MIMEType
-		return &protocol.FilePart{
-			Kind: "file",
-			File: &protocol.FileWithURI{
+		return a2atype.FilePart{
+			File: a2atype.FileURI{
 				URI:      part.FileData.FileURI,
-				MimeType: &mimeType,
+				FileMeta: a2atype.FileMeta{MimeType: mimeType},
 			},
 		}, nil
 	}
@@ -37,11 +36,10 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 	// Handle inline_data parts
 	if part.InlineData != nil && len(part.InlineData.Data) > 0 {
 		mimeType := part.InlineData.MIMEType
-		return &protocol.FilePart{
-			Kind: "file",
-			File: &protocol.FileWithBytes{
+		return a2atype.FilePart{
+			File: a2atype.FileBytes{
 				Bytes:    base64.StdEncoding.EncodeToString(part.InlineData.Data),
-				MimeType: &mimeType,
+				FileMeta: a2atype.FileMeta{MimeType: mimeType},
 			},
 		}, nil
 	}
@@ -55,8 +53,7 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 		if part.FunctionCall.ID != "" {
 			data[a2a.PartKeyID] = part.FunctionCall.ID
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2atype.DataPart{
 			Data: data,
 			Metadata: map[string]interface{}{
 				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionCall,
@@ -74,8 +71,7 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 		if part.FunctionResponse.ID != "" {
 			data[a2a.PartKeyID] = part.FunctionResponse.ID
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2atype.DataPart{
 			Data: data,
 			Metadata: map[string]interface{}{
 				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionResponse,
@@ -89,8 +85,7 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 			"outcome": string(part.CodeExecutionResult.Outcome),
 			"output":  part.CodeExecutionResult.Output,
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2atype.DataPart{
 			Data: data,
 			Metadata: map[string]interface{}{
 				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeCodeExecutionResult,
@@ -104,8 +99,7 @@ func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
 			"code":     part.ExecutableCode.Code,
 			"language": string(part.ExecutableCode.Language),
 		}
-		return &protocol.DataPart{
-			Kind: "data",
+		return &a2atype.DataPart{
 			Data: data,
 			Metadata: map[string]interface{}{
 				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeExecutableCode,

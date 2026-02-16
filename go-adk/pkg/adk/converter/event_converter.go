@@ -1,8 +1,8 @@
 package converter
 
 import (
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // EventConverter implements a2a.EventConverter by delegating to package-level functions.
@@ -15,7 +15,7 @@ func NewEventConverter() *EventConverter {
 }
 
 // ConvertEventToA2AEvents delegates to the package-level ConvertEventToA2AEvents.
-func (c *EventConverter) ConvertEventToA2AEvents(evt interface{}, cc a2a.ConversionContext) []protocol.Event {
+func (c *EventConverter) ConvertEventToA2AEvents(evt interface{}, cc a2a.ConversionContext) []a2atype.Event {
 	return ConvertEventToA2AEvents(evt, cc)
 }
 

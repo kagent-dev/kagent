@@ -3,278 +3,109 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/google/uuid"
+	a2atype "github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/taskstore"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
-	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
 )
 
-// A2ATaskManager implements taskmanager.TaskManager using the A2aAgentExecutor.
-type A2ATaskManager struct {
-	executor              *core.A2aAgentExecutor
-	taskStore             *taskstore.KAgentTaskStore
-	pushNotificationStore *taskstore.KAgentPushNotificationStore
-	logger                logr.Logger
+// KAgentExecutor implements a2asrv.AgentExecutor by bridging to core.A2aAgentExecutor.
+type KAgentExecutor struct {
+	executor *core.A2aAgentExecutor
 }
 
-// NewA2ATaskManager creates a new A2A task manager.
-func NewA2ATaskManager(executor *core.A2aAgentExecutor, taskStore *taskstore.KAgentTaskStore, pushNotificationStore *taskstore.KAgentPushNotificationStore, logger logr.Logger) taskmanager.TaskManager {
-	return &A2ATaskManager{
-		executor:              executor,
-		taskStore:             taskStore,
-		pushNotificationStore: pushNotificationStore,
-		logger:                logger,
-	}
+// NewKAgentExecutor creates a new KAgentExecutor.
+func NewKAgentExecutor(executor *core.A2aAgentExecutor) *KAgentExecutor {
+	return &KAgentExecutor{executor: executor}
 }
 
-// OnSendMessage handles non-streaming message requests.
-func (m *A2ATaskManager) OnSendMessage(ctx context.Context, request protocol.SendMessageParams) (*protocol.MessageResult, error) {
-	contextID := resolveContextID(&request.Message)
-	if contextID == nil || *contextID == "" {
-		contextIDString := uuid.New().String()
-		contextID = &contextIDString
+// Execute implements a2asrv.AgentExecutor.
+func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+	// Bridge the eventqueue.Queue to our a2a.EventQueue interface
+	bridgeQueue := &eventQueueBridge{queue: queue}
+
+	// Build MessageSendParams from the request context
+	params := &a2atype.MessageSendParams{
+		Message:  reqCtx.Message,
+		Metadata: reqCtx.Metadata,
 	}
 
-	taskID := uuid.New().String()
-	if request.Message.TaskID != nil && *request.Message.TaskID != "" {
-		taskID = *request.Message.TaskID
-	}
+	taskID := string(reqCtx.TaskID)
+	contextID := reqCtx.ContextID
 
-	innerQueue := &InMemoryEventQueue{Events: []protocol.Event{}}
-	queue := NewTaskSavingEventQueue(innerQueue, m.taskStore, taskID, *contextID, m.logger)
-
-	err := m.executor.Execute(ctx, &request, queue, taskID, *contextID)
-	if err != nil {
-		return nil, err
-	}
-
-	var finalMessage *protocol.Message
-	for _, event := range innerQueue.Events {
-		if statusEvent, ok := event.(*protocol.TaskStatusUpdateEvent); ok && statusEvent.Final {
-			if statusEvent.Status.Message != nil {
-				finalMessage = statusEvent.Status.Message
-			}
-		}
-	}
-
-	return &protocol.MessageResult{
-		Result: finalMessage,
-	}, nil
+	return e.executor.Execute(ctx, params, bridgeQueue, taskID, contextID)
 }
 
-// OnSendMessageStream handles streaming message requests.
-func (m *A2ATaskManager) OnSendMessageStream(ctx context.Context, request protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
-	ch := make(chan protocol.StreamingMessageEvent)
-	innerQueue := &StreamingEventQueue{Ch: ch}
-
-	contextID := resolveContextID(&request.Message)
-	if contextID == nil || *contextID == "" {
-		contextIDString := uuid.New().String()
-		contextID = &contextIDString
-		if m.logger.GetSink() != nil {
-			m.logger.Info("No context_id in request; generated new one — events may not match UI session",
-				"generatedContextID", *contextID)
-		}
-	}
-
-	taskID := uuid.New().String()
-	if request.Message.TaskID != nil && *request.Message.TaskID != "" {
-		taskID = *request.Message.TaskID
-	}
-
-	queue := NewTaskSavingEventQueue(innerQueue, m.taskStore, taskID, *contextID, m.logger)
-
-	go func() {
-		defer close(ch)
-		err := m.executor.Execute(ctx, &request, queue, taskID, *contextID)
-		if err != nil {
-			ch <- protocol.StreamingMessageEvent{
-				Result: &protocol.TaskStatusUpdateEvent{
-					Kind:      "status-update",
-					TaskID:    taskID,
-					ContextID: *contextID,
-					Status: protocol.TaskStatus{
-						State: protocol.TaskStateFailed,
-						Message: &protocol.Message{
-							MessageID: uuid.New().String(),
-							Role:      protocol.MessageRoleAgent,
-							Parts: []protocol.Part{
-								protocol.NewTextPart(err.Error()),
-							},
-						},
-						Timestamp: time.Now().UTC().Format(time.RFC3339),
-					},
-					Final: true,
-				},
-			}
-		}
-	}()
-
-	return ch, nil
+// Cancel implements a2asrv.AgentExecutor.
+func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+	// Write a canceled status event
+	event := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil)
+	event.Final = true
+	return queue.Write(ctx, event)
 }
 
-// OnGetTask retrieves a task by ID.
-func (m *A2ATaskManager) OnGetTask(ctx context.Context, params protocol.TaskQueryParams) (*protocol.Task, error) {
-	if m.taskStore == nil {
-		return nil, fmt.Errorf("task store not available")
-	}
-
-	taskID := params.ID
-	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
-	}
-
-	task, err := m.taskStore.Get(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-
-	if task == nil {
-		return nil, nil
-	}
-
-	return task, nil
+// eventQueueBridge adapts eventqueue.Queue (a2asrv) to a2a.EventQueue (our interface).
+type eventQueueBridge struct {
+	queue eventqueue.Queue
 }
 
-// OnCancelTask cancels a task by ID.
-func (m *A2ATaskManager) OnCancelTask(ctx context.Context, params protocol.TaskIDParams) (*protocol.Task, error) {
-	if m.taskStore == nil {
-		return nil, fmt.Errorf("task store not available")
-	}
-
-	taskID := params.ID
-	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
-	}
-
-	task, err := m.taskStore.Get(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-
-	if task == nil {
-		return nil, nil
-	}
-
-	if err := m.taskStore.Delete(ctx, taskID); err != nil {
-		return nil, fmt.Errorf("failed to delete task: %w", err)
-	}
-
-	return task, nil
-}
-
-// OnPushNotificationSet sets push notification configuration.
-func (m *A2ATaskManager) OnPushNotificationSet(ctx context.Context, params protocol.TaskPushNotificationConfig) (*protocol.TaskPushNotificationConfig, error) {
-	if m.pushNotificationStore == nil {
-		return nil, fmt.Errorf("push notification store not available")
-	}
-
-	config, err := m.pushNotificationStore.Set(ctx, &params)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set push notification: %w", err)
-	}
-
-	return config, nil
-}
-
-// OnPushNotificationGet retrieves push notification configuration.
-func (m *A2ATaskManager) OnPushNotificationGet(ctx context.Context, params protocol.TaskIDParams) (*protocol.TaskPushNotificationConfig, error) {
-	if m.pushNotificationStore == nil {
-		return nil, fmt.Errorf("push notification store not available")
-	}
-
-	taskID := params.ID
-	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
-	}
-
-	return nil, fmt.Errorf("config ID extraction from TaskIDParams not yet implemented - may need protocol update")
-}
-
-// OnResubscribe resubscribes to task events.
-func (m *A2ATaskManager) OnResubscribe(ctx context.Context, params protocol.TaskIDParams) (<-chan protocol.StreamingMessageEvent, error) {
-	taskID := params.ID
-	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
-	}
-
-	if m.taskStore == nil {
-		return nil, fmt.Errorf("task store not available")
-	}
-
-	task, err := m.taskStore.Get(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-
-	if task == nil {
-		return nil, fmt.Errorf("task not found: %s", taskID)
-	}
-
-	contextID := task.ContextID
-	if contextID == "" {
-		return nil, fmt.Errorf("task has no context ID")
-	}
-
-	ch := make(chan protocol.StreamingMessageEvent)
-
-	go func() {
-		defer close(ch)
-
-		if task.History != nil {
-			for i := range task.History {
-				select {
-				case ch <- protocol.StreamingMessageEvent{
-					Result: &task.History[i],
-				}:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-
-		isFinal := task.Status.State == protocol.TaskStateCompleted ||
-			task.Status.State == protocol.TaskStateFailed
-
-		select {
-		case ch <- protocol.StreamingMessageEvent{
-			Result: &protocol.TaskStatusUpdateEvent{
-				Kind:      "status-update",
-				TaskID:    taskID,
-				ContextID: contextID,
-				Status:    task.Status,
-				Final:     isFinal,
-			},
-		}:
-		case <-ctx.Done():
-			return
-		}
-	}()
-
-	return ch, nil
-}
-
-// resolveContextID returns the session/context ID from the message for event persistence.
-func resolveContextID(msg *protocol.Message) *string {
-	if msg == nil {
-		return nil
-	}
-	if msg.ContextID != nil && *msg.ContextID != "" {
-		return msg.ContextID
-	}
-	if msg.Metadata != nil {
-		for _, key := range []string{a2a.GetKAgentMetadataKey(a2a.MetadataKeySessionID), "contextId", "context_id"} {
-			if v, ok := msg.Metadata[key]; ok {
-				if s, ok := v.(string); ok && s != "" {
-					return &s
-				}
-			}
-		}
+// EnqueueEvent implements a2a.EventQueue by delegating to eventqueue.Queue.Write.
+func (b *eventQueueBridge) EnqueueEvent(ctx context.Context, event a2atype.Event) error {
+	if err := b.queue.Write(ctx, event); err != nil {
+		return fmt.Errorf("failed to write event to queue: %w", err)
 	}
 	return nil
 }
+
+// Compile-time check
+var _ a2a.EventQueue = (*eventQueueBridge)(nil)
+var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
+
+// KAgentTaskStoreAdapter adapts taskstore.KAgentTaskStore to a2asrv.TaskStore.
+type KAgentTaskStoreAdapter struct {
+	store *taskstore.KAgentTaskStore
+}
+
+// NewKAgentTaskStoreAdapter creates an adapter for a2asrv.
+func NewKAgentTaskStoreAdapter(store *taskstore.KAgentTaskStore) *KAgentTaskStoreAdapter {
+	return &KAgentTaskStoreAdapter{store: store}
+}
+
+// Save implements a2asrv.TaskStore.
+func (a *KAgentTaskStoreAdapter) Save(ctx context.Context, task *a2atype.Task, _ a2atype.Event, _ a2atype.TaskVersion) (a2atype.TaskVersion, error) {
+	if err := a.store.Save(ctx, task); err != nil {
+		return a2atype.TaskVersionMissing, err
+	}
+	return a2atype.TaskVersion(1), nil
+}
+
+// Get implements a2asrv.TaskStore.
+func (a *KAgentTaskStoreAdapter) Get(ctx context.Context, taskID a2atype.TaskID) (*a2atype.Task, a2atype.TaskVersion, error) {
+	task, err := a.store.Get(ctx, string(taskID))
+	if err != nil {
+		return nil, a2atype.TaskVersionMissing, err
+	}
+	if task == nil {
+		return nil, a2atype.TaskVersionMissing, a2atype.ErrTaskNotFound
+	}
+	return task, a2atype.TaskVersion(1), nil
+}
+
+// List implements a2asrv.TaskStore. KAgent backend does not expose a list API; returns empty.
+func (a *KAgentTaskStoreAdapter) List(ctx context.Context, req *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	return &a2atype.ListTasksResponse{
+		Tasks:         []*a2atype.Task{},
+		TotalSize:     0,
+		PageSize:      pageSize,
+		NextPageToken: "",
+	}, nil
+}
+
+var _ a2asrv.TaskStore = (*KAgentTaskStoreAdapter)(nil)

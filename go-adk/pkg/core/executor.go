@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
@@ -14,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/skills"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/taskstore"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/telemetry"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 const (
@@ -74,7 +74,7 @@ func NewA2aAgentExecutorWithLogger(runner Runner, converter a2a.EventConverter, 
 }
 
 // Execute runs the agent and publishes updates to the event queue.
-func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessageParams, queue a2a.EventQueue, taskID, contextID string) error {
+func (e *A2aAgentExecutor) Execute(ctx context.Context, req *a2atype.MessageSendParams, queue a2a.EventQueue, taskID, contextID string) error {
 	if req == nil {
 		return fmt.Errorf("A2A request cannot be nil")
 	}
@@ -94,7 +94,7 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 
 	// 3. Prepare session (get or create)
-	session, err := e.prepareSession(ctx, userID, sessionID, &req.Message)
+	session, err := e.prepareSession(ctx, userID, sessionID, req.Message)
 	if err != nil {
 		return fmt.Errorf("failed to prepare session: %w", err)
 	}
@@ -109,14 +109,13 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	}
 
 	// 5. Send "submitted" status
-	err = queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
+	err = queue.EnqueueEvent(ctx, &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
-		Status: protocol.TaskStatus{
-			State:     protocol.TaskStateSubmitted,
-			Message:   &req.Message,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status: a2atype.TaskStatus{
+			State:     a2atype.TaskStateSubmitted,
+			Message:   req.Message,
+			Timestamp: timePtr(time.Now()),
 		},
 		Final: false,
 	})
@@ -157,13 +156,12 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	ctx = execCtx
 
 	// 9. Send "working" status
-	err = queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
+	err = queue.EnqueueEvent(ctx, &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
-		Status: protocol.TaskStatus{
-			State:     protocol.TaskStateWorking,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status: a2atype.TaskStatus{
+			State:     a2atype.TaskStateWorking,
+			Timestamp: timePtr(time.Now()),
 		},
 		Final: false,
 		Metadata: map[string]interface{}{
@@ -228,20 +226,18 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	// (matching Python: if task_result_aggregator.task_state == TaskState.working
 	//  and task_result_aggregator.task_status_message is not None
 	//  and task_result_aggregator.task_status_message.parts)
-	if finalState == protocol.TaskStateWorking &&
+	if finalState == a2atype.TaskStateWorking &&
 		finalMessage != nil &&
 		len(finalMessage.Parts) > 0 {
 		// If task is still working properly, publish the artifact update event as
 		// the final result according to a2a protocol (matching Python)
-		lastChunk := true
-		artifactEvent := &protocol.TaskArtifactUpdateEvent{
-			Kind:      "artifact-update",
-			TaskID:    taskID,
+		artifactEvent := &a2atype.TaskArtifactUpdateEvent{
+			TaskID:    a2atype.TaskID(taskID),
 			ContextID: contextID,
-			LastChunk: &lastChunk,
-			Artifact: protocol.Artifact{
-				ArtifactID: uuid.New().String(),
-				Parts:      finalMessage.Parts,
+			LastChunk: true,
+			Artifact: &a2atype.Artifact{
+				ID:    a2atype.NewArtifactID(),
+				Parts: finalMessage.Parts,
 			},
 		}
 		if err := queue.EnqueueEvent(ctx, artifactEvent); err != nil {
@@ -249,13 +245,12 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		}
 
 		// Publish the final status update event (matching Python)
-		return queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
-			Kind:      "status-update",
-			TaskID:    taskID,
+		return queue.EnqueueEvent(ctx, &a2atype.TaskStatusUpdateEvent{
+			TaskID:    a2atype.TaskID(taskID),
 			ContextID: contextID,
-			Status: protocol.TaskStatus{
-				State:     protocol.TaskStateCompleted,
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Status: a2atype.TaskStatus{
+				State:     a2atype.TaskStateCompleted,
+				Timestamp: timePtr(time.Now()),
 			},
 			Final: true,
 		})
@@ -264,35 +259,38 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	// Handle other final states
 	// If the loop finished but we are still in a non-terminal state, it's an error
 	// (matching Python: if final_state in (TaskState.working, TaskState.submitted))
-	if finalState == protocol.TaskStateWorking || finalState == protocol.TaskStateSubmitted {
-		finalState = protocol.TaskStateFailed
+	if finalState == a2atype.TaskStateWorking || finalState == a2atype.TaskStateSubmitted {
+		finalState = a2atype.TaskStateFailed
 		if finalMessage == nil || len(finalMessage.Parts) == 0 {
-			finalMessage = &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts: []protocol.Part{
-					protocol.NewTextPart("The agent finished execution unexpectedly without a final response."),
+			finalMessage = &a2atype.Message{
+				ID:   uuid.New().String(),
+				Role: a2atype.MessageRoleAgent,
+				Parts: a2atype.ContentParts{
+					a2atype.TextPart{Text: "The agent finished execution unexpectedly without a final response."},
 				},
 			}
 		}
 	}
 
 	// Send final status update with message
-	return queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
+	return queue.EnqueueEvent(ctx, &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
-		Status: protocol.TaskStatus{
+		Status: a2atype.TaskStatus{
 			State:     finalState,
 			Message:   finalMessage,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Timestamp: timePtr(time.Now()),
 		},
 		Final: true,
 	})
 }
 
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
 // prepareSession gets or creates a session, similar to Python's _prepare_session
-func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID string, message *protocol.Message) (*session.Session, error) {
+func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID string, message *a2atype.Message) (*session.Session, error) {
 	if e.SessionService == nil {
 		// Return a minimal session if no session service is configured
 		return &session.Session{
@@ -328,13 +326,13 @@ func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID
 }
 
 // extractSessionName extracts session name from message, similar to Python implementation
-func extractSessionName(message *protocol.Message) string {
+func extractSessionName(message *a2atype.Message) string {
 	if message == nil || len(message.Parts) == 0 {
 		return ""
 	}
 
 	for _, part := range message.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok && textPart.Text != "" {
+		if textPart, ok := part.(a2atype.TextPart); ok && textPart.Text != "" {
 			text := textPart.Text
 			if len(text) > sessionNameMaxLength {
 				return text[:sessionNameMaxLength] + "..."
@@ -348,7 +346,7 @@ func extractSessionName(message *protocol.Message) string {
 // ExtractUserAndSessionID extracts user_id and session_id from the A2A request.
 // The session_id is derived from the context_id, and user_id defaults to "A2A_USER_" + context_id.
 // This matches the Python implementation's _get_user_id behavior.
-func ExtractUserAndSessionID(req *protocol.SendMessageParams, contextID string) (userID, sessionID string) {
+func ExtractUserAndSessionID(req *a2atype.MessageSendParams, contextID string) (userID, sessionID string) {
 	const userIDPrefix = "A2A_USER_"
 
 	// Use context_id as session_id (like Python version)
@@ -373,20 +371,19 @@ func (e *A2aAgentExecutor) sendFailure(ctx context.Context, queue a2a.EventQueue
 		}
 	}
 
-	return queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
-		Kind:      "status-update",
-		TaskID:    taskID,
+	return queue.EnqueueEvent(ctx, &a2atype.TaskStatusUpdateEvent{
+		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
-		Status: protocol.TaskStatus{
-			State: protocol.TaskStateFailed,
-			Message: &protocol.Message{
-				MessageID: uuid.New().String(),
-				Role:      protocol.MessageRoleAgent,
-				Parts: []protocol.Part{
-					protocol.NewTextPart(errorMessage),
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateFailed,
+			Message: &a2atype.Message{
+				ID:   uuid.New().String(),
+				Role: a2atype.MessageRoleAgent,
+				Parts: a2atype.ContentParts{
+					a2atype.TextPart{Text: errorMessage},
 				},
 			},
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Timestamp: timePtr(time.Now()),
 		},
 		Final: true,
 	})

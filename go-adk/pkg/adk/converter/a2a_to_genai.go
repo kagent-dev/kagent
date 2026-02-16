@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"google.golang.org/genai"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// A2AMessageToGenAIContent converts protocol.Message to genai.Content.
-func A2AMessageToGenAIContent(msg *protocol.Message) (*genai.Content, error) {
+// A2AMessageToGenAIContent converts A2A Message to genai.Content.
+func A2AMessageToGenAIContent(msg *a2atype.Message) (*genai.Content, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("message is nil")
 	}
@@ -28,7 +28,7 @@ func A2AMessageToGenAIContent(msg *protocol.Message) (*genai.Content, error) {
 	}
 
 	role := "user"
-	if msg.Role == protocol.MessageRoleAgent {
+	if msg.Role == a2atype.MessageRoleAgent {
 		role = "model"
 	}
 
@@ -38,52 +38,40 @@ func A2AMessageToGenAIContent(msg *protocol.Message) (*genai.Content, error) {
 	}, nil
 }
 
-// A2APartToGenAIPart converts a single A2A protocol.Part to genai.Part.
-func A2APartToGenAIPart(part protocol.Part) (*genai.Part, error) {
+// A2APartToGenAIPart converts a single A2A Part to genai.Part.
+func A2APartToGenAIPart(part a2atype.Part) (*genai.Part, error) {
 	switch p := part.(type) {
-	case *protocol.TextPart:
+	case a2atype.TextPart:
 		return genai.NewPartFromText(p.Text), nil
-	case protocol.TextPart:
-		return genai.NewPartFromText(p.Text), nil
-	case *protocol.FilePart:
+	case a2atype.FilePart:
 		return convertFilePartToGenAI(p)
-	case protocol.FilePart:
-		return convertFilePartToGenAI(&p)
-	case *protocol.DataPart:
+	case *a2atype.DataPart:
 		return convertDataPartToGenAI(p)
-	case protocol.DataPart:
-		return convertDataPartToGenAI(&p)
 	default:
 		return nil, fmt.Errorf("unsupported part type: %T", part)
 	}
 }
 
-func convertFilePartToGenAI(p *protocol.FilePart) (*genai.Part, error) {
+func convertFilePartToGenAI(p a2atype.FilePart) (*genai.Part, error) {
 	if p.File == nil {
 		return nil, nil
 	}
-	if uriFile, ok := p.File.(*protocol.FileWithURI); ok {
-		mimeType := ""
-		if uriFile.MimeType != nil {
-			mimeType = *uriFile.MimeType
-		}
+	if uriFile, ok := p.File.(a2atype.FileURI); ok {
+		mimeType := uriFile.FileMeta.MimeType
 		return genai.NewPartFromURI(uriFile.URI, mimeType), nil
 	}
-	if bytesFile, ok := p.File.(*protocol.FileWithBytes); ok {
+	if bytesFile, ok := p.File.(a2atype.FileBytes); ok {
 		data, err := base64.StdEncoding.DecodeString(bytesFile.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode base64 file data: %w", err)
 		}
-		mimeType := ""
-		if bytesFile.MimeType != nil {
-			mimeType = *bytesFile.MimeType
-		}
+		mimeType := bytesFile.FileMeta.MimeType
 		return genai.NewPartFromBytes(data, mimeType), nil
 	}
 	return nil, nil
 }
 
-func convertDataPartToGenAI(p *protocol.DataPart) (*genai.Part, error) {
+func convertDataPartToGenAI(p *a2atype.DataPart) (*genai.Part, error) {
 	if p.Metadata != nil {
 		if partType, ok := p.Metadata[a2a.MetadataKeyType].(string); ok {
 			switch partType {
