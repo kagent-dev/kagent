@@ -47,6 +47,7 @@ type Client interface {
 	ListTools() ([]Tool, error)
 	ListFeedback(userID string) ([]Feedback, error)
 	ListTasksForSession(sessionID string) ([]*protocol.Task, error)
+	ListTasks(state *string) ([]*protocol.Task, error)
 	ListSessions(userID string) ([]Session, error)
 	ListSessionsForAgent(agentID string, userID string) ([]Session, error)
 	ListAgents() ([]Agent, error)

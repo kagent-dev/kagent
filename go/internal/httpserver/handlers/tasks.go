@@ -81,3 +81,22 @@ func (h *TasksHandler) HandleDeleteTask(w ErrorResponseWriter, r *http.Request) 
 	log.Info("Successfully deleted task")
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *TasksHandler) HandleListTasks(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("tasks-handler").WithValues("operation", "list-tasks")
+
+	var state *string
+	if s := r.URL.Query().Get("state"); s != "" {
+		state = &s
+	}
+
+	tasks, err := h.DatabaseService.ListTasks(state)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tasks", err))
+		return
+	}
+
+	log.Info("Successfully listed tasks")
+	data := api.NewResponse(tasks, "Successfully listed tasks", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}

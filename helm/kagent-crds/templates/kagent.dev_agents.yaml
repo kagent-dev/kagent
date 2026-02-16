@@ -6236,8 +6236,9 @@ spec:
                           to reduce context size while preserving key information.
                         properties:
                           compactionInterval:
-                            description: CompactionInterval specifies how often (in
-                              number of events) to trigger compaction.
+                            description: The number of *new* user-initiated invocations
+                              that, once fully represented in the session's events,
+                              will trigger a compaction.
                             minimum: 1
                             type: integer
                           eventRetentionSize:
@@ -6245,9 +6246,10 @@ spec:
                               recent events to always retain.
                             type: integer
                           overlapSize:
-                            description: |-
-                              OverlapSize specifies the number of events to keep from the previous compaction window
-                              for continuity.
+                            description: The number of preceding invocations to include
+                              from the end of the last compacted range. This creates
+                              an overlap between consecutive compacted summaries, maintaining
+                              context.
                             minimum: 0
                             type: integer
                           summarizer:
@@ -6267,8 +6269,10 @@ spec:
                                 type: string
                             type: object
                           tokenThreshold:
-                            description: TokenThreshold is the minimum token count
-                              before compaction is triggered.
+                            description: Post-invocation token threshold trigger.
+                              If set, ADK will attempt a post-invocation compaction
+                              when the most recently observed prompt token count meets
+                              or exceeds this threshold.
                             type: integer
                         required:
                         - compactionInterval
@@ -9994,6 +9998,14 @@ spec:
                       rule: '!has(self.vertexAi) || self.type == ''VertexAI'''
                     - message: mcp configuration is only allowed when type is Mcp
                       rule: '!has(self.mcp) || self.type == ''Mcp'''
+                  resumability:
+                    description: Resumability configures the resumability for the
+                      agent.
+                    properties:
+                      isResumable:
+                        description: IsResumable enables agent resumability.
+                        type: boolean
+                    type: object
                   modelConfig:
                     description: |-
                       The name of the model config to use.

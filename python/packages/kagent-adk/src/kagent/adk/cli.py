@@ -41,6 +41,13 @@ def _build_context_kwargs(agent_config: AgentConfig) -> dict:
     if agent_config.memory is not None:
         kwargs["memory_config"] = agent_config.memory
 
+    if agent_config.resumability_config is not None:
+        from google.adk.apps.app import ResumabilityConfig as AdkResumabilityConfig
+
+        kwargs["resumability_config"] = AdkResumabilityConfig(
+            is_resumable=agent_config.resumability_config.is_resumable
+        )
+
     return kwargs
 
 

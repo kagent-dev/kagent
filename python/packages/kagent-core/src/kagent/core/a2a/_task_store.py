@@ -130,3 +130,31 @@ class KAgentTaskStore(TaskStore):
         finally:
             # Clean up the event
             self._save_events.pop(task_id, None)
+
+    async def list(self, state: str | None = None) -> list[Task]:
+        """List tasks from KAgent, optionally filtered by state.
+
+        Args:
+            state: Optional task state to filter by
+
+        Returns:
+            List of tasks matching the criteria
+        """
+        url = "/api/tasks"
+        params = {}
+        if state:
+            params["state"] = state
+
+        response = await self.client.get(url, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        if data.get("error"):
+            raise RuntimeError(f"Failed to list tasks: {data.get('message')}")
+
+        tasks_data = data.get("data", [])
+        tasks = []
+        for task_dict in tasks_data:
+            tasks.append(Task.model_validate(task_dict))
+
+        return tasks

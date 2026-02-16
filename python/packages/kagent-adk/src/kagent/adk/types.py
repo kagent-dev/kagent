@@ -280,6 +280,12 @@ class McpMemoryConfig(BaseMemoryConfig):
     )
 
 
+class ResumabilitySettings(BaseModel):
+    """Settings for agent resumability."""
+
+    is_resumable: bool
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -296,6 +302,7 @@ class AgentConfig(BaseModel):
     memory: Union[InMemoryConfig, VertexAIMemoryConfig, McpMemoryConfig] | None = Field(
         default=None, discriminator="type"
     )
+    resumability_config: ResumabilitySettings | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

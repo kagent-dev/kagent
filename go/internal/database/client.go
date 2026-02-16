@@ -153,6 +153,31 @@ func (c *clientImpl) ListTasksForSession(sessionID string) ([]*protocol.Task, er
 	return dbpkg.ParseTasks(tasks)
 }
 
+func (c *clientImpl) ListTasks(state *string) ([]*protocol.Task, error) {
+	tasks, err := list[dbpkg.Task](c.db)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedTasks, err := dbpkg.ParseTasks(tasks)
+	if err != nil {
+		return nil, err
+	}
+
+	if state == nil {
+		return parsedTasks, nil
+	}
+
+	filteredTasks := make([]*protocol.Task, 0)
+	for _, task := range parsedTasks {
+		if string(task.Status.State) == *state {
+			filteredTasks = append(filteredTasks, task)
+		}
+	}
+
+	return filteredTasks, nil
+}
+
 func (c *clientImpl) ListSessionsForAgent(agentID string, userID string) ([]dbpkg.Session, error) {
 	return list[dbpkg.Session](c.db,
 		Clause{Key: "agent_id", Value: agentID},

@@ -594,15 +594,63 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				if comp.Summarizer.ModelConfig != "" {
 					summarizerModelConfigName = comp.Summarizer.ModelConfig
 				}
-				summarizerModelCfg := &v1alpha2.ModelConfig{}
-				err := a.kube.Get(ctx, types.NamespacedName{
-					Namespace: agent.Namespace,
-					Name:      summarizerModelConfigName,
-				}, summarizerModelCfg)
+
+				summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, summarizerModelConfigName)
 				if err != nil {
-					return nil, nil, nil, fmt.Errorf("failed to resolve summarizer model config %q: %w", summarizerModelConfigName, err)
+					return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelConfigName, err)
 				}
-				compCfg.SummarizerModelName = summarizerModelCfg.Spec.Model
+
+				// Merge deployment data
+				// Use deduplication for EnvVars to avoid duplicates in the manifest.
+				// If the same name exists, the summarizer's value takes precedence.
+				for _, se := range summarizerMdd.EnvVars {
+					found := false
+					for i, e := range mdd.EnvVars {
+						if e.Name == se.Name {
+							mdd.EnvVars[i] = se
+							found = true
+							break
+						}
+					}
+					if !found {
+						mdd.EnvVars = append(mdd.EnvVars, se)
+					}
+				}
+
+				// Simple deduplication for volumes to avoid "duplicate volume name" error
+				for _, sv := range summarizerMdd.Volumes {
+					found := false
+					for _, v := range mdd.Volumes {
+						if v.Name == sv.Name {
+							found = true
+							break
+						}
+					}
+					if !found {
+						mdd.Volumes = append(mdd.Volumes, sv)
+					}
+				}
+
+				// Simple deduplication for mounts
+				for _, sm := range summarizerMdd.VolumeMounts {
+					found := false
+					for _, m := range mdd.VolumeMounts {
+						if m.MountPath == sm.MountPath {
+							found = true
+							break
+						}
+					}
+					if !found {
+						mdd.VolumeMounts = append(mdd.VolumeMounts, sm)
+					}
+				}
+
+				// Merge secret hash
+				if len(summarizerSecretHash) > 0 {
+					secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
+				}
+
+				compCfg.SummarizerModelName = summarizerModel.GetModelName()
 				compCfg.PromptTemplate = comp.Summarizer.PromptTemplate
 			}
 
@@ -618,6 +666,13 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 
 		cfg.ContextConfig = contextCfg
+	}
+
+	// Translate resumability configuration
+	if agent.Spec.Declarative.Resumability != nil {
+		cfg.ResumabilityConfig = &adk.AgentResumabilityConfig{
+			IsResumable: agent.Spec.Declarative.Resumability.IsResumable,
+		}
 	}
 
 	// Translate memory configuration

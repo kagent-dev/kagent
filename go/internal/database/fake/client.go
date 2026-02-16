@@ -313,6 +313,23 @@ func (c *InMemoryFakeClient) ListTasksForSession(sessionID string) ([]*protocol.
 	return result, nil
 }
 
+func (c *InMemoryFakeClient) ListTasks(state *string) ([]*protocol.Task, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []*protocol.Task
+	for _, task := range c.tasks {
+		parsed, err := task.Parse()
+		if err != nil {
+			return nil, err
+		}
+		if state == nil || string(parsed.Status.State) == *state {
+			result = append(result, &parsed)
+		}
+	}
+	return result, nil
+}
+
 // ListSessions lists all sessions for a user
 func (c *InMemoryFakeClient) ListSessions(userID string) ([]database.Session, error) {
 	c.mu.RLock()

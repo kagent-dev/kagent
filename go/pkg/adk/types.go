@@ -46,6 +46,7 @@ type SseMcpServerConfig struct {
 
 type Model interface {
 	GetType() string
+	GetModelName() string
 }
 
 type BaseModel struct {
@@ -57,6 +58,10 @@ type BaseModel struct {
 	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
 	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
 	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
+}
+
+func (b *BaseModel) GetModelName() string {
+	return b.Model
 }
 
 type OpenAI struct {
@@ -108,6 +113,10 @@ func (a *AzureOpenAI) GetType() string {
 	return ModelTypeAzureOpenAI
 }
 
+func (a *AzureOpenAI) GetModelName() string {
+	return "azure/" + a.Model
+}
+
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"type":    ModelTypeAzureOpenAI,
@@ -134,6 +143,10 @@ func (a *Anthropic) GetType() string {
 	return ModelTypeAnthropic
 }
 
+func (a *Anthropic) GetModelName() string {
+	return "anthropic/" + a.Model
+}
+
 type GeminiVertexAI struct {
 	BaseModel
 }
@@ -150,6 +163,10 @@ func (g *GeminiVertexAI) GetType() string {
 	return ModelTypeGeminiVertexAI
 }
 
+func (g *GeminiVertexAI) GetModelName() string {
+	return "vertex_ai/" + g.Model
+}
+
 type GeminiAnthropic struct {
 	BaseModel
 }
@@ -164,6 +181,10 @@ func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
 
 func (g *GeminiAnthropic) GetType() string {
 	return ModelTypeGeminiAnthropic
+}
+
+func (g *GeminiAnthropic) GetModelName() string {
+	return "vertex_ai/" + g.Model
 }
 
 type Ollama struct {
@@ -184,6 +205,10 @@ func (o *Ollama) GetType() string {
 	return ModelTypeOllama
 }
 
+func (o *Ollama) GetModelName() string {
+	return "ollama_chat/" + o.Model
+}
+
 type Gemini struct {
 	BaseModel
 }
@@ -198,6 +223,10 @@ func (g *Gemini) MarshalJSON() ([]byte, error) {
 
 func (g *Gemini) GetType() string {
 	return ModelTypeGemini
+}
+
+func (g *Gemini) GetModelName() string {
+	return "gemini/" + g.Model
 }
 
 type Bedrock struct {
@@ -220,6 +249,10 @@ func (b *Bedrock) MarshalJSON() ([]byte, error) {
 
 func (b *Bedrock) GetType() string {
 	return ModelTypeBedrock
+}
+
+func (b *Bedrock) GetModelName() string {
+	return "bedrock/" + b.Model
 }
 
 func ParseModel(bytes []byte) (Model, error) {
@@ -310,6 +343,11 @@ type AgentCacheConfig struct {
 	MinTokens      *int `json:"min_tokens,omitempty"`
 }
 
+// AgentResumabilityConfig maps to Python's ResumabilityConfig.
+type AgentResumabilityConfig struct {
+	IsResumable bool `json:"is_resumable"`
+}
+
 type BaseMemoryConfig struct {
 	Type string `json:"type"`
 }
@@ -357,18 +395,21 @@ type AgentConfig struct {
 	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
 	// Memory configuration
 	Memory any `json:"memory,omitempty"` // InMemoryConfig, VertexAIMemoryConfig, or McpMemoryConfig
+	// Resumability configuration
+	ResumabilityConfig *AgentResumabilityConfig `json:"resumability_config,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage       `json:"model"`
-		Description   string                `json:"description"`
-		Instruction   string                `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig `json:"http_tools"`
-		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
-		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
-		Memory        json.RawMessage       `json:"memory,omitempty"`
+		Model              json.RawMessage          `json:"model"`
+		Description        string                   `json:"description"`
+		Instruction        string                   `json:"instruction"`
+		HttpTools          []HttpMcpServerConfig    `json:"http_tools"`
+		SseTools           []SseMcpServerConfig     `json:"sse_tools"`
+		RemoteAgents       []RemoteAgentConfig      `json:"remote_agents"`
+		ContextConfig      *AgentContextConfig      `json:"context_config,omitempty"`
+		Memory             json.RawMessage          `json:"memory,omitempty"`
+		ResumabilityConfig *AgentResumabilityConfig `json:"resumability_config,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -384,6 +425,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
 	a.ContextConfig = tmp.ContextConfig
+	a.ResumabilityConfig = tmp.ResumabilityConfig
 
 	if tmp.Memory != nil {
 		var base BaseMemoryConfig

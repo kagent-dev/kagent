@@ -127,6 +127,10 @@ type DeclarativeAgentSpec struct {
 	// Memory configures the memory for the agent.
 	// +optional
 	Memory *MemoryConfig `json:"memory,omitempty"`
+
+	// Resumability configures the resumability for the agent.
+	// +optional
+	Resumability *ResumabilityConfig `json:"resumability,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -134,6 +138,13 @@ type DeclarativeDeploymentSpec struct {
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
+}
+
+// ResumabilityConfig configures the resumability for the agent.
+type ResumabilityConfig struct {
+	// IsResumable enables agent resumability.
+	// +optional
+	IsResumable bool `json:"isResumable,omitempty"`
 }
 
 // MemoryType represents the memory type
@@ -203,18 +214,18 @@ type ContextConfig struct {
 // ContextCompressionConfig configures event history compaction/compression.
 // +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) && has(self.overlapSize)",message="compactionInterval and overlapSize are required"
 type ContextCompressionConfig struct {
-	// CompactionInterval specifies how often (in number of events) to trigger compaction.
+	// The number of *new* user-initiated invocations that, once fully represented in the session's events, will trigger a compaction.
 	// +kubebuilder:validation:Minimum=1
 	CompactionInterval int `json:"compactionInterval"`
-	// OverlapSize specifies the number of events to keep from the previous compaction window
-	// for continuity.
+	// The number of preceding invocations to include from the end of the last compacted range. This creates an overlap between consecutive compacted summaries, maintaining context.
 	// +kubebuilder:validation:Minimum=0
 	OverlapSize int `json:"overlapSize"`
 	// Summarizer configures an LLM-based summarizer for event compaction.
 	// If not specified, compacted events are simply truncated without summarization.
 	// +optional
 	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
-	// TokenThreshold is the minimum token count before compaction is triggered.
+	// Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+	// observed prompt token count meets or exceeds this threshold.
 	// +optional
 	TokenThreshold *int `json:"tokenThreshold,omitempty"`
 	// EventRetentionSize is the number of most recent events to always retain.

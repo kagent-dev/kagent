@@ -98,8 +98,10 @@ def search_memory(app_name: str, user_id: str, query: str) -> Dict[str, Any]:
     formatted_memories = []
     
     for m in raw_memories:
+        # Construct content structure compatible with google.genai.types.Content
+        content_text = m.get("text", "")
         formatted_memories.append({
-            "content": m.get("text", ""),
+            "content": {"parts": [{"text": content_text}], "role": "user"},
             "id": m.get("id"),
             "author": m.get("user_id"),
             "timestamp": m.get("created_at"),

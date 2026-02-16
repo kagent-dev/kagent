@@ -55,6 +55,20 @@ class McpMemoryService(BaseMemoryService):
             
             # The result should be compatible with SearchMemoryResponse
             if isinstance(result, dict):
+                 # Resilience: convert "text" or string "content" to types.Content structure
+                 if "memories" in result and isinstance(result["memories"], list):
+                     for m in result["memories"]:
+                         if not isinstance(m, dict):
+                             continue
+                         
+                         # If it has "text" but no "content", map it
+                         if "text" in m and "content" not in m:
+                             m["content"] = {"parts": [{"text": m["text"]}], "role": "user"}
+                         
+                         # If "content" is a raw string, wrap it
+                         if "content" in m and isinstance(m["content"], str):
+                             m["content"] = {"parts": [{"text": m["content"]}], "role": "user"}
+
                  return SearchMemoryResponse.model_validate(result)
             elif isinstance(result, str):
                  try:
