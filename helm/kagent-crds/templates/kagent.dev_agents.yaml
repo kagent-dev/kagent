@@ -6196,6 +6196,91 @@ spec:
                         minItems: 1
                         type: array
                     type: object
+                  context:
+                    description: |-
+                      Context configures context management for this agent.
+                      This includes event compaction (compression) and context caching.
+                    properties:
+                      cache:
+                        description: |-
+                          Cache configures context caching.
+                          When enabled, prefix context is cached at the provider level to reduce
+                          redundant processing of repeated context.
+                        properties:
+                          cacheIntervals:
+                            default: 10
+                            description: |-
+                              CacheIntervals specifies how often (in number of events) to update the cache.
+                              Default: 10
+                            minimum: 1
+                            type: integer
+                          minTokens:
+                            default: 0
+                            description: |-
+                              MinTokens is the minimum number of tokens before caching is activated.
+                              Default: 0
+                            minimum: 0
+                            type: integer
+                          ttlSeconds:
+                            default: 1800
+                            description: |-
+                              TTLSeconds specifies the time-to-live for cached context in seconds.
+                              Default: 1800 (30 minutes)
+                            minimum: 0
+                            type: integer
+                        type: object
+                      compaction:
+                        description: |-
+                          Compaction configures event history compaction.
+                          When enabled, older events in the conversation are compacted (compressed/summarized)
+                          to reduce context size while preserving key information.
+                        properties:
+                          compactionInterval:
+                            description: The number of *new* user-initiated invocations
+                              that, once fully represented in the session's events,
+                              will trigger a compaction.
+                            minimum: 1
+                            type: integer
+                          eventRetentionSize:
+                            description: EventRetentionSize is the number of most
+                              recent events to always retain.
+                            type: integer
+                          overlapSize:
+                            description: The number of preceding invocations to include
+                              from the end of the last compacted range. This creates
+                              an overlap between consecutive compacted summaries,
+                              maintaining context.
+                            minimum: 0
+                            type: integer
+                          summarizer:
+                            description: |-
+                              Summarizer configures an LLM-based summarizer for event compaction.
+                              If not specified, compacted events are simply truncated without summarization.
+                            properties:
+                              modelConfig:
+                                description: |-
+                                  ModelConfig is the name of a ModelConfig resource to use for summarization.
+                                  Must be in the same namespace as the Agent.
+                                  If not specified, uses the agent's own model.
+                                type: string
+                              promptTemplate:
+                                description: PromptTemplate is a custom prompt template
+                                  for the summarizer.
+                                type: string
+                            type: object
+                          tokenThreshold:
+                            description: |-
+                              Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+                              observed prompt token count meets or exceeds this threshold.
+                            type: integer
+                        required:
+                        - compactionInterval
+                        - overlapSize
+                        type: object
+                        x-kubernetes-validations:
+                        - message: compactionInterval and overlapSize are required
+                          rule: has(self.compactionInterval) && has(self.overlapSize)
+                    type: object
                   deployment:
                     properties:
                       affinity:
@@ -9863,12 +9948,70 @@ spec:
                       Code will be executed in a sandboxed environment.
                       due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configures the memory for the agent.
+                    properties:
+                      inMemory:
+                        type: object
+                      mcpServer:
+                        properties:
+                          apiGroup:
+                            default: kagent.dev
+                            description: ApiGroup is the API group of the MCP server
+                              resource.
+                            type: string
+                          kind:
+                            default: MCPServer
+                            description: Kind is the kind of the MCP server resource.
+                            type: string
+                          name:
+                            description: Name is the name of the MCP server resource.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type:
+                        default: InMemory
+                        description: MemoryType represents the memory type
+                        enum:
+                        - InMemory
+                        - VertexAI
+                        - McpServer
+                        type: string
+                      vertexAi:
+                        properties:
+                          location:
+                            type: string
+                          projectID:
+                            type: string
+                        type: object
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: inMemory configuration is only allowed when type is
+                        InMemory
+                      rule: '!has(self.inMemory) || self.type == ''InMemory'''
+                    - message: vertexAi configuration is only allowed when type is
+                        VertexAI
+                      rule: '!has(self.vertexAi) || self.type == ''VertexAI'''
+                    - message: mcpServer configuration is only allowed when type is
+                        McpServer
+                      rule: '!has(self.mcpServer) || self.type == ''McpServer'''
                   modelConfig:
                     description: |-
                       The name of the model config to use.
                       If not specified, the default value is "default-model-config".
                       Must be in the same namespace as the Agent.
                     type: string
+                  resumability:
+                    description: Resumability configures the resumability for the
+                      agent.
+                    properties:
+                      isResumable:
+                        description: IsResumable enables agent resumability.
+                        type: boolean
+                    type: object
                   stream:
                     description: |-
                       Whether to stream the response from the model.

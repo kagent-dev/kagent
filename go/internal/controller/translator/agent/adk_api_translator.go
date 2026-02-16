@@ -573,6 +573,67 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
+	// Translate context management configuration
+	if agent.Spec.Declarative.Context != nil {
+		contextCfg := &adk.AgentContextConfig{}
+
+		if agent.Spec.Declarative.Context.Compaction != nil {
+			comp := agent.Spec.Declarative.Context.Compaction
+			compCfg := &adk.AgentCompressionConfig{
+				CompactionInterval: comp.CompactionInterval,
+				OverlapSize:        comp.OverlapSize,
+				TokenThreshold:     comp.TokenThreshold,
+				EventRetentionSize: comp.EventRetentionSize,
+			}
+
+			if comp.Summarizer != nil {
+				compCfg.PromptTemplate = comp.Summarizer.PromptTemplate
+
+				if comp.Summarizer.ModelConfig == "" || comp.Summarizer.ModelConfig == agent.Spec.Declarative.ModelConfig {
+					compCfg.SummarizerModel = model
+				} else {
+					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, comp.Summarizer.ModelConfig)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", comp.Summarizer.ModelConfig, err)
+					}
+					compCfg.SummarizerModel = summarizerModel
+					mergeDeploymentData(mdd, summarizerMdd)
+					if len(summarizerSecretHash) > 0 {
+						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
+					}
+				}
+			}
+
+			contextCfg.Compaction = compCfg
+		}
+
+		if agent.Spec.Declarative.Context.Cache != nil {
+			contextCfg.Cache = &adk.AgentCacheConfig{
+				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
+				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
+				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
+			}
+		}
+
+		cfg.ContextConfig = contextCfg
+	}
+
+	// Translate resumability configuration
+	if agent.Spec.Declarative.Resumability != nil {
+		cfg.ResumabilityConfig = &adk.AgentResumabilityConfig{
+			IsResumable: agent.Spec.Declarative.Resumability.IsResumable,
+		}
+	}
+
+	// Translate memory configuration
+	if agent.Spec.Declarative.Memory != nil {
+		memConfig, err := a.translateMemory(ctx, agent, agent.Spec.Declarative.Memory)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cfg.Memory = memConfig
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {
@@ -1319,6 +1380,47 @@ func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	return binary.BigEndian.Uint64(hash[:8])
 }
 
+// mergeDeploymentData adds env vars, volumes, and volume mounts from src into dst,
+// skipping any that already exist in dst (by name for env/volumes, by mount path for mounts).
+func mergeDeploymentData(dst, src *modelDeploymentData) {
+	for _, se := range src.EnvVars {
+		found := false
+		for _, e := range dst.EnvVars {
+			if e.Name == se.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.EnvVars = append(dst.EnvVars, se)
+		}
+	}
+	for _, sv := range src.Volumes {
+		found := false
+		for _, v := range dst.Volumes {
+			if v.Name == sv.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.Volumes = append(dst.Volumes, sv)
+		}
+	}
+	for _, sm := range src.VolumeMounts {
+		found := false
+		for _, m := range dst.VolumeMounts {
+			if m.MountPath == sm.MountPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.VolumeMounts = append(dst.VolumeMounts, sm)
+		}
+	}
+}
+
 func collectOtelEnvFromProcess() []corev1.EnvVar {
 	envVars := slices.Collect(utils.Map(
 		utils.Filter(
@@ -1352,4 +1454,74 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent
 		}
 	}
 	return errs
+}
+
+func (a *adkApiTranslator) translateMemory(ctx context.Context, agent *v1alpha2.Agent, memConfig *v1alpha2.MemoryConfig) (any, error) {
+	if memConfig == nil {
+		return nil, nil
+	}
+
+	switch memConfig.Type {
+	case v1alpha2.MemoryTypeInMemory:
+		return &adk.InMemoryConfig{BaseMemoryConfig: adk.BaseMemoryConfig{Type: "in_memory"}}, nil
+	case v1alpha2.MemoryTypeVertexAI:
+		var projectID *string
+		var location *string
+		if memConfig.VertexAI != nil {
+			if memConfig.VertexAI.ProjectID != "" {
+				projectID = &memConfig.VertexAI.ProjectID
+			}
+			if memConfig.VertexAI.Location != "" {
+				location = &memConfig.VertexAI.Location
+			}
+		}
+		return &adk.VertexAIMemoryConfig{
+			BaseMemoryConfig: adk.BaseMemoryConfig{Type: "vertex_ai"},
+			ProjectID:        projectID,
+			Location:         location,
+		}, nil
+	case v1alpha2.MemoryTypeMcpServer:
+		if memConfig.McpServer == nil {
+			return nil, fmt.Errorf("mcpServer configuration is required for type McpServer")
+		}
+
+		// Use the existing translation logic for MCP servers, but capture the result
+		// instead of adding it to the agent's tool list.
+		tempAgentConfig := &adk.AgentConfig{}
+
+		// Create a synthetic tool definition for the memory server.
+		toolDef := &v1alpha2.McpServerTool{
+			TypedLocalReference: v1alpha2.TypedLocalReference{
+				Name:     memConfig.McpServer.Name,
+				Kind:     memConfig.McpServer.Kind,
+				ApiGroup: memConfig.McpServer.ApiGroup,
+			},
+			// Empty tool names as we're not exposing these tools to the agent itself
+			ToolNames: []string{},
+		}
+
+		err := a.translateMCPServerTarget(ctx, tempAgentConfig, agent.Namespace, toolDef, nil, a.globalProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to translate memory MCP server: %w", err)
+		}
+
+		var serverConfig any
+		if len(tempAgentConfig.HttpTools) > 0 {
+			serverConfig = tempAgentConfig.HttpTools[0]
+		} else if len(tempAgentConfig.SseTools) > 0 {
+			serverConfig = tempAgentConfig.SseTools[0]
+		} else {
+			return nil, fmt.Errorf("failed to resolve configuration for memory MCP server %s", memConfig.McpServer.Name)
+		}
+
+		return &adk.McpMemoryConfig{
+			BaseMemoryConfig: adk.BaseMemoryConfig{Type: "mcp"},
+			Name:             memConfig.McpServer.Name,
+			Kind:             memConfig.McpServer.Kind,
+			ApiGroup:         memConfig.McpServer.ApiGroup,
+			ServerConfig:     serverConfig,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown memory type: %s", memConfig.Type)
+	}
 }

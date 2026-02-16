@@ -8,16 +8,20 @@ import httpx
 from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
+from a2a.types import AgentCard, Task, TaskState, TaskStatusUpdateEvent
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
+from google.adk.agents.context_cache_config import ContextCacheConfig as AdkContextCacheConfig
 from google.adk.apps import App
+from google.adk.apps.app import EventsCompactionConfig, ResumabilityConfig
 from google.adk.artifacts import InMemoryArtifactService
+from google.adk.memory import BaseMemoryService, InMemoryMemoryService, VertexAiRagMemoryService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.genai import types
 
 from kagent.core.a2a import (
@@ -30,6 +34,15 @@ from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
+from .memory import McpMemoryService
+from .types import (
+    BaseMemoryConfig,
+    HttpMcpServerConfig,
+    InMemoryConfig,
+    McpMemoryConfig,
+    SseMcpServerConfig,
+    VertexAIMemoryConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +73,10 @@ class KAgentApp:
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
         stream: bool = False,
+        events_compaction_config: Optional[EventsCompactionConfig] = None,
+        context_cache_config: Optional[AdkContextCacheConfig] = None,
+        memory_config: Optional[BaseMemoryConfig] = None,
+        resumability_config: Optional[ResumabilityConfig] = None,
     ):
         """Initialize the KAgent application.
 
@@ -71,6 +88,10 @@ class KAgentApp:
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
+            events_compaction_config: ADK compaction configuration
+            context_cache_config: ADK context caching config
+            memory_config: Optional memory configuration
+            resumability_config: Optional resumability configuration
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
@@ -79,6 +100,42 @@ class KAgentApp:
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
+        self.events_compaction_config = events_compaction_config
+        self.context_cache_config = context_cache_config
+        self.memory_config = memory_config
+        self.resumability_config = resumability_config
+
+    def _create_memory_service(self) -> Optional[BaseMemoryService]:
+        if not self.memory_config:
+            return None
+
+        if isinstance(self.memory_config, InMemoryConfig):
+            return InMemoryMemoryService()
+        elif isinstance(self.memory_config, VertexAIMemoryConfig):
+            project_id = self.memory_config.project_id
+            location = self.memory_config.location
+            return VertexAiRagMemoryService(
+                project_id=project_id,
+                location=location,
+            )
+        elif isinstance(self.memory_config, McpMemoryConfig):
+            config = self.memory_config.server_config
+            if isinstance(config, HttpMcpServerConfig):
+                # Ensure params are StreamableHTTPConnectionParams
+                if not isinstance(config.params, StreamableHTTPConnectionParams):
+                    # Should be handled by pydantic validation, but good to be safe
+                    raise ValueError("Invalid params for HttpMcpServerConfig")
+                return McpMemoryService(connection_params=config.params)
+            elif isinstance(config, SseMcpServerConfig):
+                if not isinstance(config.params, SseConnectionParams):
+                    raise ValueError("Invalid params for SseMcpServerConfig")
+                return McpMemoryService(connection_params=config.params)
+            else:
+                logger.warning(f"Unsupported MCP memory server config: {type(config)}")
+                return None
+        else:
+            logger.warning(f"Unsupported memory config type: {type(self.memory_config)}")
+            return None
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
@@ -95,12 +152,20 @@ class KAgentApp:
 
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
-            adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
+            adk_app = App(
+                name=self.app_name,
+                root_agent=root_agent,
+                plugins=self.plugins,
+                events_compaction_config=self.events_compaction_config,
+                context_cache_config=self.context_cache_config,
+                resumability_config=self.resumability_config,
+            )
 
             return Runner(
                 app=adk_app,
                 session_service=session_service,
                 artifact_service=InMemoryArtifactService(),
+                memory_service=self._create_memory_service(),
             )
 
         task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
@@ -158,6 +223,7 @@ class KAgentApp:
             app_name=self.app_name,
             session_service=session_service,
             artifact_service=InMemoryArtifactService(),
+            memory_service=self._create_memory_service(),
         )
 
         logger.info(f"\n>>> User Query: {task}")

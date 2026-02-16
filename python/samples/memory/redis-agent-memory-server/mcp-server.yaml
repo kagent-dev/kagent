@@ -1,0 +1,24 @@
+apiVersion: kagent.dev/v1alpha2
+kind: MCPServer
+metadata:
+  name: redis-memory-mcp
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: redis-memory-mcp
+    app.kubernetes.io/part-of: kagent
+spec:
+  transportType: stdio
+  timeout: 30s
+  deployment:
+    image: kagent-redis-agent-memory-mcp-server:latest # Replace with your built image
+    cmd: python
+    args:
+      - "server.py"
+    env:
+      - name: MEMORY_API_URL
+        value: "http://redis-memory-server:8000" # Update to point to your Redis Memory Server
+      - name: MEMORY_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: agent-memory-server-token
+            key: AGENT_MEMORY_SERVER_TOKEN

@@ -296,6 +296,94 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
+type AgentContextConfig struct {
+	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
+	Cache      *AgentCacheConfig       `json:"cache,omitempty"`
+}
+
+// AgentCompressionConfig maps to Python's ContextCompressionSettings.
+type AgentCompressionConfig struct {
+	CompactionInterval int    `json:"compaction_interval"`
+	OverlapSize        int    `json:"overlap_size"`
+	SummarizerModel    Model  `json:"summarizer_model,omitempty"`
+	PromptTemplate     string `json:"prompt_template,omitempty"`
+	TokenThreshold     *int   `json:"token_threshold,omitempty"`
+	EventRetentionSize *int   `json:"event_retention_size,omitempty"`
+}
+
+func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		CompactionInterval int             `json:"compaction_interval"`
+		OverlapSize        int             `json:"overlap_size"`
+		SummarizerModel    json.RawMessage `json:"summarizer_model,omitempty"`
+		PromptTemplate     string          `json:"prompt_template,omitempty"`
+		TokenThreshold     *int            `json:"token_threshold,omitempty"`
+		EventRetentionSize *int            `json:"event_retention_size,omitempty"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	c.CompactionInterval = tmp.CompactionInterval
+	c.OverlapSize = tmp.OverlapSize
+	c.PromptTemplate = tmp.PromptTemplate
+	c.TokenThreshold = tmp.TokenThreshold
+	c.EventRetentionSize = tmp.EventRetentionSize
+	if len(tmp.SummarizerModel) > 0 && string(tmp.SummarizerModel) != "null" {
+		model, err := ParseModel(tmp.SummarizerModel)
+		if err != nil {
+			return fmt.Errorf("failed to parse summarizer model: %w", err)
+		}
+		c.SummarizerModel = model
+	}
+	return nil
+}
+
+// AgentCacheConfig maps to Python's ContextCacheSettings.
+type AgentCacheConfig struct {
+	CacheIntervals *int `json:"cache_intervals,omitempty"`
+	TTLSeconds     *int `json:"ttl_seconds,omitempty"`
+	MinTokens      *int `json:"min_tokens,omitempty"`
+}
+
+// AgentResumabilityConfig maps to Python's ResumabilityConfig.
+type AgentResumabilityConfig struct {
+	IsResumable bool `json:"is_resumable"`
+}
+
+type BaseMemoryConfig struct {
+	Type string `json:"type"`
+}
+
+type InMemoryConfig struct {
+	BaseMemoryConfig
+}
+
+type VertexAIMemoryConfig struct {
+	BaseMemoryConfig
+	ProjectID *string `json:"project_id,omitempty"`
+	Location  *string `json:"location,omitempty"`
+}
+
+type McpMemoryConfig struct {
+	BaseMemoryConfig
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	ApiGroup     string `json:"apiGroup"`
+	ServerConfig any    `json:"server_config,omitempty"` // HttpMcpServerConfig or SseMcpServerConfig
+}
+
+func (m *McpMemoryConfig) MarshalJSON() ([]byte, error) {
+	type Alias McpMemoryConfig
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  "mcp",
+		Alias: (*Alias)(m),
+	})
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
@@ -306,16 +394,25 @@ type AgentConfig struct {
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
 	ExecuteCode  bool                  `json:"execute_code,omitempty"`
 	Stream       bool                  `json:"stream"`
+	// Context management configuration
+	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
+	// Memory configuration
+	Memory any `json:"memory,omitempty"` // InMemoryConfig, VertexAIMemoryConfig, or McpMemoryConfig
+	// Resumability configuration
+	ResumabilityConfig *AgentResumabilityConfig `json:"resumability_config,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model              json.RawMessage          `json:"model"`
+		Description        string                   `json:"description"`
+		Instruction        string                   `json:"instruction"`
+		HttpTools          []HttpMcpServerConfig    `json:"http_tools"`
+		SseTools           []SseMcpServerConfig     `json:"sse_tools"`
+		RemoteAgents       []RemoteAgentConfig      `json:"remote_agents"`
+		ContextConfig      *AgentContextConfig      `json:"context_config,omitempty"`
+		Memory             json.RawMessage          `json:"memory,omitempty"`
+		ResumabilityConfig *AgentResumabilityConfig `json:"resumability_config,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -330,6 +427,39 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.ContextConfig = tmp.ContextConfig
+	a.ResumabilityConfig = tmp.ResumabilityConfig
+
+	if tmp.Memory != nil {
+		var base BaseMemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &base); err != nil {
+			return err
+		}
+		switch base.Type {
+		case "in_memory":
+			var mem InMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			a.Memory = &mem
+		case "vertex_ai":
+			var mem VertexAIMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			a.Memory = &mem
+		case "mcp":
+			var mem McpMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			// server_config needs to be unmarshaled polymorphically if we were reading back
+			// For now, simple unmarshal might put it as map[string]interface{}
+			// If we need strict types here we'd need more logic, but for generation usually we are creating structs.
+			a.Memory = &mem
+		}
+	}
+
 	return nil
 }
 

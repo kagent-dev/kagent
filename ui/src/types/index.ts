@@ -236,6 +236,60 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  context?: ContextConfig;
+  memory?: MemoryConfig;
+  resumability?: ResumabilityConfig;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+  cache?: ContextCacheConfig;
+}
+
+export interface ResumabilityConfig {
+  isResumable: boolean;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval: number;
+  overlapSize: number;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+  summarizer?: ContextSummarizerConfig;
+}
+
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
+}
+
+export interface ContextCacheConfig {
+  cacheIntervals?: number;
+  ttlSeconds?: number;
+  minTokens?: number;
+}
+
+export type MemoryType = "InMemory" | "VertexAI" | "McpServer";
+
+export interface MemoryConfig {
+  type: MemoryType;
+  inMemory?: InMemoryConfig;
+  vertexAi?: VertexAIMemoryConfig;
+  mcpServer?: McpMemoryConfig;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface InMemoryConfig {}
+
+export interface VertexAIMemoryConfig {
+  projectID?: string;
+  location?: string;
+}
+
+export interface McpMemoryConfig {
+  name: string;
+  kind?: string;
+  apiGroup?: string;
 }
 
 export interface BYOAgentSpec {
