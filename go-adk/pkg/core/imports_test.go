@@ -20,7 +20,7 @@ func TestNoGoogleADKImports(t *testing.T) {
 	}
 
 	// Find all Go files in the core package
-	goFiles, err := filepath.Glob(filepath.Join(coreDir, "*.go"))
+	goFiles, err := filepath.Glob(filepath.Join(coreDir, "**/*.go"))
 	if err != nil {
 		t.Fatalf("failed to glob Go files: %v", err)
 	}

@@ -10,15 +10,16 @@ import (
 	"iter"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/session"
 	adksession "google.golang.org/adk/session"
 )
 
 // Compile-time interface compliance checks
 var _ adksession.Service = (*SessionServiceAdapter)(nil)
 var _ adksession.Session = (*SessionWrapper)(nil)
-var _ adksession.Events = (*EventsWrapper)(nil)
-var _ adksession.State = (*StateWrapper)(nil)
+var _ adksession.Events = (*eventsWrapper)(nil)
+var _ adksession.State = (*stateWrapper)(nil)
 
 // ErrListNotImplemented is returned when List is called but not implemented.
 var ErrListNotImplemented = errors.New("session list not implemented: underlying SessionService does not support listing")
@@ -45,12 +46,12 @@ var ErrListNotImplemented = errors.New("session list not implemented: underlying
 // JSON (like Python) and Get() return a session whose Events() yields only *adksession.Event;
 // we already append *adksession.Event in context; persistence still uses our Event for now.
 type SessionServiceAdapter struct {
-	service core.SessionService
+	service session.SessionService
 	logger  logr.Logger
 }
 
 // NewSessionServiceAdapter creates a new adapter
-func NewSessionServiceAdapter(service core.SessionService, logger logr.Logger) *SessionServiceAdapter {
+func NewSessionServiceAdapter(service session.SessionService, logger logr.Logger) *SessionServiceAdapter {
 	return &SessionServiceAdapter{
 		service: service,
 		logger:  logger,
@@ -60,7 +61,7 @@ func NewSessionServiceAdapter(service core.SessionService, logger logr.Logger) *
 // AppendFirstSystemEvent appends the initial system event (header_update) before run.
 // Matches Python _handle_request: append_event before runner.run_async.
 // Ensures session has prior state; runner fetches session with full history for LLM context on resume.
-func AppendFirstSystemEvent(ctx context.Context, service core.SessionService, session *core.Session) error {
+func AppendFirstSystemEvent(ctx context.Context, service session.SessionService, session *session.Session) error {
 	if service == nil || session == nil {
 		return nil
 	}
@@ -194,8 +195,8 @@ func parseEventsToADK(events []interface{}, logger logr.Logger) []interface{} {
 			if logger.GetSink() != nil {
 				// Log first N chars of the JSON to help debug
 				jsonStr := string(data)
-				if len(jsonStr) > core.JSONPreviewMaxLength {
-					jsonStr = jsonStr[:core.JSONPreviewMaxLength] + "..."
+				if len(jsonStr) > a2a.JSONPreviewMaxLength {
+					jsonStr = jsonStr[:a2a.JSONPreviewMaxLength] + "..."
 				}
 				logger.Info("Event failed to parse as ADK Event, skipping", "eventIndex", i, "jsonPreview", jsonStr)
 			}
@@ -290,7 +291,7 @@ func (a *SessionServiceAdapter) AppendEvent(ctx context.Context, session adksess
 	// Persist ADK Event JSON to backend (Python: event_data = {"id": event.id, "data": event.model_dump_json()}).
 	// Use a detached context so client disconnect (ctx canceled) does not cancel the HTTP POST;
 	// otherwise SSE disconnect causes "context canceled" and events are not persisted.
-	persistCtx, cancel := context.WithTimeout(context.Background(), core.EventPersistTimeout)
+	persistCtx, cancel := context.WithTimeout(context.Background(), a2a.EventPersistTimeout)
 	defer cancel()
 	ourSession := convertADKSessionToOurs(session)
 	if err := a.service.AppendEvent(persistCtx, ourSession, event); err != nil {
@@ -299,22 +300,25 @@ func (a *SessionServiceAdapter) AppendEvent(ctx context.Context, session adksess
 	return nil
 }
 
-// SessionWrapper wraps our Session to implement Google ADK's Session interface
+// SessionWrapper wraps our Session to implement Google ADK's Session interface.
+// Events and State are embedded as inner types that reference the same session.
 type SessionWrapper struct {
-	session *core.Session
-	events  *EventsWrapper
-	state   *StateWrapper
+	session *session.Session
+	events  eventsWrapper
+	state   stateWrapper
 }
 
 // NewSessionWrapper creates a new wrapper.
-// EventsWrapper holds a reference to the session so Events().All() always sees the current
-// session.Events (including events appended via AppendEvent); otherwise the ADK would see
-// an outdated slice and req.Contents would be empty.
-func NewSessionWrapper(session *core.Session) *SessionWrapper {
+// Events().All() always reads from session.Events so appended events are visible to ADK.
+func NewSessionWrapper(sess *session.Session) *SessionWrapper {
+	state := sess.State
+	if state == nil {
+		state = make(map[string]interface{})
+	}
 	return &SessionWrapper{
-		session: session,
-		events:  NewEventsWrapperForSession(session),
-		state:   NewStateWrapper(session.State),
+		session: sess,
+		events:  eventsWrapper{session: sess},
+		state:   stateWrapper{state: state},
 	}
 }
 
@@ -335,39 +339,28 @@ func (s *SessionWrapper) UserID() string {
 
 // State implements adksession.Session
 func (s *SessionWrapper) State() adksession.State {
-	return s.state
+	return &s.state
 }
 
 // Events implements adksession.Session
 func (s *SessionWrapper) Events() adksession.Events {
-	return s.events
+	return &s.events
 }
 
 // LastUpdateTime implements adksession.Session
 func (s *SessionWrapper) LastUpdateTime() time.Time {
-	// Return current time as we don't track this in our Session
 	return time.Now()
 }
 
-// EventsWrapper wraps our events to implement adksession.Events.
-// It holds a reference to the session so All/Len/At always read the current session.Events;
-// after AppendEvent appends to session.Events, the ADK's req.Contents (built from Events().All())
-// will include the new events instead of an outdated copy.
-type EventsWrapper struct {
-	session *core.Session
-}
-
-// NewEventsWrapperForSession creates an EventsWrapper that always reads from session.Events.
-func NewEventsWrapperForSession(session *core.Session) *EventsWrapper {
-	return &EventsWrapper{session: session}
+// eventsWrapper implements adksession.Events by reading from session.Events.
+type eventsWrapper struct {
+	session *session.Session
 }
 
 // All implements adksession.Events.
-// Python-style: session holds only *adksession.Event; yield them directly.
-func (e *EventsWrapper) All() iter.Seq[*adksession.Event] {
+func (e *eventsWrapper) All() iter.Seq[*adksession.Event] {
 	return func(yield func(*adksession.Event) bool) {
-		events := e.session.Events
-		for _, eventInterface := range events {
+		for _, eventInterface := range e.session.Events {
 			if adkE, ok := eventInterface.(*adksession.Event); ok && adkE != nil {
 				if !yield(adkE) {
 					return
@@ -378,41 +371,28 @@ func (e *EventsWrapper) All() iter.Seq[*adksession.Event] {
 }
 
 // Len implements adksession.Events
-func (e *EventsWrapper) Len() int {
+func (e *eventsWrapper) Len() int {
 	return len(e.session.Events)
 }
 
 // At implements adksession.Events.
-// Python-style: session holds only *adksession.Event.
-func (e *EventsWrapper) At(i int) *adksession.Event {
-	events := e.session.Events
-	if i < 0 || i >= len(events) {
+func (e *eventsWrapper) At(i int) *adksession.Event {
+	if i < 0 || i >= len(e.session.Events) {
 		return nil
 	}
-	if adkE, ok := events[i].(*adksession.Event); ok {
+	if adkE, ok := e.session.Events[i].(*adksession.Event); ok {
 		return adkE
 	}
 	return nil
 }
 
-// StateWrapper wraps our state to implement adksession.State
-type StateWrapper struct {
+// stateWrapper implements adksession.State.
+type stateWrapper struct {
 	state map[string]interface{}
 }
 
-// NewStateWrapper creates a new state wrapper
-func NewStateWrapper(state map[string]interface{}) *StateWrapper {
-	if state == nil {
-		state = make(map[string]interface{})
-	}
-	return &StateWrapper{state: state}
-}
-
 // Get implements adksession.State
-func (s *StateWrapper) Get(key string) (interface{}, error) {
-	if s.state == nil {
-		return nil, adksession.ErrStateKeyNotExist
-	}
+func (s *stateWrapper) Get(key string) (interface{}, error) {
 	value, ok := s.state[key]
 	if !ok {
 		return nil, adksession.ErrStateKeyNotExist
@@ -421,20 +401,14 @@ func (s *StateWrapper) Get(key string) (interface{}, error) {
 }
 
 // Set implements adksession.State
-func (s *StateWrapper) Set(key string, value interface{}) error {
-	if s.state == nil {
-		s.state = make(map[string]interface{})
-	}
+func (s *stateWrapper) Set(key string, value interface{}) error {
 	s.state[key] = value
 	return nil
 }
 
 // All implements adksession.State
-func (s *StateWrapper) All() iter.Seq2[string, interface{}] {
+func (s *stateWrapper) All() iter.Seq2[string, interface{}] {
 	return func(yield func(string, interface{}) bool) {
-		if s.state == nil {
-			return
-		}
 		for k, v := range s.state {
 			if !yield(k, v) {
 				return
@@ -444,22 +418,22 @@ func (s *StateWrapper) All() iter.Seq2[string, interface{}] {
 }
 
 // convertSessionToADK converts our Session to Google ADK Session
-func convertSessionToADK(session *core.Session) adksession.Session {
+func convertSessionToADK(session *session.Session) adksession.Session {
 	return NewSessionWrapper(session)
 }
 
 // convertADKSessionToOurs converts Google ADK Session to our Session.
 // Used only when calling backend (e.g. AppendEvent); backend needs only ID, UserID, AppName, State for the URL.
 // Events are not converted (Python-style: we persist ADK events; no "ours" event type for session).
-func convertADKSessionToOurs(session adksession.Session) *core.Session {
+func convertADKSessionToOurs(s adksession.Session) *session.Session {
 	state := make(map[string]interface{})
-	for k, v := range session.State().All() {
+	for k, v := range s.State().All() {
 		state[k] = v
 	}
-	return &core.Session{
-		ID:      session.ID(),
-		UserID:  session.UserID(),
-		AppName: session.AppName(),
+	return &session.Session{
+		ID:      s.ID(),
+		UserID:  s.UserID(),
+		AppName: s.AppName(),
 		State:   state,
 		Events:  nil, // Backend AppendEvent only uses session.ID, UserID, AppName
 	}

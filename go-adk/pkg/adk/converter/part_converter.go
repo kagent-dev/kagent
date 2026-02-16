@@ -1,0 +1,158 @@
+package converter
+
+import (
+	"encoding/base64"
+	"fmt"
+
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
+	"google.golang.org/genai"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+)
+
+// GenAIPartToA2APart converts *genai.Part directly to A2A protocol.Part.
+// This is the primary conversion function - no intermediate map representation.
+func GenAIPartToA2APart(part *genai.Part) (protocol.Part, error) {
+	if part == nil {
+		return nil, fmt.Errorf("part is nil")
+	}
+
+	// Handle text parts
+	if part.Text != "" {
+		// thought metadata (part.thought) can be added when A2A protocol supports it
+		return protocol.NewTextPart(part.Text), nil
+	}
+
+	// Handle file_data parts
+	if part.FileData != nil {
+		mimeType := part.FileData.MIMEType
+		return &protocol.FilePart{
+			Kind: "file",
+			File: &protocol.FileWithURI{
+				URI:      part.FileData.FileURI,
+				MimeType: &mimeType,
+			},
+		}, nil
+	}
+
+	// Handle inline_data parts
+	if part.InlineData != nil && len(part.InlineData.Data) > 0 {
+		mimeType := part.InlineData.MIMEType
+		return &protocol.FilePart{
+			Kind: "file",
+			File: &protocol.FileWithBytes{
+				Bytes:    base64.StdEncoding.EncodeToString(part.InlineData.Data),
+				MimeType: &mimeType,
+			},
+		}, nil
+	}
+
+	// Handle function_call parts
+	if part.FunctionCall != nil {
+		data := map[string]interface{}{
+			a2a.PartKeyName: part.FunctionCall.Name,
+			a2a.PartKeyArgs: part.FunctionCall.Args,
+		}
+		if part.FunctionCall.ID != "" {
+			data[a2a.PartKeyID] = part.FunctionCall.ID
+		}
+		return &protocol.DataPart{
+			Kind: "data",
+			Data: data,
+			Metadata: map[string]interface{}{
+				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionCall,
+			},
+		}, nil
+	}
+
+	// Handle function_response parts
+	if part.FunctionResponse != nil {
+		response := normalizeFunctionResponse(part.FunctionResponse.Response)
+		data := map[string]interface{}{
+			a2a.PartKeyName:     part.FunctionResponse.Name,
+			a2a.PartKeyResponse: response,
+		}
+		if part.FunctionResponse.ID != "" {
+			data[a2a.PartKeyID] = part.FunctionResponse.ID
+		}
+		return &protocol.DataPart{
+			Kind: "data",
+			Data: data,
+			Metadata: map[string]interface{}{
+				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionResponse,
+			},
+		}, nil
+	}
+
+	// Handle code_execution_result parts
+	if part.CodeExecutionResult != nil {
+		data := map[string]interface{}{
+			"outcome": string(part.CodeExecutionResult.Outcome),
+			"output":  part.CodeExecutionResult.Output,
+		}
+		return &protocol.DataPart{
+			Kind: "data",
+			Data: data,
+			Metadata: map[string]interface{}{
+				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeCodeExecutionResult,
+			},
+		}, nil
+	}
+
+	// Handle executable_code parts
+	if part.ExecutableCode != nil {
+		data := map[string]interface{}{
+			"code":     part.ExecutableCode.Code,
+			"language": string(part.ExecutableCode.Language),
+		}
+		return &protocol.DataPart{
+			Kind: "data",
+			Data: data,
+			Metadata: map[string]interface{}{
+				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeExecutableCode,
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("part has no recognized content")
+}
+
+// normalizeFunctionResponse ensures the response has a "result" field the UI expects.
+// Handles map[string]interface{} responses from GenAI.
+func normalizeFunctionResponse(resp map[string]interface{}) map[string]interface{} {
+	if resp == nil {
+		return map[string]interface{}{"result": nil}
+	}
+
+	out := make(map[string]interface{})
+	for k, v := range resp {
+		if v != nil {
+			out[k] = v
+		}
+	}
+
+	// Already has result field
+	if _, hasResult := out["result"]; hasResult {
+		return out
+	}
+
+	// Handle error responses
+	if errStr, ok := out["error"].(string); ok && errStr != "" {
+		out["isError"] = true
+		out["result"] = map[string]interface{}{"error": errStr}
+		return out
+	}
+
+	// Handle content field (string or array)
+	if contentStr, ok := out["content"].(string); ok {
+		out["result"] = map[string]interface{}{"content": contentStr}
+		return out
+	}
+	if contentArr, ok := out["content"].([]interface{}); ok && len(contentArr) > 0 {
+		out["result"] = map[string]interface{}{"content": contentArr}
+		return out
+	}
+
+	// Fallback: set result to the response object
+	out["result"] = resp
+	return out
+}

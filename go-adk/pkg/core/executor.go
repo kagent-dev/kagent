@@ -8,8 +8,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go-adk/pkg/adk/models"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	"github.com/kagent-dev/kagent/go-adk/pkg/core/genai"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/session"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/skills"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/taskstore"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/telemetry"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -38,19 +42,19 @@ type A2aAgentExecutorConfig struct {
 // A2aAgentExecutor handles the execution of an agent against an A2A request.
 type A2aAgentExecutor struct {
 	Runner          Runner
-	Converter       EventConverter
+	Converter       a2a.EventConverter
 	Config          A2aAgentExecutorConfig
-	SessionService  SessionService
-	TaskStore       *KAgentTaskStore
+	SessionService  session.SessionService
+	TaskStore       *taskstore.KAgentTaskStore
 	AppName         string
 	SkillsDirectory string
 	Logger          logr.Logger
 }
 
 // NewA2aAgentExecutorWithLogger creates a new A2aAgentExecutor with a logger.
-func NewA2aAgentExecutorWithLogger(runner Runner, converter EventConverter, config A2aAgentExecutorConfig, sessionService SessionService, taskStore *KAgentTaskStore, appName string, logger logr.Logger) *A2aAgentExecutor {
+func NewA2aAgentExecutorWithLogger(runner Runner, converter a2a.EventConverter, config A2aAgentExecutorConfig, sessionService session.SessionService, taskStore *taskstore.KAgentTaskStore, appName string, logger logr.Logger) *A2aAgentExecutor {
 	if config.ExecutionTimeout == 0 {
-		config.ExecutionTimeout = models.DefaultExecutionTimeout
+		config.ExecutionTimeout = a2a.DefaultExecutionTimeout
 	}
 	// Get skills directory from environment (matching Python's KAGENT_SKILLS_FOLDER)
 	skillsDir := os.Getenv(envSkillsFolder)
@@ -70,7 +74,7 @@ func NewA2aAgentExecutorWithLogger(runner Runner, converter EventConverter, conf
 }
 
 // Execute runs the agent and publishes updates to the event queue.
-func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessageParams, queue EventQueue, taskID, contextID string) error {
+func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessageParams, queue a2a.EventQueue, taskID, contextID string) error {
 	if req == nil {
 		return fmt.Errorf("A2A request cannot be nil")
 	}
@@ -87,10 +91,7 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	if e.AppName != "" {
 		spanAttributes["kagent.app_name"] = e.AppName
 	}
-	ctx = SetKAgentSpanAttributes(ctx, spanAttributes)
-	// Note: ClearKAgentSpanAttributes is not called in defer because the context
-	// is local to this function and reassigning ctx in a defer doesn't affect
-	// the original context. Span attributes are cleaned up when the context is done.
+	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 
 	// 3. Prepare session (get or create)
 	session, err := e.prepareSession(ctx, userID, sessionID, &req.Message)
@@ -98,17 +99,16 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		return fmt.Errorf("failed to prepare session: %w", err)
 	}
 
-	// 2.5. Initialize session path for skills (matching Python implementation)
+	// 4. Initialize session path for skills (matching Python implementation)
 	if e.SkillsDirectory != "" && sessionID != "" {
-		if _, err := InitializeSessionPath(sessionID, e.SkillsDirectory); err != nil {
-			// Log but continue: skills can still be accessed via absolute path
+		if _, err := skills.InitializeSessionPath(sessionID, e.SkillsDirectory); err != nil {
 			if e.Logger.GetSink() != nil {
 				e.Logger.V(1).Info("Failed to initialize session path for skills (continuing)", "error", err, "sessionID", sessionID, "skillsDirectory", e.SkillsDirectory)
 			}
 		}
 	}
 
-	// 3. Send "submitted" status if this is the first message for this task
+	// 5. Send "submitted" status
 	err = queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
 		Kind:      "status-update",
 		TaskID:    taskID,
@@ -124,33 +124,31 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		return err
 	}
 
-	// 4. Prepare run arguments
-	runArgs := ConvertA2ARequestToRunArgs(req, userID, sessionID)
-	// Set streaming mode from executor config so ADK and model stream when config.stream is true
+	// 6. Prepare run arguments
+	runArgs := a2a.ConvertA2ARequestToRunArgs(req, userID, sessionID)
 	streamingMode := "NONE"
 	if e.Config.Stream {
 		streamingMode = "SSE"
 	}
-	if runArgs[ArgKeyRunConfig] == nil {
-		runArgs[ArgKeyRunConfig] = make(map[string]interface{})
+	if runArgs[a2a.ArgKeyRunConfig] == nil {
+		runArgs[a2a.ArgKeyRunConfig] = make(map[string]interface{})
 	}
-	if runConfig, ok := runArgs[ArgKeyRunConfig].(map[string]interface{}); ok {
-		runConfig[RunConfigKeyStreamingMode] = streamingMode
+	if runConfig, ok := runArgs[a2a.ArgKeyRunConfig].(map[string]interface{}); ok {
+		runConfig[a2a.RunConfigKeyStreamingMode] = streamingMode
 	}
 	// Add session service and session to runArgs so runner can save events to history
-	runArgs[ArgKeySessionService] = e.SessionService
-	runArgs[ArgKeySession] = session
-	// App name must match executor's so runner's session lookup returns the same session (Python: runner.app_name)
-	runArgs[ArgKeyAppName] = e.AppName
+	runArgs[a2a.ArgKeySessionService] = e.SessionService
+	runArgs[a2a.ArgKeySession] = session
+	runArgs[a2a.ArgKeyAppName] = e.AppName
 
-	// 4.5. Append system event before run (matches Python _handle_request: append_event before runner.run_async)
+	// 7. Append system event before run (matches Python _handle_request: append_event before runner.run_async)
 	if e.SessionService != nil && session != nil {
 		if appendErr := e.SessionService.AppendFirstSystemEvent(ctx, session); appendErr != nil && e.Logger.GetSink() != nil {
 			e.Logger.Error(appendErr, "Failed to append system event (continuing)", "sessionID", session.ID)
 		}
 	}
 
-	// 5. Start execution with timeout. Use WithoutCancel so that the execution
+	// 8. Start execution with timeout. Use WithoutCancel so that the execution
 	// (and thus the runner / MCP tool calls) is not cancelled when the incoming
 	// request context is cancelled (e.g. HTTP client disconnect or short server
 	// timeout). Long-running MCP tools get up to ExecutionTimeout to complete.
@@ -158,7 +156,7 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 	defer cancel()
 	ctx = execCtx
 
-	// 6. Send "working" status
+	// 9. Send "working" status
 	err = queue.EnqueueEvent(ctx, &protocol.TaskStatusUpdateEvent{
 		Kind:      "status-update",
 		TaskID:    taskID,
@@ -169,32 +167,32 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		},
 		Final: false,
 		Metadata: map[string]interface{}{
-			"kagent_app_name":   e.AppName,
-			"kagent_user_id":    userID,
-			"kagent_session_id": sessionID,
+			a2a.MetadataKeyAppName:       e.AppName,
+			a2a.MetadataKeyUserIDFull:    userID,
+			a2a.MetadataKeySessionIDFull: sessionID,
 		},
 	})
 	if err != nil {
 		return err
 	}
 
-	aggregator := NewTaskResultAggregator()
+	aggregator := taskstore.NewTaskResultAggregator()
 	eventChan, err := e.Runner.Run(ctx, runArgs)
 	if err != nil {
 		return e.sendFailure(ctx, queue, taskID, contextID, err.Error())
 	}
 
-	// 7. Process events from the runner
-	// Ensure channel is drained and closed properly (matching Python's async with aclosing)
+	// 10. Process events from the runner
 	defer func() {
-		// Drain any remaining events from channel if it wasn't closed
 		for range eventChan {
-			// Drain remaining events
 		}
 	}()
 
+	cc := a2a.ConversionContext{
+		TaskID: taskID, ContextID: contextID,
+		AppName: e.AppName, UserID: userID, SessionID: sessionID,
+	}
 	for internalEvent := range eventChan {
-		// Check for context cancellation at start of each iteration
 		if ctx.Err() != nil {
 			if e.Logger.GetSink() != nil {
 				e.Logger.Info("Context cancelled during event processing", "error", ctx.Err())
@@ -202,10 +200,8 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 			return ctx.Err()
 		}
 
-		// Check if event is partial (matching Python: if not adk_event.partial)
 		isPartial := e.Converter.IsPartialEvent(internalEvent)
-
-		a2aEvents := e.Converter.ConvertEventToA2AEvents(internalEvent, taskID, contextID, e.AppName, userID, sessionID)
+		a2aEvents := e.Converter.ConvertEventToA2AEvents(internalEvent, cc)
 		for _, a2aEvent := range a2aEvents {
 			// Only aggregate non-partial events to avoid duplicates from streaming chunks
 			// Partial events are sent to frontend for display but not accumulated
@@ -224,7 +220,7 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 		// or the Google ADK session service). Appending here would duplicate persistence.
 	}
 
-	// 8. Send final status update (matching Python's final event handling)
+	// 11. Send final status update (matching Python's final event handling)
 	finalState := aggregator.TaskState
 	finalMessage := aggregator.TaskMessage
 
@@ -296,10 +292,10 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *protocol.SendMessag
 }
 
 // prepareSession gets or creates a session, similar to Python's _prepare_session
-func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID string, message *protocol.Message) (*Session, error) {
+func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID string, message *protocol.Message) (*session.Session, error) {
 	if e.SessionService == nil {
 		// Return a minimal session if no session service is configured
-		return &Session{
+		return &session.Session{
 			ID:      sessionID,
 			UserID:  userID,
 			AppName: e.AppName,
@@ -319,7 +315,7 @@ func (e *A2aAgentExecutor) prepareSession(ctx context.Context, userID, sessionID
 		sessionName := extractSessionName(message)
 		state := make(map[string]interface{})
 		if sessionName != "" {
-			state[StateKeySessionName] = sessionName
+			state[a2a.StateKeySessionName] = sessionName
 		}
 
 		session, err = e.SessionService.CreateSession(ctx, e.AppName, userID, state, sessionID)
@@ -366,7 +362,7 @@ func ExtractUserAndSessionID(req *protocol.SendMessageParams, contextID string) 
 	return userID, sessionID
 }
 
-func (e *A2aAgentExecutor) sendFailure(ctx context.Context, queue EventQueue, taskID, contextID, message string) error {
+func (e *A2aAgentExecutor) sendFailure(ctx context.Context, queue a2a.EventQueue, taskID, contextID, message string) error {
 	// Use GetErrorMessage if message looks like an error code
 	// This provides user-friendly error messages when possible
 	errorMessage := message
