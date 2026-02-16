@@ -68,13 +68,14 @@ export async function createServer(serverData: ToolServerCreateRequest): Promise
 }
 
 /**
- * Fetches a single tool server by ref (namespace/name)
+ * Fetches a single tool server by ref (namespace/name) and groupKind
  * @param serverRef Server ref in format "namespace/name"
+ * @param groupKind GroupKind of the tool server (e.g. "RemoteMCPServer.kagent.dev")
  * @returns Promise with detailed server data including full spec
  */
-export async function getServer(serverRef: string): Promise<BaseResponse<ToolServerDetailResponse>> {
+export async function getServer(serverRef: string, groupKind: string): Promise<BaseResponse<ToolServerDetailResponse>> {
   try {
-    const response = await fetchApi<BaseResponse<ToolServerDetailResponse>>(`/toolservers/${serverRef}`);
+    const response = await fetchApi<BaseResponse<ToolServerDetailResponse>>(`/toolservers/${serverRef}/${encodeURIComponent(groupKind)}`);
 
     if (!response) {
       throw new Error("Failed to get MCP server");
@@ -92,12 +93,13 @@ export async function getServer(serverRef: string): Promise<BaseResponse<ToolSer
 /**
  * Updates an existing server
  * @param serverRef Server ref in format "namespace/name"
+ * @param groupKind GroupKind of the tool server (e.g. "RemoteMCPServer.kagent.dev")
  * @param serverData Updated server data
  * @returns Promise with update result
  */
-export async function updateServer(serverRef: string, serverData: ToolServerCreateRequest): Promise<BaseResponse<RemoteMCPServer | MCPServer>> {
+export async function updateServer(serverRef: string, groupKind: string, serverData: ToolServerCreateRequest): Promise<BaseResponse<RemoteMCPServer | MCPServer>> {
   try {
-    const response = await fetchApi<BaseResponse<RemoteMCPServer | MCPServer>>(`/toolservers/${serverRef}`, {
+    const response = await fetchApi<BaseResponse<RemoteMCPServer | MCPServer>>(`/toolservers/${serverRef}/${encodeURIComponent(groupKind)}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
