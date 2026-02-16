@@ -263,22 +263,52 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                 </div>
                 <SidebarMenu>
                   <TooltipProvider>
-                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
-                      <SidebarMenuItem key={index}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <SidebarMenuButton className="w-full">
-                              <div className="flex items-center justify-between w-full">
-                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
-                              </div>
-                            </SidebarMenuButton>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">
-                            <p className="max-w-xs break-all">{skillRef}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    ))}
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => {
+                      // Parse OCI image reference: [registry/]repository[:tag][@digest]
+                      // Groups: (1) registry, (2) repository, (3) tag, (4) digest
+                      const refMatch = skillRef.match(
+                        /^(?:((?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?|localhost(?::\d+)?|[a-zA-Z0-9-]+:\d+)\/)?([^:@]+)(?::([^@]+))?(?:@(.+))?$/
+                      );
+                      const registry = refMatch?.[1] ?? null;
+                      const repoName = refMatch?.[2] ?? null;
+                      const tag = refMatch?.[3] ?? null;
+                      const digest = refMatch?.[4] ?? null;
+
+                      // Only show a version badge when the ref was successfully parsed.
+                      // Truncate digests to keep the badge compact.
+                      const versionBadge = refMatch
+                        ? tag ?? (digest ? (digest.length > 16 ? digest.substring(0, 16) + "\u2026" : digest) : "latest")
+                        : null;
+                      const displayName = repoName ?? skillRef;
+                      return (
+                        <SidebarMenuItem key={index}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2">
+                                <div className="flex flex-col items-start w-full min-w-0 gap-0.5">
+                                  <div className="flex items-center w-full justify-between gap-2">
+                                    <span className="truncate text-sm font-medium leading-tight">{displayName}</span>
+                                    {versionBadge && (
+                                      <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                        {versionBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {registry && (
+                                    <span className="truncate w-full text-xs text-muted-foreground leading-tight" title={registry}>
+                                      {registry}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p className="max-w-xs break-all">{skillRef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </TooltipProvider>
                 </SidebarMenu>
               </SidebarGroup>
