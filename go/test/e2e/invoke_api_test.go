@@ -275,12 +275,8 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 
 		resultList := []protocol.StreamingMessageEvent{}
 		for event := range stream {
-			msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
-			if !ok {
+			if _, ok := event.Result.(*protocol.TaskStatusUpdateEvent); !ok {
 				continue
-			}
-			if msgResult.Status.Message != nil {
-				// accumulate results
 			}
 			resultList = append(resultList, event)
 		}
