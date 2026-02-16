@@ -1,5 +1,4 @@
 import importlib.metadata
-import logging
 
 from ._a2a import KAgentApp
 from ._logging import install_mcp_content_type_filter
