@@ -42,7 +42,8 @@ type A2aAgentExecutorConfig struct {
 // A2aAgentExecutor handles the execution of an agent against an A2A request.
 type A2aAgentExecutor struct {
 	Runner          Runner
-	Converter       a2a.EventConverter
+	ConvertEvents   a2a.ConvertEventsFunc
+	IsPartial       a2a.IsPartialFunc
 	Config          A2aAgentExecutorConfig
 	SessionService  session.SessionService
 	TaskStore       *taskstore.KAgentTaskStore
@@ -52,7 +53,7 @@ type A2aAgentExecutor struct {
 }
 
 // NewA2aAgentExecutorWithLogger creates a new A2aAgentExecutor with a logger.
-func NewA2aAgentExecutorWithLogger(runner Runner, converter a2a.EventConverter, config A2aAgentExecutorConfig, sessionService session.SessionService, taskStore *taskstore.KAgentTaskStore, appName string, logger logr.Logger) *A2aAgentExecutor {
+func NewA2aAgentExecutorWithLogger(runner Runner, convertEvents a2a.ConvertEventsFunc, isPartial a2a.IsPartialFunc, config A2aAgentExecutorConfig, sessionService session.SessionService, taskStore *taskstore.KAgentTaskStore, appName string, logger logr.Logger) *A2aAgentExecutor {
 	if config.ExecutionTimeout == 0 {
 		config.ExecutionTimeout = a2a.DefaultExecutionTimeout
 	}
@@ -63,7 +64,8 @@ func NewA2aAgentExecutorWithLogger(runner Runner, converter a2a.EventConverter, 
 	}
 	return &A2aAgentExecutor{
 		Runner:          runner,
-		Converter:       converter,
+		ConvertEvents:   convertEvents,
+		IsPartial:       isPartial,
 		Config:          config,
 		SessionService:  sessionService,
 		TaskStore:       taskStore,
@@ -198,8 +200,8 @@ func (e *A2aAgentExecutor) Execute(ctx context.Context, req *a2atype.MessageSend
 			return ctx.Err()
 		}
 
-		isPartial := e.Converter.IsPartialEvent(internalEvent)
-		a2aEvents := e.Converter.ConvertEventToA2AEvents(internalEvent, cc)
+		isPartial := e.IsPartial(internalEvent)
+		a2aEvents := e.ConvertEvents(internalEvent, cc)
 		for _, a2aEvent := range a2aEvents {
 			// Only aggregate non-partial events to avoid duplicates from streaming chunks
 			// Partial events are sent to frontend for display but not accumulated

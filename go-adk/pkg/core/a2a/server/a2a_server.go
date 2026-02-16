@@ -21,19 +21,6 @@ type ServerConfig struct {
 	ShutdownTimeout time.Duration
 }
 
-// DefaultServerConfig returns the default server configuration.
-func DefaultServerConfig() ServerConfig {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	return ServerConfig{
-		Host:            "",
-		Port:            port,
-		ShutdownTimeout: 5 * time.Second,
-	}
-}
-
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
 type A2AServer struct {
 	httpServer *http.Server

@@ -13,12 +13,11 @@ type ConversionContext struct {
 	SessionID string
 }
 
-// EventConverter converts runner events to A2A events and reports event properties.
-// Implementations typically wrap ADK-specific logic (e.g. *adksession.Event, RunnerErrorEvent).
-type EventConverter interface {
-	ConvertEventToA2AEvents(event interface{}, cc ConversionContext) []a2atype.Event
-	IsPartialEvent(event interface{}) bool
-}
+// ConvertEventsFunc converts runner events (e.g. *adksession.Event, RunnerErrorEvent) to A2A events.
+type ConvertEventsFunc func(event interface{}, cc ConversionContext) []a2atype.Event
+
+// IsPartialFunc reports whether a runner event is a partial/streaming event.
+type IsPartialFunc func(event interface{}) bool
 
 // ConvertA2ARequestToRunArgs converts an A2A request to internal agent run arguments.
 // The *a2atype.Message is passed through as-is; conversion to genai.Content

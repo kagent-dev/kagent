@@ -37,6 +37,15 @@ type SessionService interface {
 	AppendFirstSystemEvent(ctx context.Context, session *Session) error
 }
 
+// NewHeaderUpdateEvent returns the initial system event (header_update) appended before run.
+// Matches ADK Event struct field names (PascalCase) so the event is recognized when loaded back.
+func NewHeaderUpdateEvent() map[string]interface{} {
+	return map[string]interface{}{
+		"InvocationID": "header_update",
+		"Author":       "system",
+	}
+}
+
 // KAgentSessionService implementation using KAgent API.
 type KAgentSessionService struct {
 	BaseURL string
@@ -90,13 +99,9 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		// Try to read error response body for better error messages
-		var errorBody bytes.Buffer
-		if resp.Body != nil {
-			_, _ = errorBody.ReadFrom(resp.Body) // best-effort read for error message
-		}
-		if errorBody.Len() > 0 {
-			return nil, fmt.Errorf("failed to create session: status %d - %s", resp.StatusCode, errorBody.String())
+		body, _ := io.ReadAll(resp.Body)
+		if len(body) > 0 {
+			return nil, fmt.Errorf("failed to create session: status %d - %s", resp.StatusCode, string(body))
 		}
 		return nil, fmt.Errorf("failed to create session: status %d", resp.StatusCode)
 	}
@@ -320,14 +325,7 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session
 // AppendFirstSystemEvent appends the initial system event (header_update) before run.
 // Matches Python _handle_request: append_event before runner.run_async.
 func (s *KAgentSessionService) AppendFirstSystemEvent(ctx context.Context, session *Session) error {
-	// Minimal event matching ADK Event struct field names (PascalCase, not snake_case).
-	// adksession.Event has InvocationID and Author fields which serialize to "InvocationID" and "Author".
-	// Using matching field names ensures the event is recognized when loaded back.
-	event := map[string]interface{}{
-		"InvocationID": "header_update",
-		"Author":       "system",
-	}
-	return s.AppendEvent(ctx, session, event)
+	return s.AppendEvent(ctx, session, NewHeaderUpdateEvent())
 }
 
 // extractEventID extracts an event ID from various event formats

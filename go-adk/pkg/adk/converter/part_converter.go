@@ -9,6 +9,14 @@ import (
 	"google.golang.org/genai"
 )
 
+// newDataPart creates a DataPart with the given data and metadata type.
+func newDataPart(data map[string]interface{}, partType string) *a2atype.DataPart {
+	return &a2atype.DataPart{
+		Data:     data,
+		Metadata: map[string]interface{}{a2a.MetadataKeyType: partType},
+	}
+}
+
 // GenAIPartToA2APart converts *genai.Part directly to A2A protocol Part.
 // This is the primary conversion function - no intermediate map representation.
 func GenAIPartToA2APart(part *genai.Part) (a2atype.Part, error) {
@@ -53,12 +61,7 @@ func GenAIPartToA2APart(part *genai.Part) (a2atype.Part, error) {
 		if part.FunctionCall.ID != "" {
 			data[a2a.PartKeyID] = part.FunctionCall.ID
 		}
-		return &a2atype.DataPart{
-			Data: data,
-			Metadata: map[string]interface{}{
-				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionCall,
-			},
-		}, nil
+		return newDataPart(data, a2a.A2ADataPartMetadataTypeFunctionCall), nil
 	}
 
 	// Handle function_response parts
@@ -71,40 +74,25 @@ func GenAIPartToA2APart(part *genai.Part) (a2atype.Part, error) {
 		if part.FunctionResponse.ID != "" {
 			data[a2a.PartKeyID] = part.FunctionResponse.ID
 		}
-		return &a2atype.DataPart{
-			Data: data,
-			Metadata: map[string]interface{}{
-				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeFunctionResponse,
-			},
-		}, nil
+		return newDataPart(data, a2a.A2ADataPartMetadataTypeFunctionResponse), nil
 	}
 
 	// Handle code_execution_result parts
 	if part.CodeExecutionResult != nil {
 		data := map[string]interface{}{
-			"outcome": string(part.CodeExecutionResult.Outcome),
-			"output":  part.CodeExecutionResult.Output,
+			a2a.PartKeyOutcome: string(part.CodeExecutionResult.Outcome),
+			a2a.PartKeyOutput:  part.CodeExecutionResult.Output,
 		}
-		return &a2atype.DataPart{
-			Data: data,
-			Metadata: map[string]interface{}{
-				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeCodeExecutionResult,
-			},
-		}, nil
+		return newDataPart(data, a2a.A2ADataPartMetadataTypeCodeExecutionResult), nil
 	}
 
 	// Handle executable_code parts
 	if part.ExecutableCode != nil {
 		data := map[string]interface{}{
-			"code":     part.ExecutableCode.Code,
-			"language": string(part.ExecutableCode.Language),
+			a2a.PartKeyCode:     part.ExecutableCode.Code,
+			a2a.PartKeyLanguage: string(part.ExecutableCode.Language),
 		}
-		return &a2atype.DataPart{
-			Data: data,
-			Metadata: map[string]interface{}{
-				a2a.MetadataKeyType: a2a.A2ADataPartMetadataTypeExecutableCode,
-			},
-		}, nil
+		return newDataPart(data, a2a.A2ADataPartMetadataTypeExecutableCode), nil
 	}
 
 	return nil, fmt.Errorf("part has no recognized content")

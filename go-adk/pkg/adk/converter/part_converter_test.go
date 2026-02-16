@@ -9,6 +9,19 @@ import (
 	"google.golang.org/genai"
 )
 
+// assertDataPartType checks that result is a *DataPart with the expected metadata type.
+func assertDataPartType(t *testing.T, result a2atype.Part, expectedType string) *a2atype.DataPart {
+	t.Helper()
+	dataPart, ok := result.(*a2atype.DataPart)
+	if !ok {
+		t.Fatalf("Expected *DataPart, got %T", result)
+	}
+	if partType, ok := dataPart.Metadata[a2a.MetadataKeyType].(string); !ok || partType != expectedType {
+		t.Errorf("Expected metadata type = %q, got %v", expectedType, dataPart.Metadata[a2a.MetadataKeyType])
+	}
+	return dataPart
+}
+
 func TestA2APartToGenAIPart_TextPart(t *testing.T) {
 	textPart := a2atype.TextPart{Text: "Hello, world!"}
 	result, err := A2APartToGenAIPart(textPart)
@@ -224,16 +237,7 @@ func TestGenAIPartToA2APart_FunctionCall(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	dataPart, ok := result.(*a2atype.DataPart)
-	if !ok {
-		t.Fatalf("Expected DataPart, got %T", result)
-	}
-	metadataKey := a2a.GetKAgentMetadataKey(a2a.A2ADataPartMetadataTypeKey)
-	if partType, ok := dataPart.Metadata[metadataKey].(string); !ok {
-		t.Errorf("Expected metadata type key, got %v", dataPart.Metadata)
-	} else if partType != a2a.A2ADataPartMetadataTypeFunctionCall {
-		t.Errorf("Expected type = %q, got %q", a2a.A2ADataPartMetadataTypeFunctionCall, partType)
-	}
+	dataPart := assertDataPartType(t, result, a2a.A2ADataPartMetadataTypeFunctionCall)
 	if dataPart.Data != nil {
 		if name, ok := dataPart.Data[a2a.PartKeyName].(string); !ok || name != "search" {
 			t.Errorf("Expected name = %q, got %v", "search", dataPart.Data[a2a.PartKeyName])
@@ -254,16 +258,7 @@ func TestGenAIPartToA2APart_FunctionResponse(t *testing.T) {
 		t.Fatalf("GenAIPartToA2APart() error = %v", err)
 	}
 
-	dataPart, ok := result.(*a2atype.DataPart)
-	if !ok {
-		t.Fatalf("Expected DataPart, got %T", result)
-	}
-	metadataKey := a2a.GetKAgentMetadataKey(a2a.A2ADataPartMetadataTypeKey)
-	if partType, ok := dataPart.Metadata[metadataKey].(string); !ok {
-		t.Errorf("Expected metadata type key, got %v", dataPart.Metadata)
-	} else if partType != a2a.A2ADataPartMetadataTypeFunctionResponse {
-		t.Errorf("Expected type = %q, got %q", a2a.A2ADataPartMetadataTypeFunctionResponse, partType)
-	}
+	assertDataPartType(t, result, a2a.A2ADataPartMetadataTypeFunctionResponse)
 }
 
 func TestGenAIPartToA2APart_FunctionResponseMCPContent(t *testing.T) {
@@ -309,8 +304,114 @@ func TestGenAIPartToA2APart_FunctionResponseMCPContent(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected content[0] map, got %T", resultContent[0])
 	}
-	if first[a2a.PartKeyText] != "72°F and sunny" {
-		t.Errorf("Expected text = %q, got %v", "72°F and sunny", first[a2a.PartKeyText])
+	if first["text"] != "72°F and sunny" {
+		t.Errorf("Expected text = %q, got %v", "72°F and sunny", first["text"])
+	}
+}
+
+func TestGenAIPartToA2APart_CodeExecutionResult(t *testing.T) {
+	genaiPart := &genai.Part{
+		CodeExecutionResult: &genai.CodeExecutionResult{
+			Outcome: genai.OutcomeOK,
+			Output:  "42",
+		},
+	}
+
+	result, err := GenAIPartToA2APart(genaiPart)
+	if err != nil {
+		t.Fatalf("GenAIPartToA2APart() error = %v", err)
+	}
+
+	dataPart := assertDataPartType(t, result, a2a.A2ADataPartMetadataTypeCodeExecutionResult)
+	if outcome, ok := dataPart.Data[a2a.PartKeyOutcome].(string); !ok || outcome != string(genai.OutcomeOK) {
+		t.Errorf("Expected outcome = %q, got %v", genai.OutcomeOK, dataPart.Data[a2a.PartKeyOutcome])
+	}
+	if output, ok := dataPart.Data[a2a.PartKeyOutput].(string); !ok || output != "42" {
+		t.Errorf("Expected output = %q, got %v", "42", dataPart.Data[a2a.PartKeyOutput])
+	}
+}
+
+func TestGenAIPartToA2APart_ExecutableCode(t *testing.T) {
+	genaiPart := &genai.Part{
+		ExecutableCode: &genai.ExecutableCode{
+			Code:     "print('hello')",
+			Language: genai.LanguagePython,
+		},
+	}
+
+	result, err := GenAIPartToA2APart(genaiPart)
+	if err != nil {
+		t.Fatalf("GenAIPartToA2APart() error = %v", err)
+	}
+
+	dataPart := assertDataPartType(t, result, a2a.A2ADataPartMetadataTypeExecutableCode)
+	if code, ok := dataPart.Data[a2a.PartKeyCode].(string); !ok || code != "print('hello')" {
+		t.Errorf("Expected code = %q, got %v", "print('hello')", dataPart.Data[a2a.PartKeyCode])
+	}
+	if lang, ok := dataPart.Data[a2a.PartKeyLanguage].(string); !ok || lang != string(genai.LanguagePython) {
+		t.Errorf("Expected language = %q, got %v", genai.LanguagePython, dataPart.Data[a2a.PartKeyLanguage])
+	}
+}
+
+func TestNormalizeFunctionResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     map[string]interface{}
+		checkFunc func(t *testing.T, result map[string]interface{})
+	}{
+		{
+			name:  "nil_input",
+			input: nil,
+			checkFunc: func(t *testing.T, result map[string]interface{}) {
+				if _, ok := result["result"]; !ok {
+					t.Error("Expected result key for nil input")
+				}
+			},
+		},
+		{
+			name:  "error_response",
+			input: map[string]interface{}{"error": "something went wrong"},
+			checkFunc: func(t *testing.T, result map[string]interface{}) {
+				if isError, _ := result["isError"].(bool); !isError {
+					t.Error("Expected isError=true for error response")
+				}
+				resultObj, ok := result["result"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("Expected result map, got %T", result["result"])
+				}
+				if resultObj["error"] != "something went wrong" {
+					t.Errorf("Expected error message in result, got %v", resultObj["error"])
+				}
+			},
+		},
+		{
+			name:  "content_as_string",
+			input: map[string]interface{}{"content": "hello world"},
+			checkFunc: func(t *testing.T, result map[string]interface{}) {
+				resultObj, ok := result["result"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("Expected result map, got %T", result["result"])
+				}
+				if resultObj["content"] != "hello world" {
+					t.Errorf("Expected content in result, got %v", resultObj["content"])
+				}
+			},
+		},
+		{
+			name:  "has_result_already",
+			input: map[string]interface{}{"result": "done"},
+			checkFunc: func(t *testing.T, result map[string]interface{}) {
+				if result["result"] != "done" {
+					t.Errorf("Expected existing result to be preserved, got %v", result["result"])
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeFunctionResponse(tt.input)
+			tt.checkFunc(t, result)
+		})
 	}
 }
 

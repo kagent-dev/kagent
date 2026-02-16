@@ -19,189 +19,135 @@ func testCC(taskID, contextID string) a2a.ConversionContext {
 	}
 }
 
-func TestConvertEventToA2AEvents_StopWithEmptyContent(t *testing.T) {
-	event1 := &event.RunnerErrorEvent{
-		ErrorCode: genai.FinishReasonStop,
+func TestConvertEventToA2AEvents_StopWithNoContent(t *testing.T) {
+	tests := []struct {
+		name      string
+		taskID    string
+		contextID string
+	}{
+		{"empty_content", "test_task_1", "test_context_1"},
+		{"empty_parts", "test_task_2", "test_context_2"},
+		{"missing_content", "test_task_3", "test_context_3"},
 	}
-
-	result1 := ConvertEventToA2AEvents(event1, testCC("test_task_1", "test_context_1"))
-
-	var errorEvents, workingEvents int
-	for _, e := range result1 {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			switch statusUpdate.Status.State {
-			case a2atype.TaskStateFailed:
-				errorEvents++
-			case a2atype.TaskStateWorking:
-				workingEvents++
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := &event.RunnerErrorEvent{
+				ErrorCode: genai.FinishReasonStop,
 			}
-		}
-	}
+			result := ConvertEventToA2AEvents(evt, testCC(tt.taskID, tt.contextID))
 
-	if errorEvents != 0 {
-		t.Errorf("Expected no error events for STOP with empty content, got %d", errorEvents)
-	}
-	if workingEvents != 0 {
-		t.Errorf("Expected no working events for STOP with empty content (no content to convert), got %d", workingEvents)
+			var errorEvents, workingEvents int
+			for _, e := range result {
+				if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
+					switch statusUpdate.Status.State {
+					case a2atype.TaskStateFailed:
+						errorEvents++
+					case a2atype.TaskStateWorking:
+						workingEvents++
+					}
+				}
+			}
+			if errorEvents != 0 {
+				t.Errorf("Expected no error events for STOP with no content, got %d", errorEvents)
+			}
+			if workingEvents != 0 {
+				t.Errorf("Expected no working events for STOP with no content, got %d", workingEvents)
+			}
+		})
 	}
 }
 
-func TestConvertEventToA2AEvents_StopWithEmptyParts(t *testing.T) {
-	event2 := &event.RunnerErrorEvent{
-		ErrorCode: genai.FinishReasonStop,
-	}
-
-	result2 := ConvertEventToA2AEvents(event2, testCC("test_task_2", "test_context_2"))
-
-	var errorEvents, workingEvents int
-	for _, e := range result2 {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			switch statusUpdate.Status.State {
-			case a2atype.TaskStateFailed:
-				errorEvents++
-			case a2atype.TaskStateWorking:
-				workingEvents++
-			}
+// extractErrorEvents filters TaskStatusUpdateEvents with TaskStateFailed from a slice of events.
+func extractErrorEvents(events []a2atype.Event) []*a2atype.TaskStatusUpdateEvent {
+	var out []*a2atype.TaskStatusUpdateEvent
+	for _, e := range events {
+		if su, ok := e.(*a2atype.TaskStatusUpdateEvent); ok && su.Status.State == a2atype.TaskStateFailed {
+			out = append(out, su)
 		}
 	}
-
-	if errorEvents != 0 {
-		t.Errorf("Expected no error events for STOP with empty parts, got %d", errorEvents)
-	}
-	if workingEvents != 0 {
-		t.Errorf("Expected no working events for STOP with empty parts (no content to convert), got %d", workingEvents)
-	}
+	return out
 }
 
-func TestConvertEventToA2AEvents_StopWithMissingContent(t *testing.T) {
-	event3 := &event.RunnerErrorEvent{
-		ErrorCode: genai.FinishReasonStop,
-	}
-
-	result3 := ConvertEventToA2AEvents(event3, testCC("test_task_3", "test_context_3"))
-
-	var errorEvents, workingEvents int
-	for _, e := range result3 {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			switch statusUpdate.Status.State {
-			case a2atype.TaskStateFailed:
-				errorEvents++
-			case a2atype.TaskStateWorking:
-				workingEvents++
-			}
+// findStatusEventByState returns the first TaskStatusUpdateEvent matching the given state.
+func findStatusEventByState(events []a2atype.Event, state a2atype.TaskState) *a2atype.TaskStatusUpdateEvent {
+	for _, e := range events {
+		if su, ok := e.(*a2atype.TaskStatusUpdateEvent); ok && su.Status.State == state {
+			return su
 		}
 	}
-	if errorEvents != 0 {
-		t.Errorf("Expected no error events for STOP with missing content, got %d", errorEvents)
-	}
-	if workingEvents != 0 {
-		t.Errorf("Expected no working events for STOP with missing content (no content to convert), got %d", workingEvents)
-	}
+	return nil
 }
 
-func TestConvertEventToA2AEvents_ActualErrorCode(t *testing.T) {
-	event4 := &event.RunnerErrorEvent{
-		ErrorCode: genai.FinishReasonMalformedFunctionCall,
-	}
-
-	result4 := ConvertEventToA2AEvents(event4, testCC("test_task_4", "test_context_4"))
-
-	var errorEvents []*a2atype.TaskStatusUpdateEvent
-	for _, e := range result4 {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == a2atype.TaskStateFailed {
-				errorEvents = append(errorEvents, statusUpdate)
-			}
-		}
-	}
-
-	if len(errorEvents) != 1 {
-		t.Fatalf("Expected 1 error event for MALFORMED_FUNCTION_CALL, got %d", len(errorEvents))
-	}
-
-	errorEvent := errorEvents[0]
-	errorCodeKey := a2a.GetKAgentMetadataKey("error_code")
-	if errorCode, ok := errorEvent.Metadata[errorCodeKey].(string); !ok {
-		t.Errorf("Expected error_code in metadata, got %v", errorEvent.Metadata[errorCodeKey])
-	} else if errorCode != genai.FinishReasonMalformedFunctionCall {
-		t.Errorf("Expected error_code = %q, got %q", genai.FinishReasonMalformedFunctionCall, errorCode)
-	}
-}
-
-func TestConvertEventToA2AEvents_ErrorCodeWithErrorMessage(t *testing.T) {
-	evt := &event.RunnerErrorEvent{
-		ErrorCode:    genai.FinishReasonMaxTokens,
-		ErrorMessage: "Custom error message",
-	}
-
-	result := ConvertEventToA2AEvents(evt, testCC("test_task", "test_context"))
-
-	var errorEvents []*a2atype.TaskStatusUpdateEvent
-	for _, e := range result {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == a2atype.TaskStateFailed {
-				errorEvents = append(errorEvents, statusUpdate)
-			}
-		}
-	}
-
+// requireErrorEventText extracts a single error event and returns its text message.
+func requireErrorEventText(t *testing.T, events []a2atype.Event) string {
+	t.Helper()
+	errorEvents := extractErrorEvents(events)
 	if len(errorEvents) != 1 {
 		t.Fatalf("Expected 1 error event, got %d", len(errorEvents))
 	}
-
-	errorEvent := errorEvents[0]
-	if errorEvent.Status.Message == nil || len(errorEvent.Status.Message.Parts) == 0 {
+	ee := errorEvents[0]
+	if ee.Status.Message == nil || len(ee.Status.Message.Parts) == 0 {
 		t.Fatal("Expected error event to have message with parts")
 	}
-
-	var textPart a2atype.TextPart
-	if tp, ok := errorEvent.Status.Message.Parts[0].(a2atype.TextPart); ok {
-		textPart = tp
-	} else {
-		t.Fatalf("Expected TextPart, got %T", errorEvent.Status.Message.Parts[0])
+	tp, ok := ee.Status.Message.Parts[0].(a2atype.TextPart)
+	if !ok {
+		t.Fatalf("Expected TextPart, got %T", ee.Status.Message.Parts[0])
 	}
-
-	if textPart.Text != "Custom error message" {
-		t.Errorf("Expected custom error message, got %q", textPart.Text)
-	}
+	return tp.Text
 }
 
-func TestConvertEventToA2AEvents_ErrorCodeWithoutErrorMessage(t *testing.T) {
-	evt := &event.RunnerErrorEvent{
-		ErrorCode:    genai.FinishReasonMaxTokens,
-		ErrorMessage: "",
+func TestConvertEventToA2AEvents_ErrorCodes(t *testing.T) {
+	tests := []struct {
+		name         string
+		errorCode    string
+		errorMessage string
+		wantText     string
+		wantMetaCode string
+	}{
+		{
+			name:         "actual_error_code_malformed",
+			errorCode:    genai.FinishReasonMalformedFunctionCall,
+			wantMetaCode: genai.FinishReasonMalformedFunctionCall,
+		},
+		{
+			name:         "error_code_with_custom_message",
+			errorCode:    genai.FinishReasonMaxTokens,
+			errorMessage: "Custom error message",
+			wantText:     "Custom error message",
+		},
+		{
+			name:      "error_code_without_message_uses_default",
+			errorCode: genai.FinishReasonMaxTokens,
+			wantText:  genai.GetErrorMessage(genai.FinishReasonMaxTokens),
+		},
 	}
-
-	result := ConvertEventToA2AEvents(evt, testCC("test_task", "test_context"))
-
-	var errorEvents []*a2atype.TaskStatusUpdateEvent
-	for _, e := range result {
-		if statusUpdate, ok := e.(*a2atype.TaskStatusUpdateEvent); ok {
-			if statusUpdate.Status.State == a2atype.TaskStateFailed {
-				errorEvents = append(errorEvents, statusUpdate)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := &event.RunnerErrorEvent{
+				ErrorCode:    tt.errorCode,
+				ErrorMessage: tt.errorMessage,
 			}
-		}
-	}
+			result := ConvertEventToA2AEvents(evt, testCC("test_task", "test_context"))
 
-	if len(errorEvents) != 1 {
-		t.Fatalf("Expected 1 error event, got %d", len(errorEvents))
-	}
+			errorEvents := extractErrorEvents(result)
+			if len(errorEvents) != 1 {
+				t.Fatalf("Expected 1 error event, got %d", len(errorEvents))
+			}
+			ee := errorEvents[0]
 
-	errorEvent := errorEvents[0]
-	if errorEvent.Status.Message == nil || len(errorEvent.Status.Message.Parts) == 0 {
-		t.Fatal("Expected error event to have message with parts")
-	}
+			if tt.wantMetaCode != "" {
+				if code, ok := ee.Metadata[a2a.MetadataKeyErrorCode].(string); !ok || code != tt.wantMetaCode {
+					t.Errorf("Expected metadata error_code = %q, got %v", tt.wantMetaCode, ee.Metadata[a2a.MetadataKeyErrorCode])
+				}
+			}
 
-	var textPart a2atype.TextPart
-	if tp, ok := errorEvent.Status.Message.Parts[0].(a2atype.TextPart); ok {
-		textPart = tp
-	} else {
-		t.Fatalf("Expected TextPart, got %T", errorEvent.Status.Message.Parts[0])
-	}
-
-	expectedMessage := genai.GetErrorMessage(genai.FinishReasonMaxTokens)
-	if textPart.Text != expectedMessage {
-		t.Errorf("Expected error message from GetErrorMessage, got %q, want %q", textPart.Text, expectedMessage)
+			if tt.wantText != "" {
+				text := requireErrorEventText(t, result)
+				if text != tt.wantText {
+					t.Errorf("Expected text %q, got %q", tt.wantText, text)
+				}
+			}
+		})
 	}
 }
 
@@ -222,14 +168,7 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: []string{"fc1"},
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task1", "ctx1"))
-		var statusEvent *a2atype.TaskStatusUpdateEvent
-		for _, ev := range result {
-			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateInputRequired {
-				statusEvent = se
-				break
-			}
-		}
-		if statusEvent == nil {
+		if se := findStatusEventByState(result, a2atype.TaskStateInputRequired); se == nil {
 			t.Fatal("Expected one TaskStatusUpdateEvent with state input_required")
 		}
 	})
@@ -250,14 +189,7 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: []string{"fc_euc"},
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task2", "ctx2"))
-		var statusEvent *a2atype.TaskStatusUpdateEvent
-		for _, ev := range result {
-			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateAuthRequired {
-				statusEvent = se
-				break
-			}
-		}
-		if statusEvent == nil {
+		if se := findStatusEventByState(result, a2atype.TaskStateAuthRequired); se == nil {
 			t.Fatal("Expected one TaskStatusUpdateEvent with state auth_required")
 		}
 	})
@@ -278,18 +210,50 @@ func TestConvertEventToA2AEvents_UserResponseAndQuestions(t *testing.T) {
 			LongRunningToolIDs: nil,
 		}
 		result := ConvertEventToA2AEvents(e, testCC("task3", "ctx3"))
-		var statusEvent *a2atype.TaskStatusUpdateEvent
-		for _, ev := range result {
-			if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok {
-				statusEvent = se
-				break
-			}
-		}
-		if statusEvent == nil {
-			t.Fatal("Expected one TaskStatusUpdateEvent")
-		}
-		if statusEvent.Status.State != a2atype.TaskStateWorking {
-			t.Errorf("Expected state working when not long-running, got %v", statusEvent.Status.State)
+		if se := findStatusEventByState(result, a2atype.TaskStateWorking); se == nil {
+			t.Fatal("Expected one TaskStatusUpdateEvent with state working")
 		}
 	})
+}
+
+func TestIsPartialEvent(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    interface{}
+		expected bool
+	}{
+		{
+			name:     "adk_event_partial",
+			event:    &adksession.Event{LLMResponse: model.LLMResponse{Partial: true}},
+			expected: true,
+		},
+		{
+			name:     "adk_event_not_partial",
+			event:    &adksession.Event{},
+			expected: false,
+		},
+		{
+			name:     "runner_error_event",
+			event:    &event.RunnerErrorEvent{ErrorCode: "ERR"},
+			expected: false,
+		},
+		{
+			name:     "nil_event",
+			event:    nil,
+			expected: false,
+		},
+		{
+			name:     "string_event",
+			event:    "not an event",
+			expected: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsPartialEvent(tt.event)
+			if result != tt.expected {
+				t.Errorf("IsPartialEvent() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
 }

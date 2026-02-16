@@ -2,11 +2,6 @@ package a2a
 
 import "time"
 
-// Well-known metadata key suffixes (used with GetKAgentMetadataKey).
-const (
-	MetadataKeySessionID = "session_id"
-)
-
 // Channel and buffer sizes
 const (
 	// EventChannelBufferSize is the buffer size for event channels.
@@ -76,12 +71,15 @@ const (
 
 // A2A Data Part Metadata Constants
 const (
-	A2ADataPartMetadataTypeKey                 = "type"
-	A2ADataPartMetadataIsLongRunningKey        = "is_long_running"
 	A2ADataPartMetadataTypeFunctionCall        = "function_call"
 	A2ADataPartMetadataTypeFunctionResponse    = "function_response"
 	A2ADataPartMetadataTypeCodeExecutionResult = "code_execution_result"
 	A2ADataPartMetadataTypeExecutableCode      = "executable_code"
+)
+
+// Message metadata keys (non-prefixed).
+const (
+	MetadataKeyAdkPartial = "adk_partial"
 )
 
 // Pre-computed metadata keys (kagent_ prefix applied).

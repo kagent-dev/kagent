@@ -23,20 +23,37 @@ func NewTaskResultAggregator() *TaskResultAggregator {
 }
 
 // ProcessEvent processes an A2A event and updates the aggregated state.
+//
+// Side effect: For TaskStatusUpdateEvent, this method mutates the event's Status.State
+// to TaskStateWorking regardless of its original state. This is intentional: intermediate
+// status updates are kept as "working" so the A2A event stream handler does not
+// prematurely terminate the stream. The aggregator tracks the true final state internally
+// (in a.TaskState) for use when building the terminal event after the runner completes.
 func (a *TaskResultAggregator) ProcessEvent(event a2atype.Event) {
-	if statusUpdate, ok := event.(*a2atype.TaskStatusUpdateEvent); ok {
-		if statusUpdate.Status.State == a2atype.TaskStateFailed {
-			a.TaskState = a2atype.TaskStateFailed
-			a.TaskMessage = statusUpdate.Status.Message
-		} else if statusUpdate.Status.State == a2atype.TaskStateAuthRequired && a.TaskState != a2atype.TaskStateFailed {
+	statusUpdate, ok := event.(*a2atype.TaskStatusUpdateEvent)
+	if !ok {
+		return
+	}
+
+	switch statusUpdate.Status.State {
+	case a2atype.TaskStateFailed:
+		a.TaskState = a2atype.TaskStateFailed
+		a.TaskMessage = statusUpdate.Status.Message
+
+	case a2atype.TaskStateAuthRequired:
+		if a.TaskState != a2atype.TaskStateFailed {
 			a.TaskState = a2atype.TaskStateAuthRequired
 			a.TaskMessage = statusUpdate.Status.Message
-		} else if statusUpdate.Status.State == a2atype.TaskStateInputRequired &&
-			a.TaskState != a2atype.TaskStateFailed &&
-			a.TaskState != a2atype.TaskStateAuthRequired {
+		}
+
+	case a2atype.TaskStateInputRequired:
+		if a.TaskState != a2atype.TaskStateFailed && a.TaskState != a2atype.TaskStateAuthRequired {
 			a.TaskState = a2atype.TaskStateInputRequired
 			a.TaskMessage = statusUpdate.Status.Message
-		} else if a.TaskState == a2atype.TaskStateWorking {
+		}
+
+	default:
+		if a.TaskState == a2atype.TaskStateWorking {
 			// Accumulate parts so final artifact has full content (text + tool calls + tool results)
 			// for the UI results section (matching Python packages behavior).
 			if statusUpdate.Status.Message != nil && len(statusUpdate.Status.Message.Parts) > 0 {
@@ -50,12 +67,13 @@ func (a *TaskResultAggregator) ProcessEvent(event a2atype.Event) {
 				a.TaskMessage = statusUpdate.Status.Message
 			}
 		}
-		// In A2A, we often want to keep the event state as "working" for intermediate updates
-		// to avoid prematurely terminating the event stream in the handler.
-		statusUpdate.Status = a2atype.TaskStatus{
-			State:     a2atype.TaskStateWorking,
-			Message:   statusUpdate.Status.Message,
-			Timestamp: statusUpdate.Status.Timestamp,
-		}
+	}
+
+	// In A2A, we often want to keep the event state as "working" for intermediate updates
+	// to avoid prematurely terminating the event stream in the handler.
+	statusUpdate.Status = a2atype.TaskStatus{
+		State:     a2atype.TaskStateWorking,
+		Message:   statusUpdate.Status.Message,
+		Timestamp: statusUpdate.Status.Timestamp,
 	}
 }

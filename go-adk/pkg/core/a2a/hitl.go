@@ -6,23 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	a2atype "github.com/a2aproject/a2a-go/a2a"
-)
-
-const (
-	KAgentMetadataKeyPrefix = "kagent_"
-
-	KAgentHitlInterruptTypeToolApproval = "tool_approval"
-	KAgentHitlDecisionTypeKey           = "decision_type"
-	KAgentHitlDecisionTypeApprove       = "approve"
-	KAgentHitlDecisionTypeDeny          = "deny"
-	KAgentHitlDecisionTypeReject        = "reject"
-)
-
-var (
-	KAgentHitlResumeKeywordsApprove = []string{"approved", "approve", "proceed", "yes", "continue"}
-	KAgentHitlResumeKeywordsDeny    = []string{"denied", "deny", "reject", "no", "cancel", "stop"}
+	"github.com/google/uuid"
 )
 
 type DecisionType string
@@ -31,6 +16,23 @@ const (
 	DecisionApprove DecisionType = "approve"
 	DecisionDeny    DecisionType = "deny"
 	DecisionReject  DecisionType = "reject"
+)
+
+const (
+	KAgentMetadataKeyPrefix = "kagent_"
+
+	KAgentHitlInterruptTypeToolApproval = "tool_approval"
+	KAgentHitlDecisionTypeKey           = "decision_type"
+
+	// String constants derived from the typed DecisionType values.
+	KAgentHitlDecisionTypeApprove = string(DecisionApprove)
+	KAgentHitlDecisionTypeDeny    = string(DecisionDeny)
+	KAgentHitlDecisionTypeReject  = string(DecisionReject)
+)
+
+var (
+	KAgentHitlResumeKeywordsApprove = []string{"approved", "approve", "proceed", "yes", "continue"}
+	KAgentHitlResumeKeywordsDeny    = []string{"denied", "deny", "reject", "no", "cancel", "stop"}
 )
 
 // ToolApprovalRequest structure for a tool call requiring approval.
@@ -192,11 +194,11 @@ func HandleToolApprovalInterrupt(
 	actionRequestsData := make([]map[string]interface{}, len(actionRequests))
 	for i, req := range actionRequests {
 		actionRequestsData[i] = map[string]interface{}{
-			"name": req.Name,
-			"args": req.Args,
+			PartKeyName: req.Name,
+			PartKeyArgs: req.Args,
 		}
 		if req.ID != "" {
-			actionRequestsData[i]["id"] = req.ID
+			actionRequestsData[i][PartKeyID] = req.ID
 		}
 	}
 
@@ -207,7 +209,7 @@ func HandleToolApprovalInterrupt(
 			"action_requests": actionRequestsData,
 		},
 		Metadata: map[string]any{
-			GetKAgentMetadataKey("type"): "interrupt_data",
+			MetadataKeyType: "interrupt_data",
 		},
 	}
 

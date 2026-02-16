@@ -19,68 +19,53 @@ const (
 	requestEucFunctionCallName = "request_euc"
 )
 
-// extractErrorCode extracts error_code from an event using type switches.
-func extractErrorCode(e interface{}) string {
+// extractErrorInfo extracts error code and message from an event in a single type switch.
+func extractErrorInfo(e interface{}) (errorCode, errorMessage string) {
 	switch ev := e.(type) {
 	case event.ErrorEventProvider:
-		return ev.GetErrorCode()
+		return ev.GetErrorCode(), ev.GetErrorMessage()
 	case *adksession.Event:
 		if ev != nil && ev.LLMResponse.Content != nil {
-			return string(ev.LLMResponse.FinishReason)
+			code := string(ev.LLMResponse.FinishReason)
+			return code, genai.GetErrorMessage(code)
 		}
-		return ""
-	default:
-		return ""
 	}
-}
-
-// extractErrorMessage extracts error_message from an event using type switches.
-func extractErrorMessage(e interface{}) string {
-	switch ev := e.(type) {
-	case event.ErrorEventProvider:
-		return ev.GetErrorMessage()
-	case *adksession.Event:
-		// ADK events don't have explicit error messages; derive from finish reason
-		if ev != nil && ev.LLMResponse.Content != nil {
-			return genai.GetErrorMessage(string(ev.LLMResponse.FinishReason))
-		}
-		return ""
-	default:
-		return ""
-	}
+	return "", ""
 }
 
 // getContextMetadata gets the context metadata for the event using type switches.
+// errorCode is passed in to avoid redundant extraction from the same event.
 // This matches Python's _get_context_metadata function.
-func getContextMetadata(e interface{}, cc a2a.ConversionContext) map[string]interface{} {
+func getContextMetadata(e interface{}, cc a2a.ConversionContext, errorCode string) map[string]interface{} {
 	metadata := map[string]interface{}{
 		a2a.MetadataKeyAppName:       cc.AppName,
 		a2a.MetadataKeyUserIDFull:    cc.UserID,
 		a2a.MetadataKeySessionIDFull: cc.SessionID,
 	}
 
-	switch ev := e.(type) {
-	case *adksession.Event:
-		if ev != nil {
-			if ev.Author != "" {
-				metadata[a2a.MetadataKeyAuthor] = ev.Author
-			}
-			if ev.InvocationID != "" {
-				metadata[a2a.MetadataKeyInvocationID] = ev.InvocationID
-			}
-			if errorCode := extractErrorCode(ev); errorCode != "" {
-				metadata[a2a.MetadataKeyErrorCode] = errorCode
-			}
+	if ev, ok := e.(*adksession.Event); ok && ev != nil {
+		if ev.Author != "" {
+			metadata[a2a.MetadataKeyAuthor] = ev.Author
 		}
-	case *event.RunnerErrorEvent:
-		if ev != nil {
-			if ev.ErrorCode != "" {
-				metadata[a2a.MetadataKeyErrorCode] = ev.ErrorCode
-			}
+		if ev.InvocationID != "" {
+			metadata[a2a.MetadataKeyInvocationID] = ev.InvocationID
 		}
 	}
 
+	if errorCode != "" {
+		metadata[a2a.MetadataKeyErrorCode] = errorCode
+	}
+
 	return metadata
+}
+
+// dataPartType returns the kagent_type metadata value for a DataPart, or "".
+func dataPartType(dp *a2atype.DataPart) string {
+	if dp == nil || dp.Metadata == nil {
+		return ""
+	}
+	t, _ := dp.Metadata[a2a.MetadataKeyType].(string)
+	return t
 }
 
 // processLongRunningTool processes long-running tool metadata for an A2A part.
@@ -89,16 +74,7 @@ func processLongRunningTool(a2aPart a2atype.Part, e interface{}) {
 	longRunningToolIDs := extractLongRunningToolIDs(e)
 
 	dataPart, ok := a2aPart.(*a2atype.DataPart)
-	if !ok {
-		return
-	}
-
-	if dataPart.Metadata == nil {
-		dataPart.Metadata = make(map[string]interface{})
-	}
-
-	partType, _ := dataPart.Metadata[a2a.MetadataKeyType].(string)
-	if partType != a2a.A2ADataPartMetadataTypeFunctionCall {
+	if !ok || dataPartType(dataPart) != a2a.A2ADataPartMetadataTypeFunctionCall {
 		return
 	}
 
@@ -107,7 +83,7 @@ func processLongRunningTool(a2aPart a2atype.Part, e interface{}) {
 		return
 	}
 
-	id, _ := dataMap["id"].(string)
+	id, _ := dataMap[a2a.PartKeyID].(string)
 	if id == "" {
 		return
 	}
@@ -132,12 +108,10 @@ func extractLongRunningToolIDs(e interface{}) []string {
 }
 
 // createErrorStatusEvent creates a TaskStatusUpdateEvent for error scenarios.
-// This matches Python's _create_error_status_event function
-func createErrorStatusEvent(event interface{}, cc a2a.ConversionContext) *a2atype.TaskStatusUpdateEvent {
-	errorCode := extractErrorCode(event)
-	errorMessage := extractErrorMessage(event)
-
-	metadata := getContextMetadata(event, cc)
+// errorCode and errorMessage are passed in to avoid redundant extraction.
+// This matches Python's _create_error_status_event function.
+func createErrorStatusEvent(evt interface{}, cc a2a.ConversionContext, errorCode, errorMessage string) *a2atype.TaskStatusUpdateEvent {
+	metadata := getContextMetadata(evt, cc, errorCode)
 	if errorCode != "" && errorMessage == "" {
 		errorMessage = genai.GetErrorMessage(errorCode)
 	}
@@ -176,9 +150,9 @@ func ConvertEventToA2AEvents(event interface{}, cc a2a.ConversionContext) []a2at
 	}
 
 	// RunnerErrorEvent or any type with ErrorCode: only error path
-	errorCode := extractErrorCode(event)
+	errorCode, errorMessage := extractErrorInfo(event)
 	if errorCode != "" && !genai.IsNormalCompletion(errorCode) {
-		return []a2atype.Event{createErrorStatusEvent(event, cc)}
+		return []a2atype.Event{createErrorStatusEvent(event, cc, errorCode, errorMessage)}
 	}
 	// STOP with no content or unknown type: no events
 	return nil
@@ -187,16 +161,13 @@ func ConvertEventToA2AEvents(event interface{}, cc a2a.ConversionContext) []a2at
 // convertADKEventToA2AEvents converts *adksession.Event to A2A events (like Python convert_event_to_a2a_events(adk_event)).
 // Uses GenAIPartToA2APart for direct genai.Part → A2A Part conversion.
 func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionContext) []a2atype.Event {
-	errorCode := extractErrorCode(adkEvent)
+	errorCode, errorMessage := extractErrorInfo(adkEvent)
 	if errorCode != "" && !genai.IsNormalCompletion(errorCode) {
-		return []a2atype.Event{createErrorStatusEvent(adkEvent, cc)}
+		return []a2atype.Event{createErrorStatusEvent(adkEvent, cc, errorCode, errorMessage)}
 	}
 
 	// Use LLMResponse.Content with fallback to Content so tool/progress events are not missed
 	content := adkEventContent(adkEvent)
-	if errorCode == genai.FinishReasonStop && (content == nil || len(content.Parts) == 0) {
-		return nil
-	}
 	if content == nil || len(content.Parts) == 0 {
 		return nil
 	}
@@ -217,7 +188,7 @@ func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionCon
 
 	messageMetadata := make(map[string]interface{})
 	if adkEvent.Partial {
-		messageMetadata["adk_partial"] = true
+		messageMetadata[a2a.MetadataKeyAdkPartial] = true
 	}
 	message := &a2atype.Message{
 		ID:       uuid.New().String(),
@@ -227,7 +198,7 @@ func convertADKEventToA2AEvents(adkEvent *adksession.Event, cc a2a.ConversionCon
 	}
 
 	state := determineTaskState(a2aParts)
-	metadata := getContextMetadata(adkEvent, cc)
+	metadata := getContextMetadata(adkEvent, cc, errorCode)
 
 	return []a2atype.Event{&a2atype.TaskStatusUpdateEvent{
 		TaskID:    a2atype.TaskID(cc.TaskID),
@@ -249,12 +220,11 @@ func determineTaskState(parts a2atype.ContentParts) a2atype.TaskState {
 	state := a2atype.TaskStateWorking
 	for _, part := range parts {
 		dataPart, ok := part.(*a2atype.DataPart)
-		if !ok || dataPart.Metadata == nil {
+		if !ok {
 			continue
 		}
-		partType, _ := dataPart.Metadata[a2a.MetadataKeyType].(string)
 		isLongRunning, _ := dataPart.Metadata[a2a.MetadataKeyIsLongRunning].(bool)
-		if partType == a2a.A2ADataPartMetadataTypeFunctionCall && isLongRunning {
+		if dataPartType(dataPart) == a2a.A2ADataPartMetadataTypeFunctionCall && isLongRunning {
 			if dataMap := dataPart.Data; dataMap != nil {
 				if name, _ := dataMap[a2a.PartKeyName].(string); name == requestEucFunctionCallName {
 					return a2atype.TaskStateAuthRequired

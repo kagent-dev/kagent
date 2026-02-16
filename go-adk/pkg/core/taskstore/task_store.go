@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 	a2atype "github.com/a2aproject/a2a-go/a2a"
+	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
 )
 
 // KAgentTaskStore persists A2A tasks to KAgent via REST API
@@ -35,9 +35,9 @@ func NewKAgentTaskStoreWithClient(baseURL string, client *http.Client) *KAgentTa
 
 // KAgentTaskResponse wraps KAgent controller API responses
 type KAgentTaskResponse struct {
-	Error   bool            `json:"error"`
-	Data    *a2atype.Task   `json:"data,omitempty"`
-	Message string          `json:"message,omitempty"`
+	Error   bool          `json:"error"`
+	Data    *a2atype.Task `json:"data,omitempty"`
+	Message string        `json:"message,omitempty"`
 }
 
 // isPartialEvent checks if a history item is a partial ADK streaming event
@@ -45,7 +45,7 @@ func (s *KAgentTaskStore) isPartialEvent(item *a2atype.Message) bool {
 	if item == nil || item.Metadata == nil {
 		return false
 	}
-	if partial, ok := item.Metadata["adk_partial"].(bool); ok {
+	if partial, ok := item.Metadata[a2a.MetadataKeyAdkPartial].(bool); ok {
 		return partial
 	}
 	return false
@@ -77,7 +77,7 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseURL+"/api/tasks", bytes.NewReader(taskJSON))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create save request: %w", err)
 	}
 	req.Header.Set(a2a.HeaderContentType, a2a.ContentTypeJSON)
 
@@ -109,7 +109,7 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*a2atype.Task, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", s.BaseURL+"/api/tasks/"+taskID, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create get request: %w", err)
 	}
 
 	resp, err := s.Client.Do(req)
@@ -139,7 +139,7 @@ func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*a2atype.Task
 func (s *KAgentTaskStore) Delete(ctx context.Context, taskID string) error {
 	req, err := http.NewRequestWithContext(ctx, "DELETE", s.BaseURL+"/api/tasks/"+taskID, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create delete request: %w", err)
 	}
 
 	resp, err := s.Client.Do(req)

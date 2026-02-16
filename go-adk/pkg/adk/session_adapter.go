@@ -3,7 +3,6 @@ package adk
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -20,9 +19,6 @@ var _ adksession.Service = (*SessionServiceAdapter)(nil)
 var _ adksession.Session = (*SessionWrapper)(nil)
 var _ adksession.Events = (*eventsWrapper)(nil)
 var _ adksession.State = (*stateWrapper)(nil)
-
-// ErrListNotImplemented is returned when List is called but not implemented.
-var ErrListNotImplemented = errors.New("session list not implemented: underlying SessionService does not support listing")
 
 // SessionServiceAdapter adapts our SessionService to Google ADK's session.Service.
 //
@@ -58,20 +54,6 @@ func NewSessionServiceAdapter(service session.SessionService, logger logr.Logger
 	}
 }
 
-// AppendFirstSystemEvent appends the initial system event (header_update) before run.
-// Matches Python _handle_request: append_event before runner.run_async.
-// Ensures session has prior state; runner fetches session with full history for LLM context on resume.
-func AppendFirstSystemEvent(ctx context.Context, service session.SessionService, session *session.Session) error {
-	if service == nil || session == nil {
-		return nil
-	}
-	event := map[string]interface{}{
-		"InvocationID": "header_update",
-		"Author":       "system",
-	}
-	return service.AppendEvent(ctx, session, event)
-}
-
 // Create implements session.Service interface
 func (a *SessionServiceAdapter) Create(ctx context.Context, req *adksession.CreateRequest) (*adksession.CreateResponse, error) {
 	if a.service == nil {
@@ -91,7 +73,7 @@ func (a *SessionServiceAdapter) Create(ctx context.Context, req *adksession.Crea
 	}
 
 	// Convert our Session to Google ADK Session
-	adkSession := convertSessionToADK(session)
+	adkSession := NewSessionWrapper(session)
 
 	return &adksession.CreateResponse{
 		Session: adkSession,
@@ -141,7 +123,7 @@ func (a *SessionServiceAdapter) Get(ctx context.Context, req *adksession.GetRequ
 		a.logger.V(1).Info("Session events after parsing", "sessionID", session.ID, "eventsAfterParse", len(session.Events))
 	}
 
-	adkSession := convertSessionToADK(session)
+	adkSession := NewSessionWrapper(session)
 	return &adksession.GetResponse{
 		Session: adkSession,
 	}, nil
@@ -415,11 +397,6 @@ func (s *stateWrapper) All() iter.Seq2[string, interface{}] {
 			}
 		}
 	}
-}
-
-// convertSessionToADK converts our Session to Google ADK Session
-func convertSessionToADK(session *session.Session) adksession.Session {
-	return NewSessionWrapper(session)
 }
 
 // convertADKSessionToOurs converts Google ADK Session to our Session.

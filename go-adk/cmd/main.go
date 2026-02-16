@@ -26,6 +26,22 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func defaultAgentCard() *a2atype.AgentCard {
+	return &a2atype.AgentCard{
+		Name:        "go-adk-agent",
+		Description: "Go-based Agent Development Kit",
+		Version:     "0.2.0",
+	}
+}
+
+// newHTTPClient returns an HTTP client with optional token-based auth.
+func newHTTPClient(tokenService *auth.KAgentTokenService) *http.Client {
+	if tokenService != nil {
+		return auth.NewHTTPClientWithToken(tokenService)
+	}
+	return &http.Client{Timeout: 30 * time.Second}
+}
+
 func buildAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
 	kagentName := os.Getenv("KAGENT_NAME")
 	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
@@ -125,10 +141,7 @@ func main() {
 			Stream:      &streamDefault,
 			ExecuteCode: &executeCodeDefault,
 		}
-		agentCard = &a2atype.AgentCard{
-			Name:        "go-adk-agent",
-			Description: "Go-based Agent Development Kit",
-		}
+		agentCard = defaultAgentCard()
 	} else {
 		logger.Info("Loaded agent config", "configDir", configDir)
 		logger.Info("AgentConfig summary", "summary", config.GetAgentConfigSummary(agentConfig))
@@ -157,31 +170,15 @@ func main() {
 	}
 
 	var sessionService session.SessionService
-	if kagentURL != "" {
-		var httpClient *http.Client
-		if tokenService != nil {
-			httpClient = auth.NewHTTPClientWithToken(tokenService)
-		} else {
-			httpClient = &http.Client{Timeout: 30 * time.Second}
-		}
-		sessionService = session.NewKAgentSessionServiceWithLogger(kagentURL, httpClient, logger)
-		logger.Info("Using KAgent session service", "url", kagentURL)
-	} else {
-		logger.Info("No KAGENT_URL set, using in-memory session (sessions will not persist)")
-	}
-
 	var taskStoreInstance *taskstore.KAgentTaskStore
 	if kagentURL != "" {
-		var httpClient *http.Client
-		if tokenService != nil {
-			httpClient = auth.NewHTTPClientWithToken(tokenService)
-		} else {
-			httpClient = &http.Client{Timeout: 30 * time.Second}
-		}
+		httpClient := newHTTPClient(tokenService)
+		sessionService = session.NewKAgentSessionServiceWithLogger(kagentURL, httpClient, logger)
+		logger.Info("Using KAgent session service", "url", kagentURL)
 		taskStoreInstance = taskstore.NewKAgentTaskStoreWithClient(kagentURL, httpClient)
 		logger.Info("Using KAgent task store", "url", kagentURL)
 	} else {
-		logger.Info("No KAGENT_URL set, task persistence disabled")
+		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
 	}
 
 	skillsDirectory := os.Getenv("KAGENT_SKILLS_FOLDER")
@@ -199,7 +196,7 @@ func main() {
 		stream = agentConfig.GetStream()
 	}
 
-	executor := core.NewA2aAgentExecutorWithLogger(agentRunner, converter.NewEventConverter(), core.A2aAgentExecutorConfig{
+	executor := core.NewA2aAgentExecutorWithLogger(agentRunner, converter.ConvertEventToA2AEvents, converter.IsPartialEvent, core.A2aAgentExecutorConfig{
 		Stream:           stream,
 		ExecutionTimeout: a2a.DefaultExecutionTimeout,
 	}, sessionService, taskStoreInstance, appName, logger)
@@ -215,11 +212,7 @@ func main() {
 	}
 
 	if agentCard == nil {
-		agentCard = &a2atype.AgentCard{
-			Name:        "go-adk-agent",
-			Description: "Go-based Agent Development Kit",
-			Version:     "0.2.0",
-		}
+		agentCard = defaultAgentCard()
 	}
 
 	serverConfig := server.ServerConfig{

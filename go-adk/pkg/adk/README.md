@@ -14,17 +14,25 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │   ┌─────────────┐    ┌──────────────────┐    ┌─────────────────────────────┐    │
 │   │ AgentConfig │───▶│   ADKRunner      │───▶│   A2aAgentExecutor          │    │
 │   │ (from JSON) │    │ (core.Runner)    │    │   (orchestrates execution)  │    │
-│   └─────────────┘    └──────────────────┘    └─────────────────────────────┘    │
-│                                                          │                      │
-│   ┌─────────────┐    ┌──────────────────┐               │                       │
-│   │ AgentCard   │───▶│   A2AServer      │◀──────────────┘                       │
+│   └─────────────┘    └──────────────────┘    └──────────────┬──────────────┘    │
+│                                                             │                   │
+│                                                             ▼                   │
+│                                                  ┌──────────────────────┐       │
+│                                                  │   KAgentExecutor     │       │
+│                                                  │   (a2asrv.Agent-     │       │
+│                                                  │    Executor bridge)  │       │
+│                                                  └──────────┬───────────┘       │
+│                                                             │                   │
+│   ┌─────────────┐    ┌──────────────────┐                   │                   │
+│   │ AgentCard   │───▶│   A2AServer      │◀──────────────────┘                   │
 │   │ (metadata)  │    │ (HTTP endpoints) │                                       │
-│   └─────────────┘    └──────────────────┘                                       │ 
+│   └─────────────┘    └──────────────────┘                                       │
 │                              │                                                  │
 │                              ▼                                                  │
-│                      ┌──────────────────┐                                       │
-│                      │  A2ATaskManager  │                                       │
-│                      │ (task lifecycle) │                                       │
+│                      ┌──────────────────┐    ┌────────────────────────────┐     │
+│                      │a2asrv.Request-   │    │  KAgentTaskStoreAdapter    │     │
+│                      │Handler (a2a-go)  │◀───│  (task persistence)        │     │
+│                      │(task lifecycle)  │    └────────────────────────────┘     │
 │                      └──────────────────┘                                       │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -44,31 +52,32 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │       │ 1. SendMessage (A2A Protocol)                                           │
 │       ▼                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
-│  │                         A2ATaskManager                                   │   │
+│  │                    a2asrv.RequestHandler (a2a-go)                        │   │
 │  │  • Creates task with unique ID                                           │   │
 │  │  • Manages task lifecycle (submitted → working → completed/failed)       │   │
-│  │  • Handles push notifications                                            │   │
+│  │  • Persists tasks via KAgentTaskStoreAdapter                             │   │
 │  └────┬─────────────────────────────────────────────────────────────────────┘   │
-│       │ 2. Execute(req, queue, taskID, contextID)                               │
+│       │ 2. KAgentExecutor.Execute(ctx, reqCtx, queue)                           │
+│       │    → bridges to A2aAgentExecutor.Execute(ctx, params, queue, ...)       │
 │       ▼                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                       A2aAgentExecutor                                   │   │
 │  │  • Extracts userID, sessionID from request                               │   │
 │  │  • Prepares session (get or create via SessionService)                   │   │
-│  │  • Sends "submitted" → "working" status updates                          │   │
-│  │  • Converts A2A request to runner args                                   │   │
-│  │  • Processes events and aggregates results                               │   │
+│  │  • Appends system event, sends "submitted" → "working" status updates    │   │
+│  │  • Converts A2A request to runner args (ConvertA2ARequestToRunArgs)      │   │
+│  │  • Processes events, converts via ConvertEventsFunc, aggregates results  │   │
 │  └────┬─────────────────────────────────────────────────────────────────────┘   │
-│       │ 3. Run(ctx, args) → <-chan interface{}                                  │
+│       │ 3. Runner.Run(ctx, args) → <-chan interface{}                           │
 │       ▼                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                           ADKRunner                                      │   │
 │  │  • Lazy-initializes Google ADK Runner on first call                      │   │
-│  │  • Converts A2A message → genai.Content                                  │   │
-│  │  • Streams ADK events to channel                                         │   │
-│  │  • Persists events to session                                            │   │
+│  │  • Converts A2A message → genai.Content (A2AMessageToGenAIContent)       │   │
+│  │  • Streams ADK events to channel via processEventLoop                    │   │
+│  │  • Persists non-partial events to session (persistEvent)                 │   │
 │  └────┬─────────────────────────────────────────────────────────────────────┘   │
-│       │ 4. adkRunner.Run(ctx, userID, sessionID, content, config)               │
+│       │ 4. adkRunner.Run(ctx, userID, sessionID, content, runConfig)            │
 │       ▼                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                      Google ADK Runner                                   │   │
@@ -89,9 +98,11 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │       │ 5. iter.Seq2[*adksession.Event, error]                                  │
 │       ▼                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
-│  │                        EventConverter                                    │   │
-│  │  • ADK Event → A2A Protocol Events                                       │   │
-│  │  • Handles: text, function_call, function_response, errors               │   │
+│  │               converter.ConvertEventToA2AEvents                          │   │
+│  │  (called by A2aAgentExecutor for each event from ADKRunner channel)      │   │
+│  │  • ADK Event → A2A Protocol Events (GenAIPartToA2APart)                  │   │
+│  │  • Handles: text, function_call, function_response, executable_code,     │   │
+│  │    code_execution_result, file_data, inline_data, errors                 │   │
 │  │  • Sets task state: working, input_required, auth_required               │   │
 │  └────┬─────────────────────────────────────────────────────────────────────┘   │
 │       │ 6. TaskStatusUpdateEvent / TaskArtifactUpdateEvent                      │
@@ -116,23 +127,23 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │                          │    Config)        │                                  │
 │                          └─────────┬─────────┘                                  │
 │                                    │                                            │
-│                    ┌───────────────┼───────────────┐                            │
-│                    │               │               │                            │
-│                    ▼               ▼               ▼                            │
-│           ┌────────────┐  ┌────────────┐  ┌────────────────┐                    │
-│           │   Model    │  │  MCP Tools │  │  Remote Agents │                    │
-│           │  (LLM)     │  │  (HTTP/SSE)│  │  (A2A clients) │                    │
-│           └─────┬──────┘  └─────┬──────┘  └────────────────┘                    │
-│                 │               │                                               │
-│                 ▼               ▼                                               │
-│           ┌─────────────────────────────────────────┐                           │
-│           │            ModelAdapter                 │                           │
-│           │  • Wraps LLM implementation             │                           │
-│           │  • Injects MCP tools into requests      │                           │
-│           │  • Delegates GenerateContent to LLM     │                           │
-│           └─────────────────────┬───────────────────┘                           │
-│                                 │                                               │
-│                                 ▼                                               │
+│                         ┌──────────┴──────────┐                                 │
+│                         │                     │                                 │
+│                         ▼                     ▼                                 │
+│                ┌────────────┐        ┌────────────────┐                         │
+│                │   Model    │        │  MCP Tools     │                         │
+│                │  (LLM)     │        │  (HTTP/SSE)    │                         │
+│                └─────┬──────┘        └──┬──────────┬──┘                         │
+│                      │                  │          │                            │
+│                      ▼                  ▼          │                            │
+│           ┌─────────────────────────────────────┐  │                            │
+│           │          ModelAdapter               │  │                            │
+│           │  • Wraps adkmodel.LLM               │  │                            │
+│           │  • Injects MCP tools into requests  │  │                            │
+│           │  • Delegates GenerateContent to LLM │  │                            │
+│           └─────────────────┬───────────────────┘  │                            │
+│                             │                      │                            │
+│                             ▼                      ▼                            │
 │           ┌─────────────────────────────────────────┐                           │
 │           │         Google ADK Agent                │                           │
 │           │  • llmagent.Agent with ModelAdapter     │                           │
@@ -142,8 +153,10 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │                                 ▼                                               │
 │           ┌─────────────────────────────────────────┐                           │
 │           │         Google ADK Runner               │                           │
-│           │  • runner.New(agent, sessionService)    │                           │
-│           │  • Manages agent execution loop         │                           │
+│           │  • runner.New(runner.Config{AppName,    │                           │
+│           │    Agent, SessionService})              │                           │
+│           │  • SessionServiceAdapter wraps our      │                           │
+│           │    SessionService for ADK compatibility │                           │
 │           └─────────────────────────────────────────┘                           │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -167,28 +180,32 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 │   │                    SessionServiceAdapter                                │   │
 │   │  Implements: google.golang.org/adk/session.Service                      │   │
 │   │  • Create() → POST to backend, wrap in SessionWrapper                   │   │
-│   │  • Get()    → GET from backend, parse ADK events                        │   │
-│   │  • AppendEvent() → POST event, update local session.Events              │   │
+│   │  • Get()    → GET from backend, parseEventsToADK                        │   │
+│   │  • AppendEvent() → append to wrapper.session.Events + POST to backend   │   │
+│   │  • List()   → returns empty (not fully implemented)                     │   │
+│   │  • Delete() → DELETE via backend                                        │   │
 │   └────────┬────────────────────────────────────────────────────────────────┘   │
 │            │                                                                    │
 │            ▼                                                                    │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
 │   │                       SessionWrapper                                    │   │
 │   │  Implements: google.golang.org/adk/session.Session                      │   │
-│   │  • ID(), UserID(), AppName(), State(), Events()                         │   │
+│   │  • ID(), UserID(), AppName(), State(), Events(), LastUpdateTime()       │   │
 │   │  • Events().All() → yields *adksession.Event from session.Events        │   │
-│   │  • State().Get/Set() → reads/writes session.State map                   │   │
+│   │  • Events().Len(), Events().At(i) → indexed access                      │   │
+│   │  • State().Get/Set/All() → reads/writes session.State map               │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
-│   Event Persistence:                                                            │
+│   Event Persistence (ADKRunner.processEventLoop):                               │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │  ADKRunner.processEventLoop():                                          │   │
-│   │    for adkEvent := range eventSeq {                                     │   │
-│   │      if !adkEvent.Partial || hasToolContent(adkEvent) {                 │   │
-│   │        sessionService.AppendEvent(ctx, session, adkEvent)  // persist   │   │
-│   │      }                                                                  │   │
-│   │      ch <- adkEvent  // stream to executor                              │   │
+│   │  for adkEvent, err := range eventSeq {                                  │   │
+│   │    // persistEvent: append to session if non-partial or has tool content│   │
+│   │    if !adkEvent.Partial || event.EventHasToolContent(adkEvent) {        │   │
+│   │      sessionService.AppendEvent(ctx, session, adkEvent)  // persist     │   │
 │   │    }                                                                    │   │
+│   │    // sendEvent: stream to executor channel                             │   │
+│   │    ch <- adkEvent                                                       │   │
+│   │  }                                                                      │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -196,24 +213,30 @@ This package bridges the KAgent A2A flow with Google's Agent Development Kit (AD
 
 ## Key Components
 
-- **ADKRunner**: Implements `core.Runner`; lazy-creates Google ADK Runner and handles event streaming
-- **SessionServiceAdapter**: Adapts `core.SessionService` to Google ADK's `session.Service`
-- **MCPToolRegistry**: Manages MCP toolsets for tool discovery and execution
-- **EventConverter**: Converts ADK events to A2A protocol events
-- **ModelAdapter**: Injects MCP tools into LLM requests
+- **ADKRunner**: Implements `core.Runner`; lazy-creates Google ADK Runner and handles event streaming via `processEventLoop`
+- **SessionServiceAdapter**: Adapts `session.SessionService` to Google ADK's `adksession.Service` (Create, Get, AppendEvent, List, Delete)
+- **SessionWrapper**: Wraps `session.Session` to implement `adksession.Session` with `eventsWrapper` and `stateWrapper`
+- **MCPToolRegistry**: Manages MCP toolsets for tool discovery and execution (HTTP and SSE servers)
+- **ModelAdapter**: Wraps `adkmodel.LLM` to inject MCP tools into LLM requests via `cloneLLMRequestWithMCPTools`
+- **converter.ConvertEventToA2AEvents**: Converts ADK events (`*adksession.Event`) and `RunnerErrorEvent` to A2A protocol events
+- **converter.GenAIPartToA2APart**: Direct `genai.Part` → A2A `Part` conversion (text, file, function call/response, code)
+- **KAgentExecutor**: Bridges `a2asrv.AgentExecutor` to `core.A2aAgentExecutor`
+- **KAgentTaskStoreAdapter**: Adapts `taskstore.KAgentTaskStore` to `a2asrv.TaskStore` for task persistence
 
 ## MCP Tool Integration
 
-MCPToolRegistry fetches and manages tools from MCP servers (both HTTP and SSE). It uses Google ADK's mcptoolset for tool discovery and execution, ensuring compatibility with the ADK's tool handling.
+MCPToolRegistry fetches and manages tools from MCP servers (both HTTP and SSE). It uses Google ADK's mcptoolset for tool discovery and execution, ensuring compatibility with the ADK's tool handling. Tools are injected into LLM requests via ModelAdapter and registered as ADK toolsets for function call execution.
 
 ## Event Conversion
 
 Events from the ADK runner are converted to A2A protocol events for streaming to clients. The conversion handles:
 
 - Text content
-- Function calls and responses
-- Code execution results
+- Function calls and responses (with long-running tool metadata for HITL)
+- Executable code and code execution results
+- File data (URI and inline/base64)
 - Error states and finish reasons
+- Task state determination: working, input_required (long-running tools), auth_required (request_euc)
 
 ## Model Support
 

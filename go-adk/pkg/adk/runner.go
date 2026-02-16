@@ -117,11 +117,11 @@ func (r *ADKRunner) Run(ctx context.Context, args map[string]interface{}) (<-cha
 	}
 
 	// Execute the Google ADK runner
-	return r.runADK(ctx, args, rargs)
+	return r.runADK(ctx, message, args, rargs)
 }
 
 // runADK executes the Google ADK runner and streams events.
-func (r *ADKRunner) runADK(ctx context.Context, args map[string]interface{}, rargs runArgs) (<-chan interface{}, error) {
+func (r *ADKRunner) runADK(ctx context.Context, message *a2atype.Message, args map[string]interface{}, rargs runArgs) (<-chan interface{}, error) {
 	ch := make(chan interface{}, a2a.EventChannelBufferSize)
 
 	go func() {
@@ -134,7 +134,7 @@ func (r *ADKRunner) runADK(ctx context.Context, args map[string]interface{}, rar
 			}
 		}
 
-		genaiContent, contentErr := buildGenAIContentFromArgs(args)
+		genaiContent, contentErr := converter.A2AMessageToGenAIContent(message)
 		if contentErr != nil {
 			if r.logger.GetSink() != nil {
 				r.logger.Error(contentErr, "Failed to convert message to genai.Content")
@@ -308,7 +308,11 @@ func extractMessageFromArgs(args map[string]interface{}, logger logr.Logger) *a2
 	val := args[a2a.ArgKeyMessage]
 	if val == nil {
 		if logger.GetSink() != nil {
-			logger.Info("No message found in args", "argsKeys", getMapKeys(args))
+			keys := make([]string, 0, len(args))
+			for k := range args {
+				keys = append(keys, k)
+			}
+			logger.Info("No message found in args", "argsKeys", keys)
 		}
 		return nil
 	}
@@ -338,14 +342,6 @@ func sendErrorEvent(evt *event.RunnerErrorEvent) <-chan interface{} {
 	return ch
 }
 
-func getMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // runArgs holds extracted run arguments from args map.
 type runArgs struct {
 	userID         string
@@ -369,13 +365,6 @@ func extractRunArgs(args map[string]interface{}) runArgs {
 		r.session = s
 	}
 	return r
-}
-
-func buildGenAIContentFromArgs(args map[string]interface{}) (*genai.Content, error) {
-	if msg, ok := args[a2a.ArgKeyMessage].(*a2atype.Message); ok {
-		return converter.A2AMessageToGenAIContent(msg)
-	}
-	return nil, nil
 }
 
 func runConfigFromArgs(args map[string]interface{}) agent.RunConfig {
@@ -483,7 +472,11 @@ func logADKEventTiming(logger logr.Logger, eventCount int, timeSinceLastEvent, t
 }
 
 func logADKEventDetails(logger logr.Logger, e *adksession.Event, eventCount int) {
-	if e == nil || e.LLMResponse.Content == nil || e.LLMResponse.Content.Parts == nil {
+	if e == nil {
+		logger.V(1).Info("Google ADK event received (nil)", "eventNumber", eventCount)
+		return
+	}
+	if e.LLMResponse.Content == nil || e.LLMResponse.Content.Parts == nil {
 		logger.V(1).Info("Google ADK event received", "eventNumber", eventCount, "author", e.Author, "partial", e.Partial)
 		return
 	}
@@ -504,32 +497,29 @@ func logADKEventDetails(logger logr.Logger, e *adksession.Event, eventCount int)
 	}
 }
 
+// jsonOrFallback marshals v to JSON, falling back to Sprintf on error.
+func jsonOrFallback(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func logFunctionCall(logger logr.Logger, part *genai.Part, eventCount int) {
 	logger.Info("MCP function call", "tool", part.FunctionCall.Name, "callID", part.FunctionCall.ID)
-	argsJSON := ""
-	if part.FunctionCall.Args != nil {
-		if b, err := json.Marshal(part.FunctionCall.Args); err == nil {
-			argsJSON = string(b)
-		} else {
-			argsJSON = fmt.Sprintf("%v", part.FunctionCall.Args)
-		}
-	}
+	argsJSON := jsonOrFallback(part.FunctionCall.Args)
 	logger.V(1).Info("Google ADK event contains function call",
 		"eventNumber", eventCount, "functionName", part.FunctionCall.Name,
 		"functionID", part.FunctionCall.ID, "args", argsJSON)
 }
 
 func logFunctionResponse(logger logr.Logger, part *genai.Part, eventCount int, partial bool) {
-	responseBody := ""
-	if part.FunctionResponse.Response != nil {
-		if b, err := json.Marshal(part.FunctionResponse.Response); err == nil {
-			responseBody = string(b)
-		} else {
-			responseBody = fmt.Sprintf("%v", part.FunctionResponse.Response)
-		}
-		if len(responseBody) > a2a.ResponseBodyMaxLength {
-			responseBody = responseBody[:a2a.ResponseBodyMaxLength] + "... (truncated)"
-		}
+	responseBody := jsonOrFallback(part.FunctionResponse.Response)
+	if len(responseBody) > a2a.ResponseBodyMaxLength {
+		responseBody = responseBody[:a2a.ResponseBodyMaxLength] + "... (truncated)"
 	}
 	logger.Info("MCP function response", "tool", part.FunctionResponse.Name,
 		"callID", part.FunctionResponse.ID, "responseLength", len(responseBody))
