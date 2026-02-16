@@ -573,6 +573,51 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
+	// Translate context management configuration
+	if agent.Spec.Declarative.Context != nil {
+		contextCfg := &adk.AgentContextConfig{}
+
+		if agent.Spec.Declarative.Context.Compaction != nil {
+			comp := agent.Spec.Declarative.Context.Compaction
+			compCfg := &adk.AgentCompressionConfig{
+				CompactionInterval: comp.CompactionInterval,
+				OverlapSize:        comp.OverlapSize,
+				TokenThreshold:     comp.TokenThreshold,
+				EventRetentionSize: comp.EventRetentionSize,
+			}
+
+			if comp.Summarizer != nil {
+				compCfg.PromptTemplate = comp.Summarizer.PromptTemplate
+
+				if comp.Summarizer.ModelConfig == "" || comp.Summarizer.ModelConfig == agent.Spec.Declarative.ModelConfig {
+					compCfg.SummarizerModel = model
+				} else {
+					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, comp.Summarizer.ModelConfig)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", comp.Summarizer.ModelConfig, err)
+					}
+					compCfg.SummarizerModel = summarizerModel
+					mergeDeploymentData(mdd, summarizerMdd)
+					if len(summarizerSecretHash) > 0 {
+						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
+					}
+				}
+			}
+
+			contextCfg.Compaction = compCfg
+		}
+
+		if agent.Spec.Declarative.Context.Cache != nil {
+			contextCfg.Cache = &adk.AgentCacheConfig{
+				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
+				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
+				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
+			}
+		}
+
+		cfg.ContextConfig = contextCfg
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {
@@ -1319,6 +1364,47 @@ func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	return binary.BigEndian.Uint64(hash[:8])
 }
 
+// mergeDeploymentData adds env vars, volumes, and volume mounts from src into dst,
+// skipping any that already exist in dst (by name for env/volumes, by mount path for mounts).
+func mergeDeploymentData(dst, src *modelDeploymentData) {
+	for _, se := range src.EnvVars {
+		found := false
+		for _, e := range dst.EnvVars {
+			if e.Name == se.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.EnvVars = append(dst.EnvVars, se)
+		}
+	}
+	for _, sv := range src.Volumes {
+		found := false
+		for _, v := range dst.Volumes {
+			if v.Name == sv.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.Volumes = append(dst.Volumes, sv)
+		}
+	}
+	for _, sm := range src.VolumeMounts {
+		found := false
+		for _, m := range dst.VolumeMounts {
+			if m.MountPath == sm.MountPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.VolumeMounts = append(dst.VolumeMounts, sm)
+		}
+	}
+}
+
 func collectOtelEnvFromProcess() []corev1.EnvVar {
 	envVars := slices.Collect(utils.Map(
 		utils.Filter(
@@ -1353,3 +1439,5 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent
 	}
 	return errs
 }
+
+

@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
-import { ModelConfig, AgentType } from "@/types";
-import { SystemPromptSection } from "@/components/create/SystemPromptSection";
+import { ModelConfig, AgentType, Tool, EnvVar, ContextConfig } from "@/types";
+import { ContextSection } from "@/components/create/ContextSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
+import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
@@ -15,7 +16,6 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
@@ -32,6 +32,7 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   skills?: string;
+  context?: string;
 }
 
 interface AgentPageContentProps {
@@ -69,6 +70,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     selectedModel: SelectedModelType | null;
     selectedTools: Tool[];
     skillRefs: string[];
+    contextConfig?: ContextConfig;
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
@@ -91,6 +93,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     selectedModel: null,
     selectedTools: [],
     skillRefs: [""],
+    contextConfig: undefined,
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -137,6 +140,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
                   stream: agent.spec?.declarative?.stream ?? false,
+                  contextConfig: agent.spec?.declarative?.context,
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -148,6 +152,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   systemPrompt: "",
                   selectedModel: null,
                   selectedTools: [],
+                  contextConfig: undefined,
                   byoImage: agent.spec?.byo?.deployment?.image || "",
                   byoCmd: agent.spec?.byo?.deployment?.cmd || "",
                   byoArgs: (agent.spec?.byo?.deployment?.args || []).join(" "),
@@ -270,7 +275,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         throw new Error("Model is required to create a declarative agent.");
       }
 
-      const agentData = {
+      const agentData: AgentFormData = {
         name: state.name,
         namespace: state.namespace,
         description: state.description,
@@ -280,6 +285,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         stream: state.stream,
         tools: state.selectedTools,
         skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
+        context: state.contextConfig,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -447,6 +453,15 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       error={state.errors.model}
                       isSubmitting={state.isSubmitting || state.isLoading}
                       onChange={(modelRef) => validateField('model', modelRef)}
+                      agentNamespace={state.namespace}
+                    />
+
+                    <ContextSection
+                      config={state.contextConfig}
+                      onChange={(config) => setState(prev => ({ ...prev, contextConfig: config }))}
+                      error={state.errors.context}
+                      disabled={state.isSubmitting || state.isLoading}
+                      models={models}
                       agentNamespace={state.namespace}
                     />
 

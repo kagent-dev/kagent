@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
+import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar, ContextConfig } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   skills?: string;
+  context?: string;
 }
 
 export interface AgentFormData {
@@ -29,6 +30,7 @@ export interface AgentFormData {
   modelName?: string;
   tools: Tool[];
   stream?: boolean;
+  context?: ContextConfig;
   // Skills
   skillRefs?: string[];
   // BYO fields
