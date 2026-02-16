@@ -27,17 +27,20 @@ app = typer.Typer()
 
 def _build_context_kwargs(agent_config: AgentConfig) -> dict:
     """Build context config kwargs for KAgentApp from agent config."""
-    if agent_config.context_config is None:
-        return {}
-    events_compaction_config, context_cache_config = build_adk_context_configs(
-        agent_config.context_config,
-        agent_model_name=getattr(agent_config.model, "model", None),
-    )
     kwargs = {}
-    if events_compaction_config is not None:
-        kwargs["events_compaction_config"] = events_compaction_config
-    if context_cache_config is not None:
-        kwargs["context_cache_config"] = context_cache_config
+    if agent_config.context_config is not None:
+        events_compaction_config, context_cache_config = build_adk_context_configs(
+            agent_config.context_config,
+            agent_model_name=getattr(agent_config.model, "model", None),
+        )
+        if events_compaction_config is not None:
+            kwargs["events_compaction_config"] = events_compaction_config
+        if context_cache_config is not None:
+            kwargs["context_cache_config"] = context_cache_config
+
+    if agent_config.memory is not None:
+        kwargs["memory_config"] = agent_config.memory
+
     return kwargs
 
 

@@ -256,6 +256,30 @@ class ContextConfig(BaseModel):
     cache: ContextCacheSettings | None = None
 
 
+class BaseMemoryConfig(BaseModel):
+    type: str
+
+
+class InMemoryConfig(BaseMemoryConfig):
+    type: Literal["in_memory"]
+
+
+class VertexAIMemoryConfig(BaseMemoryConfig):
+    type: Literal["vertex_ai"]
+    project_id: str | None = None
+    location: str | None = None
+
+
+class McpMemoryConfig(BaseMemoryConfig):
+    type: Literal["mcp"]
+    name: str = Field(description="Name of the MCP server")
+    kind: str = Field(default="MCPServer", description="Kind of the resource")
+    api_group: str = Field(default="kagent.dev", description="API Group of the resource", alias="apiGroup")
+    server_config: Union[HttpMcpServerConfig, SseMcpServerConfig] | None = Field(
+        default=None, description="Configuration for the MCP server that handles memory"
+    )
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -269,6 +293,9 @@ class AgentConfig(BaseModel):
     # This stream option refers to LLM response streaming, not A2A streaming
     stream: bool | None = None
     context_config: ContextConfig | None = None
+    memory: Union[InMemoryConfig, VertexAIMemoryConfig, McpMemoryConfig] | None = Field(
+        default=None, discriminator="type"
+    )
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

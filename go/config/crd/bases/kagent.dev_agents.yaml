@@ -9945,6 +9945,55 @@ spec:
                       Code will be executed in a sandboxed environment.
                       due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configures the memory for the agent.
+                    properties:
+                      inMemory:
+                        type: object
+                      mcp:
+                        properties:
+                          apiGroup:
+                            default: kagent.dev
+                            description: ApiGroup is the API group of the MCP server
+                              resource.
+                            type: string
+                          kind:
+                            default: MCPServer
+                            description: Kind is the kind of the MCP server resource.
+                            type: string
+                          name:
+                            description: Name is the name of the MCP server resource.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type:
+                        default: InMemory
+                        description: MemoryType represents the memory type
+                        enum:
+                        - InMemory
+                        - VertexAI
+                        - Mcp
+                        type: string
+                      vertexAi:
+                        properties:
+                          location:
+                            type: string
+                          projectID:
+                            type: string
+                        type: object
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: inMemory configuration is only allowed when type is
+                        InMemory
+                      rule: '!has(self.inMemory) || self.type == ''InMemory'''
+                    - message: vertexAi configuration is only allowed when type is
+                        VertexAI
+                      rule: '!has(self.vertexAi) || self.type == ''VertexAI'''
+                    - message: mcp configuration is only allowed when type is Mcp
+                      rule: '!has(self.mcp) || self.type == ''Mcp'''
                   modelConfig:
                     description: |-
                       The name of the model config to use.

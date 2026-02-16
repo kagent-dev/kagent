@@ -287,20 +287,6 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
-// See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
-type AgentConfig struct {
-	Model        Model                 `json:"model"`
-	Description  string                `json:"description"`
-	Instruction  string                `json:"instruction"`
-	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
-	ExecuteCode  bool                  `json:"execute_code,omitempty"`
-	Stream       bool                  `json:"stream"`
-	// Context management configuration
-	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
-}
-
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
@@ -324,6 +310,55 @@ type AgentCacheConfig struct {
 	MinTokens      *int `json:"min_tokens,omitempty"`
 }
 
+type BaseMemoryConfig struct {
+	Type string `json:"type"`
+}
+
+type InMemoryConfig struct {
+	BaseMemoryConfig
+}
+
+type VertexAIMemoryConfig struct {
+	BaseMemoryConfig
+	ProjectID *string `json:"project_id,omitempty"`
+	Location  *string `json:"location,omitempty"`
+}
+
+type McpMemoryConfig struct {
+	BaseMemoryConfig
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	ApiGroup     string `json:"apiGroup"`
+	ServerConfig any    `json:"server_config,omitempty"` // HttpMcpServerConfig or SseMcpServerConfig
+}
+
+func (m *McpMemoryConfig) MarshalJSON() ([]byte, error) {
+	type Alias McpMemoryConfig
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  "mcp",
+		Alias: (*Alias)(m),
+	})
+}
+
+// See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
+type AgentConfig struct {
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode  bool                  `json:"execute_code,omitempty"`
+	Stream       bool                  `json:"stream"`
+	// Context management configuration
+	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
+	// Memory configuration
+	Memory any `json:"memory,omitempty"` // InMemoryConfig, VertexAIMemoryConfig, or McpMemoryConfig
+}
+
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
 		Model         json.RawMessage       `json:"model"`
@@ -333,6 +368,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
 		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Memory        json.RawMessage       `json:"memory,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -348,6 +384,37 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
 	a.ContextConfig = tmp.ContextConfig
+
+	if tmp.Memory != nil {
+		var base BaseMemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &base); err != nil {
+			return err
+		}
+		switch base.Type {
+		case "in_memory":
+			var mem InMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			a.Memory = &mem
+		case "vertex_ai":
+			var mem VertexAIMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			a.Memory = &mem
+		case "mcp":
+			var mem McpMemoryConfig
+			if err := json.Unmarshal(tmp.Memory, &mem); err != nil {
+				return err
+			}
+			// server_config needs to be unmarshaled polymorphically if we were reading back
+			// For now, simple unmarshal might put it as map[string]interface{}
+			// If we need strict types here we'd need more logic, but for generation usually we are creating structs.
+			a.Memory = &mem
+		}
+	}
+
 	return nil
 }
 

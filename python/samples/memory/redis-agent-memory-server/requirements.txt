@@ -1,0 +1,5 @@
+mcp
+agent-memory-client
+python-dotenv
+starlette
+uvicorn

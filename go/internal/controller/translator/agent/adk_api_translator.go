@@ -620,6 +620,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		cfg.ContextConfig = contextCfg
 	}
 
+	// Translate memory configuration
+	if agent.Spec.Declarative.Memory != nil {
+		memConfig, err := a.translateMemory(ctx, agent, agent.Spec.Declarative.Memory)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cfg.Memory = memConfig
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {
@@ -1694,4 +1703,76 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent
 		}
 	}
 	return errs
+}
+
+func (a *adkApiTranslator) translateMemory(ctx context.Context, agent *v1alpha2.Agent, memConfig *v1alpha2.MemoryConfig) (any, error) {
+	if memConfig == nil {
+		return nil, nil
+	}
+
+	switch memConfig.Type {
+	case v1alpha2.MemoryTypeInMemory:
+		return &adk.InMemoryConfig{BaseMemoryConfig: adk.BaseMemoryConfig{Type: "in_memory"}}, nil
+	case v1alpha2.MemoryTypeVertexAI:
+		var projectID *string
+		var location *string
+		if memConfig.VertexAI != nil {
+			if memConfig.VertexAI.ProjectID != "" {
+				projectID = &memConfig.VertexAI.ProjectID
+			}
+			if memConfig.VertexAI.Location != "" {
+				location = &memConfig.VertexAI.Location
+			}
+		}
+		return &adk.VertexAIMemoryConfig{
+			BaseMemoryConfig: adk.BaseMemoryConfig{Type: "vertex_ai"},
+			ProjectID:        projectID,
+			Location:         location,
+		}, nil
+	case v1alpha2.MemoryTypeMcp:
+		if memConfig.Mcp == nil {
+			return nil, fmt.Errorf("mcp configuration is required for type Mcp")
+		}
+
+		// Use the existing translation logic for MCP servers, but capture the result
+		// instead of adding it to the agent's tool list.
+		tempAgentConfig := &adk.AgentConfig{}
+
+		// Create a synthetic tool definition for the memory server
+		// We don't specify any tool names because we want the memory service
+		// to discover/use the memory-related tools, not expose them as general agent tools.
+		toolDef := &v1alpha2.McpServerTool{
+			TypedLocalReference: v1alpha2.TypedLocalReference{
+				Name:     memConfig.Mcp.Name,
+				Kind:     memConfig.Mcp.Kind,
+				ApiGroup: memConfig.Mcp.ApiGroup,
+			},
+		}
+
+		// Reuse the translation logic
+		err := a.translateMCPServerTarget(ctx, tempAgentConfig, agent.Namespace, toolDef, nil, a.globalProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to translate memory MCP server: %w", err)
+		}
+
+		// Extract the resulting configuration
+		var serverConfig any
+		if len(tempAgentConfig.HttpTools) > 0 {
+			serverConfig = tempAgentConfig.HttpTools[0]
+		} else if len(tempAgentConfig.SseTools) > 0 {
+			serverConfig = tempAgentConfig.SseTools[0]
+		} else {
+			return nil, fmt.Errorf("failed to resolve configuration for memory MCP server %s", memConfig.Mcp.Name)
+		}
+
+		return &adk.McpMemoryConfig{
+			BaseMemoryConfig: adk.BaseMemoryConfig{Type: "mcp"},
+			Name:             memConfig.Mcp.Name,
+			Kind:             memConfig.Mcp.Kind,
+			ApiGroup:         memConfig.Mcp.ApiGroup,
+			ServerConfig:     serverConfig,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown memory type: %s", memConfig.Type)
+	}
 }

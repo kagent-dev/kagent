@@ -123,6 +123,10 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// Memory configures the memory for the agent.
+	// +optional
+	Memory *MemoryConfig `json:"memory,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -130,6 +134,55 @@ type DeclarativeDeploymentSpec struct {
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
+}
+
+// MemoryType represents the memory type
+// +kubebuilder:validation:Enum=InMemory;VertexAI;Mcp
+type MemoryType string
+
+const (
+	MemoryTypeInMemory MemoryType = "InMemory"
+	MemoryTypeVertexAI MemoryType = "VertexAI"
+	MemoryTypeMcp      MemoryType = "Mcp"
+)
+
+// MemoryConfig configures the memory for the agent.
+// +kubebuilder:validation:XValidation:rule="!has(self.inMemory) || self.type == 'InMemory'",message="inMemory configuration is only allowed when type is InMemory"
+// +kubebuilder:validation:XValidation:rule="!has(self.vertexAi) || self.type == 'VertexAI'",message="vertexAi configuration is only allowed when type is VertexAI"
+// +kubebuilder:validation:XValidation:rule="!has(self.mcp) || self.type == 'Mcp'",message="mcp configuration is only allowed when type is Mcp"
+type MemoryConfig struct {
+	// +kubebuilder:default=InMemory
+	Type MemoryType `json:"type"`
+
+	// +optional
+	InMemory *InMemoryConfig `json:"inMemory,omitempty"`
+	// +optional
+	VertexAI *VertexAIMemoryConfig `json:"vertexAi,omitempty"`
+	// +optional
+	Mcp *McpMemoryConfig `json:"mcp,omitempty"`
+}
+
+type InMemoryConfig struct {
+}
+
+type VertexAIMemoryConfig struct {
+	// +optional
+	ProjectID string `json:"projectID,omitempty"`
+	// +optional
+	Location string `json:"location,omitempty"`
+}
+
+type McpMemoryConfig struct {
+	// Name is the name of the MCP server resource.
+	Name string `json:"name"`
+	// Kind is the kind of the MCP server resource.
+	// +optional
+	// +kubebuilder:default=MCPServer
+	Kind string `json:"kind,omitempty"`
+	// ApiGroup is the API group of the MCP server resource.
+	// +optional
+	// +kubebuilder:default=kagent.dev
+	ApiGroup string `json:"apiGroup,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.
