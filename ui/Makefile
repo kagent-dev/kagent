@@ -6,7 +6,7 @@
 build:
 	rm -f bun.lockb
 	bun install
-	bun run build --no-lint
+	bun run build
 
 .PHONY: clean
 clean:

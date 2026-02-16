@@ -25,7 +25,7 @@
                   "id": "call_1",
                   "type": "function",
                   "function": {
-                    "name": "add",
+                    "name": "get-sum",
                     "arguments": "{\"a\": 3, \"b\": 5}"
                   }
                 }

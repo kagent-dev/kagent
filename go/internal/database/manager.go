@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/glebarez/sqlite"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -92,18 +93,18 @@ func (m *Manager) Initialize() error {
 
 	// AutoMigrate all models
 	err := m.db.AutoMigrate(
-		&Agent{},
-		&Session{},
-		&Task{},
-		&Event{},
-		&PushNotification{},
-		&Feedback{},
-		&Tool{},
-		&ToolServer{},
-		&LangGraphCheckpoint{},
-		&LangGraphCheckpointWrite{},
-		&CrewAIAgentMemory{},
-		&CrewAIFlowState{},
+		&dbpkg.Agent{},
+		&dbpkg.Session{},
+		&dbpkg.Task{},
+		&dbpkg.Event{},
+		&dbpkg.PushNotification{},
+		&dbpkg.Feedback{},
+		&dbpkg.Tool{},
+		&dbpkg.ToolServer{},
+		&dbpkg.LangGraphCheckpoint{},
+		&dbpkg.LangGraphCheckpointWrite{},
+		&dbpkg.CrewAIAgentMemory{},
+		&dbpkg.CrewAIFlowState{},
 	)
 
 	if err != nil {
@@ -122,18 +123,18 @@ func (m *Manager) Reset(recreateTables bool) error {
 
 	// Drop all tables
 	err := m.db.Migrator().DropTable(
-		&Agent{},
-		&Session{},
-		&Task{},
-		&Event{},
-		&PushNotification{},
-		&Feedback{},
-		&Tool{},
-		&ToolServer{},
-		&LangGraphCheckpoint{},
-		&LangGraphCheckpointWrite{},
-		&CrewAIAgentMemory{},
-		&CrewAIFlowState{},
+		&dbpkg.Agent{},
+		&dbpkg.Session{},
+		&dbpkg.Task{},
+		&dbpkg.Event{},
+		&dbpkg.PushNotification{},
+		&dbpkg.Feedback{},
+		&dbpkg.Tool{},
+		&dbpkg.ToolServer{},
+		&dbpkg.LangGraphCheckpoint{},
+		&dbpkg.LangGraphCheckpointWrite{},
+		&dbpkg.CrewAIAgentMemory{},
+		&dbpkg.CrewAIFlowState{},
 	)
 
 	if err != nil {

@@ -466,6 +466,16 @@ spec:
                 - apiVersion
                 - azureEndpoint
                 type: object
+              bedrock:
+                description: AWS Bedrock-specific configuration
+                properties:
+                  region:
+                    description: AWS region where the Bedrock model is available (e.g.,
+                      us-east-1, us-west-2)
+                    type: string
+                required:
+                - region
+                type: object
               defaultHeaders:
                 additionalProperties:
                   type: string
@@ -576,6 +586,7 @@ spec:
                 - Gemini
                 - GeminiVertexAI
                 - AnthropicVertexAI
+                - Bedrock
                 type: string
               tls:
                 description: |-
@@ -636,10 +647,14 @@ spec:
             - message: provider.anthropicVertexAI must be nil if the provider is not
                 AnthropicVertexAI
               rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
+            - message: provider.bedrock must be nil if the provider is not Bedrock
+              rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
-            - message: apiKeySecretKey must be set if apiKeySecret is set
-              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey))'
+            - message: apiKeySecretKey must be set if apiKeySecret is set (except
+                for Bedrock provider)
+              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
+                != ''Bedrock'')'
             - message: caCertSecretKey requires caCertSecretRef
               rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
                 > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)

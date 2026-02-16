@@ -171,6 +171,9 @@ providers:
     model: "llama3.2"
     config:
       host: host.docker.internal:11434
+      options:
+        num_ctx: "64000"
+
   anthropic:
     provider: Anthropic
     model: "claude-3-5-haiku-20241022"
@@ -349,7 +352,9 @@ tools:
 grafana-mcp:
   grafana:
     url: "grafana.kagent:3000/api"
-    apiKey: "-"
+    serviceAccountToken: ""
+    # apiKey: "" # Deprecated - use serviceAccountToken instead.
+    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
   resources:
     requests:
       cpu: 100m
@@ -384,13 +389,13 @@ otel:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true

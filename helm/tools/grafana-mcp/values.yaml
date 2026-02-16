@@ -3,7 +3,8 @@ replicas: 1
 grafana:
   url: "grafana.kagent:3000/api"
   serviceAccountToken: ""
-  apiKey: "" # Deprecated - use serviceAccountToken instead.
+  # apiKey: "" # Deprecated - use serviceAccountToken instead.
+  # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
 
 image:
   registry: mcp

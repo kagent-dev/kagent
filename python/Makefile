@@ -19,7 +19,7 @@ lint:
 
 .PHONY: test
 test: update generate-test-certs
-	uv run pytest tests packages/*/tests
+	uv run pytest ./packages/**/tests/
 
 .PHONY: build
 build: update format

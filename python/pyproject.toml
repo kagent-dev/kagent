@@ -9,6 +9,9 @@ dev = [
   "authlib>=1.6.4"
 ]
 
+[tool.uv]
+constraint-dependencies = ["cryptography>=46.0.5"]
+
 [tool.uv.sources]
 kagent-adk = { workspace = true }
 

@@ -56,16 +56,16 @@ def _parse_image_ref(image: str) -> Tuple[str, str, str]:
     return registry, repo, ref
 
 
-def fetch_using_crane_to_dir(image: str, destination_folder: str, insecure: bool = False) -> None:
-    """Fetch a skill using crane and extract it to destination_folder."""
+def fetch_using_krane_to_dir(image: str, destination_folder: str, insecure: bool = False) -> None:
+    """Fetch a skill using krane and extract it to destination_folder."""
     import subprocess
 
     tar_path = os.path.join(destination_folder, "skill.tar")
     os.makedirs(destination_folder, exist_ok=True)
-    command = ["crane", "export", image, tar_path]
+    command = ["krane", "export", image, tar_path]
     if insecure:
         command.insert(1, "--insecure")
-    # Use crane to pull the image as a tarball
+    # Use krane to pull the image as a tarball
     subprocess.run(
         command,
         check=True,
@@ -100,4 +100,4 @@ def fetch_skill(skill_image: str, destination_folder: str, insecure: bool = Fals
         f"about to fetching skill {skill_name} from image {skill_image} (registry: {registry}, repo: {repo}, ref: {ref})"
     )
 
-    fetch_using_crane_to_dir(skill_image, os.path.join(destination_folder, skill_name), insecure)
+    fetch_using_krane_to_dir(skill_image, os.path.join(destination_folder, skill_name), insecure)

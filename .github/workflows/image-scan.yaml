@@ -69,8 +69,9 @@ jobs:
         id: image-versions
         run: make build-img-versions
       - name: Image vulnerability scanner
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+          exit-code: '1'

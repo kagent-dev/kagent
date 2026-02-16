@@ -38,6 +38,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
@@ -51,6 +52,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/kagent-dev/kagent/go/pkg/mcp_translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -189,9 +191,10 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 }
 
 type BootstrapConfig struct {
-	Ctx     context.Context
-	Manager manager.Manager
-	Router  *mux.Router
+	Ctx      context.Context
+	Manager  manager.Manager
+	Router   *mux.Router
+	DbClient dbpkg.Client
 }
 
 type CtrlManagerConfigFunc func(manager.Manager) error
@@ -364,9 +367,10 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	dbClient := database.NewClient(dbManager)
 	router := mux.NewRouter()
 	extensionCfg, err := getExtensionConfig(BootstrapConfig{
-		Ctx:     ctx,
-		Manager: mgr,
-		Router:  router,
+		Ctx:      ctx,
+		Manager:  mgr,
+		Router:   router,
+		DbClient: dbClient,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to get start config")
@@ -385,6 +389,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
+		watchNamespacesList,
 	)
 
 	if err := (&controller.ServiceController{
@@ -450,6 +455,17 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Create MCP handler that bridges to A2A
+	mcpHandler, err := mcp.NewMCPHandler(
+		mgr.GetClient(),
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		extensionCfg.Authenticator,
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create MCP handler")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
@@ -486,6 +502,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		BindAddr:          cfg.HttpServerAddr,
 		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,
+		MCPHandler:        mcpHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,
 		Authorizer:        extensionCfg.Authorizer,

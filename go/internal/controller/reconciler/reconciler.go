@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/internal/controller/reconciler/utils"
+	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,14 +23,11 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
-	mcp_client "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,8 +56,9 @@ type kagentReconciler struct {
 
 	defaultModelConfig types.NamespacedName
 
-	// TODO: Remove this lock since we have a DB which we can batch anyway
-	upsertLock sync.Mutex
+	// watchedNamespaces is the list of namespaces the controller watches.
+	// An empty list means watching all namespaces.
+	watchedNamespaces []string
 }
 
 func NewKagentReconciler(
@@ -67,12 +66,14 @@ func NewKagentReconciler(
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
+	watchedNamespaces []string,
 ) KagentReconciler {
 	return &kagentReconciler{
 		adkTranslator:      translator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
+		watchedNamespaces:  watchedNamespaces,
 	}
 }
 
@@ -163,7 +164,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
 		agent.Status.ObservedGeneration = agent.Generation
 		if err := a.kube.Status().Update(ctx, agent); err != nil {
-			return fmt.Errorf("failed to update agent status: %v", err)
+			return fmt.Errorf("failed to update agent status: %w", err)
 		}
 	}
 
@@ -188,7 +189,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 			}
 			return nil
 		}
-		return fmt.Errorf("failed to get service %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get service %s: %w", req.Name, err)
 	}
 
 	dbService := &database.ToolServer{
@@ -197,12 +198,18 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 		GroupKind:   schema.GroupKind{Group: "", Kind: "Service"}.String(),
 	}
 
-	if remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service); err != nil {
+	// Convert Service to RemoteMCPServer spec
+	remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service)
+	if err != nil {
+		// Return error - controller will handle validation vs transient error logic
 		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
-	} else {
-		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService, service.Namespace); err != nil {
-			return fmt.Errorf("failed to upsert tool server for mcp service %s: %v", utils.GetObjectRef(service), err)
-		}
+		return fmt.Errorf("failed to convert service %s: %w", utils.GetObjectRef(service), err)
+	}
+
+	// Upsert tool server and fetch tools
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService); err != nil {
+		reconcileLog.Error(err, "failed to upsert tool server for service", "service", utils.GetObjectRef(service))
+		return fmt.Errorf("failed to upsert tool server for mcp service %s: %w", utils.GetObjectRef(service), err)
 	}
 
 	return nil
@@ -220,7 +227,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 			return nil
 		}
 
-		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get model %s: %w", req.Name, err)
 	}
 
 	var err error
@@ -330,7 +337,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation || secretHashChanged {
 		modelConfig.Status.ObservedGeneration = modelConfig.Generation
 		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
-			return fmt.Errorf("failed to update model config status: %v", err)
+			return fmt.Errorf("failed to update model config status: %w", err)
 		}
 	}
 	return nil
@@ -354,7 +361,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 			}
 			return nil
 		}
-		return fmt.Errorf("failed to get mcp server %s: %v", req.Name, err)
+		return fmt.Errorf("failed to get mcp server %s: %w", req.Name, err)
 	}
 
 	dbServer := &database.ToolServer{
@@ -363,12 +370,18 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 	}
 
-	if remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer); err != nil {
+	// Convert MCPServer to RemoteMCPServer spec
+	remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
+	if err != nil {
+		// Return error - controller will handle validation vs transient error logic
 		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
-	} else {
-		if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec, mcpServer.Namespace); err != nil {
-			return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %v", utils.GetObjectRef(mcpServer), err)
-		}
+		return fmt.Errorf("failed to convert mcp server %s: %w", utils.GetObjectRef(mcpServer), err)
+	}
+
+	// Upsert tool server and fetch tools
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec); err != nil {
+		reconcileLog.Error(err, "failed to upsert tool server for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %w", utils.GetObjectRef(mcpServer), err)
 	}
 
 	return nil
@@ -400,7 +413,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 			return nil
 		}
 
-		return fmt.Errorf("failed to get remote mcp server %s: %v", serverRef, err)
+		return fmt.Errorf("failed to get remote mcp server %s: %w", serverRef, err)
 	}
 
 	dbServer := &database.ToolServer{
@@ -409,7 +422,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		GroupKind:   server.GroupVersionKind().GroupKind().String(),
 	}
 
-	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, &server.Spec, server.Namespace)
+	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, server)
 	if err != nil {
 		l.Error(err, "failed to upsert tool server for remote mcp server")
 
@@ -428,7 +441,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		tools,
 		err,
 	); err != nil {
-		return fmt.Errorf("failed to reconcile remote mcp server status %s: %v", req.NamespacedName, err)
+		return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
 	}
 
 	return nil
@@ -472,16 +485,141 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	server.Status.DiscoveredTools = discoveredTools
 
 	if err := a.kube.Status().Update(ctx, server); err != nil {
-		return fmt.Errorf("failed to update remote mcp server status: %v", err)
+		return fmt.Errorf("failed to update remote mcp server status: %w", err)
+	}
+
+	return nil
+}
+
+// validateCrossNamespaceReferences validates that any cross-namespace
+// references in the agent's tools target namespaces that are watched by the
+// controller. This prevents agents from referencing tools or agents in
+// namespaces that the controller cannot access.
+func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha2.Agent) error {
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
+		return nil
+	}
+
+	for _, tool := range agent.Spec.Declarative.Tools {
+		switch {
+		case tool.McpServer != nil:
+			if err := a.validateMcpServerReference(ctx, agent.Namespace, tool.McpServer); err != nil {
+				return err
+			}
+		case tool.Agent != nil:
+			if err := a.validateAgentToolReference(ctx, agent.Namespace, tool.Agent); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateAgentToolReference validates a reference to an Agent as a tool.
+// This includes:
+//  1. Checking that target namespaces are watched by the controller
+//  2. Checking that the target Agent allows references from the agent's namespace
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedLocalReference) error {
+	agentRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if agentRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Check if the target namespace is watched by the controller
+	if !a.isNamespaceWatched(agentRef.Namespace) {
+		return fmt.Errorf("cannot reference Agent %s: namespace %q is not watched by the controller",
+			agentRef, agentRef.Namespace)
+	}
+
+	// For cross-namespace references, check AllowedNamespaces on the target agent
+	targetAgent := &v1alpha2.Agent{}
+	if err := a.kube.Get(ctx, agentRef, targetAgent); err != nil {
+		return fmt.Errorf("failed to get agent %s: %w", agentRef, err)
+	}
+
+	allowed, err := targetAgent.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, targetAgent.Namespace)
+	if err != nil {
+		return fmt.Errorf("failed to check cross-namespace reference for agent %s: %w", agentRef, err)
+	}
+	if !allowed {
+		return fmt.Errorf("cross-namespace reference to agent %s is not allowed from namespace %s", agentRef, sourceNamespace)
+	}
+
+	return nil
+}
+
+// validateMcpServerReference validates a reference to an MCP server tool. This
+// includes:
+//  1. Enforcing same-namespace-only for MCPServer and Service (external types)
+//  2. Checking that target namespaces are watched by the controller
+//  3. Checking that the target resource allows references from the agent's namespace
+func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.McpServerTool) error {
+	gk := ref.GroupKind()
+	targetRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if targetRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Handle based on the type of MCP server
+	switch gk {
+	case schema.GroupKind{Group: "", Kind: ""}, // TODO: This matches the translator's current fallthrough logic which defaults to MCPServer. That logic is likely a legacy of the inline KMCP support and should probably be adjusted to default to the first-class RemoteMCPServer CRD instead.
+		schema.GroupKind{Group: "", Kind: "MCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}:
+		// MCPServer type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to MCPServer %s is not allowed from namespace %s: MCPServer does not support cross-namespace references",
+			targetRef, sourceNamespace)
+
+	case schema.GroupKind{Group: "", Kind: "RemoteMCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}:
+
+		// Check if the target namespace is watched by the controller
+		if !a.isNamespaceWatched(targetRef.Namespace) {
+			kind := ref.Kind
+			if kind == "" {
+				kind = "MCPServer"
+			}
+			return fmt.Errorf("cannot reference %s %s: namespace %q is not watched by the controller",
+				kind, targetRef, targetRef.Namespace)
+		}
+
+		// For RemoteMCPServer, check AllowedNamespaces
+		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		if err := a.kube.Get(ctx, targetRef, remoteMcpServer); err != nil {
+			return fmt.Errorf("failed to get RemoteMCPServer %s: %w", targetRef, err)
+		}
+
+		allowed, err := remoteMcpServer.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, remoteMcpServer.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to check cross-namespace reference for RemoteMCPServer %s: %w", targetRef, err)
+		}
+		if !allowed {
+			return fmt.Errorf("cross-namespace reference to RemoteMCPServer %s is not allowed from namespace %s", targetRef, sourceNamespace)
+		}
+
+	case schema.GroupKind{Group: "", Kind: "Service"},
+		schema.GroupKind{Group: "core", Kind: "Service"}:
+		// Service type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to Service %s is not allowed from namespace %s: Service does not support cross-namespace references",
+			targetRef, sourceNamespace)
 	}
 
 	return nil
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
+	// Validate that any cross-namespace references are allowed
+	if err := a.validateCrossNamespaceReferences(ctx, agent); err != nil {
+		return err
+	}
+
 	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
 	if err != nil {
-		return fmt.Errorf("failed to translate agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to translate agent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
 	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
@@ -490,11 +628,11 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	}
 
 	if err := a.reconcileDesiredObjects(ctx, agent, agentOutputs.Manifest, ownedObjects); err != nil {
-		return fmt.Errorf("failed to reconcile owned objects: %v", err)
+		return fmt.Errorf("failed to reconcile owned objects: %w", err)
 	}
 
 	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
-		return fmt.Errorf("failed to upsert agent %s/%s: %v", agent.Namespace, agent.Name, err)
+		return fmt.Errorf("failed to upsert agent %s/%s: %w", agent.Namespace, agent.Name, err)
 	}
 
 	return nil
@@ -621,10 +759,6 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *agent_translator.AgentOutputs) error {
-	// lock to prevent races
-	a.upsertLock.Lock()
-	defer a.upsertLock.Unlock()
-
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
 		ID:     id,
@@ -633,75 +767,111 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	}
 
 	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
-		return fmt.Errorf("failed to store agent %s: %v", id, err)
+		return fmt.Errorf("failed to store agent %s: %w", id, err)
 	}
 
 	return nil
 }
 
-func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, namespace string) ([]*v1alpha2.MCPTool, error) {
-	// lock to prevent races
-	a.upsertLock.Lock()
-	defer a.upsertLock.Unlock()
-
+func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
 	if _, err := a.dbClient.StoreToolServer(toolServer); err != nil {
-		return nil, fmt.Errorf("failed to store toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
 
-	tsp, err := a.createMcpTransport(ctx, remoteMcpServer, namespace)
+	tsp, err := a.createMcpTransport(ctx, remoteMcpServer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools, err := a.listTools(ctx, tsp, toolServer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
+	// Refresh tools in database - uses transaction for atomicity
 	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, toolServer.GroupKind, tools...); err != nil {
-		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	return tools, nil
 }
 
-func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServerSpec, namespace string) (transport.Interface, error) {
-	headers, err := s.ResolveHeaders(ctx, a.kube, namespace)
+func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
+	if len(a.watchedNamespaces) == 0 {
+		return true
+	}
+	return slices.Contains(a.watchedNamespaces, namespace)
+}
+
+func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServer) (mcp.Transport, error) {
+	headers, err := s.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
 	}
 
-	switch s.Protocol {
+	httpClient := newHTTPClient(headers)
+
+	switch s.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		return transport.NewSSE(s.URL, transport.WithHeaders(headers))
+		return &mcp.SSEClientTransport{
+			Endpoint:   s.Spec.URL,
+			HTTPClient: httpClient,
+		}, nil
 	default:
-		return transport.NewStreamableHTTP(s.URL, transport.WithHTTPHeaders(headers))
+		return &mcp.StreamableClientTransport{
+			Endpoint:   s.Spec.URL,
+			HTTPClient: httpClient,
+		}, nil
 	}
 }
 
-func (a *kagentReconciler) listTools(ctx context.Context, tsp transport.Interface, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
-	client := mcp_client.NewClient(tsp)
-	err := client.Start(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start client for toolServer %s: %v", toolServer.Name, err)
+// go-sdk does not have a WithHeaders option when initializing transport
+// so we need to create a custom HTTP client that adds headers to all requests.
+func newHTTPClient(headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return http.DefaultClient
 	}
-	defer client.Close()
-	_, err = client.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			Capabilities:    mcp.ClientCapabilities{},
-			ClientInfo: mcp.Implementation{
-				Name:    "kagent-controller",
-				Version: version.Version,
-			},
+	return &http.Client{
+		Transport: &headerTransport{
+			headers: headers,
+			base:    http.DefaultTransport,
 		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize client for toolServer %s: %v", toolServer.Name, err)
 	}
-	result, err := client.ListTools(ctx, mcp.ListToolsRequest{})
+}
+
+// headerTransport is an http.RoundTripper that adds custom headers to requests.
+type headerTransport struct {
+	headers map[string]string
+	base    http.RoundTripper
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+	return t.base.RoundTrip(req)
+}
+
+func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
+	impl := &mcp.Implementation{
+		Name:    "kagent-controller",
+		Version: version.Version,
+	}
+	client := mcp.NewClient(impl, nil)
+
+	session, err := client.Connect(ctx, tsp, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools for toolServer %s: %v", toolServer.Name, err)
+		return nil, fmt.Errorf("failed to connect client for toolServer %s: %w", toolServer.Name, err)
+	}
+	defer session.Close()
+
+	result, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools := make([]*v1alpha2.MCPTool, 0, len(result.Tools))
@@ -726,7 +896,7 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 	for _, tool := range allTools {
 		mcpTool, err := convertTool(&tool)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert tool: %v", err)
+			return nil, fmt.Errorf("failed to convert tool: %w", err)
 		}
 		discoveredTools = append(discoveredTools, mcpTool)
 	}

@@ -457,5 +457,9 @@ spec:
             - "How do I write a policy to allow only specific DNS queries?"
             - "What's the syntax for creating a Cilium egress policy?"
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}

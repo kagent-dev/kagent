@@ -26,6 +26,9 @@ func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []stri
 	case v1alpha2.ModelProviderAzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
+	case v1alpha2.ModelProviderBedrock:
+		// Region is required for Bedrock
+		return []string{"region"}
 	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
@@ -101,6 +104,7 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 		{v1alpha2.ModelProviderGemini, reflect.TypeFor[v1alpha2.GeminiConfig]()},
 		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeFor[v1alpha2.GeminiVertexAIConfig]()},
 		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
+		{v1alpha2.ModelProviderBedrock, reflect.TypeFor[v1alpha2.BedrockConfig]()},
 	}
 
 	providersResponse := []map[string]any{}

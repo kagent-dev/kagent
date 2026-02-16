@@ -43,11 +43,22 @@ def _instrument_google_generativeai():
         pass
 
 
-def configure(fastapi_app: FastAPI | None = None):
+def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
+    """Configure OpenTelemetry tracing and logging for this service.
+
+    This sets up OpenTelemetry providers and exporters for tracing and logging,
+    using environment variables to determine whether each is enabled.
+
+    Args:
+        name: service name to report to OpenTelemetry (used as ``service.name``). Default is "kagent".
+        namespace: logical namespace for the service (used as ``service.namespace``). Default is "kagent".
+        fastapi_app: Optional FastAPI application instance to instrument. If
+            provided and tracing is enabled, FastAPI routes will be instrumented.
+    """
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
-    resource = Resource({"service.name": "kagent"})
+    resource = Resource({"service.name": name, "service.namespace": namespace})
 
     # Configure tracing if enabled
     if tracing_enabled:

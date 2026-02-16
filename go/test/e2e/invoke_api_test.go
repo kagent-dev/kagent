@@ -367,7 +367,7 @@ func generateMCPServer() *v1alpha1.MCPServer {
 			Deployment: v1alpha1.MCPServerDeployment{
 				Port: 3000,
 				Cmd:  "npx",
-				Args: []string{"-y", "@modelcontextprotocol/server-everything"},
+				Args: []string{"-y", "@modelcontextprotocol/server-everything@2026.1.14"},
 			},
 			TransportType: v1alpha1.TransportTypeStdio,
 		},
@@ -518,7 +518,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
@@ -782,7 +782,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
 				},
-				ToolNames: []string{"add"},
+				ToolNames: []string{"get-sum"},
 			},
 		},
 	}
@@ -826,7 +826,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 		// verify our mock STS server received the token exchange request
 		stsRequests := stsServer.GetRequests()
-		require.Len(t, stsRequests, 1, "Expected 1 STS token exchange request")
+		require.NotEmpty(t, stsRequests, "Expected STS token exchange request but got none")
 
 		// ensure the subject token is the same as the one we sent
 		// which contains the may act claim

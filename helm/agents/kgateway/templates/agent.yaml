@@ -303,5 +303,9 @@ spec:
             - "What are the steps to integrate kgateway with Argo CD for GitOps management?"
             - "Tell me more about configuring advanced traffic routing rules like weighted load balancing with kgateway."
     deployment:
+      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       resources:
         {{- toYaml .Values.resources | nindent 8 }}
