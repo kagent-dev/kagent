@@ -71,6 +71,11 @@ export const getStatusInfo = (status: ChatStatus): StatusInfo => {
         text: "Generating response...",
         placeholder: "Generating response..."
       };
+    case "compacting":
+      return {
+        text: "Compacting history...",
+        placeholder: "Compacting history..."
+      };
     case "error":
       return {
         text: "An error occurred",

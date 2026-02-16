@@ -4,6 +4,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/database"
 )
@@ -34,16 +35,26 @@ type Base struct {
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
 	ProxyURL           string
+	A2AHandlerMux      a2a.A2AHandlerMux
 }
 
 // NewHandlers creates a new Handlers instance with all handler components
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string) *Handlers {
+func NewHandlers(
+	kubeClient client.Client,
+	defaultModelConfig types.NamespacedName,
+	dbService database.Client,
+	watchedNamespaces []string,
+	authorizer auth.Authorizer,
+	proxyURL string,
+	a2aHandlerMux a2a.A2AHandlerMux,
+) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
 		DatabaseService:    dbService,
 		Authorizer:         authorizer,
 		ProxyURL:           proxyURL,
+		A2AHandlerMux:      a2aHandlerMux,
 	}
 
 	return &Handlers{

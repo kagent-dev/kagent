@@ -118,6 +118,11 @@ class A2aAgentExecutor(AgentExecutor):
             await self._handle_confirmation_resume(context, event_queue)
             return
 
+        # Check if this is a compaction command
+        if self._is_compaction_command(context):
+            await self._handle_compaction_command(context, event_queue)
+            return
+
         # Convert the a2a request to ADK run args
         stream = self._config.stream if self._config is not None else False
         run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
@@ -213,6 +218,112 @@ class A2aAgentExecutor(AgentExecutor):
             )
         except Exception as enqueue_error:
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+
+    def _is_compaction_command(self, context: RequestContext) -> bool:
+        """Check if this request is a compaction command."""
+        if not context.message or not context.message.metadata:
+            return False
+        return context.message.metadata.get("kagent_command") == "compact"
+
+    async def _handle_compaction_command(self, context: RequestContext, event_queue: EventQueue):
+        """Handle a compaction command."""
+        logger.info("Received compaction command for session %s", context.context_id)
+
+        # 1. Emit 'compacting' status to notify UI
+        await self._publish_status(
+            context,
+            event_queue,
+            TaskState.working,
+            "Compacting history...",
+            metadata={"kagent_type": "compaction"},
+            final=False,
+        )
+
+        try:
+            # 2. Trigger compaction logic
+            runner = await self._resolve_runner()
+            try:
+                run_args = convert_a2a_request_to_adk_run_args(context, stream=False)
+                session = await self._prepare_session(context, run_args, runner)
+
+                if runner.app and runner.app.events_compaction_config:
+                    from google.adk.apps.compaction import _run_compaction_for_sliding_window
+                    from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+
+                    # Force compaction by using interval=1 and overlap=1
+                    # This ensures compaction runs even if the configured threshold hasn't been met
+                    forced_config = runner.app.events_compaction_config.model_copy(
+                        update={"compaction_interval": 1, "overlap_size": 1}
+                    )
+
+                    # Ensure summarizer is initialized
+                    if not forced_config.summarizer:
+                        forced_config.summarizer = LlmEventSummarizer(
+                            llm=runner.app.root_agent.canonical_model
+                        )
+
+                    # Temporarily switch to the forced config
+                    runner.app.events_compaction_config = forced_config
+
+                    logger.debug("Manually running event compactor with forced config.")
+                    await _run_compaction_for_sliding_window(
+                        runner.app, session, runner.session_service
+                    )
+                else:
+                    logger.warning("Compaction requested but no compaction config found for agent %s", runner.app_name)
+            finally:
+                if runner is not None:
+                    await runner.close()
+
+            # 3. Emit 'completed' status
+            await self._publish_status(
+                context,
+                event_queue,
+                TaskState.completed,
+                "Compaction completed.",
+                final=True,
+            )
+        except Exception as e:
+            logger.error("Error during compaction: %s", e, exc_info=True)
+            await self._publish_failed_status_event(context, event_queue, str(e))
+
+    async def _publish_status(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+        state: TaskState,
+        message_text: str,
+        metadata: Optional[dict[str, Any]] = None,
+        final: bool = False,
+    ):
+        """Helper to publish a status update event."""
+        status_message = Message(
+            message_id=str(uuid.uuid4()),
+            role=Role.agent,
+            parts=[Part(TextPart(text=message_text))],
+        )
+        
+        event_metadata = {}
+        if metadata:
+            event_metadata.update(metadata)
+            
+        # Add standard metadata if available
+        if context.task_id:
+            event_metadata[get_kagent_metadata_key("invocation_id")] = context.task_id
+
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=state,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    message=status_message,
+                ),
+                context_id=context.context_id,
+                final=final,
+                metadata=event_metadata,
+            )
+        )
 
     async def _handle_request(
         self,

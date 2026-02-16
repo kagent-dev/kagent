@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, X, Loader2, Mic, Square, ArrowDownToLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -19,7 +19,8 @@ import { ToolApprovalDialog, ToolCallInfo } from "./ToolApprovalDialog";
 import TokenStatsDisplay from "./TokenStats";
 import type { TokenStats, Session, ChatStatus } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, checkSessionExists, compactSession } from "@/app/actions/sessions";
+import { getAgent } from "@/app/actions/agents";
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -49,6 +50,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
+  const [agent, setAgent] = useState<any | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -94,6 +96,22 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       agentName: selectedAgentName
     }
   });
+
+  useEffect(() => {
+    async function fetchAgentData() {
+      if (selectedAgentName && selectedNamespace) {
+        try {
+          const response = await getAgent(selectedAgentName, selectedNamespace);
+          if (response.data && response.data.agent) {
+            setAgent(response.data.agent);
+          }
+        } catch (error) {
+          console.error("Error fetching agent:", error);
+        }
+      }
+    }
+    fetchAgentData();
+  }, [selectedAgentName, selectedNamespace]);
 
   useEffect(() => {
     async function initializeChat() {
@@ -526,7 +544,41 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
         <div className="flex items-center justify-between mb-4">
-          <StatusDisplay chatStatus={chatStatus} />
+          <div className="flex items-center gap-2">
+            <StatusDisplay chatStatus={chatStatus} />
+            {sessionId && chatStatus === "ready" && storedMessages.length > 0 && agent?.spec?.declarative?.context?.compaction && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 ml-2"
+                      onClick={async () => {
+                        if (sessionId) {
+                          try {
+                            const result = await compactSession(sessionId);
+                            if (result.error) {
+                              toast.error("Failed to compact session");
+                            } else {
+                              toast.success("Compaction requested");
+                            }
+                          } catch (e) {
+                            toast.error("Failed to compact session");
+                          }
+                        }
+                      }}
+                    >
+                      <ArrowDownToLine className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Compact History</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           <TokenStatsDisplay stats={tokenStats} />
         </div>
 

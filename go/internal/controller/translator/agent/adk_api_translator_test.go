@@ -906,13 +906,13 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 			},
 		}
 
-	kubeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
 
-	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-	_, err := trans.TranslateAgent(context.Background(), agentA)
-	require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
-})
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+		_, err := trans.TranslateAgent(context.Background(), agentA)
+		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
+	})
 }
 
 // Test_AdkApiTranslator_McpServerToolConfirm tests that the Confirm field
@@ -953,14 +953,14 @@ func Test_AdkApiTranslator_McpServerToolConfirm(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                string
-		confirm             *v1alpha2.ToolConfirmation
-		wantConfirmPresent  bool
-		wantExceptReadOnly  *bool
-		wantExceptTools     []string
-		protocol            v1alpha2.RemoteMCPServerProtocol
-		checkHttpTools      bool
-		checkSseTools       bool
+		name               string
+		confirm            *v1alpha2.ToolConfirmation
+		wantConfirmPresent bool
+		wantExceptReadOnly *bool
+		wantExceptTools    []string
+		protocol           v1alpha2.RemoteMCPServerProtocol
+		checkHttpTools     bool
+		checkSseTools      bool
 	}{
 		{
 			name: "Confirm present with ExceptReadOnly=true flows through to HTTP tools",
@@ -1255,9 +1255,7 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			objects := []client.Object{modelConfig.DeepCopy()}
-			for _, obj := range tt.extraObjects {
-				objects = append(objects, obj)
-			}
+			objects = append(objects, tt.extraObjects...)
 			kubeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(objects...).

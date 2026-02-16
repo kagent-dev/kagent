@@ -66,7 +66,7 @@ export interface ADKMetadata {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
   };
-  kagent_type?: "function_call" | "function_response";
+  kagent_type?: "function_call" | "function_response" | "compaction";
   kagent_author?: string;
   kagent_invocation_id?: string;
   originalType?: OriginalMessageType;
@@ -324,6 +324,11 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const handleA2ATaskStatusUpdate = (statusUpdate: TaskStatusUpdateEvent) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
+
+      if (adkMetadata?.kagent_type === "compaction" && handlers.setChatStatus) {
+        handlers.setChatStatus("compacting");
+        return;
+      }
 
       updateTokenStatsFromMetadata(adkMetadata);
 

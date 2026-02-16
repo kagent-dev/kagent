@@ -395,6 +395,71 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
+func (h *SessionsHandler) HandleCompactSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "compact-session")
+	sessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("session_id", sessionID)
+
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	// Get session to verify it exists and get agent ref
+	session, err := h.DatabaseService.GetSession(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		return
+	}
+
+	if session.AgentID == nil {
+		w.RespondWithError(errors.NewBadRequestError("Session has no agent associated", nil))
+		return
+	}
+
+	agentRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
+	log = log.WithValues("agentRef", agentRef)
+
+	client, ok := h.A2AHandlerMux.GetClient(agentRef)
+	if !ok {
+		w.RespondWithError(errors.NewNotFoundError(fmt.Sprintf("Agent %s not found or not connected", agentRef), nil))
+		return
+	}
+
+	// Send compaction command
+	msg := protocol.Message{
+		Kind: protocol.KindMessage,
+		Role: "user",
+		Parts: []protocol.Part{
+			protocol.NewTextPart("Compact history"),
+		},
+		Metadata: map[string]any{
+			"kagent_command": "compact",
+		},
+		ContextID: &sessionID,
+	}
+
+	sendMessageParams := protocol.SendMessageParams{
+		Message: msg,
+	}
+
+	ctx := r.Context()
+	_, err = client.SendMessage(ctx, sendMessageParams)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to send compaction command to agent", err))
+		return
+	}
+
+	log.Info("Successfully sent compaction command to agent")
+	RespondWithJSON(w, http.StatusOK, api.NewResponse[any](nil, "Compaction triggered successfully", false))
+}
+
 func getUserID(r *http.Request) (string, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 

@@ -79,7 +79,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.A2AHandler),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -168,6 +168,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/compact", adaptHandler(s.handlers.Sessions.HandleCompactSession)).Methods(http.MethodPost)
 
 	// Tasks
 	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleGetTask)).Methods(http.MethodGet)

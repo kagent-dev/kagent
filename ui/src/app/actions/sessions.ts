@@ -7,6 +7,23 @@ import { fetchApi, createErrorResponse } from "./utils";
 import { Task } from "@a2a-js/sdk";
 
 /**
+ * Compacts a session's history manually
+ * @param sessionId The session ID
+ * @returns A promise with the compact result
+ */
+export async function compactSession(sessionId: string): Promise<BaseResponse<void>> {
+  try {
+    await fetchApi(`/sessions/${sessionId}/compact`, {
+      method: "POST",
+    });
+
+    return { message: "Session compaction triggered successfully" };
+  } catch (error) {
+    return createErrorResponse<void>(error, "Error triggering session compaction");
+  }
+}
+
+/**
  * Deletes a session
  * @param sessionId The session ID
  * @returns A promise with the delete result

@@ -309,12 +309,12 @@ type AgentContextConfig struct {
 
 // AgentCompressionConfig maps to Python's ContextCompressionSettings.
 type AgentCompressionConfig struct {
-	CompactionInterval int    `json:"compaction_interval"`
-	OverlapSize        int    `json:"overlap_size"`
+	CompactionInterval  int    `json:"compaction_interval"`
+	OverlapSize         int    `json:"overlap_size"`
 	SummarizerModelName string `json:"summarizer_model_name,omitempty"`
-	PromptTemplate     string `json:"prompt_template,omitempty"`
-	TokenThreshold     *int   `json:"token_threshold,omitempty"`
-	EventRetentionSize *int   `json:"event_retention_size,omitempty"`
+	PromptTemplate      string `json:"prompt_template,omitempty"`
+	TokenThreshold      *int   `json:"token_threshold,omitempty"`
+	EventRetentionSize  *int   `json:"event_retention_size,omitempty"`
 }
 
 // AgentCacheConfig maps to Python's ContextCacheSettings.

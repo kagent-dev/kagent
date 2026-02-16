@@ -1,4 +1,4 @@
-export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response";
+export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response" | "compacting";
 
 export interface ModelConfig {
   ref: string;
@@ -236,6 +236,15 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  context?: ContextConfig;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval: number;
 }
 
 export interface BYOAgentSpec {

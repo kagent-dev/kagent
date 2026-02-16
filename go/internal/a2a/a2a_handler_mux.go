@@ -23,11 +23,13 @@ type A2AHandlerMux interface {
 	RemoveAgentHandler(
 		agentRef string,
 	)
+	GetClient(agentRef string) (*client.A2AClient, bool)
 	http.Handler
 }
 
 type handlerMux struct {
 	handlers       map[string]http.Handler
+	clients        map[string]*client.A2AClient
 	lock           sync.RWMutex
 	basePathPrefix string
 	authenticator  auth.AuthProvider
@@ -38,6 +40,7 @@ var _ A2AHandlerMux = &handlerMux{}
 func NewA2AHttpMux(pathPrefix string, authenticator auth.AuthProvider) *handlerMux {
 	return &handlerMux{
 		handlers:       make(map[string]http.Handler),
+		clients:        make(map[string]*client.A2AClient),
 		basePathPrefix: pathPrefix,
 		authenticator:  authenticator,
 	}
@@ -57,6 +60,7 @@ func (a *handlerMux) SetAgentHandler(
 	defer a.lock.Unlock()
 
 	a.handlers[agentRef] = srv.Handler()
+	a.clients[agentRef] = client
 
 	return nil
 }
@@ -67,6 +71,14 @@ func (a *handlerMux) RemoveAgentHandler(
 	a.lock.Lock()
 	defer a.lock.Unlock()
 	delete(a.handlers, agentRef)
+	delete(a.clients, agentRef)
+}
+
+func (a *handlerMux) GetClient(agentRef string) (*client.A2AClient, bool) {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
+	client, ok := a.clients[agentRef]
+	return client, ok
 }
 
 func (a *handlerMux) getHandler(name string) (http.Handler, bool) {
