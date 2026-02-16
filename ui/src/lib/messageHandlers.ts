@@ -33,8 +33,7 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   
   for (const task of tasks) {
     if (task.metadata) {
-      const metadata = task.metadata as ADKMetadata;
-      const usage = metadata.kagent_usage_metadata;
+      const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(task.metadata as Record<string, unknown>, "usage_metadata");
       
       if (usage) {
         maxTotal = Math.max(maxTotal, usage.totalTokenCount || 0);
@@ -74,6 +73,23 @@ export interface ADKMetadata {
   toolCallData?: ProcessedToolCallData[];
   toolResultData?: ProcessedToolResultData[];
   [key: string]: unknown; // Allow for additional metadata fields
+}
+
+/**
+ * Read a metadata value checking `adk_<key>` first, then `kagent_<key>`.
+ * Allows interoperability with upstream ADK (adk_ prefix) while preserving
+ * backward-compatibility with kagent's own kagent_ prefix.
+ */
+export function getMetadataValue<T = unknown>(
+  metadata: Record<string, unknown> | undefined | null,
+  key: string
+): T | undefined {
+  if (!metadata) return undefined;
+  const adkKey = `adk_${key}`;
+  if (adkKey in metadata) return metadata[adkKey] as T;
+  const kagentKey = `kagent_${key}`;
+  if (kagentKey in metadata) return metadata[kagentKey] as T;
+  return undefined;
 }
 
 export interface ToolCallData {
@@ -154,8 +170,9 @@ function isDataPart(part: Part): part is DataPart {
 }
 
 function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
-  if (metadata?.kagent_app_name) {
-    return convertToUserFriendlyName(metadata.kagent_app_name);
+  const appName = getMetadataValue<string>(metadata as Record<string, unknown>, "app_name");
+  if (appName) {
+    return convertToUserFriendlyName(appName);
   }
   return fallback;
 }
@@ -221,8 +238,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const updateTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined) => {
-    if (!adkMetadata?.kagent_usage_metadata) return;
-    const usage = adkMetadata.kagent_usage_metadata;
+    const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(adkMetadata as Record<string, unknown>, "usage_metadata");
+    if (!usage) return;
     const tokenStats = {
       total: usage.totalTokenCount || 0,
       input: usage.promptTokenCount || 0,
@@ -366,12 +383,13 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             const data = part.data;
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
-            if (partMetadata?.kagent_type === "function_call") {
+            const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
+            if (partType === "function_call") {
               const toolData = data as unknown as ToolCallData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 
-            } else if (partMetadata?.kagent_type === "function_response") {
+            } else if (partType === "function_response") {
               const toolData = data as unknown as ToolResponseData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
@@ -414,7 +432,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         const data = part.data;
         const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
-        if (partMetadata?.kagent_type === "function_call") {
+        const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
+        if (partType === "function_call") {
           const toolData = data as unknown as ToolCallData;
           const toolCallContent: ProcessedToolCallData[] = [{ id: toolData.id, name: toolData.name, args: toolData.args || {} }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent } });
@@ -422,7 +441,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           continue;
         }
 
-        if (partMetadata?.kagent_type === "function_response") {
+        if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
           const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];

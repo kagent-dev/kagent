@@ -334,7 +334,11 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 				continue
 			}
 
-			kagentType, ok := dp.Metadata["kagent_type"].(string)
+			typeVal, found := getMetadataValue(dp.Metadata, "type")
+			if !found {
+				continue
+			}
+			kagentType, ok := typeVal.(string)
 			if !ok {
 				continue
 			}
@@ -495,6 +499,23 @@ func (m *chatModel) updateStatus() {
 	} else {
 		m.statusText = ""
 	}
+}
+
+// getMetadataValue looks up an unprefixed key in A2A metadata, checking
+// "adk_<key>" first then falling back to "kagent_<key>".  This allows
+// interoperability with upstream ADK (adk_ prefix) while preserving
+// backward-compatibility with kagent's own kagent_ prefix.
+func getMetadataValue(metadata map[string]any, key string) (any, bool) {
+	if metadata == nil {
+		return nil, false
+	}
+	if v, ok := metadata["adk_"+key]; ok {
+		return v, true
+	}
+	if v, ok := metadata["kagent_"+key]; ok {
+		return v, true
+	}
+	return nil, false
 }
 
 // getString safely extracts a string value from a map
