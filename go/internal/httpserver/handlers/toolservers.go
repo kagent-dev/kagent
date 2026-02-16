@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -370,7 +372,13 @@ func (h *ToolServersHandler) handleUpdateRemoteMCPServer(w ErrorResponseWriter, 
 	}
 	applyObj.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("RemoteMCPServer"))
 
-	if err := h.KubeClient.Patch(r.Context(), applyObj, client.Apply, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
+	applyConfig, err := toApplyConfiguration(applyObj)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to build apply configuration", err))
+		return
+	}
+
+	if err := h.KubeClient.Apply(r.Context(), applyConfig, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
 			return
@@ -379,8 +387,15 @@ func (h *ToolServersHandler) handleUpdateRemoteMCPServer(w ErrorResponseWriter, 
 		return
 	}
 
+	// Re-fetch the updated object to return in the response
+	result := &v1alpha2.RemoteMCPServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, result); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to fetch updated RemoteMCPServer", err))
+		return
+	}
+
 	log.Info("Successfully updated RemoteMCPServer")
-	data := api.NewResponse(applyObj, "Successfully updated RemoteMCPServer", false)
+	data := api.NewResponse(result, "Successfully updated RemoteMCPServer", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
@@ -396,7 +411,13 @@ func (h *ToolServersHandler) handleUpdateMCPServer(w ErrorResponseWriter, r *htt
 	}
 	applyObj.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("MCPServer"))
 
-	if err := h.KubeClient.Patch(r.Context(), applyObj, client.Apply, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
+	applyConfig, err := toApplyConfiguration(applyObj)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to build apply configuration", err))
+		return
+	}
+
+	if err := h.KubeClient.Apply(r.Context(), applyConfig, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
 			return
@@ -405,9 +426,28 @@ func (h *ToolServersHandler) handleUpdateMCPServer(w ErrorResponseWriter, r *htt
 		return
 	}
 
+	// Re-fetch the updated object to return in the response
+	result := &v1alpha1.MCPServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, result); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to fetch updated MCPServer", err))
+		return
+	}
+
 	log.Info("Successfully updated MCPServer")
-	data := api.NewResponse(applyObj, "Successfully updated MCPServer", false)
+	data := api.NewResponse(result, "Successfully updated MCPServer", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// toApplyConfiguration converts a Kubernetes runtime.Object to a runtime.ApplyConfiguration
+// by marshaling it to unstructured form. This is used for the non-deprecated client.Apply() API.
+func toApplyConfiguration(obj runtime.Object) (runtime.ApplyConfiguration, error) {
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
+	}
+	u := &unstructured.Unstructured{}
+	u.SetUnstructuredContent(unstructuredMap)
+	return client.ApplyConfigurationFromUnstructured(u), nil
 }
 
 // HandleDeleteToolServer handles DELETE /api/toolservers/{namespace}/{name} requests
