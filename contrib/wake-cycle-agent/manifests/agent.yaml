@@ -12,7 +12,10 @@ spec:
     Autonomous wake-cycle agent that operates on a schedule,
     maintains state across sessions, and performs value-generating work.
   declarative:
-    modelConfig: anthropic-claude  # Reference to ModelConfig in kagent namespace
+# Name of a ModelConfig resource in the kagent namespace
+    # Create one with your API credentials, or update this to match your existing ModelConfig
+    # Example: kubectl -n kagent get modelconfig (to list available configs)
+    modelConfig: anthropic-claude
     stream: true
     systemMessage: |
       You are an autonomous AI agent running in Kubernetes via kagent.
