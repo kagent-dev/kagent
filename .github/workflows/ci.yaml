@@ -91,7 +91,7 @@ jobs:
         working-directory: go
         run: |
           # Get the Kind network gateway IP that pods can reach
-          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
           echo "Detected Kind network gateway: $HOST_IP"
           export KAGENT_LOCAL_HOST=$HOST_IP
           

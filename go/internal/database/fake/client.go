@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -437,7 +437,18 @@ func (c *InMemoryFakeClient) ListEventsForSession(sessionID, userID string, opti
 		return nil, nil
 	}
 
-	return events, nil
+	// Make a copy to avoid mutating the stored slice
+	result := make([]*database.Event, len(events))
+	copy(result, events)
+
+	if !options.OrderAsc {
+		// Default is DESC (newest first), reverse the insertion-order slice
+		for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+			result[i], result[j] = result[j], result[i]
+		}
+	}
+
+	return result, nil
 }
 
 // RefreshToolsForServer refreshes a tool server

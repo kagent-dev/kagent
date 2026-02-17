@@ -12,9 +12,9 @@
       "text"
     ],
     "description": "",
-    "name": "agent_with_proxy_mcpserver",
+    "name": "agent_with_proxy_mcpserver_timeout",
     "skills": null,
-    "url": "http://agent-with-proxy-mcpserver.test:8080",
+    "url": "http://agent-with-proxy-mcpserver-timeout.test:8080",
     "version": ""
   },
   "config": {
@@ -25,7 +25,7 @@
           "headers": {
             "x-kagent-host": "test-mcp-server.test"
           },
-          "timeout": 30,
+          "timeout": 60,
           "url": "http://proxy.kagent.svc.cluster.local:8080/mcp"
         },
         "tools": [
@@ -51,11 +51,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver-timeout",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-mcpserver"
+          "kagent": "agent-with-proxy-mcpserver-timeout"
         },
-        "name": "agent-with-proxy-mcpserver",
+        "name": "agent-with-proxy-mcpserver-timeout",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -63,14 +63,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-mcpserver",
+            "name": "agent-with-proxy-mcpserver-timeout",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_proxy_mcpserver\",\"description\":\"\",\"url\":\"http://agent-with-proxy-mcpserver.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.test\"},\"timeout\":30},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"agent_with_proxy_mcpserver_timeout\",\"description\":\"\",\"url\":\"http://agent-with-proxy-mcpserver-timeout.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.test\"},\"timeout\":60},\"tools\":[\"test-tool\"]}],\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -80,11 +80,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver-timeout",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-mcpserver"
+          "kagent": "agent-with-proxy-mcpserver-timeout"
         },
-        "name": "agent-with-proxy-mcpserver",
+        "name": "agent-with-proxy-mcpserver-timeout",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -92,7 +92,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-mcpserver",
+            "name": "agent-with-proxy-mcpserver-timeout",
             "uid": ""
           }
         ]
@@ -105,11 +105,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver-timeout",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-mcpserver"
+          "kagent": "agent-with-proxy-mcpserver-timeout"
         },
-        "name": "agent-with-proxy-mcpserver",
+        "name": "agent-with-proxy-mcpserver-timeout",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -117,7 +117,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-mcpserver",
+            "name": "agent-with-proxy-mcpserver-timeout",
             "uid": ""
           }
         ]
@@ -126,7 +126,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-proxy-mcpserver"
+            "kagent": "agent-with-proxy-mcpserver-timeout"
           }
         },
         "strategy": {
@@ -139,14 +139,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "14322610689340983156"
+              "kagent.dev/config-hash": "8044001030219312478"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
+              "app.kubernetes.io/name": "agent-with-proxy-mcpserver-timeout",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent-with-proxy-mcpserver"
+              "kagent": "agent-with-proxy-mcpserver-timeout"
             }
           },
           "spec": {
@@ -180,7 +180,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "agent-with-proxy-mcpserver"
+                    "value": "agent-with-proxy-mcpserver-timeout"
                   },
                   {
                     "name": "KAGENT_URL",
@@ -227,12 +227,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-proxy-mcpserver",
+            "serviceAccountName": "agent-with-proxy-mcpserver-timeout",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent-with-proxy-mcpserver"
+                  "secretName": "agent-with-proxy-mcpserver-timeout"
                 }
               },
               {
@@ -262,11 +262,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-proxy-mcpserver",
+          "app.kubernetes.io/name": "agent-with-proxy-mcpserver-timeout",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-proxy-mcpserver"
+          "kagent": "agent-with-proxy-mcpserver-timeout"
         },
-        "name": "agent-with-proxy-mcpserver",
+        "name": "agent-with-proxy-mcpserver-timeout",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -274,7 +274,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-proxy-mcpserver",
+            "name": "agent-with-proxy-mcpserver-timeout",
             "uid": ""
           }
         ]
@@ -289,7 +289,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-proxy-mcpserver"
+          "kagent": "agent-with-proxy-mcpserver-timeout"
         },
         "type": "ClusterIP"
       },

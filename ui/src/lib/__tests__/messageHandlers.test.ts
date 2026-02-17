@@ -6,6 +6,7 @@ import {
   extractTokenStatsFromTasks,
   createMessage,
   normalizeToolResultToText,
+  getMetadataValue,
   type ToolResponseData,
   type ADKMetadata,
   createMessageHandlers,
@@ -241,4 +242,91 @@ describe('createMessageHandlers test', () => {
   });
 });
 
+describe('getMetadataValue', () => {
+  test('reads kagent_ prefixed key', () => {
+    expect(getMetadataValue({ kagent_type: 'function_call' }, 'type')).toBe('function_call');
+  });
 
+  test('reads adk_ prefixed key', () => {
+    expect(getMetadataValue({ adk_type: 'function_call' }, 'type')).toBe('function_call');
+  });
+
+  test('adk_ takes priority over kagent_ when both present', () => {
+    expect(getMetadataValue({ adk_type: 'adk_val', kagent_type: 'kagent_val' }, 'type')).toBe('adk_val');
+  });
+
+  test('returns undefined for missing key', () => {
+    expect(getMetadataValue({ other: 'x' }, 'type')).toBeUndefined();
+  });
+
+  test('returns undefined for null/undefined metadata', () => {
+    expect(getMetadataValue(null, 'type')).toBeUndefined();
+    expect(getMetadataValue(undefined, 'type')).toBeUndefined();
+  });
+
+  test('returns falsy values correctly (not undefined)', () => {
+    expect(getMetadataValue({ kagent_flag: false }, 'flag')).toBe(false);
+    expect(getMetadataValue({ adk_count: 0 }, 'count')).toBe(0);
+    expect(getMetadataValue({ kagent_text: '' }, 'text')).toBe('');
+  });
+});
+
+describe('dual-prefix integration', () => {
+  test('extractTokenStatsFromTasks works with adk_usage_metadata', () => {
+    const tasks: any = [
+      { metadata: { adk_usage_metadata: { totalTokenCount: 20, promptTokenCount: 8, candidatesTokenCount: 12 } } },
+    ];
+    const stats = extractTokenStatsFromTasks(tasks);
+    expect(stats.total).toBe(20);
+    expect(stats.input).toBe(8);
+    expect(stats.output).toBe(12);
+  });
+
+  test('status-update handler works with adk_type metadata on parts', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setTokenStats: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+
+    const statusUpdateCall: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'data', data: { id: 'call_adk', name: 'my_tool', args: { x: 1 } }, metadata: { adk_type: 'function_call' } },
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateCall);
+
+    const statusUpdateResp: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'data', data: { id: 'call_adk', name: 'my_tool', response: { result: 'done' } }, metadata: { adk_type: 'function_response' } },
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateResp);
+
+    expect(emitted.length).toBe(2);
+    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
+  });
+});

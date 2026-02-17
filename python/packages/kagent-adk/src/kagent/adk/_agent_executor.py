@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
-from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
@@ -20,10 +20,15 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from google.adk.a2a.executor.a2a_agent_executor import (
+    A2aAgentExecutor as UpstreamA2aAgentExecutor,
+)
+from google.adk.a2a.executor.a2a_agent_executor import (
+    A2aAgentExecutorConfig as UpstreamA2aAgentExecutorConfig,
+)
 from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
-from opentelemetry import trace
 from pydantic import BaseModel
 from typing_extensions import override
 
@@ -34,24 +39,56 @@ from kagent.core.tracing._span_processor import (
 )
 
 from .converters.event_converter import convert_event_to_a2a_events
+from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class A2aAgentExecutorConfig(BaseModel):
-    """Configuration for the A2aAgentExecutor."""
+    """Configuration for the KAgent A2aAgentExecutor."""
 
     stream: bool = False
 
 
-# This class is a copy of the A2aAgentExecutor class in the ADK sdk,
-# with the following changes:
-# - The runner is ALWAYS a callable that returns a Runner instance
-# - The runner is cleaned up at the end of the execution
-class A2aAgentExecutor(AgentExecutor):
-    """An AgentExecutor that runs an ADK Agent against an A2A request and
-    publishes updates to an event queue.
+def _kagent_request_converter(request, _part_converter=None):
+    """Adapter to match the upstream A2ARequestToAgentRunRequestConverter signature.
+
+    Upstream expects (RequestContext, A2APartToGenAIPartConverter) -> AgentRunRequest.
+    Kagent's converter has a different signature, so this wraps it to satisfy
+    the upstream config type while still using kagent's own conversion logic.
+    """
+    from google.adk.a2a.converters.request_converter import AgentRunRequest
+
+    run_args = convert_a2a_request_to_adk_run_args(request, stream=False)
+    return AgentRunRequest(
+        user_id=run_args["user_id"],
+        session_id=run_args["session_id"],
+        new_message=run_args["new_message"],
+        run_config=run_args["run_config"],
+    )
+
+
+def _kagent_event_converter(event, invocation_context, task_id=None, context_id=None, _part_converter=None):
+    """Adapter to match the upstream AdkEventToA2AEventsConverter signature.
+
+    Upstream expects (Event, InvocationContext, task_id, context_id, GenAIPartToA2APartConverter).
+    Kagent's converter doesn't take a part_converter arg, so this wraps it.
+    """
+    return convert_event_to_a2a_events(event, invocation_context, task_id, context_id)
+
+
+class A2aAgentExecutor(UpstreamA2aAgentExecutor):
+    """KAgent's A2A agent executor.
+
+    Extends the upstream google-adk A2aAgentExecutor with:
+    - Per-request runner lifecycle (created fresh and closed after each request)
+    - OpenTelemetry span attribute management
+    - Enhanced error handling (Ollama-specific JSON parse errors, CancelledError)
+    - Partial event filtering to avoid duplicate aggregation during streaming
+    - Session naming from first message text
+    - Request header forwarding to session state
+    - Invocation ID tracking in final event metadata
     """
 
     def __init__(
@@ -60,23 +97,33 @@ class A2aAgentExecutor(AgentExecutor):
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
     ):
-        super().__init__()
-        self._runner = runner
-        self._config = config
+        # Build upstream config with kagent's custom converters
+        upstream_config = UpstreamA2aAgentExecutorConfig(
+            a2a_part_converter=convert_a2a_part_to_genai_part,
+            gen_ai_part_converter=convert_genai_part_to_a2a_part,
+            request_converter=_kagent_request_converter,
+            event_converter=_kagent_event_converter,
+        )
+        super().__init__(runner=runner, config=upstream_config)
+        self._kagent_config = config
 
+    @override
     async def _resolve_runner(self) -> Runner:
-        """Resolve the runner, handling cases where it's a callable that returns a Runner."""
+        """Resolve the runner from the callable.
+
+        Unlike the upstream executor which caches a single Runner instance,
+        kagent always creates a fresh Runner per request. This is necessary
+        because MCP toolset connections are not shared between requests and
+        must be cleaned up after each execution.
+        """
         if callable(self._runner):
-            # Call the function to get the runner
             result = self._runner()
 
-            # Handle async callables
             if inspect.iscoroutine(result):
                 resolved_runner = await result
             else:
                 resolved_runner = result
 
-            # Ensure we got a Runner instance
             if not isinstance(resolved_runner, Runner):
                 raise TypeError(f"Callable must return a Runner instance, got {type(resolved_runner)}")
 
@@ -110,7 +157,7 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         # Convert the a2a request to ADK run args
-        stream = self._config.stream if self._config is not None else False
+        stream = self._kagent_config.stream if self._kagent_config is not None else False
         run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
 
         # Prepare span attributes.
@@ -124,6 +171,7 @@ class A2aAgentExecutor(AgentExecutor):
 
         # Set kagent span attributes for all spans in context.
         context_token = set_kagent_span_attributes(span_attributes)
+        runner: Optional[Runner] = None
         try:
             # for new task, create a task submitted event
             if not context.current_task:
@@ -144,6 +192,10 @@ class A2aAgentExecutor(AgentExecutor):
             runner = await self._resolve_runner()
             try:
                 await self._handle_request(context, event_queue, runner, run_args)
+            except asyncio.CancelledError as e:
+                logger.error("A2A request execution was cancelled", exc_info=True)
+                error_message = str(e) or "A2A request execution was cancelled."
+                await self._publish_failed_status_event(context, event_queue, error_message)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
@@ -164,32 +216,41 @@ class A2aAgentExecutor(AgentExecutor):
                             "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
                         )
                 # Publish failure event
-                try:
-                    await event_queue.enqueue_event(
-                        TaskStatusUpdateEvent(
-                            task_id=context.task_id,
-                            status=TaskStatus(
-                                state=TaskState.failed,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                message=Message(
-                                    message_id=str(uuid.uuid4()),
-                                    role=Role.agent,
-                                    parts=[Part(TextPart(text=error_message))],
-                                ),
-                            ),
-                            context_id=context.context_id,
-                            final=True,
-                        )
-                    )
-                except Exception as enqueue_error:
-                    logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+                await self._publish_failed_status_event(context, event_queue, error_message)
         finally:
             clear_kagent_span_attributes(context_token)
             # close the runner which cleans up the mcptoolsets
             # since the runner is created for each a2a request
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
-            await runner.close()
+            if runner is not None:
+                await runner.close()
+
+    async def _publish_failed_status_event(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+        error_message: str,
+    ) -> None:
+        try:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[Part(TextPart(text=error_message))],
+                        ),
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                )
+            )
+        except Exception as enqueue_error:
+            logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     async def _handle_request(
         self,
@@ -223,6 +284,13 @@ class A2aAgentExecutor(AgentExecutor):
             run_config=run_args["run_config"],
         )
 
+        # Base metadata for events (invocation_id will be updated once we see it from ADK)
+        run_metadata = {
+            get_kagent_metadata_key("app_name"): runner.app_name,
+            get_kagent_metadata_key("user_id"): run_args["user_id"],
+            get_kagent_metadata_key("session_id"): run_args["session_id"],
+        }
+
         # publish the task working event
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
@@ -233,17 +301,23 @@ class A2aAgentExecutor(AgentExecutor):
                 ),
                 context_id=context.context_id,
                 final=False,
-                metadata={
-                    get_kagent_metadata_key("app_name"): runner.app_name,
-                    get_kagent_metadata_key("user_id"): run_args["user_id"],
-                    get_kagent_metadata_key("session_id"): run_args["session_id"],
-                },
+                metadata=run_metadata.copy(),
             )
         )
+
+        # Track the invocation_id from ADK events
+        # For streaming A2A update events, the invocation_id is added through event converter
+        # This adds the invocation_id of the run to the metadata of the FINAL event (completed or failed)
+        real_invocation_id: str | None = None
 
         task_result_aggregator = TaskResultAggregator()
         async with Aclosing(runner.run_async(**run_args)) as agen:
             async for adk_event in agen:
+                # Capture the real invocation_id from the first ADK event that has one
+                event_inv_id = getattr(adk_event, "invocation_id", None)
+                if event_inv_id and not real_invocation_id:
+                    real_invocation_id = event_inv_id
+                    run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
@@ -282,6 +356,7 @@ class A2aAgentExecutor(AgentExecutor):
                     ),
                     context_id=context.context_id,
                     final=True,
+                    metadata=run_metadata,
                 )
             )
         else:
@@ -295,6 +370,7 @@ class A2aAgentExecutor(AgentExecutor):
                     ),
                     context_id=context.context_id,
                     final=True,
+                    metadata=run_metadata,
                 )
             )
 

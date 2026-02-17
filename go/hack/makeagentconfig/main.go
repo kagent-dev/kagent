@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/internal/adk"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 

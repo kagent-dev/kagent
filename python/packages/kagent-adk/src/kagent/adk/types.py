@@ -12,10 +12,11 @@ from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
+from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 
 from .models import AzureOpenAI as OpenAIAzure
@@ -242,7 +243,7 @@ class AgentConfig(BaseModel):
                     sts_header_provider=sts_header_provider,
                 )
                 tools.append(
-                    McpToolset(
+                    KAgentMcpToolset(
                         connection_params=http_tool.params,
                         tool_filter=http_tool.tools,
                         header_provider=tool_header_provider,
@@ -256,7 +257,7 @@ class AgentConfig(BaseModel):
                     sts_header_provider=sts_header_provider,
                 )
                 tools.append(
-                    McpToolset(
+                    KAgentMcpToolset(
                         connection_params=sse_tool.params,
                         tool_filter=sse_tool.tools,
                         header_provider=tool_header_provider,

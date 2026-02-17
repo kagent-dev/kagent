@@ -70,7 +70,8 @@ class KAgentSessionService(BaseSessionService):
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         try:
-            url = f"/api/sessions/{session_id}?user_id={user_id}"
+            # ADK requires events to be chronological (especially for calculating deltas)
+            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc"
             if config:
                 if config.after_timestamp:
                     # TODO: implement
@@ -156,6 +157,9 @@ class KAgentSessionService(BaseSessionService):
 
     @override
     async def append_event(self, session: Session, event: Event) -> Event:
+        if event.partial:
+            return event
+
         # Convert ADK Event to JSON format
         event_data = {
             "id": event.id,
