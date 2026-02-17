@@ -71,7 +71,8 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: init
-          image: busybox:latest
+          # Pin to specific version for reproducible deployments
+          image: busybox:1.36
           command:
             - /bin/sh
             - -c

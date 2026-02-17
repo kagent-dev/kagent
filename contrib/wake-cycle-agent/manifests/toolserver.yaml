@@ -9,14 +9,19 @@ metadata:
 spec:
   config:
     # Use npx to run the filesystem MCP server
-    # This tool will have access to /data and /config via agent's volumeMounts
+    # Only provide write access to /data (agent state)
+    # Configuration in /config is read-only via volume mount
+    # The agent's declarative.deployment.volumeMounts controls filesystem access:
+    #   - /data is mounted read-write for state persistence
+    #   - /config is mounted read-only for constitution
     stdio:
       command: npx
       args:
         - "-y"
         - "@modelcontextprotocol/server-filesystem"
         - "/data"
-        - "/config"
   description: |
     Filesystem MCP server for wake-cycle agent state management.
-    Provides read/write access to /data (agent state) and /config (constitution).
+    Provides read/write access to /data (agent state).
+    Note: /config (constitution) is mounted read-only via the Agent's
+    volumeMounts and accessible to the agent but not writable via this tool.

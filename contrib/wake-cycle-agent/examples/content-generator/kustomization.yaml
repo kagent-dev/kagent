@@ -4,13 +4,11 @@ kind: Kustomization
 metadata:
   name: content-generator-agent
 
-namespace: content-generator
-
 # Use the base wake-cycle-agent pattern
 resources:
   - ../../manifests
 
-# Override the namespace
+# Override the namespace (single declaration)
 namespace: content-generator
 
 namePrefix: cg-

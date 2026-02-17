@@ -135,14 +135,41 @@ kubectl -n wake-cycle-demo get agent,toolserver,pvc
 kubectl logs -f -n wake-cycle-demo -l app.kubernetes.io/name=wake-cycle-agent
 ```
 
+### ModelConfig Prerequisite
+
+The agent references a `ModelConfig` named `anthropic-claude` that must exist in the `kagent` namespace. Create one before deploying:
+
+```yaml
+# modelconfig.yaml
+apiVersion: kagent.dev/v1alpha1
+kind: ModelConfig
+metadata:
+  name: anthropic-claude
+  namespace: kagent
+spec:
+  provider: anthropic
+  # Use the latest Claude model available
+  # Check Anthropic's documentation for current model IDs
+  model: claude-sonnet-4-20250514  # or claude-3-5-sonnet-20241022
+  apiKeyFrom:
+    secretKeyRef:
+      name: anthropic-api-key
+      key: api-key
+```
+
+Apply the ModelConfig:
+```bash
+kubectl apply -f modelconfig.yaml
+```
+
 ### Configuration
 
-Edit `values.yaml` to customize:
+Customize the pattern via kustomize patches:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `wake.schedule` | Cron schedule for wake cycles | `*/15 * * * *` |
-| `agent.model` | LLM model to use | `claude-sonnet-4-20250514` |
+| `agent.modelConfig` | Reference to ModelConfig | `anthropic-claude` |
 | `state.storageClass` | Storage class for PVC | `standard` |
 | `state.size` | PVC size | `1Gi` |
 

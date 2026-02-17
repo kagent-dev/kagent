@@ -25,32 +25,46 @@ spec:
             app.kubernetes.io/component: wake-job
         spec:
           restartPolicy: OnFailure
+          # Schedule CronJob on same node as Agent using pod affinity
+          # This ensures both can access the ReadWriteOnce PVC
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: wake-cycle-agent
+                      app.kubernetes.io/component: agent
+                  topologyKey: kubernetes.io/hostname
           containers:
             - name: wake-trigger
-              image: curlimages/curl:latest
+              # Pin to specific version for reproducible deployments
+              image: curlimages/curl:8.5.0
               command:
                 - /bin/sh
                 - -c
                 - |
+                  set -e
+
                   # Generate wake prompt with current context
                   WAKE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
                   WAKE_NUMBER=$(cat /data/wake_counter 2>/dev/null || echo "1")
 
-                  # Increment wake counter
-                  echo $((WAKE_NUMBER + 1)) > /data/wake_counter
+                  # Create wake prompt as JSON file to avoid shell escaping issues
+                  cat > /tmp/wake-prompt.json << EOF
+                  {
+                    "prompt": "Wake trigger: scheduled\nTime: ${WAKE_TIME}\nWake number: ${WAKE_NUMBER}\n\nBegin your wake cycle."
+                  }
+                  EOF
 
-                  # Build wake prompt
-                  WAKE_PROMPT="Wake trigger: scheduled
-                  Time: ${WAKE_TIME}
-                  Wake number: ${WAKE_NUMBER}
-
-                  Begin your wake cycle."
-
-                  # Invoke the kagent (adjust endpoint as needed)
-                  curl -X POST \
+                  # Invoke the agent via its service endpoint
+                  # Agents are exposed at http://{agent-name}.{namespace}:8080
+                  curl -f -X POST \
                     -H "Content-Type: application/json" \
-                    -d "{\"prompt\": \"${WAKE_PROMPT}\"}" \
-                    http://kagent-engine.kagent.svc.cluster.local:8080/v1/agents/wake-cycle-demo/wake-cycle-agent/chat
+                    -d @/tmp/wake-prompt.json \
+                    http://wake-cycle-agent.wake-cycle-demo.svc.cluster.local:8080/chat
+
+                  # Increment wake counter only after successful invocation
+                  echo $((WAKE_NUMBER + 1)) > /data/wake_counter
               volumeMounts:
                 - name: agent-state
                   mountPath: /data
