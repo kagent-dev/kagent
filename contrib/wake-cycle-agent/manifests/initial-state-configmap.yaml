@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: initial-state
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: initial-state
+data:
+  state.json: |
+    {
+      "version": "1.0",
+      "initialized_at": null,
+      "last_wake": 0,
+      "current_focus": "Initializing",
+      "active_tasks": [],
+      "blocked_on": [],
+      "capabilities": {
+        "file_operations": true,
+        "http_requests": true,
+        "state_persistence": true
+      },
+      "metrics": {
+        "total_wakes": 0,
+        "tasks_completed": 0,
+        "errors_encountered": 0
+      }
+    }
+
+  backlog.md: |
+    # Agent Backlog
+
+    This is MY task list. I maintain it. I prioritize it. I execute on it.
+
+    ## Priorities
+
+    - **Urgent**: Time-sensitive, blockers
+    - **High**: Significant value delivery
+    - **Normal**: Standard work items
+    - **Low**: Nice-to-have improvements
+
+    ## Current Tasks
+
+    ### In Progress
+    - [ ] Initialize agent state on first wake
+    - [ ] Verify MCP tool connectivity
+
+    ### Backlog
+    - [ ] Set up logging to journal directory
+    - [ ] Configure external API integrations
+    - [ ] Build first autonomous capability
+
+    ### Completed
+    (none yet)
+
+    ---
+    *Last updated: (will be updated by agent)*
+
+  wake_counter: "1"
+---
+# Job to initialize state on PVC
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-state
+  namespace: wake-cycle-demo
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: busybox:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Create directories
+              mkdir -p /data/journal
+
+              # Copy initial state if not exists
+              if [ ! -f /data/state.json ]; then
+                cp /init/state.json /data/state.json
+                echo "Initialized state.json"
+              fi
+
+              if [ ! -f /data/backlog.md ]; then
+                cp /init/backlog.md /data/backlog.md
+                echo "Initialized backlog.md"
+              fi
+
+              if [ ! -f /data/wake_counter ]; then
+                cp /init/wake_counter /data/wake_counter
+                echo "Initialized wake_counter"
+              fi
+
+              echo "State initialization complete"
+          volumeMounts:
+            - name: agent-state
+              mountPath: /data
+            - name: init-data
+              mountPath: /init
+      volumes:
+        - name: agent-state
+          persistentVolumeClaim:
+            claimName: agent-state
+        - name: init-data
+          configMap:
+            name: initial-state

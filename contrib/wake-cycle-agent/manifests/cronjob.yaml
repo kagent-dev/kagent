@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wake-trigger
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: scheduler
+spec:
+  # Wake every 15 minutes
+  schedule: "*/15 * * * *"
+  # Keep history for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # Don't overlap wakes
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      # Auto-cleanup completed jobs after 1 hour
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: wake-cycle-agent
+            app.kubernetes.io/component: wake-job
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: wake-trigger
+              image: curlimages/curl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  # Generate wake prompt with current context
+                  WAKE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                  WAKE_NUMBER=$(cat /data/wake_counter 2>/dev/null || echo "1")
+
+                  # Increment wake counter
+                  echo $((WAKE_NUMBER + 1)) > /data/wake_counter
+
+                  # Build wake prompt
+                  WAKE_PROMPT="Wake trigger: scheduled
+                  Time: ${WAKE_TIME}
+                  Wake number: ${WAKE_NUMBER}
+
+                  Begin your wake cycle."
+
+                  # Invoke the kagent (adjust endpoint as needed)
+                  curl -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "{\"prompt\": \"${WAKE_PROMPT}\"}" \
+                    http://kagent-engine.kagent.svc.cluster.local:8080/v1/agents/wake-cycle-demo/wake-cycle-agent/chat
+              volumeMounts:
+                - name: agent-state
+                  mountPath: /data
+          volumes:
+            - name: agent-state
+              persistentVolumeClaim:
+                claimName: agent-state

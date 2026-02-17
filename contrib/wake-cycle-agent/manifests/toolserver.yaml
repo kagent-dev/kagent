@@ -1,0 +1,22 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: wake-cycle-tools
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: tools
+spec:
+  config:
+    # Use npx to run the filesystem MCP server
+    # This tool will have access to /data and /config via agent's volumeMounts
+    stdio:
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "/data"
+        - "/config"
+  description: |
+    Filesystem MCP server for wake-cycle agent state management.
+    Provides read/write access to /data (agent state) and /config (constitution).
