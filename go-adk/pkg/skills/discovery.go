@@ -15,6 +15,9 @@ type Skill struct {
 
 // DiscoverSkills discovers available skills in the skills directory
 func DiscoverSkills(skillsDirectory string) ([]Skill, error) {
+	if skillsDirectory == "" {
+		return []Skill{}, nil
+	}
 	dir := filepath.Clean(skillsDirectory)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return []Skill{}, nil
@@ -130,8 +133,17 @@ func GenerateSkillsToolDescription(skills []Skill) string {
 
 // GetSessionPath returns the working directory path for a session
 func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("sessionID cannot be empty")
+	}
+
 	basePath := filepath.Join(os.TempDir(), "kagent")
-	sessionPath := filepath.Join(basePath, sessionID)
+	sessionPath := filepath.Clean(filepath.Join(basePath, sessionID))
+
+	// Validate the resolved path stays under basePath to prevent path traversal
+	if !strings.HasPrefix(sessionPath, filepath.Clean(basePath)+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid sessionID: path traversal detected")
+	}
 
 	// Create working directories
 	uploadsDir := filepath.Join(sessionPath, "uploads")

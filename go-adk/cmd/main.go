@@ -12,16 +12,14 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
-	"github.com/kagent-dev/kagent/go-adk/pkg/adk"
-	"github.com/kagent-dev/kagent/go-adk/pkg/adk/config"
-	"github.com/kagent-dev/kagent/go-adk/pkg/adk/converter"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/a2a/server"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/auth"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/session"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/taskstore"
-	"github.com/kagent-dev/kagent/go-adk/pkg/core/types"
+	"github.com/kagent-dev/kagent/go-adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go-adk/pkg/a2a/server"
+	"github.com/kagent-dev/kagent/go-adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go-adk/pkg/config"
+	"github.com/kagent-dev/kagent/go-adk/pkg/mcp"
+	runnerpkg "github.com/kagent-dev/kagent/go-adk/pkg/runner"
+	"github.com/kagent-dev/kagent/go-adk/pkg/session"
+	"github.com/kagent-dev/kagent/go-adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -34,7 +32,6 @@ func defaultAgentCard() *a2atype.AgentCard {
 	}
 }
 
-// newHTTPClient returns an HTTP client with optional token-based auth.
 func newHTTPClient(tokenService *auth.KAgentTokenService) *http.Client {
 	if tokenService != nil {
 		return auth.NewHTTPClientWithToken(tokenService)
@@ -127,21 +124,14 @@ func main() {
 		configDir = "/config"
 	}
 
+	// KAGENT_URL controls remote session/task persistence. When empty,
+	// the agent falls back to in-memory sessions with no task persistence.
 	kagentURL := os.Getenv("KAGENT_URL")
-	if kagentURL == "" {
-		kagentURL = "http://localhost:8083"
-	}
 
 	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
-		logger.Info("Failed to load agent config, using default configuration", "configDir", configDir, "error", err)
-		streamDefault := false
-		executeCodeDefault := false
-		agentConfig = &types.AgentConfig{
-			Stream:      &streamDefault,
-			ExecuteCode: &executeCodeDefault,
-		}
-		agentCard = defaultAgentCard()
+		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
+		os.Exit(1)
 	} else {
 		logger.Info("Loaded agent config", "configDir", configDir)
 		logger.Info("AgentConfig summary", "summary", config.GetAgentConfigSummary(agentConfig))
@@ -173,7 +163,7 @@ func main() {
 	var taskStoreInstance *taskstore.KAgentTaskStore
 	if kagentURL != "" {
 		httpClient := newHTTPClient(tokenService)
-		sessionService = session.NewKAgentSessionServiceWithLogger(kagentURL, httpClient, logger)
+		sessionService = session.NewKAgentSessionService(kagentURL, httpClient)
 		logger.Info("Using KAgent session service", "url", kagentURL)
 		taskStoreInstance = taskstore.NewKAgentTaskStoreWithClient(kagentURL, httpClient)
 		logger.Info("Using KAgent task store", "url", kagentURL)
@@ -181,35 +171,35 @@ func main() {
 		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
 	}
 
-	skillsDirectory := os.Getenv("KAGENT_SKILLS_FOLDER")
-	if skillsDirectory != "" {
-		logger.Info("Skills directory configured", "directory", skillsDirectory)
-	} else {
-		skillsDirectory = "/skills"
-		logger.Info("Using default skills directory", "directory", skillsDirectory)
-	}
+	// Create MCP toolsets from configured HTTP and SSE servers
+	ctx := logr.NewContext(context.Background(), logger)
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
 
-	agentRunner := adk.NewADKRunner(agentConfig, skillsDirectory, logger)
+	// Create Google ADK runner eagerly
+	adkRunner, err := runnerpkg.CreateGoogleADKRunner(ctx, agentConfig, sessionService, toolsets, appName)
+	if err != nil {
+		logger.Error(err, "Failed to create Google ADK Runner")
+		os.Exit(1)
+	}
 
 	stream := false
 	if agentConfig != nil {
 		stream = agentConfig.GetStream()
 	}
 
-	executor := core.NewA2aAgentExecutorWithLogger(agentRunner, converter.ConvertEventToA2AEvents, converter.IsPartialEvent, core.A2aAgentExecutorConfig{
+	// Create executor that directly implements a2asrv.AgentExecutor
+	executor := a2a.NewKAgentExecutor(adkRunner, sessionService, a2a.KAgentExecutorConfig{
 		Stream:           stream,
 		ExecutionTimeout: a2a.DefaultExecutionTimeout,
-	}, sessionService, taskStoreInstance, appName, logger)
-
-	// Create the a2asrv.AgentExecutor bridge
-	agentExecutor := server.NewKAgentExecutor(executor)
+	}, appName)
 
 	// Build handler options
 	var handlerOpts []a2asrv.RequestHandlerOption
 	if taskStoreInstance != nil {
-		taskStoreAdapter := server.NewKAgentTaskStoreAdapter(taskStoreInstance)
+		taskStoreAdapter := taskstore.NewA2ATaskStoreAdapter(taskStoreInstance)
 		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStoreAdapter))
 	}
+
 
 	if agentCard == nil {
 		agentCard = defaultAgentCard()
@@ -221,7 +211,7 @@ func main() {
 		ShutdownTimeout: 5 * time.Second,
 	}
 
-	a2aServer, err := server.NewA2AServer(*agentCard, agentExecutor, logger, serverConfig, handlerOpts...)
+	a2aServer, err := server.NewA2AServer(*agentCard, executor, logger, serverConfig, handlerOpts...)
 	if err != nil {
 		logger.Error(err, "Failed to create A2A server")
 		os.Exit(1)
