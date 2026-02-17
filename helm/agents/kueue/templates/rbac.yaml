@@ -1,0 +1,32 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-kueue-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+    - kueue.x-k8s.io
+  resources:
+    - clusterqueues
+    - localqueues
+    - resourceflavors
+    - workloads
+    - workloadpriorityclasses
+  verbs:
+    - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kagent.fullname" . }}-kueue-rolebinding
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kagent.fullname" . }}-kueue-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.fullname" . }}
+    namespace: {{ include "kagent.namespace" . }}
