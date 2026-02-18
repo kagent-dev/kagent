@@ -266,6 +266,8 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock provider)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock')"
+// +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
+// +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey) == 0))"
@@ -279,6 +281,13 @@ type ModelConfigSpec struct {
 	// The key in the secret that contains the API key
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
+
+	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+	// directly to the LLM provider as the API key. This is useful for organizations
+	// with federated identity that want to avoid separate secret management.
+	// Mutually exclusive with apiKeySecret.
+	// +optional
+	APIKeyPassthrough bool `json:"apiKeyPassthrough,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`

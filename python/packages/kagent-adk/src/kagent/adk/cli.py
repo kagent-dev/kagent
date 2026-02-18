@@ -66,6 +66,13 @@ def static(
     if sts_integration:
         plugins = [sts_integration]
 
+    if agent_config.model.api_key_passthrough:
+        from ._llm_passthrough_plugin import LLMPassthroughPlugin
+
+        if plugins is None:
+            plugins = []
+        plugins.append(LLMPassthroughPlugin())
+
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
 

@@ -10,13 +10,13 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
 from kagent.adk._mcp_toolset import KAgentMcpToolset
+from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 
 from .models import AzureOpenAI as OpenAIAzure
@@ -166,6 +166,9 @@ class BaseLLM(BaseModel):
     tls_disable_verify: bool | None = None
     tls_ca_cert_path: str | None = None
     tls_disable_system_cas: bool | None = None
+
+    # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
+    api_key_passthrough: bool | None = None
 
 
 class OpenAI(BaseLLM):
@@ -357,10 +360,15 @@ class AgentConfig(BaseModel):
                 tls_disable_verify=self.model.tls_disable_verify,
                 tls_ca_cert_path=self.model.tls_ca_cert_path,
                 tls_disable_system_cas=self.model.tls_disable_system_cas,
+                # API key passthrough
+                api_key_passthrough=self.model.api_key_passthrough,
             )
         elif self.model.type == "anthropic":
-            model = LiteLlm(
-                model=f"anthropic/{self.model.model}", base_url=self.model.base_url, extra_headers=extra_headers
+            model = KAgentLiteLlm(
+                model=f"anthropic/{self.model.model}",
+                base_url=self.model.base_url,
+                extra_headers=extra_headers,
+                api_key_passthrough=self.model.api_key_passthrough,
             )
         elif self.model.type == "gemini_vertex_ai":
             model = GeminiLLM(model=self.model.model)
@@ -369,7 +377,12 @@ class AgentConfig(BaseModel):
         elif self.model.type == "ollama":
             # Convert string options to correct types (int, float, bool) for Ollama API
             ollama_options = _convert_ollama_options(self.model.options)
-            model = LiteLlm(model=f"ollama_chat/{self.model.model}", extra_headers=extra_headers, **ollama_options)
+            model = KAgentLiteLlm(
+                model=f"ollama_chat/{self.model.model}",
+                extra_headers=extra_headers,
+                api_key_passthrough=self.model.api_key_passthrough,
+                **ollama_options,
+            )
         elif self.model.type == "azure_openai":
             model = OpenAIAzure(
                 model=self.model.model,
@@ -379,12 +392,18 @@ class AgentConfig(BaseModel):
                 tls_disable_verify=self.model.tls_disable_verify,
                 tls_ca_cert_path=self.model.tls_ca_cert_path,
                 tls_disable_system_cas=self.model.tls_disable_system_cas,
+                # API key passthrough
+                api_key_passthrough=self.model.api_key_passthrough,
             )
         elif self.model.type == "gemini":
             model = self.model.model
         elif self.model.type == "bedrock":
             # LiteLLM handles Bedrock via boto3 internally when model starts with "bedrock/"
-            model = LiteLlm(model=f"bedrock/{self.model.model}", extra_headers=extra_headers)
+            model = KAgentLiteLlm(
+                model=f"bedrock/{self.model.model}",
+                extra_headers=extra_headers,
+                api_key_passthrough=self.model.api_key_passthrough,
+            )
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
         return Agent(

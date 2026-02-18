@@ -720,7 +720,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if model.Spec.APIKeySecret != "" {
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "OPENAI_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
@@ -741,6 +741,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
@@ -775,7 +776,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		return openai, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropic:
-		if model.Spec.APIKeySecret != "" {
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: "ANTHROPIC_API_KEY",
 				ValueFrom: &corev1.EnvVarSource{
@@ -796,6 +797,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
@@ -805,17 +807,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: "AZURE_OPENAI_API_KEY",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+		if !model.Spec.APIKeyPassthrough {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: "AZURE_OPENAI_API_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
 					},
-					Key: model.Spec.APIKeySecretKey,
 				},
-			},
-		})
+			})
+		}
 		if model.Spec.AzureOpenAI.AzureADToken != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "AZURE_AD_TOKEN",
@@ -842,6 +846,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
@@ -886,6 +891,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
@@ -926,6 +932,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderOllama:
@@ -949,6 +956,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
@@ -986,7 +994,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
 		// Otherwise, use IAM credentials
-		if model.Spec.APIKeySecret != "" {
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			secret := &corev1.Secret{}
 			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
@@ -1053,6 +1061,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
+		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
 	}

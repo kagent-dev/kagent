@@ -430,6 +430,13 @@ spec:
                 - location
                 - projectID
                 type: object
+              apiKeyPassthrough:
+                description: |-
+                  APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+                  directly to the LLM provider as the API key. This is useful for organizations
+                  with federated identity that want to avoid separate secret management.
+                  Mutually exclusive with apiKeySecret.
+                type: boolean
               apiKeySecret:
                 description: The name of the secret that contains the API key. Must
                   be a reference to the name of a secret in the same namespace as
@@ -655,6 +662,13 @@ spec:
                 for Bedrock provider)
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
                 != ''Bedrock'')'
+            - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
+              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
+                && size(self.apiKeySecret) > 0)'
+            - message: apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
+              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
+                == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
+                == ''AnthropicVertexAI''))'
             - message: caCertSecretKey requires caCertSecretRef
               rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
                 > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)

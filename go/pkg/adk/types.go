@@ -47,6 +47,10 @@ type BaseModel struct {
 	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
 	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
 	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
+
+	// APIKeyPassthrough enables forwarding the Bearer token from incoming requests
+	// as the LLM API key instead of using a static secret.
+	APIKeyPassthrough bool `json:"api_key_passthrough,omitempty"`
 }
 
 type OpenAI struct {
@@ -99,10 +103,13 @@ func (a *AzureOpenAI) GetType() string {
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":    ModelTypeAzureOpenAI,
-		"model":   a.Model,
-		"headers": a.Headers,
+	type Alias AzureOpenAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAzureOpenAI,
+		Alias: (*Alias)(a),
 	})
 }
 
@@ -112,11 +119,13 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":     ModelTypeAnthropic,
-		"model":    a.Model,
-		"base_url": a.BaseUrl,
-		"headers":  a.Headers,
+	type Alias Anthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAnthropic,
+		Alias: (*Alias)(a),
 	})
 }
 
@@ -129,10 +138,13 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":    ModelTypeGeminiVertexAI,
-		"model":   g.Model,
-		"headers": g.Headers,
+	type Alias GeminiVertexAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiVertexAI,
+		Alias: (*Alias)(g),
 	})
 }
 
@@ -145,10 +157,13 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":    ModelTypeGeminiAnthropic,
-		"model":   g.Model,
-		"headers": g.Headers,
+	type Alias GeminiAnthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiAnthropic,
+		Alias: (*Alias)(g),
 	})
 }
 
@@ -162,11 +177,13 @@ type Ollama struct {
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":    ModelTypeOllama,
-		"model":   o.Model,
-		"headers": o.Headers,
-		"options": o.Options,
+	type Alias Ollama
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOllama,
+		Alias: (*Alias)(o),
 	})
 }
 
@@ -179,10 +196,13 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"type":    ModelTypeGemini,
-		"model":   g.Model,
-		"headers": g.Headers,
+	type Alias Gemini
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGemini,
+		Alias: (*Alias)(g),
 	})
 }
 
@@ -197,15 +217,14 @@ type Bedrock struct {
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeBedrock,
-		"model":   b.Model,
-		"headers": b.Headers,
-	}
-	if b.Region != "" {
-		data["region"] = b.Region
-	}
-	return json.Marshal(data)
+	type Alias Bedrock
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeBedrock,
+		Alias: (*Alias)(b),
+	})
 }
 
 func (b *Bedrock) GetType() string {

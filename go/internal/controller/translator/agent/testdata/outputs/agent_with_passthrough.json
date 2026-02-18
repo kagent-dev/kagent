@@ -12,19 +12,21 @@
       "text"
     ],
     "description": "",
-    "name": "bedrock_agent",
+    "name": "passthrough_agent",
     "skills": null,
-    "url": "http://bedrock-agent.test:8080",
+    "url": "http://passthrough-agent.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "You are a helpful AI assistant running on AWS Bedrock.",
+    "instruction": "You are a helpful assistant.",
     "model": {
-      "model": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-      "region": "us-east-1",
-      "type": "bedrock"
+      "api_key_passthrough": true,
+      "base_url": "",
+      "model": "gpt-4o",
+      "temperature": 0.7,
+      "type": "openai"
     },
     "remote_agents": null,
     "sse_tools": null,
@@ -38,11 +40,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "passthrough-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "passthrough-agent"
         },
-        "name": "bedrock-agent",
+        "name": "passthrough-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -50,14 +52,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "passthrough-agent",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"passthrough_agent\",\"description\":\"\",\"url\":\"http://passthrough-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"api_key_passthrough\":true,\"base_url\":\"\",\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -67,11 +69,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "passthrough-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "passthrough-agent"
         },
-        "name": "bedrock-agent",
+        "name": "passthrough-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -79,7 +81,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "passthrough-agent",
             "uid": ""
           }
         ]
@@ -92,11 +94,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "passthrough-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "passthrough-agent"
         },
-        "name": "bedrock-agent",
+        "name": "passthrough-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -104,7 +106,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "passthrough-agent",
             "uid": ""
           }
         ]
@@ -113,7 +115,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "bedrock-agent"
+            "kagent": "passthrough-agent"
           }
         },
         "strategy": {
@@ -126,14 +128,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11588653464466157453"
+              "kagent.dev/config-hash": "17345807287857683497"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "bedrock-agent",
+              "app.kubernetes.io/name": "passthrough-agent",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "bedrock-agent"
+              "kagent": "passthrough-agent"
             }
           },
           "spec": {
@@ -149,28 +151,6 @@
                 ],
                 "env": [
                   {
-                    "name": "AWS_REGION",
-                    "value": "us-east-1"
-                  },
-                  {
-                    "name": "AWS_ACCESS_KEY_ID",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "key": "AWS_ACCESS_KEY_ID",
-                        "name": "bedrock-credentials"
-                      }
-                    }
-                  },
-                  {
-                    "name": "AWS_SECRET_ACCESS_KEY",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "key": "AWS_SECRET_ACCESS_KEY",
-                        "name": "bedrock-credentials"
-                      }
-                    }
-                  },
-                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -180,7 +160,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "bedrock-agent"
+                    "value": "passthrough-agent"
                   },
                   {
                     "name": "KAGENT_URL",
@@ -227,12 +207,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "bedrock-agent",
+            "serviceAccountName": "passthrough-agent",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "bedrock-agent"
+                  "secretName": "passthrough-agent"
                 }
               },
               {
@@ -262,11 +242,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "passthrough-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "passthrough-agent"
         },
-        "name": "bedrock-agent",
+        "name": "passthrough-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -274,7 +254,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "passthrough-agent",
             "uid": ""
           }
         ]
@@ -289,7 +269,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "passthrough-agent"
         },
         "type": "ClusterIP"
       },
