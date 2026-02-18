@@ -665,6 +665,10 @@ spec:
             - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
                 && size(self.apiKeySecret) > 0)'
+            - message: apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
+              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
+                == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
+                == ''AnthropicVertexAI''))'
             - message: caCertSecretKey requires caCertSecretRef
               rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
                 > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
