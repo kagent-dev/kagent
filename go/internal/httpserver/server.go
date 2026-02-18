@@ -117,8 +117,10 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 			log.Error(err, "Failed to properly shutdown HTTP server")
 		}
 		// Close database connection
-		if err := s.dbManager.Close(); err != nil {
-			log.Error(err, "Failed to close database connection")
+		if s.dbManager != nil {
+			if err := s.dbManager.Close(); err != nil {
+				log.Error(err, "Failed to close database connection")
+			}
 		}
 	}()
 

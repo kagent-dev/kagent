@@ -111,7 +111,9 @@ func (r *ModelProviderConfigController) findModelProviderConfigsUsingSecret(ctx 
 }
 
 func modelProviderConfigReferencesSecret(mpc *v1alpha2.ModelProviderConfig, secretObj types.NamespacedName) bool {
-	// Secrets must be in the same namespace as the model provider config
+	if mpc.Spec.SecretRef == nil {
+		return false
+	}
 	return mpc.Namespace == secretObj.Namespace &&
 		mpc.Spec.SecretRef.Name == secretObj.Name
 }
