@@ -27,6 +27,7 @@ app = typer.Typer()
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
+uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
 def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
@@ -90,6 +91,7 @@ def static(
         port=port,
         workers=workers,
         reload=reload,
+        log_level=uvicorn_log_level,
     )
 
 
@@ -204,6 +206,7 @@ def run(
         host=host,
         port=port,
         workers=workers,
+        log_level=uvicorn_log_level,
     )
 
 

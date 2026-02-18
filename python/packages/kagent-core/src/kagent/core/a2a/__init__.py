@@ -6,6 +6,7 @@ from ._consts import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_DATA_PART_METADATA_TYPE_KEY,
+    ADK_METADATA_KEY_PREFIX,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
@@ -14,6 +15,7 @@ from ._consts import (
     KAGENT_HITL_RESUME_KEYWORDS_APPROVE,
     KAGENT_HITL_RESUME_KEYWORDS_DENY,
     get_kagent_metadata_key,
+    read_metadata_value,
 )
 from ._hitl import (
     DecisionType,
@@ -33,6 +35,8 @@ __all__ = [
     "KAgentRequestContextBuilder",
     "KAgentTaskStore",
     "get_kagent_metadata_key",
+    "read_metadata_value",
+    "ADK_METADATA_KEY_PREFIX",
     "A2A_DATA_PART_METADATA_TYPE_KEY",
     "A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL",
