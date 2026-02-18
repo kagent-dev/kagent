@@ -127,6 +127,9 @@ type Config struct {
 		Path string
 		Url  string
 	}
+	UI struct {
+		BaseURL string
+	}
 }
 
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
@@ -156,6 +159,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
 	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
+
+	commandLine.StringVar(&cfg.UI.BaseURL, "ui-base-url", "http://localhost:3000", "The base URL of the UI.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -460,6 +465,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		extensionCfg.Authenticator,
+		dbClient,
+		cfg.UI.BaseURL,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create MCP handler")
