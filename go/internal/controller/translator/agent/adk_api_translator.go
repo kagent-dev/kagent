@@ -865,7 +865,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			Name:  "GOOGLE_GENAI_USE_VERTEXAI",
 			Value: "true",
 		})
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
@@ -906,7 +906,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			Name:  "GOOGLE_CLOUD_LOCATION",
 			Value: model.Spec.AnthropicVertexAI.Location,
 		})
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
@@ -960,19 +960,17 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
-		if !model.Spec.APIKeyPassthrough {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: "GOOGLE_API_KEY",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: model.Spec.APIKeySecret,
-						},
-						Key: model.Spec.APIKeySecretKey,
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+			Name: "GOOGLE_API_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: model.Spec.APIKeySecret,
 					},
+					Key: model.Spec.APIKeySecretKey,
 				},
-			})
-		}
+			},
+		})
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -981,7 +979,6 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
-		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
