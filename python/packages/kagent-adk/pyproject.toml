@@ -9,8 +9,8 @@ description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
 requires-python = ">=3.11.0"
 dependencies = [
-  "agentsts-adk >= 0.0.8",
-  "agentsts-core >= 0.0.8",
+  "agentsts-adk",
+  "agentsts-core",
   "kagent-core",
   "kagent-skills",
   "aiofiles>=24.1.0",
@@ -42,6 +42,8 @@ dependencies = [
 [tool.uv.sources]
 kagent-core = {workspace = true}
 kagent-skills = {workspace = true}
+agentsts-adk = {workspace = true}
+agentsts-core = {workspace = true}
 
 [project.scripts]
 kagent-adk = "kagent.adk.cli:run_cli"
