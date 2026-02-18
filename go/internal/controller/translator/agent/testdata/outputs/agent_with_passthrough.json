@@ -151,6 +151,10 @@
                 ],
                 "env": [
                   {
+                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+                    "value": "delta"
+                  },
+                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {

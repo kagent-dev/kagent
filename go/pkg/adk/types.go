@@ -103,13 +103,14 @@ func (a *AzureOpenAI) GetType() string {
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeAzureOpenAI,
-		"model":   a.Model,
-		"headers": a.Headers,
-	}
-	marshalBaseModelFields(data, &a.BaseModel)
-	return json.Marshal(data)
+	type Alias AzureOpenAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAzureOpenAI,
+		Alias: (*Alias)(a),
+	})
 }
 
 type Anthropic struct {
@@ -118,14 +119,14 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":     ModelTypeAnthropic,
-		"model":    a.Model,
-		"base_url": a.BaseUrl,
-		"headers":  a.Headers,
-	}
-	marshalBaseModelFields(data, &a.BaseModel)
-	return json.Marshal(data)
+	type Alias Anthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAnthropic,
+		Alias: (*Alias)(a),
+	})
 }
 
 func (a *Anthropic) GetType() string {
@@ -137,13 +138,14 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeGeminiVertexAI,
-		"model":   g.Model,
-		"headers": g.Headers,
-	}
-	marshalBaseModelFields(data, &g.BaseModel)
-	return json.Marshal(data)
+	type Alias GeminiVertexAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiVertexAI,
+		Alias: (*Alias)(g),
+	})
 }
 
 func (g *GeminiVertexAI) GetType() string {
@@ -155,13 +157,14 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeGeminiAnthropic,
-		"model":   g.Model,
-		"headers": g.Headers,
-	}
-	marshalBaseModelFields(data, &g.BaseModel)
-	return json.Marshal(data)
+	type Alias GeminiAnthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiAnthropic,
+		Alias: (*Alias)(g),
+	})
 }
 
 func (g *GeminiAnthropic) GetType() string {
@@ -174,14 +177,14 @@ type Ollama struct {
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeOllama,
-		"model":   o.Model,
-		"headers": o.Headers,
-		"options": o.Options,
-	}
-	marshalBaseModelFields(data, &o.BaseModel)
-	return json.Marshal(data)
+	type Alias Ollama
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOllama,
+		Alias: (*Alias)(o),
+	})
 }
 
 func (o *Ollama) GetType() string {
@@ -193,13 +196,14 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeGemini,
-		"model":   g.Model,
-		"headers": g.Headers,
-	}
-	marshalBaseModelFields(data, &g.BaseModel)
-	return json.Marshal(data)
+	type Alias Gemini
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGemini,
+		Alias: (*Alias)(g),
+	})
 }
 
 func (g *Gemini) GetType() string {
@@ -213,36 +217,18 @@ type Bedrock struct {
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
-	data := map[string]any{
-		"type":    ModelTypeBedrock,
-		"model":   b.Model,
-		"headers": b.Headers,
-	}
-	if b.Region != "" {
-		data["region"] = b.Region
-	}
-	marshalBaseModelFields(data, &b.BaseModel)
-	return json.Marshal(data)
+	type Alias Bedrock
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeBedrock,
+		Alias: (*Alias)(b),
+	})
 }
 
 func (b *Bedrock) GetType() string {
 	return ModelTypeBedrock
-}
-
-// marshalBaseModelFields adds optional BaseModel fields to a map[string]any
-// used by MarshalJSON methods. Fields that are already set by the caller
-// (type, model, headers) are not overwritten.
-func marshalBaseModelFields(data map[string]any, base *BaseModel) {
-	if base.TLSDisableVerify != nil {
-		data["tls_disable_verify"] = *base.TLSDisableVerify
-	}
-	if base.TLSCACertPath != nil {
-		data["tls_ca_cert_path"] = *base.TLSCACertPath
-	}
-	if base.TLSDisableSystemCAs != nil {
-		data["tls_disable_system_cas"] = *base.TLSDisableSystemCAs
-	}
-	data["api_key_passthrough"] = base.APIKeyPassthrough
 }
 
 func ParseModel(bytes []byte) (Model, error) {

@@ -22,8 +22,6 @@
     "http_tools": null,
     "instruction": "You are a helpful AI assistant running on AWS Bedrock.",
     "model": {
-      "api_key_passthrough": false,
-      "headers": null,
       "model": "us.anthropic.claude-sonnet-4-20250514-v1:0",
       "region": "us-east-1",
       "type": "bedrock"
@@ -59,7 +57,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"api_key_passthrough\":false,\"headers\":null,\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\",\"type\":\"bedrock\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -128,7 +126,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2105778813349079276"
+              "kagent.dev/config-hash": "11588653464466157453"
             },
             "labels": {
               "app": "kagent",
@@ -171,6 +169,10 @@
                         "name": "bedrock-credentials"
                       }
                     }
+                  },
+                  {
+                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+                    "value": "delta"
                   },
                   {
                     "name": "KAGENT_NAMESPACE",
