@@ -72,14 +72,10 @@ spec:
                   SecretRef references the Kubernetes Secret containing the API key.
                   Optional for providers that don't require authentication (e.g., local Ollama).
                 properties:
-                  key:
-                    description: |-
-                      Key is the key within the secret that contains the API key or credential.
-                      If not specified and the secret contains exactly one key, that key will be used automatically.
-                    type: string
                   name:
-                    description: Name is the name of the secret in the same namespace
-                      as the ModelProviderConfig
+                    description: |-
+                      Name is the name of the secret in the same namespace as the ModelProviderConfig.
+                      The secret must contain exactly one data key holding the API credential.
                     type: string
                 required:
                 - name

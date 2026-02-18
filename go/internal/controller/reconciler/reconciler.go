@@ -963,48 +963,39 @@ func (a *kagentReconciler) resolveModelProviderConfigSecret(ctx context.Context,
 		return "", "", fmt.Errorf("failed to get secret %s: %w", mpc.Spec.SecretRef.Name, err)
 	}
 
-	// Auto-detect key if not specified
-	key := mpc.Spec.SecretRef.Key
-	if key == "" {
-		// Auto-detect: if there's exactly one key in the secret, use it
-		if len(secret.Data) == 0 {
-			return "", "", fmt.Errorf("secret %s has no data keys", mpc.Spec.SecretRef.Name)
+	// Validate secret contains exactly one key
+	if len(secret.Data) != 1 {
+		keys := make([]string, 0, len(secret.Data))
+		for k := range secret.Data {
+			keys = append(keys, k)
 		}
-		if len(secret.Data) == 1 {
-			// Auto-detect the only key
-			for k := range secret.Data {
-				key = k
-				break
-			}
-		} else {
-			// Multiple keys exist - user must specify which one
-			keys := make([]string, 0, len(secret.Data))
-			for k := range secret.Data {
-				keys = append(keys, k)
-			}
-			return "", "", fmt.Errorf("secret %s has multiple keys [%s]; please specify which key to use in secretRef.key",
-				mpc.Spec.SecretRef.Name, strings.Join(keys, ", "))
-		}
+		return "", "", fmt.Errorf("secret %s must contain exactly one data key, found %d: [%s]",
+			mpc.Spec.SecretRef.Name, len(secret.Data), strings.Join(keys, ", "))
 	}
 
-	apiKey, ok := secret.Data[key]
-	if !ok || len(apiKey) == 0 {
-		return "", "", fmt.Errorf("secret %s missing or empty key %s", mpc.Spec.SecretRef.Name, key)
+	// Extract the single key-value pair
+	var key string
+	for k := range secret.Data {
+		key = k
 	}
 
-	// Compute secret hash for change detection
-	secretHash := computeModelProviderSecretHash(secret, key)
+	apiKey := secret.Data[key]
+	if len(apiKey) == 0 {
+		return "", "", fmt.Errorf("secret %s has empty value for key %q", mpc.Spec.SecretRef.Name, key)
+	}
 
+	secretHash := computeModelProviderSecretHash(secret)
 	return string(apiKey), secretHash, nil
 }
 
-// computeModelProviderSecretHash computes a hash of the secret data for change detection
-func computeModelProviderSecretHash(secret *corev1.Secret, key string) string {
+// computeModelProviderSecretHash computes a hash of the secret's identity and data for change detection.
+// The secret must contain exactly one data key (caller is responsible for validation).
+func computeModelProviderSecretHash(secret *corev1.Secret) string {
 	hash := sha256.New()
 	hash.Write([]byte(secret.Namespace))
 	hash.Write([]byte(secret.Name))
-	hash.Write([]byte(key))
-	if data, ok := secret.Data[key]; ok {
+	for key, data := range secret.Data {
+		hash.Write([]byte(key))
 		hash.Write(data)
 	}
 	return hex.EncodeToString(hash.Sum(nil))

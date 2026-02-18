@@ -49,16 +49,12 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 	}
 }
 
-// SecretReference contains information to locate a secret.
+// SecretReference references a Kubernetes Secret that must contain exactly one data key
+// holding the API key or credential.
 type SecretReference struct {
-	// Name is the name of the secret in the same namespace as the ModelProviderConfig
+	// Name is the name of the secret in the same namespace as the ModelProviderConfig.
 	// +required
 	Name string `json:"name"`
-
-	// Key is the key within the secret that contains the API key or credential.
-	// If not specified and the secret contains exactly one key, that key will be used automatically.
-	// +optional
-	Key string `json:"key,omitempty"`
 }
 
 // ModelProviderConfigSpec defines the desired state of ModelProviderConfig.
