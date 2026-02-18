@@ -169,6 +169,8 @@ github.com/kagent-dev/kmcp v0.2.6 h1:9h4JEbEK7/Joonucoide4GqGA0zJfoDxBTK+AXCkmNQ
 github.com/kagent-dev/kmcp v0.2.6/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
 github.com/kagent-dev/mockllm v0.0.3 h1:hk6Oa/vxHoBrGqRig4GCzox8EqRQYXM4c3oFPP/k9Tg=
 github.com/kagent-dev/mockllm v0.0.3/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
+github.com/kagent-dev/mockllm v0.0.4 h1:wOy27YM705qsSB1jjpqRqTZbtZZiUPpoF/JrxXnB2aw=
+github.com/kagent-dev/mockllm v0.0.4/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=

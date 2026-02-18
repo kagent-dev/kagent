@@ -22,6 +22,7 @@
     "http_tools": null,
     "instruction": "You are Claude, an AI assistant created by Anthropic.",
     "model": {
+      "api_key_passthrough": false,
       "base_url": "",
       "headers": null,
       "model": "claude-3-sonnet-20240229",
@@ -58,7 +59,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"base_url\":\"\",\"headers\":null,\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "config.json": "{\"model\":{\"api_key_passthrough\":false,\"base_url\":\"\",\"headers\":null,\"model\":\"claude-3-sonnet-20240229\",\"type\":\"anthropic\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -127,7 +128,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "1861222975269634654"
+              "kagent.dev/config-hash": "1452056583987194700"
             },
             "labels": {
               "app": "kagent",

@@ -47,6 +47,10 @@ type BaseModel struct {
 	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
 	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
 	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
+
+	// APIKeyPassthrough enables forwarding the Bearer token from incoming requests
+	// as the LLM API key instead of using a static secret.
+	APIKeyPassthrough bool `json:"api_key_passthrough,omitempty"`
 }
 
 type OpenAI struct {
@@ -99,11 +103,13 @@ func (a *AzureOpenAI) GetType() string {
 }
 
 func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":    ModelTypeAzureOpenAI,
 		"model":   a.Model,
 		"headers": a.Headers,
-	})
+	}
+	marshalBaseModelFields(data, &a.BaseModel)
+	return json.Marshal(data)
 }
 
 type Anthropic struct {
@@ -112,12 +118,14 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":     ModelTypeAnthropic,
 		"model":    a.Model,
 		"base_url": a.BaseUrl,
 		"headers":  a.Headers,
-	})
+	}
+	marshalBaseModelFields(data, &a.BaseModel)
+	return json.Marshal(data)
 }
 
 func (a *Anthropic) GetType() string {
@@ -129,11 +137,13 @@ type GeminiVertexAI struct {
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":    ModelTypeGeminiVertexAI,
 		"model":   g.Model,
 		"headers": g.Headers,
-	})
+	}
+	marshalBaseModelFields(data, &g.BaseModel)
+	return json.Marshal(data)
 }
 
 func (g *GeminiVertexAI) GetType() string {
@@ -145,11 +155,13 @@ type GeminiAnthropic struct {
 }
 
 func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":    ModelTypeGeminiAnthropic,
 		"model":   g.Model,
 		"headers": g.Headers,
-	})
+	}
+	marshalBaseModelFields(data, &g.BaseModel)
+	return json.Marshal(data)
 }
 
 func (g *GeminiAnthropic) GetType() string {
@@ -162,12 +174,14 @@ type Ollama struct {
 }
 
 func (o *Ollama) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":    ModelTypeOllama,
 		"model":   o.Model,
 		"headers": o.Headers,
 		"options": o.Options,
-	})
+	}
+	marshalBaseModelFields(data, &o.BaseModel)
+	return json.Marshal(data)
 }
 
 func (o *Ollama) GetType() string {
@@ -179,11 +193,13 @@ type Gemini struct {
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any{
+	data := map[string]any{
 		"type":    ModelTypeGemini,
 		"model":   g.Model,
 		"headers": g.Headers,
-	})
+	}
+	marshalBaseModelFields(data, &g.BaseModel)
+	return json.Marshal(data)
 }
 
 func (g *Gemini) GetType() string {
@@ -205,11 +221,28 @@ func (b *Bedrock) MarshalJSON() ([]byte, error) {
 	if b.Region != "" {
 		data["region"] = b.Region
 	}
+	marshalBaseModelFields(data, &b.BaseModel)
 	return json.Marshal(data)
 }
 
 func (b *Bedrock) GetType() string {
 	return ModelTypeBedrock
+}
+
+// marshalBaseModelFields adds optional BaseModel fields to a map[string]any
+// used by MarshalJSON methods. Fields that are already set by the caller
+// (type, model, headers) are not overwritten.
+func marshalBaseModelFields(data map[string]any, base *BaseModel) {
+	if base.TLSDisableVerify != nil {
+		data["tls_disable_verify"] = *base.TLSDisableVerify
+	}
+	if base.TLSCACertPath != nil {
+		data["tls_ca_cert_path"] = *base.TLSCACertPath
+	}
+	if base.TLSDisableSystemCAs != nil {
+		data["tls_disable_system_cas"] = *base.TLSDisableSystemCAs
+	}
+	data["api_key_passthrough"] = base.APIKeyPassthrough
 }
 
 func ParseModel(bytes []byte) (Model, error) {

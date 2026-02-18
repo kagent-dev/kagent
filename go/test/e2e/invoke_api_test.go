@@ -859,6 +859,64 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
 }
 
+func TestE2EInvokePassthroughAgent(t *testing.T) {
+	// Setup mock server with header matching — the mock only responds
+	// if the Authorization header contains our passthrough token.
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_passthrough_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Create a ModelConfig with apiKeyPassthrough enabled (no apiKeySecret)
+	passthroughToken := "passthrough-test-token-12345"
+	modelCfg := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "test-passthrough-model-",
+			Namespace:    "kagent",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:            "gpt-4.1-mini",
+			Provider:         v1alpha2.ModelProviderOpenAI,
+			APIKeyPassthrough: true,
+			OpenAI: &v1alpha2.OpenAIConfig{
+				BaseURL: baseURL + "/v1",
+			},
+		},
+	}
+	err := cli.Create(t.Context(), modelCfg)
+	require.NoError(t, err)
+	cleanup(t, cli, modelCfg)
+
+	// Create agent with no tools
+	agent := setupAgent(t, cli, modelCfg.Name, nil)
+
+	// Create an A2A client that sends the Bearer token on every request.
+	// With passthrough enabled, the agent should forward this token to the
+	// LLM provider as the API key (Authorization: Bearer <token>).
+	httpClient := &http.Client{
+		Transport: &httpTransportWithHeaders{
+			base: http.DefaultTransport,
+			t:    t,
+			headers: map[string]string{
+				"Authorization": "Bearer " + passthroughToken,
+			},
+		},
+	}
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
+		a2aclient.WithTimeout(60*time.Second),
+		a2aclient.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+
+	// The mock server will only match if it receives the exact
+	// Authorization header "Bearer passthrough-test-token-12345".
+	// If passthrough is broken, mockllm returns 404 and the test fails.
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough", nil)
+	})
+}
+
 func TestE2EIAgentRunsCode(t *testing.T) {
 	t.Skip("see issue.. TODO add issue here")
 	// Setup mock server
