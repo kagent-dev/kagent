@@ -5,7 +5,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
-	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/database"
 )
@@ -15,7 +14,7 @@ type Handlers struct {
 	Health          *HealthHandler
 	ModelConfig     *ModelConfigHandler
 	Model           *ModelHandler
-	Provider        *ProviderHandler
+	ModelProviderConfig *ModelProviderConfigHandler
 	Sessions        *SessionsHandler
 	Agents          *AgentsHandler
 	Tools           *ToolsHandler
@@ -52,7 +51,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Health:          NewHealthHandler(),
 		ModelConfig:     NewModelConfigHandler(base),
 		Model:           NewModelHandler(base),
-		Provider:        NewProviderHandler(base, rcnclr),
+		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
 		Sessions:        NewSessionsHandler(base),
 		Agents:          NewAgentsHandler(base),
 		Tools:           NewToolsHandler(base),

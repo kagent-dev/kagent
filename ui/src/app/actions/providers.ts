@@ -1,6 +1,6 @@
 "use server";
 import { createErrorResponse } from "./utils";
-import { Provider, ConfiguredProvider, ConfiguredProviderModelsResponse } from "@/types";
+import { Provider, ConfiguredModelProvider, ConfiguredModelProviderModelsResponse } from "@/types";
 import { BaseResponse } from "@/types";
 import { fetchApi } from "./utils";
 
@@ -10,7 +10,7 @@ import { fetchApi } from "./utils";
  */
 export async function getSupportedModelProviders(): Promise<BaseResponse<Provider[]>> {
     try {
-      const response = await fetchApi<BaseResponse<Provider[]>>("/providers/models");
+      const response = await fetchApi<BaseResponse<Provider[]>>("/modelproviderconfigs/models");
       return response;
     } catch (error) {
       return createErrorResponse<Provider[]>(error, "Error getting supported providers");
@@ -18,35 +18,35 @@ export async function getSupportedModelProviders(): Promise<BaseResponse<Provide
   }
 
 /**
- * Gets the list of configured providers from Provider CRDs
- * @returns A promise with the list of configured providers
+ * Gets the list of configured model providers from ModelProvider CRDs
+ * @returns A promise with the list of configured model providers
  */
-export async function getConfiguredProviders(): Promise<BaseResponse<ConfiguredProvider[]>> {
+export async function getConfiguredProviders(): Promise<BaseResponse<ConfiguredModelProvider[]>> {
   try {
-    const response = await fetchApi<BaseResponse<ConfiguredProvider[]>>("/providers/configured");
+    const response = await fetchApi<BaseResponse<ConfiguredModelProvider[]>>("/modelproviderconfigs/configured");
     return response;
   } catch (error) {
-    return createErrorResponse<ConfiguredProvider[]>(error, "Error getting configured providers");
+    return createErrorResponse<ConfiguredModelProvider[]>(error, "Error getting configured model providers");
   }
 }
 
 /**
- * Gets the models for a specific configured provider
- * @param providerName - The name of the configured provider
+ * Gets the models for a specific configured model provider
+ * @param providerName - The name of the configured model provider
  * @param forceRefresh - Whether to force a refresh of the model list
- * @returns A promise with the list of models for the provider
+ * @returns A promise with the list of models for the model provider
  */
 export async function getConfiguredProviderModels(
   providerName: string,
   forceRefresh: boolean = false
-): Promise<BaseResponse<ConfiguredProviderModelsResponse>> {
+): Promise<BaseResponse<ConfiguredModelProviderModelsResponse>> {
   try {
     const queryParam = forceRefresh ? "?refresh=true" : "";
-    const response = await fetchApi<BaseResponse<ConfiguredProviderModelsResponse>>(
-      `/providers/configured/${providerName}/models${queryParam}`
+    const response = await fetchApi<BaseResponse<ConfiguredModelProviderModelsResponse>>(
+      `/modelproviderconfigs/configured/${providerName}/models${queryParam}`
     );
     return response;
   } catch (error) {
-    return createErrorResponse<ConfiguredProviderModelsResponse>(error, `Error getting models for provider ${providerName}`);
+    return createErrorResponse<ConfiguredModelProviderModelsResponse>(error, `Error getting models for model provider ${providerName}`);
   }
 }

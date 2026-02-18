@@ -14,8 +14,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// ProviderResponse is the API response format for listing providers
-type ProviderResponse struct {
+// ModelProviderResponse is the API response format for listing model providers
+type ModelProviderResponse struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Endpoint string `json:"endpoint"`
@@ -27,15 +27,15 @@ type ModelsResponse struct {
 	Models   []string `json:"models"`
 }
 
-// ProviderHandler handles provider requests
-type ProviderHandler struct {
+// ModelProviderConfigHandler handles model provider config requests
+type ModelProviderConfigHandler struct {
 	*Base
 	reconciler reconciler.KagentReconciler
 }
 
-// NewProviderHandler creates a new ProviderHandler
-func NewProviderHandler(base *Base, rcnclr reconciler.KagentReconciler) *ProviderHandler {
-	return &ProviderHandler{
+// NewModelProviderConfigHandler creates a new ModelProviderConfigHandler
+func NewModelProviderConfigHandler(base *Base, rcnclr reconciler.KagentReconciler) *ModelProviderConfigHandler {
+	return &ModelProviderConfigHandler{
 		Base:       base,
 		reconciler: rcnclr,
 	}
@@ -68,7 +68,7 @@ func getRequiredKeysForMemoryProvider(providerType v1alpha1.MemoryProvider) []st
 	}
 }
 
-func (h *ProviderHandler) HandleListSupportedMemoryProviders(w ErrorResponseWriter, r *http.Request) {
+func (h *ModelProviderConfigHandler) HandleListSupportedMemoryProviders(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "list-supported-memory-providers")
 
 	log.Info("Listing supported memory providers with parameters")
@@ -109,7 +109,7 @@ func (h *ProviderHandler) HandleListSupportedMemoryProviders(w ErrorResponseWrit
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWriter, r *http.Request) {
+func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "list-supported-model-providers")
 
 	log.Info("Listing supported model providers with parameters")
@@ -157,28 +157,28 @@ func (h *ProviderHandler) HandleListSupportedModelProviders(w ErrorResponseWrite
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleListConfiguredProviders returns the list of providers configured via Provider CRDs.
-// GET /api/providers/configured
-func (h *ProviderHandler) HandleListConfiguredProviders(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "list-configured-providers")
+// HandleListConfiguredProviders returns the list of model providers configured via ModelProviderConfig CRDs.
+// GET /api/modelproviderconfigs/configured
+func (h *ModelProviderConfigHandler) HandleListConfiguredProviders(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("modelprovider-handler").WithValues("operation", "list-configured-providers")
 
-	log.Info("Listing configured providers")
+	log.Info("Listing configured model providers")
 
-	// List Provider CRs directly from Kubernetes
+	// List ModelProviderConfig CRs directly from Kubernetes
 	namespace := utils.GetResourceNamespace()
-	var providerList v1alpha2.ProviderList
-	if err := h.KubeClient.List(r.Context(), &providerList, client.InNamespace(namespace)); err != nil {
-		log.Error(err, "Failed to list providers")
+	var modelProviderConfigList v1alpha2.ModelProviderConfigList
+	if err := h.KubeClient.List(r.Context(), &modelProviderConfigList, client.InNamespace(namespace)); err != nil {
+		log.Error(err, "Failed to list model provider configs")
 		RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Filter for Ready providers and transform to API response format
-	var response []ProviderResponse
-	for _, p := range providerList.Items {
-		// Only include Ready providers
-		if meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha2.ProviderConditionTypeReady) {
-			response = append(response, ProviderResponse{
+	// Filter for Ready model providers and transform to API response format
+	var response []ModelProviderResponse
+	for _, p := range modelProviderConfigList.Items {
+		// Only include Ready model providers
+		if meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha2.ModelProviderConfigConditionTypeReady) {
+			response = append(response, ModelProviderResponse{
 				Name:     p.Name,
 				Type:     string(p.Spec.Type),
 				Endpoint: p.Spec.GetEndpoint(),
@@ -186,25 +186,25 @@ func (h *ProviderHandler) HandleListConfiguredProviders(w ErrorResponseWriter, r
 		}
 	}
 
-	log.Info("Successfully listed configured providers", "count", len(response))
-	data := api.NewResponse(response, "Successfully listed configured providers", false)
+	log.Info("Successfully listed configured model providers", "count", len(response))
+	data := api.NewResponse(response, "Successfully listed configured model providers", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleGetProviderModels discovers and returns available models for a specific provider.
-// GET /api/providers/configured/{name}/models?refresh=true
-func (h *ProviderHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("provider-handler").WithValues("operation", "get-provider-models")
+// HandleGetProviderModels discovers and returns available models for a specific model provider.
+// GET /api/modelproviderconfigs/configured/{name}/models?refresh=true
+func (h *ModelProviderConfigHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("modelprovider-handler").WithValues("operation", "get-provider-models")
 
 	providerName, err := GetPathParam(r, "name")
 	if err != nil {
-		log.Info("Missing provider name parameter")
-		RespondWithError(w, http.StatusBadRequest, "Provider name is required")
+		log.Info("Missing model provider name parameter")
+		RespondWithError(w, http.StatusBadRequest, "Model provider name is required")
 		return
 	}
 
 	log = log.WithValues("provider", providerName)
-	log.Info("Getting models for provider")
+	log.Info("Getting models for model provider")
 
 	// Check for refresh query parameter
 	forceRefresh := r.URL.Query().Get("refresh") == "true"
@@ -214,27 +214,27 @@ func (h *ProviderHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http
 	if forceRefresh {
 		// Call reconciler to trigger fresh discovery
 		log.Info("Forcing fresh model discovery")
-		models, err = h.reconciler.RefreshProviderModels(r.Context(), namespace, providerName)
+		models, err = h.reconciler.RefreshModelProviderConfigModels(r.Context(), namespace, providerName)
 		if err != nil {
-			log.Error(err, "Failed to refresh models for provider")
+			log.Error(err, "Failed to refresh models for model provider")
 			RespondWithError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	} else {
-		// Read cached models from Provider.Status
-		p := &v1alpha2.Provider{}
+		// Read cached models from ModelProviderConfig.Status
+		p := &v1alpha2.ModelProviderConfig{}
 		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{
 			Namespace: namespace,
 			Name:      providerName,
 		}, p); err != nil {
-			log.Error(err, "Failed to get provider")
+			log.Error(err, "Failed to get model provider config")
 			RespondWithError(w, http.StatusNotFound, err.Error())
 			return
 		}
 
 		if len(p.Status.DiscoveredModels) == 0 {
-			log.Info("No models discovered for provider, try refreshing")
-			RespondWithError(w, http.StatusNotFound, "No models discovered for provider, try refreshing")
+			log.Info("No models discovered for model provider, try refreshing")
+			RespondWithError(w, http.StatusNotFound, "No models discovered for model provider, try refreshing")
 			return
 		}
 
@@ -246,7 +246,7 @@ func (h *ProviderHandler) HandleGetProviderModels(w ErrorResponseWriter, r *http
 		Models:   models,
 	}
 
-	log.Info("Successfully retrieved models for provider", "count", len(models))
+	log.Info("Successfully retrieved models for model provider", "count", len(models))
 	data := api.NewResponse(response, "Successfully retrieved models", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }

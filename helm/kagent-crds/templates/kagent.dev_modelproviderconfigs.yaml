@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: providers.kagent.dev
+  name: modelproviderconfigs.kagent.dev
 spec:
   group: kagent.dev
   names:
     categories:
     - kagent
-    kind: Provider
-    listKind: ProviderList
-    plural: providers
+    kind: ModelProviderConfig
+    listKind: ModelProviderConfigList
+    plural: modelproviderconfigs
     shortNames:
-    - prov
-    singular: provider
+    - mprov
+    singular: modelproviderconfig
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -38,7 +38,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Provider is the Schema for the providers API.
+          ModelProviderConfig is the Schema for the modelproviderconfigs API.
           It represents a model provider configuration with automatic model discovery.
         properties:
           apiVersion:
@@ -59,26 +59,29 @@ spec:
           metadata:
             type: object
           spec:
-            description: ProviderSpec defines the desired state of Provider.
+            description: ModelProviderConfigSpec defines the desired state of ModelProviderConfig.
             properties:
               endpoint:
-                description: Endpoint is the API endpoint URL for the provider
+                description: |-
+                  Endpoint is the API endpoint URL for the provider.
+                  If not specified, the default endpoint for the provider type will be used.
                 pattern: ^https?://.*
                 type: string
               secretRef:
-                description: SecretRef references the Kubernetes Secret containing
-                  the API key
+                description: |-
+                  SecretRef references the Kubernetes Secret containing the API key.
+                  Optional for providers that don't require authentication (e.g., local Ollama).
                 properties:
                   key:
-                    description: Key is the key within the secret that contains the
-                      API key or credential
+                    description: |-
+                      Key is the key within the secret that contains the API key or credential.
+                      If not specified and the secret contains exactly one key, that key will be used automatically.
                     type: string
                   name:
                     description: Name is the name of the secret in the same namespace
-                      as the Provider
+                      as the ModelProviderConfig
                     type: string
                 required:
-                - key
                 - name
                 type: object
               type:
@@ -91,24 +94,25 @@ spec:
                 - Gemini
                 - GeminiVertexAI
                 - AnthropicVertexAI
+                - Bedrock
                 type: string
             required:
-            - endpoint
-            - secretRef
             - type
             type: object
             x-kubernetes-validations:
             - message: endpoint must be a valid URL starting with http:// or https://
-              rule: self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')
-            - message: secretRef.name and secretRef.key are required
-              rule: has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name)
-                > 0 && has(self.secretRef.key) && size(self.secretRef.key) > 0
+              rule: '!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith(''http://'')
+                || self.endpoint.startsWith(''https://'')'
+            - message: secretRef is required for providers that need authentication
+                (not Ollama)
+              rule: self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name)
+                && size(self.secretRef.name) > 0)
           status:
-            description: ProviderStatus defines the observed state of Provider.
+            description: ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
             properties:
               conditions:
                 description: Conditions represent the latest available observations
-                  of the Provider's state
+                  of the ModelProviderConfig's state
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -169,7 +173,7 @@ spec:
                 x-kubernetes-list-type: map
               discoveredModels:
                 description: DiscoveredModels is the cached list of model IDs available
-                  from this provider
+                  from this model provider
                 items:
                   type: string
                 type: array
@@ -184,7 +188,7 @@ spec:
                 type: integer
               observedGeneration:
                 description: ObservedGeneration reflects the generation of the most
-                  recently observed Provider spec
+                  recently observed ModelProviderConfig spec
                 format: int64
                 type: integer
               secretHash:

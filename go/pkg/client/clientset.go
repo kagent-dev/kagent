@@ -12,7 +12,7 @@ type ClientSet struct {
 	Tool        Tool
 	ToolServer  ToolServer
 	Memory      Memory
-	Provider    Provider
+	ModelProviderConfig ModelProviderConfig
 	Model       Model
 	Namespace   Namespace
 	Feedback    Feedback
@@ -32,7 +32,7 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Tool:        NewToolClient(baseClient),
 		ToolServer:  NewToolServerClient(baseClient),
 		Memory:      NewMemoryClient(baseClient),
-		Provider:    NewProviderClient(baseClient),
+		ModelProviderConfig: NewModelProviderConfigClient(baseClient),
 		Model:       NewModelClient(baseClient),
 		Namespace:   NewNamespaceClient(baseClient),
 		Feedback:    NewFeedbackClient(baseClient),

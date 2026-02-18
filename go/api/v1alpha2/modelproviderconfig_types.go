@@ -21,19 +21,19 @@ import (
 )
 
 const (
-	// ProviderConditionTypeReady indicates whether the provider is ready for use
-	ProviderConditionTypeReady = "Ready"
+	// ModelProviderConfigConditionTypeReady indicates whether the model provider config is ready for use
+	ModelProviderConfigConditionTypeReady = "Ready"
 
-	// ProviderConditionTypeSecretResolved indicates whether the provider's secret reference is valid
-	ProviderConditionTypeSecretResolved = "SecretResolved"
+	// ModelProviderConfigConditionTypeSecretResolved indicates whether the model provider config's secret reference is valid
+	ModelProviderConfigConditionTypeSecretResolved = "SecretResolved"
 
-	// ProviderConditionTypeModelsDiscovered indicates whether model discovery has succeeded
-	ProviderConditionTypeModelsDiscovered = "ModelsDiscovered"
+	// ModelProviderConfigConditionTypeModelsDiscovered indicates whether model discovery has succeeded
+	ModelProviderConfigConditionTypeModelsDiscovered = "ModelsDiscovered"
 )
 
-// DefaultProviderEndpoint returns the default API endpoint for a given provider type.
+// DefaultModelProviderEndpoint returns the default API endpoint for a given model provider type.
 // Returns empty string if no default is defined.
-func DefaultProviderEndpoint(providerType ModelProvider) string {
+func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 	switch providerType {
 	case ModelProviderOpenAI:
 		return "https://api.openai.com/v1"
@@ -51,20 +51,21 @@ func DefaultProviderEndpoint(providerType ModelProvider) string {
 
 // SecretReference contains information to locate a secret.
 type SecretReference struct {
-	// Name is the name of the secret in the same namespace as the Provider
+	// Name is the name of the secret in the same namespace as the ModelProviderConfig
 	// +required
 	Name string `json:"name"`
 
-	// Key is the key within the secret that contains the API key or credential
-	// +required
-	Key string `json:"key"`
+	// Key is the key within the secret that contains the API key or credential.
+	// If not specified and the secret contains exactly one key, that key will be used automatically.
+	// +optional
+	Key string `json:"key,omitempty"`
 }
 
-// ProviderSpec defines the desired state of Provider.
+// ModelProviderConfigSpec defines the desired state of ModelProviderConfig.
 //
-// +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || self.endpoint == '' || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
-// +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0 && has(self.secretRef.key) && size(self.secretRef.key) > 0)"
-type ProviderSpec struct {
+// +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
+// +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0)"
+type ModelProviderConfigSpec struct {
 	// Type is the model provider type (OpenAI, Anthropic, etc.)
 	// +required
 	// +kubebuilder:validation:Required
@@ -83,31 +84,31 @@ type ProviderSpec struct {
 }
 
 // GetEndpoint returns the endpoint, or the default endpoint if not specified.
-func (p *ProviderSpec) GetEndpoint() string {
+func (p *ModelProviderConfigSpec) GetEndpoint() string {
 	if p.Endpoint != "" {
 		return p.Endpoint
 	}
-	return DefaultProviderEndpoint(p.Type)
+	return DefaultModelProviderEndpoint(p.Type)
 }
 
-// RequiresSecret returns true if this provider type requires a secret for authentication.
-func (p *ProviderSpec) RequiresSecret() bool {
+// RequiresSecret returns true if this model provider type requires a secret for authentication.
+func (p *ModelProviderConfigSpec) RequiresSecret() bool {
 	return p.Type != ModelProviderOllama
 }
 
-// ProviderStatus defines the observed state of Provider.
-type ProviderStatus struct {
-	// ObservedGeneration reflects the generation of the most recently observed Provider spec
+// ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
+type ModelProviderConfigStatus struct {
+	// ObservedGeneration reflects the generation of the most recently observed ModelProviderConfig spec
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions represent the latest available observations of the Provider's state
+	// Conditions represent the latest available observations of the ModelProviderConfig's state
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// DiscoveredModels is the cached list of model IDs available from this provider
+	// DiscoveredModels is the cached list of model IDs available from this model provider
 	// +optional
 	DiscoveredModels []string `json:"discoveredModels,omitempty"`
 
@@ -125,7 +126,7 @@ type ProviderStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:categories=kagent,shortName=prov
+// +kubebuilder:resource:categories=kagent,shortName=mprov
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
 // +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".spec.endpoint"
@@ -134,25 +135,25 @@ type ProviderStatus struct {
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:storageversion
 
-// Provider is the Schema for the providers API.
+// ModelProviderConfig is the Schema for the modelproviderconfigs API.
 // It represents a model provider configuration with automatic model discovery.
-type Provider struct {
+type ModelProviderConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ProviderSpec   `json:"spec,omitempty"`
-	Status ProviderStatus `json:"status,omitempty"`
+	Spec   ModelProviderConfigSpec   `json:"spec,omitempty"`
+	Status ModelProviderConfigStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// ProviderList contains a list of Provider.
-type ProviderList struct {
+// ModelProviderConfigList contains a list of ModelProviderConfig.
+type ModelProviderConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Provider `json:"items"`
+	Items           []ModelProviderConfig `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Provider{}, &ProviderList{})
+	SchemeBuilder.Register(&ModelProviderConfig{}, &ModelProviderConfigList{})
 }

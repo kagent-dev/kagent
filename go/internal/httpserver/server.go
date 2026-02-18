@@ -33,7 +33,7 @@ const (
 	APIPathToolServers     = "/api/toolservers"
 	APIPathToolServerTypes = "/api/toolservertypes"
 	APIPathAgents          = "/api/agents"
-	APIPathProviders       = "/api/providers"
+	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
 	APIPathModels          = "/api/models"
 	APIPathMemories        = "/api/memories"
 	APIPathNamespaces      = "/api/namespaces"
@@ -194,11 +194,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	// Providers
-	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathProviders+"/memories", adaptHandler(s.handlers.Provider.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathProviders+"/configured", adaptHandler(s.handlers.Provider.HandleListConfiguredProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathProviders+"/configured/{name}/models", adaptHandler(s.handlers.Provider.HandleGetProviderModels)).Methods(http.MethodGet)
+	// Model Provider Configs
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/memories", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured", adaptHandler(s.handlers.ModelProviderConfig.HandleListConfiguredProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured/{name}/models", adaptHandler(s.handlers.ModelProviderConfig.HandleGetProviderModels)).Methods(http.MethodGet)
 
 	// Models
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)

@@ -36,45 +36,45 @@ import (
 )
 
 var (
-	providerControllerLog = ctrl.Log.WithName("provider-controller")
+	modelProviderConfigControllerLog = ctrl.Log.WithName("modelproviderconfig-controller")
 )
 
-// ProviderController reconciles a Provider object
-type ProviderController struct {
+// ModelProviderConfigController reconciles a ModelProviderConfig object
+type ModelProviderConfigController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
 }
 
-// +kubebuilder:rbac:groups=kagent.dev,resources=providers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kagent.dev,resources=providers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kagent.dev,resources=providers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kagent.dev,resources=modelproviderconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kagent.dev,resources=modelproviderconfigs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kagent.dev,resources=modelproviderconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 
-func (r *ProviderController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ModelProviderConfigController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return r.Reconciler.ReconcileKagentProvider(ctx, req)
+	return r.Reconciler.ReconcileKagentModelProviderConfig(ctx, req)
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ProviderController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ModelProviderConfigController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: ptr.To(true),
 		}).
-		For(&v1alpha2.Provider{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha2.ModelProviderConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 				requests := []reconcile.Request{}
 
-				for _, provider := range r.findProvidersUsingSecret(ctx, mgr.GetClient(), types.NamespacedName{
+				for _, mpc := range r.findModelProviderConfigsUsingSecret(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
 					requests = append(requests, reconcile.Request{
 						NamespacedName: types.NamespacedName{
-							Name:      provider.ObjectMeta.Name,
-							Namespace: provider.ObjectMeta.Namespace,
+							Name:      mpc.ObjectMeta.Name,
+							Namespace: mpc.ObjectMeta.Namespace,
 						},
 					})
 				}
@@ -83,35 +83,35 @@ func (r *ProviderController) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
-		Named("provider").
+		Named("modelproviderconfig").
 		Complete(r)
 }
 
-func (r *ProviderController) findProvidersUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Provider {
-	var providers []*v1alpha2.Provider
+func (r *ModelProviderConfigController) findModelProviderConfigsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelProviderConfig {
+	var configs []*v1alpha2.ModelProviderConfig
 
-	var providersList v1alpha2.ProviderList
+	var configList v1alpha2.ModelProviderConfigList
 	if err := cl.List(
 		ctx,
-		&providersList,
+		&configList,
 	); err != nil {
-		providerControllerLog.Error(err, "failed to list Providers in order to reconcile Secret update")
-		return providers
+		modelProviderConfigControllerLog.Error(err, "failed to list ModelProviderConfigs in order to reconcile Secret update")
+		return configs
 	}
 
-	for i := range providersList.Items {
-		provider := &providersList.Items[i]
+	for i := range configList.Items {
+		mpc := &configList.Items[i]
 
-		if providerReferencesSecret(provider, obj) {
-			providers = append(providers, provider)
+		if modelProviderConfigReferencesSecret(mpc, obj) {
+			configs = append(configs, mpc)
 		}
 	}
 
-	return providers
+	return configs
 }
 
-func providerReferencesSecret(provider *v1alpha2.Provider, secretObj types.NamespacedName) bool {
-	// Secrets must be in the same namespace as the provider
-	return provider.Namespace == secretObj.Namespace &&
-		provider.Spec.SecretRef.Name == secretObj.Name
+func modelProviderConfigReferencesSecret(mpc *v1alpha2.ModelProviderConfig, secretObj types.NamespacedName) bool {
+	// Secrets must be in the same namespace as the model provider config
+	return mpc.Namespace == secretObj.Namespace &&
+		mpc.Spec.SecretRef.Name == secretObj.Name
 }

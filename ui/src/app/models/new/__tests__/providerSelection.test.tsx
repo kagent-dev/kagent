@@ -28,6 +28,7 @@ describe('Provider Selection useEffect Logic', () => {
       if (!isEditMode && providers.length > 0 && !selectedProvider) {
         const openAIProvider = providers.find(p => p.type === 'OpenAI');
         if (openAIProvider) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setSelectedProvider(openAIProvider);
         }
       }
@@ -44,10 +45,10 @@ describe('Provider Selection useEffect Logic', () => {
       if (!isEditMode && providers.length > 0 && !selectedProvider) {
         const openAIProvider = providers.find(p => p.type === 'OpenAI' && p.source === 'stock');
         if (openAIProvider) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setSelectedProvider(openAIProvider);
         }
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isEditMode]); // FIX: Only run on mount (isEditMode change)
 
     return { selectedProvider, setSelectedProvider };

@@ -46,15 +46,15 @@ export type ProviderModel = {
 // Define the type for the expected API response structure
 export type ProviderModelsResponse = Record<string, ProviderModel[]>;
 
-// ConfiguredProvider is the response from /api/providers/configured
-export interface ConfiguredProvider {
+// ConfiguredModelProvider is the response from /api/modelproviderconfigs/configured
+export interface ConfiguredModelProvider {
   name: string;
   type: string;
   endpoint: string;
 }
 
-// ConfiguredProviderModelsResponse is the response from /api/providers/configured/{name}/models
-export interface ConfiguredProviderModelsResponse {
+// ConfiguredModelProviderModelsResponse is the response from /api/modelproviderconfigs/configured/{name}/models
+export interface ConfiguredModelProviderModelsResponse {
   provider: string;
   models: string[];
 }
@@ -222,6 +222,7 @@ export interface TypedLocalReference {
   kind?: string;
   apiGroup?: string;
   name: string;
+  namespace?: string;
 }
 
 export interface McpServerTool extends TypedLocalReference {

@@ -425,11 +425,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	if err = (&controller.ProviderController{
+	if err = (&controller.ModelProviderConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Provider")
+		setupLog.Error(err, "unable to create controller", "controller", "ModelProviderConfig")
 		os.Exit(1)
 	}
 

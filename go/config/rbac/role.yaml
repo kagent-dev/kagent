@@ -43,7 +43,7 @@ rules:
   resources:
   - agents
   - modelconfigs
-  - providers
+  - modelproviderconfigs
   - remotemcpservers
   verbs:
   - create
@@ -58,7 +58,7 @@ rules:
   resources:
   - agents/finalizers
   - modelconfigs/finalizers
-  - providers/finalizers
+  - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
   verbs:
   - update
@@ -67,7 +67,7 @@ rules:
   resources:
   - agents/status
   - modelconfigs/status
-  - providers/status
+  - modelproviderconfigs/status
   - remotemcpservers/status
   verbs:
   - get

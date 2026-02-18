@@ -24,7 +24,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/provider"
-	"github.com/kagent-dev/kagent/go/internal/controller/translator"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
@@ -47,8 +46,8 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
-	ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
-	RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error)
+	ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
+	RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error)
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -915,74 +914,92 @@ func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
 	}, nil
 }
 
-// ReconcileKagentProvider reconciles a Provider object
-func (a *kagentReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	p := &v1alpha2.Provider{}
-	if err := a.kube.Get(ctx, req.NamespacedName, p); err != nil {
+// ReconcileKagentModelProviderConfig reconciles a ModelProviderConfig object
+func (a *kagentReconciler) ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	mpc := &v1alpha2.ModelProviderConfig{}
+	if err := a.kube.Get(ctx, req.NamespacedName, mpc); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil // Deleted, cleanup done by OwnerReferences
 		}
-		return ctrl.Result{}, fmt.Errorf("failed to get provider %s: %w", req.NamespacedName, err)
+		return ctrl.Result{}, fmt.Errorf("failed to get model provider config %s: %w", req.NamespacedName, err)
 	}
 
 	// Validate and resolve secret, get API key in one pass
-	apiKey, secretHash, secretErr := a.resolveProviderSecret(ctx, p)
+	apiKey, secretHash, secretErr := a.resolveModelProviderConfigSecret(ctx, mpc)
 
 	// Discover models if needed
 	var models []string
 	var discoveryErr error
-	if a.shouldDiscoverModels(p) {
-		models, discoveryErr = a.discoverProviderModels(ctx, p, apiKey)
+	if a.shouldDiscoverModels(mpc) {
+		models, discoveryErr = a.discoverModelProviderConfigModels(ctx, mpc, apiKey)
 	} else {
 		// Keep existing cached models
-		models = p.Status.DiscoveredModels
+		models = mpc.Status.DiscoveredModels
 	}
 
 	// Update status with results (status subresource only, no object modification)
-	return a.updateProviderStatus(ctx, p, secretErr, discoveryErr, models, secretHash)
+	return a.updateModelProviderConfigStatus(ctx, mpc, secretErr, discoveryErr, models, secretHash)
 }
 
-// resolveProviderSecret fetches the Secret, validates it, and returns the API key and hash.
-// For providers that don't require authentication (e.g., Ollama), returns empty apiKey with no error.
-func (a *kagentReconciler) resolveProviderSecret(ctx context.Context, p *v1alpha2.Provider) (string, string, error) {
-	// Providers like Ollama don't require authentication
-	if !p.Spec.RequiresSecret() {
+// resolveModelProviderConfigSecret fetches the Secret, validates it, and returns the API key and hash.
+// For model provider configs that don't require authentication (e.g., Ollama), returns empty apiKey with no error.
+func (a *kagentReconciler) resolveModelProviderConfigSecret(ctx context.Context, mpc *v1alpha2.ModelProviderConfig) (string, string, error) {
+	// Model providers like Ollama don't require authentication
+	if !mpc.Spec.RequiresSecret() {
 		return "", "", nil
 	}
 
-	if p.Spec.SecretRef == nil {
-		return "", "", fmt.Errorf("provider %s requires a secret but none is configured", p.Name)
+	if mpc.Spec.SecretRef == nil {
+		return "", "", fmt.Errorf("model provider config %s requires a secret but none is configured", mpc.Name)
 	}
 
 	secret := &corev1.Secret{}
 	namespacedName := types.NamespacedName{
-		Namespace: p.Namespace,
-		Name:      p.Spec.SecretRef.Name,
+		Namespace: mpc.Namespace,
+		Name:      mpc.Spec.SecretRef.Name,
 	}
 
 	if err := a.kube.Get(ctx, namespacedName, secret); err != nil {
-		return "", "", fmt.Errorf("failed to get secret %s: %w", p.Spec.SecretRef.Name, err)
+		return "", "", fmt.Errorf("failed to get secret %s: %w", mpc.Spec.SecretRef.Name, err)
 	}
 
-	// Check that the specified key exists and has a value
-	key := p.Spec.SecretRef.Key
+	// Auto-detect key if not specified
+	key := mpc.Spec.SecretRef.Key
 	if key == "" {
-		return "", "", fmt.Errorf("provider %s has no secret key specified", p.Name)
+		// Auto-detect: if there's exactly one key in the secret, use it
+		if len(secret.Data) == 0 {
+			return "", "", fmt.Errorf("secret %s has no data keys", mpc.Spec.SecretRef.Name)
+		}
+		if len(secret.Data) == 1 {
+			// Auto-detect the only key
+			for k := range secret.Data {
+				key = k
+				break
+			}
+		} else {
+			// Multiple keys exist - user must specify which one
+			keys := make([]string, 0, len(secret.Data))
+			for k := range secret.Data {
+				keys = append(keys, k)
+			}
+			return "", "", fmt.Errorf("secret %s has multiple keys [%s]; please specify which key to use in secretRef.key",
+				mpc.Spec.SecretRef.Name, strings.Join(keys, ", "))
+		}
 	}
 
 	apiKey, ok := secret.Data[key]
 	if !ok || len(apiKey) == 0 {
-		return "", "", fmt.Errorf("secret %s missing or empty key %s", p.Spec.SecretRef.Name, key)
+		return "", "", fmt.Errorf("secret %s missing or empty key %s", mpc.Spec.SecretRef.Name, key)
 	}
 
 	// Compute secret hash for change detection
-	secretHash := computeProviderSecretHash(secret, key)
+	secretHash := computeModelProviderSecretHash(secret, key)
 
 	return string(apiKey), secretHash, nil
 }
 
-// computeProviderSecretHash computes a hash of the secret data for change detection
-func computeProviderSecretHash(secret *corev1.Secret, key string) string {
+// computeModelProviderSecretHash computes a hash of the secret data for change detection
+func computeModelProviderSecretHash(secret *corev1.Secret, key string) string {
 	hash := sha256.New()
 	hash.Write([]byte(secret.Namespace))
 	hash.Write([]byte(secret.Name))
@@ -994,14 +1011,14 @@ func computeProviderSecretHash(secret *corev1.Secret, key string) string {
 }
 
 // shouldDiscoverModels checks if model discovery is needed
-func (a *kagentReconciler) shouldDiscoverModels(p *v1alpha2.Provider) bool {
-	// Initial discovery when Provider is first created or spec changed
-	if p.Status.LastDiscoveryTime == nil {
+func (a *kagentReconciler) shouldDiscoverModels(mpc *v1alpha2.ModelProviderConfig) bool {
+	// Initial discovery when ModelProviderConfig is first created or spec changed
+	if mpc.Status.LastDiscoveryTime == nil {
 		return true
 	}
 
 	// Re-discover if the generation changed (spec was updated)
-	if p.Status.ObservedGeneration != p.Generation {
+	if mpc.Status.ObservedGeneration != mpc.Generation {
 		return true
 	}
 
@@ -1009,85 +1026,85 @@ func (a *kagentReconciler) shouldDiscoverModels(p *v1alpha2.Provider) bool {
 	return false
 }
 
-// discoverProviderModels calls the model discoverer to fetch models
-func (a *kagentReconciler) discoverProviderModels(ctx context.Context, p *v1alpha2.Provider, apiKey string) ([]string, error) {
-	// For providers that require auth, ensure we have an API key
-	if p.Spec.RequiresSecret() && apiKey == "" {
+// discoverModelProviderConfigModels calls the model discoverer to fetch models
+func (a *kagentReconciler) discoverModelProviderConfigModels(ctx context.Context, mpc *v1alpha2.ModelProviderConfig, apiKey string) ([]string, error) {
+	// For model provider configs that require auth, ensure we have an API key
+	if mpc.Spec.RequiresSecret() && apiKey == "" {
 		return nil, fmt.Errorf("cannot discover models: API key not available")
 	}
 
 	// Use the provider package's ModelDiscoverer with the resolved endpoint
 	discoverer := provider.NewModelDiscoverer()
-	return discoverer.DiscoverModels(ctx, p.Spec.Type, p.Spec.GetEndpoint(), apiKey)
+	return discoverer.DiscoverModels(ctx, mpc.Spec.Type, mpc.Spec.GetEndpoint(), apiKey)
 }
 
-// updateProviderStatus updates the Provider status based on reconciliation results.
-// Only modifies the status subresource - never modifies the Provider object itself.
-func (a *kagentReconciler) updateProviderStatus(
+// updateModelProviderConfigStatus updates the ModelProviderConfig status based on reconciliation results.
+// Only modifies the status subresource - never modifies the ModelProviderConfig object itself.
+func (a *kagentReconciler) updateModelProviderConfigStatus(
 	ctx context.Context,
-	p *v1alpha2.Provider,
+	mpc *v1alpha2.ModelProviderConfig,
 	secretErr, discoveryErr error,
 	models []string,
 	secretHash string,
 ) (ctrl.Result, error) {
-	// For providers that don't require secrets, mark SecretResolved as true
-	secretRequired := p.Spec.RequiresSecret()
+	// For model provider configs that don't require secrets, mark SecretResolved as true
+	secretRequired := mpc.Spec.RequiresSecret()
 	secretResolved := !secretRequired || secretErr == nil
 
 	// Update SecretResolved condition
 	if secretRequired {
-		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-			Type:               v1alpha2.ProviderConditionTypeSecretResolved,
+		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
 			Status:             conditionStatus(secretErr == nil),
 			Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
 			Message:            conditionMessage(secretErr, "Secret resolved successfully"),
-			ObservedGeneration: p.Generation,
+			ObservedGeneration: mpc.Generation,
 		})
 	} else {
-		// Provider doesn't require a secret (e.g., Ollama)
-		meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-			Type:               v1alpha2.ProviderConditionTypeSecretResolved,
+		// Model provider config doesn't require a secret (e.g., Ollama)
+		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
 			Status:             metav1.ConditionTrue,
 			Reason:             "SecretNotRequired",
-			Message:            "Provider does not require authentication",
-			ObservedGeneration: p.Generation,
+			Message:            "Model provider config does not require authentication",
+			ObservedGeneration: mpc.Generation,
 		})
 	}
 
 	// Update ModelsDiscovered condition
 	modelsDiscovered := discoveryErr == nil && len(models) > 0
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ProviderConditionTypeModelsDiscovered,
+	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ModelProviderConfigConditionTypeModelsDiscovered,
 		Status:             conditionStatus(modelsDiscovered),
 		Reason:             conditionReason(discoveryErr, "ModelsDiscovered", "DiscoveryFailed"),
 		Message:            fmt.Sprintf("Discovered %d models", len(models)),
-		ObservedGeneration: p.Generation,
+		ObservedGeneration: mpc.Generation,
 	})
 
 	// Update Ready condition (overall health)
 	ready := secretResolved && modelsDiscovered
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ProviderConditionTypeReady,
+	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ModelProviderConfigConditionTypeReady,
 		Status:             conditionStatus(ready),
 		Reason:             conditionReason(nil, "Ready", "NotReady"),
-		Message:            conditionMessage(nil, "Provider is ready"),
-		ObservedGeneration: p.Generation,
+		Message:            conditionMessage(nil, "Model provider config is ready"),
+		ObservedGeneration: mpc.Generation,
 	})
 
 	// Update status fields
-	p.Status.ObservedGeneration = p.Generation
-	p.Status.DiscoveredModels = models
-	p.Status.ModelCount = len(models)
-	p.Status.SecretHash = secretHash
+	mpc.Status.ObservedGeneration = mpc.Generation
+	mpc.Status.DiscoveredModels = models
+	mpc.Status.ModelCount = len(models)
+	mpc.Status.SecretHash = secretHash
 
 	if discoveryErr == nil && len(models) > 0 {
 		now := metav1.Now()
-		p.Status.LastDiscoveryTime = &now
+		mpc.Status.LastDiscoveryTime = &now
 	}
 
-	// Update status subresource only - never modify the Provider object itself
-	if err := a.kube.Status().Update(ctx, p); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to update provider status: %w", err)
+	// Update status subresource only - never modify the ModelProviderConfig object itself
+	if err := a.kube.Status().Update(ctx, mpc); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update model provider config status: %w", err)
 	}
 
 	// No periodic requeue - discovery only on-demand via HTTP API
@@ -1116,31 +1133,31 @@ func conditionMessage(err error, successMessage string) string {
 	return successMessage
 }
 
-// RefreshProviderModels forces a fresh model discovery for a provider and updates its status.
+// RefreshModelProviderConfigModels forces a fresh model discovery for a model provider config and updates its status.
 // This is called by the HTTP API when refresh=true is requested.
 // It reuses all existing internal reconciler methods - no code duplication.
-func (a *kagentReconciler) RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error) {
-	p := &v1alpha2.Provider{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, p); err != nil {
-		return nil, fmt.Errorf("failed to get provider %s/%s: %w", namespace, name, err)
+func (a *kagentReconciler) RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error) {
+	mpc := &v1alpha2.ModelProviderConfig{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, mpc); err != nil {
+		return nil, fmt.Errorf("failed to get model provider config %s/%s: %w", namespace, name, err)
 	}
 
 	// Reuse existing secret resolution logic
-	apiKey, secretHash, secretErr := a.resolveProviderSecret(ctx, p)
+	apiKey, secretHash, secretErr := a.resolveModelProviderConfigSecret(ctx, mpc)
 	if secretErr != nil {
-		return nil, fmt.Errorf("failed to resolve provider secret: %w", secretErr)
+		return nil, fmt.Errorf("failed to resolve model provider config secret: %w", secretErr)
 	}
 
 	// Force discovery by calling the existing method
-	models, discoveryErr := a.discoverProviderModels(ctx, p, apiKey)
+	models, discoveryErr := a.discoverModelProviderConfigModels(ctx, mpc, apiKey)
 	if discoveryErr != nil {
 		return nil, fmt.Errorf("model discovery failed: %w", discoveryErr)
 	}
 
 	// Update status using existing method (persists to CR)
-	_, err := a.updateProviderStatus(ctx, p, secretErr, discoveryErr, models, secretHash)
+	_, err := a.updateModelProviderConfigStatus(ctx, mpc, secretErr, discoveryErr, models, secretHash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update provider status: %w", err)
+		return nil, fmt.Errorf("failed to update model provider config status: %w", err)
 	}
 
 	return models, nil

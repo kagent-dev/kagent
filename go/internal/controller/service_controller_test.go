@@ -39,11 +39,11 @@ func (f *fakeServiceReconciler) ReconcileKagentRemoteMCPServer(ctx context.Conte
 	return nil
 }
 
-func (f *fakeServiceReconciler) ReconcileKagentProvider(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (f *fakeServiceReconciler) ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	return ctrl.Result{}, nil
 }
 
-func (f *fakeServiceReconciler) RefreshProviderModels(ctx context.Context, namespace, name string) ([]string, error) {
+func (f *fakeServiceReconciler) RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error) {
 	return nil, nil
 }
 
