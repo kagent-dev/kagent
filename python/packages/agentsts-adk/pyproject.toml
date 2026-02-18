@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentsts-adk"
+version = "0.1.0"
+description = "Framework-specific integration points with agentsts-core"
+requires-python = ">=3.11.0"
+dependencies = [
+  "agentsts-core",
+  "google-adk>=1.18.0",
+  "google-genai>=1.21.1",
+  "google-auth>=2.40.2",
+  "httpx>=0.25.0",
+  "pydantic>=2.5.0",
+  "typing-extensions>=4.8.0",
+  "aiofiles>=24.1.0",
+  "anyio>=4.9.0",
+]
+
+[tool.uv.sources]
+agentsts-core = {workspace = true}
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.25.3",
+  "pytest-mock>=3.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentsts"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
