@@ -145,4 +145,45 @@ tests:
           value: RELEASE-NAME
       - equal:
           path: metadata.labels["app.kubernetes.io/managed-by"]
-          value: Helm 
+          value: Helm
+
+  # Tests for rbac.clusterRoleEnabled switch
+  - it: should render clusterroles when rbac.clusterRoleEnabled is true (default)
+    template: rbac/clusterrole.yaml
+    set:
+      rbac:
+        clusterRoleEnabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+
+  - it: should not render clusterroles when rbac.clusterRoleEnabled is false
+    template: rbac/clusterrole.yaml
+    set:
+      rbac:
+        clusterRoleEnabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render clusterrolebindings when rbac.clusterRoleEnabled is true (default)
+    template: rbac/clusterrolebinding.yaml
+    set:
+      rbac:
+        clusterRoleEnabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRoleBinding
+
+  - it: should not render clusterrolebindings when rbac.clusterRoleEnabled is false
+    template: rbac/clusterrolebinding.yaml
+    set:
+      rbac:
+        clusterRoleEnabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
