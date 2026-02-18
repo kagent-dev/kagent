@@ -876,8 +876,8 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.ModelConfigSpec{
-			Model:            "gpt-4.1-mini",
-			Provider:         v1alpha2.ModelProviderOpenAI,
+			Model:             "gpt-4.1-mini",
+			Provider:          v1alpha2.ModelProviderOpenAI,
 			APIKeyPassthrough: true,
 			OpenAI: &v1alpha2.OpenAIConfig{
 				BaseURL: baseURL + "/v1",
