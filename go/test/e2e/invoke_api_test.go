@@ -241,9 +241,6 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 // If contextID is provided, it will be included in the message to maintain conversation context
 // Checks the full JSON output to support both artifacts and history from different agent types
 func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, contextID ...string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	msg := protocol.Message{
 		Kind:  protocol.KindMessage,
 		Role:  protocol.MessageRoleUser,
@@ -255,31 +252,43 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		msg.ContextID = &contextID[0]
 	}
 
-	var stream <-chan protocol.StreamingMessageEvent
-	err := retry.OnError(defaultRetry, func(err error) bool {
-		return err != nil
-	}, func() error {
-		var retryErr error
-		stream, retryErr = a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
-		return retryErr
-	})
-	require.NoError(t, err)
+	// Per-attempt retry timeout
+	var lastErr error
+	for attempt := range defaultRetry.Steps {
+		if attempt > 0 {
+			backoff := defaultRetry.Duration * time.Duration(1<<(attempt-1))
+			t.Logf("streaming attempt %d failed, retrying in %v: %v", attempt, backoff, lastErr)
+			time.Sleep(backoff)
+		}
 
-	resultList := []protocol.StreamingMessageEvent{}
-	var text string
-	for event := range stream {
-		msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
-		if !ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stream, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+		if err != nil {
+			cancel()
+			lastErr = err
 			continue
 		}
-		if msgResult.Status.Message != nil {
-			text += a2a.ExtractText(*msgResult.Status.Message)
+
+		resultList := []protocol.StreamingMessageEvent{}
+		var text string
+		for event := range stream {
+			msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
+			if !ok {
+				continue
+			}
+			if msgResult.Status.Message != nil {
+				text += a2a.ExtractText(*msgResult.Status.Message)
+			}
+			resultList = append(resultList, event)
 		}
-		resultList = append(resultList, event)
+		cancel()
+
+		jsn, err := json.Marshal(resultList)
+		require.NoError(t, err)
+		require.Contains(t, string(jsn), expectedText, string(jsn))
+		return
 	}
-	jsn, err := json.Marshal(resultList)
-	require.NoError(t, err)
-	require.Contains(t, string(jsn), expectedText, string(jsn))
+	require.NoError(t, lastErr)
 }
 
 func a2aUrl(namespace, name string) string {
@@ -461,11 +470,6 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	// Enable streaming explicitly
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
-
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
