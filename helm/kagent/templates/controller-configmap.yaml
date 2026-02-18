@@ -18,15 +18,31 @@ data:
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
-  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
-  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  # OpenTelemetry Configuration
+  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
+  {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
+  {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}
+  # Using unified OTEL endpoint (same for traces and logs)
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ $tracesEndpoint | quote }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
-  OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
-  OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
-  OTEL_TRACING_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  {{- else }}
+  # Using separate endpoints for traces and logs
+  {{- if $tracesEndpoint }}
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
+  {{- end }}
+  {{- if $logsEndpoint }}
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ $logsEndpoint | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}

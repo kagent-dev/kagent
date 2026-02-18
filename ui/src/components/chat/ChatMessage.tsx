@@ -7,7 +7,7 @@ import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 import { convertToUserFriendlyName } from "@/lib/utils";
-import { ADKMetadata } from "@/lib/messageHandlers";
+import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 
 interface ChatMessageProps {
   message: Message;
@@ -41,8 +41,8 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
       return displaySource;
     }
 
-    // For stored messages from Task history, try to get kagent_app_name from metadata
-    const adkAppName = msgMetadata?.kagent_app_name;
+    // For stored messages from Task history, try to get app_name from metadata
+    const adkAppName = getMetadataValue<string>(message.metadata as Record<string, unknown>, "app_name");
 
     if (adkAppName) {
       return convertToUserFriendlyName(adkAppName);
@@ -72,8 +72,8 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
   // Check for tool call parts (works for both stored and streaming messages)
   const hasToolCallParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.kagent_type === "function_call" || partMetadata?.kagent_type === "function_response";
+      const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
+      return partType === "function_call" || partType === "function_response";
     }
     return false;
   });
@@ -89,8 +89,8 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
     const hasToolCalls = allMessages.some(msg => {
       return msg.parts?.some(part => {
         if (part.kind === "data" && part.metadata) {
-          const partMetadata = part.metadata as ADKMetadata;
-          return partMetadata?.kagent_type === "function_call" || partMetadata?.kagent_type === "function_response";
+          const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
+          return partType === "function_call" || partType === "function_response";
         }
         return false;
       });

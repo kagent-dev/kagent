@@ -63,8 +63,12 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
-        # Check new env var first, fall back to old one for backward compatibility
-        trace_endpoint = os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
+        trace_endpoint = (
+            os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+            or os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        )
         logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
             processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint))
@@ -93,8 +97,13 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")
         logger_provider = LoggerProvider(resource=resource)
-        log_endpoint = os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")
-        logging.info(f"Log endpoint configured: {log_endpoint}")
+        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
+        log_endpoint = (
+            os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+            or os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        )
+        logging.info("Log endpoint: %s", log_endpoint or "<default>")
 
         # Add OTLP exporter
         if log_endpoint:

@@ -68,6 +68,24 @@ tests:
           path: spec.template.metadata.labels["app.kubernetes.io/instance"]
           value: RELEASE-NAME
 
+  - it: should not set pod security context by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+
+  - it: should set pod security context when podSecurityContext is provided
+    set:
+      podSecurityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+
   - it: should set nodeSelector
     set:
         nodeSelector:

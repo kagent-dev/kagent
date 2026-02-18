@@ -23,7 +23,10 @@ func NewClient(dbManager *Manager) dbpkg.Client {
 
 // CreateFeedback creates a new feedback record
 func (c *clientImpl) StoreFeedback(feedback *dbpkg.Feedback) error {
-	return save(c.db, feedback)
+	if err := c.db.Create(feedback).Error; err != nil {
+		return fmt.Errorf("failed to create feedback: %w", err)
+	}
+	return nil
 }
 
 // CreateSession creates a new session record

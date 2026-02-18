@@ -3,7 +3,7 @@ import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText } from "@/lib/messageHandlers";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -26,11 +26,10 @@ const toolCallCache = new Map<string, boolean>();
 
 // Helper functions to work with A2A SDK Messages
 const isToolCallRequestMessage = (message: Message): boolean => {
-  // Check data parts for kagent_type first
+  // Check data parts for type metadata first
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.kagent_type === "function_call";
+      return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call";
     }
     return false;
   }) || false;
@@ -47,8 +46,7 @@ const isToolCallRequestMessage = (message: Message): boolean => {
 const isToolCallExecutionMessage = (message: Message): boolean => {
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.kagent_type === "function_response";
+      return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response";
     }
     return false;
   }) || false;
@@ -76,8 +74,7 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   
   for (const part of dataParts) {
     if (part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.kagent_type === "function_call") {
+      if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
         const data = part.data as unknown as FunctionCall;
         functionCalls.push({
           id: data.id,
@@ -116,12 +113,11 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   
   for (const part of dataParts) {
     if (part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.kagent_type === "function_response") {
+      if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
         const data = part.data as unknown as ToolResponseData;
         // Extract normalized content from the result (supports string/object/array)
         const textContent = normalizeToolResultToText(data);
-        
+
         toolResults.push({
           call_id: data.id,
           name: data.name,
