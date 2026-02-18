@@ -73,9 +73,8 @@ spec:
                   Optional for providers that don't require authentication (e.g., local Ollama).
                 properties:
                   name:
-                    description: |-
-                      Name is the name of the secret in the same namespace as the ModelProviderConfig.
-                      The secret must contain exactly one data key holding the API credential.
+                    description: Name is the name of the secret in the same namespace
+                      as the ModelProviderConfig.
                     type: string
                 required:
                 - name
