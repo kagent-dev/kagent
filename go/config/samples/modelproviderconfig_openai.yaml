@@ -1,0 +1,10 @@
+apiVersion: kagent.dev/v1alpha2
+kind: ModelProviderConfig
+metadata:
+  name: openai-prod
+  namespace: kagent
+spec:
+  type: OpenAI
+  endpoint: https://api.openai.com/v1
+  secretRef:
+    name: openai-secret

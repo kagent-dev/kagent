@@ -425,6 +425,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	if err = (&controller.ModelProviderConfigController{
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ModelProviderConfig")
+		os.Exit(1)
+	}
+
 	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
@@ -508,6 +516,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authorizer:        extensionCfg.Authorizer,
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
+		Reconciler:        rcnclr,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

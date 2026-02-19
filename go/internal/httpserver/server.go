@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/internal/mcp"
@@ -22,25 +23,25 @@ import (
 
 const (
 	// API Path constants
-	APIPathHealth          = "/health"
-	APIPathVersion         = "/version"
-	APIPathModelConfig     = "/api/modelconfigs"
-	APIPathRuns            = "/api/runs"
-	APIPathSessions        = "/api/sessions"
-	APIPathTasks           = "/api/tasks"
-	APIPathTools           = "/api/tools"
-	APIPathToolServers     = "/api/toolservers"
-	APIPathToolServerTypes = "/api/toolservertypes"
-	APIPathAgents          = "/api/agents"
-	APIPathProviders       = "/api/providers"
-	APIPathModels          = "/api/models"
-	APIPathMemories        = "/api/memories"
-	APIPathNamespaces      = "/api/namespaces"
-	APIPathA2A             = "/api/a2a"
-	APIPathMCP             = "/mcp"
-	APIPathFeedback        = "/api/feedback"
-	APIPathLangGraph       = "/api/langgraph"
-	APIPathCrewAI          = "/api/crewai"
+	APIPathHealth               = "/health"
+	APIPathVersion              = "/version"
+	APIPathModelConfig          = "/api/modelconfigs"
+	APIPathRuns                 = "/api/runs"
+	APIPathSessions             = "/api/sessions"
+	APIPathTasks                = "/api/tasks"
+	APIPathTools                = "/api/tools"
+	APIPathToolServers          = "/api/toolservers"
+	APIPathToolServerTypes      = "/api/toolservertypes"
+	APIPathAgents               = "/api/agents"
+	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
+	APIPathModels               = "/api/models"
+	APIPathMemories             = "/api/memories"
+	APIPathNamespaces           = "/api/namespaces"
+	APIPathA2A                  = "/api/a2a"
+	APIPathMCP                  = "/mcp"
+	APIPathFeedback             = "/api/feedback"
+	APIPathLangGraph            = "/api/langgraph"
+	APIPathCrewAI               = "/api/crewai"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -60,6 +61,7 @@ type ServerConfig struct {
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
 	ProxyURL          string
+	Reconciler        reconciler.KagentReconciler
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -79,7 +81,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -115,8 +117,10 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 			log.Error(err, "Failed to properly shutdown HTTP server")
 		}
 		// Close database connection
-		if err := s.dbManager.Close(); err != nil {
-			log.Error(err, "Failed to close database connection")
+		if s.dbManager != nil {
+			if err := s.dbManager.Close(); err != nil {
+				log.Error(err, "Failed to close database connection")
+			}
 		}
 	}()
 
@@ -192,9 +196,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	// Providers
-	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathProviders+"/memories", adaptHandler(s.handlers.Provider.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
+	// Model Provider Configs
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/memories", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured", adaptHandler(s.handlers.ModelProviderConfig.HandleListConfiguredProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured/{name}/models", adaptHandler(s.handlers.ModelProviderConfig.HandleGetProviderModels)).Methods(http.MethodGet)
 
 	// Models
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
