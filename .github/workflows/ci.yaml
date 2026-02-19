@@ -263,14 +263,14 @@ jobs:
           version: v2.8.0
           working-directory: go
 
-  python-version-test:
+  python-test:
     env:
       OPENAI_API_KEY: fake
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-    name: python-version-test (Python ${{ matrix.python-version }})
+    name: python-test (Python ${{ matrix.python-version }})
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
