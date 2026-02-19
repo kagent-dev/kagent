@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
+	"github.com/kagent-dev/kagent/go/pkg/utils"
 	"github.com/muesli/reflow/wordwrap"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -334,7 +335,7 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 				continue
 			}
 
-			typeVal, found := getMetadataValue(dp.Metadata, "type")
+			typeVal, found := utils.GetMetadataValue(dp.Metadata, "type")
 			if !found {
 				continue
 			}
@@ -499,23 +500,6 @@ func (m *chatModel) updateStatus() {
 	} else {
 		m.statusText = ""
 	}
-}
-
-// getMetadataValue looks up an unprefixed key in A2A metadata, checking
-// "adk_<key>" first then falling back to "kagent_<key>".  This allows
-// interoperability with upstream ADK (adk_ prefix) while preserving
-// backward-compatibility with kagent's own kagent_ prefix.
-func getMetadataValue(metadata map[string]any, key string) (any, bool) {
-	if metadata == nil {
-		return nil, false
-	}
-	if v, ok := metadata["adk_"+key]; ok {
-		return v, true
-	}
-	if v, ok := metadata["kagent_"+key]; ok {
-		return v, true
-	}
-	return nil, false
 }
 
 // getString safely extracts a string value from a map
