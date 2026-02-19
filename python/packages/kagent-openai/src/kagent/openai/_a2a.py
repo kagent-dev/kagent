@@ -65,12 +65,14 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 # Environment variables
 kagent_url_override = register_string(
-    "KAGENT_URL", None,
+    "KAGENT_URL",
+    None,
     "Base URL for A2A communication with the kagent controller.",
     "openai",
 )
 sts_well_known_uri = register_string(
-    "STS_WELL_KNOWN_URI", None,
+    "STS_WELL_KNOWN_URI",
+    None,
     "Well-known endpoint for the Security Token Service (STS).",
     "openai",
 )
@@ -82,12 +84,14 @@ def _configure_openai_client() -> None:
     """
 
     openai_api_base = register_string(
-        "OPENAI_API_BASE", None,
+        "OPENAI_API_BASE",
+        None,
         "Custom base URL for the OpenAI API.",
         "openai",
     )
     api_key = register_string(
-        "OPENAI_API_KEY", None,
+        "OPENAI_API_KEY",
+        None,
         "API key for OpenAI.",
         "openai",
     )

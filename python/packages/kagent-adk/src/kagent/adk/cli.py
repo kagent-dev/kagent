@@ -26,22 +26,26 @@ app = typer.Typer()
 
 
 kagent_url_override = register_string(
-    "KAGENT_URL", None,
+    "KAGENT_URL",
+    None,
     "Base URL for A2A communication with the kagent controller.",
     "adk",
 )
 sts_well_known_uri = register_string(
-    "STS_WELL_KNOWN_URI", None,
+    "STS_WELL_KNOWN_URI",
+    None,
     "Well-known endpoint for the Security Token Service (STS).",
     "adk",
 )
 propagate_token = register_string(
-    "KAGENT_PROPAGATE_TOKEN", None,
+    "KAGENT_PROPAGATE_TOKEN",
+    None,
     "When set, propagates the authentication token to downstream services.",
     "adk",
 )
 _uvicorn_log_level_raw = register_string(
-    "UVICORN_LOG_LEVEL", None,
+    "UVICORN_LOG_LEVEL",
+    None,
     "Uvicorn server log level. Falls back to LOG_LEVEL if not set.",
     "adk",
 )
@@ -57,7 +61,8 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
 
 
 _kagent_skills_folder = register_string(
-    "KAGENT_SKILLS_FOLDER", None,
+    "KAGENT_SKILLS_FOLDER",
+    None,
     "Directory path where agent skills are mounted.",
     "adk",
 )
