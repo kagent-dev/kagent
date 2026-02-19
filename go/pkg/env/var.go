@@ -373,10 +373,3 @@ func ExportJSON(component string) string {
 	sb.WriteString("\n]\n")
 	return sb.String()
 }
-
-// ResetForTesting clears all registered variables. Only for use in tests.
-func ResetForTesting() {
-	mu.Lock()
-	defer mu.Unlock()
-	allVars = make(map[string]Var)
-}

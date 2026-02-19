@@ -168,8 +168,3 @@ def export_markdown(component: Optional[str] = None) -> str:
 
     lines.append("")
     return "\n".join(lines)
-
-
-def reset_for_testing() -> None:
-    """Clear all registered variables. Only for use in tests."""
-    _registry.clear()

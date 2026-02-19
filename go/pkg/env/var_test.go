@@ -8,7 +8,7 @@ import (
 )
 
 func TestRegisterStringVar(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	tests := []struct {
 		name         string
@@ -38,7 +38,7 @@ func TestRegisterStringVar(t *testing.T) {
 }
 
 func TestRegisterBoolVar(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	tests := []struct {
 		name         string
@@ -70,7 +70,7 @@ func TestRegisterBoolVar(t *testing.T) {
 }
 
 func TestRegisterIntVar(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	tests := []struct {
 		name         string
@@ -102,7 +102,7 @@ func TestRegisterIntVar(t *testing.T) {
 }
 
 func TestRegisterDurationVar(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	tests := []struct {
 		name         string
@@ -133,7 +133,7 @@ func TestRegisterDurationVar(t *testing.T) {
 }
 
 func TestLookup(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	t.Run("StringVar Lookup unset", func(t *testing.T) {
 		sv := RegisterStringVar("TEST_LOOKUP_UNSET", "default", "desc", ComponentTesting)
@@ -193,7 +193,7 @@ func TestLookup(t *testing.T) {
 }
 
 func TestVarDescriptions(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	RegisterStringVar("ZZZ_VAR", "", "last", ComponentTesting)
 	RegisterStringVar("AAA_VAR", "", "first", ComponentTesting)
@@ -217,7 +217,7 @@ func TestVarDescriptions(t *testing.T) {
 }
 
 func TestVarByName(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	RegisterStringVar("FINDME", "val", "find me", ComponentController)
 
@@ -258,7 +258,7 @@ func TestVarTypeString(t *testing.T) {
 }
 
 func TestExportMarkdown(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	RegisterStringVar("TEST_MD_VAR", "default", "A test variable.", ComponentController)
 	RegisterBoolVar("TEST_MD_BOOL", true, "A bool variable.", ComponentController)
@@ -276,7 +276,7 @@ func TestExportMarkdown(t *testing.T) {
 }
 
 func TestExportMarkdownFilter(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	RegisterStringVar("CTRL_VAR", "", "controller var", ComponentController)
 	RegisterStringVar("CLI_VAR", "", "cli var", ComponentCLI)
@@ -291,7 +291,7 @@ func TestExportMarkdownFilter(t *testing.T) {
 }
 
 func TestExportJSON(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	RegisterStringVar("JSON_VAR", "val", "json test", ComponentCLI)
 
@@ -305,7 +305,7 @@ func TestExportJSON(t *testing.T) {
 }
 
 func TestHiddenVarsExcluded(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	sv := RegisterStringVar("VISIBLE_VAR", "", "visible", ComponentController)
 	_ = sv
@@ -327,7 +327,7 @@ func TestHiddenVarsExcluded(t *testing.T) {
 }
 
 func TestNameMethod(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	sv := RegisterStringVar("NAME_TEST_S", "", "", ComponentTesting)
 	bv := RegisterBoolVar("NAME_TEST_B", false, "", ComponentTesting)
@@ -348,20 +348,8 @@ func TestNameMethod(t *testing.T) {
 	}
 }
 
-func TestResetForTesting(t *testing.T) {
-	RegisterStringVar("RESET_TEST_VAR", "", "should be cleared", ComponentTesting)
-	ResetForTesting()
-
-	vars := VarDescriptions()
-	for _, v := range vars {
-		if v.Name == "RESET_TEST_VAR" {
-			t.Error("ResetForTesting should clear all vars")
-		}
-	}
-}
-
 func TestDefaultValueMethod(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	sv := RegisterStringVar("DEFAULT_TEST", "mydefault", "test", ComponentTesting)
 	if sv.DefaultValue() != "mydefault" {
@@ -370,7 +358,7 @@ func TestDefaultValueMethod(t *testing.T) {
 }
 
 func TestStringVarGetReadsLive(t *testing.T) {
-	ResetForTesting()
+	allVars = make(map[string]Var)
 
 	sv := RegisterStringVar("LIVE_TEST", "initial", "test", ComponentTesting)
 
