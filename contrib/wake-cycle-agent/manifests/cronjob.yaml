@@ -63,8 +63,11 @@ spec:
                     -d @/tmp/wake-prompt.json \
                     http://wake-cycle-agent.wake-cycle-demo.svc.cluster.local:8080/chat
 
-                  # Increment wake counter only after successful invocation
-                  echo $((WAKE_NUMBER + 1)) > /data/wake_counter
+                  # Increment wake counter atomically after successful invocation
+                  # Write to temp file first, then atomically move to avoid partial writes
+                  NEW_WAKE=$((WAKE_NUMBER + 1))
+                  echo "$NEW_WAKE" > /data/wake_counter.tmp
+                  mv /data/wake_counter.tmp /data/wake_counter
               volumeMounts:
                 - name: agent-state
                   mountPath: /data
