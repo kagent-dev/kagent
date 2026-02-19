@@ -8,6 +8,8 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "agentsts-adk",
+    "agentsts-core",
     "basic",
     "basic-openai-agent",
     "currency",
@@ -55,8 +57,8 @@ http-server = [
 
 [[package]]
 name = "agentsts-adk"
-version = "0.0.8"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.0"
+source = { editable = "packages/agentsts-adk" }
 dependencies = [
     { name = "agentsts-core" },
     { name = "aiofiles" },
@@ -68,15 +70,35 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/17/fb46acdf0414c035bc505f35294e6a50f90d6782d792dfb5b2b88d3d929c/agentsts_adk-0.0.8.tar.gz", hash = "sha256:8759ae1b2fbdc8187af0622e8a5894fe7c08cee8c0f276f3c0877503aa56c9e5", size = 6177, upload-time = "2025-12-08T16:22:19.085Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/34/93a1415adf9cc341a3bdaf4476e0112bb06caa25dd858e8c92e60e12064a/agentsts_adk-0.0.8-py3-none-any.whl", hash = "sha256:e107832e8ce1cdac800b371975dfd63aca9c345069739da4d825fad0e8c9f34b", size = 3078, upload-time = "2025-12-08T16:22:19.67Z" },
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "agentsts-core", editable = "packages/agentsts-core" },
+    { name = "aiofiles", specifier = ">=24.1.0" },
+    { name = "anyio", specifier = ">=4.9.0" },
+    { name = "google-adk", specifier = ">=1.18.0" },
+    { name = "google-auth", specifier = ">=2.40.2" },
+    { name = "google-genai", specifier = ">=1.21.1" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
+    { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "typing-extensions", specifier = ">=4.8.0" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "agentsts-core"
-version = "0.0.8"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.0"
+source = { editable = "packages/agentsts-core" }
 dependencies = [
     { name = "cryptography" },
     { name = "httpx" },
@@ -84,10 +106,26 @@ dependencies = [
     { name = "pyjwt" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/07/d1053be0e34540f876456c7a354cc41706b073f4887d34d51f818ad2f793/agentsts_core-0.0.8.tar.gz", hash = "sha256:ae6bb03a5df0ce4cc3697b18de3d5f5fc7bd1b401c8bf025869bb75b49bf60a4", size = 10268, upload-time = "2025-12-08T16:22:20.486Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/fe/c70c9c41c7dd9094e9ce44a2089aba5a5a20ef1e710ea1430c3b713409d9/agentsts_core-0.0.8-py3-none-any.whl", hash = "sha256:a0fa08d347abde6b4be67a571480c0d10d8f968f5ea227d9999603881433d071", size = 9034, upload-time = "2025-12-08T16:22:21.304Z" },
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=41.0.0" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pyjwt", specifier = ">=2.8.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "typing-extensions", specifier = ">=4.8.0" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "aiofiles"
@@ -2002,8 +2040,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.23" },
-    { name = "agentsts-adk", specifier = ">=0.0.8" },
-    { name = "agentsts-core", specifier = ">=0.0.8" },
+    { name = "agentsts-adk", editable = "packages/agentsts-adk" },
+    { name = "agentsts-core", editable = "packages/agentsts-core" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=0.49.0" },
     { name = "anyio", specifier = ">=4.9.0" },
@@ -3899,6 +3937,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4e/51/f8794af39eeb870e87a8c8068642fc07bce0c854d6865d7dd0f2a9d338c2/pytest_asyncio-1.1.0.tar.gz", hash = "sha256:796aa822981e01b68c12e4827b8697108f7205020f24b5793b3c41555dab68ea", size = 46652, upload-time = "2025-07-16T04:29:26.393Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/9d/bf86eddabf8c6c9cb1ea9a869d6873b46f105a5d292d3a6f7071f5b07935/pytest_asyncio-1.1.0-py3-none-any.whl", hash = "sha256:5fe2d69607b0bd75c656d1211f969cadba035030156745ee09e7d71740e58ecf", size = 15157, upload-time = "2025-07-16T04:29:24.929Z" },
+]
+
+[[package]]
+name = "pytest-mock"
+version = "3.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
 ]
 
 [[package]]
