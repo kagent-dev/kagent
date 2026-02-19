@@ -252,43 +252,40 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		msg.ContextID = &contextID[0]
 	}
 
-	// Per-attempt retry timeout
-	var lastErr error
-	for attempt := range defaultRetry.Steps {
-		if attempt > 0 {
-			backoff := defaultRetry.Duration * time.Duration(1<<(attempt-1))
-			t.Logf("streaming attempt %d failed, retrying in %v: %v", attempt, backoff, lastErr)
-			time.Sleep(backoff)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		stream, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
-		if err != nil {
+	var (
+		stream <-chan protocol.StreamingMessageEvent
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+	err := retry.OnError(defaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		var retryErr error
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		stream, retryErr = a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+		if retryErr != nil {
 			cancel()
-			lastErr = err
+		}
+		return retryErr
+	})
+	require.NoError(t, err)
+	defer cancel()
+
+	resultList := []protocol.StreamingMessageEvent{}
+	var text string
+	for event := range stream {
+		msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
+		if !ok {
 			continue
 		}
-
-		resultList := []protocol.StreamingMessageEvent{}
-		var text string
-		for event := range stream {
-			msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
-			if !ok {
-				continue
-			}
-			if msgResult.Status.Message != nil {
-				text += a2a.ExtractText(*msgResult.Status.Message)
-			}
-			resultList = append(resultList, event)
+		if msgResult.Status.Message != nil {
+			text += a2a.ExtractText(*msgResult.Status.Message)
 		}
-		cancel()
-
-		jsn, err := json.Marshal(resultList)
-		require.NoError(t, err)
-		require.Contains(t, string(jsn), expectedText, string(jsn))
-		return
+		resultList = append(resultList, event)
 	}
-	require.NoError(t, lastErr)
+	jsn, err := json.Marshal(resultList)
+	require.NoError(t, err)
+	require.Contains(t, string(jsn), expectedText, string(jsn))
 }
 
 func a2aUrl(namespace, name string) string {
