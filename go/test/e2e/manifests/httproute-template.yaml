@@ -1,0 +1,18 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: %s
+  namespace: kagent
+spec:
+  parentRefs:
+  - name: proxy
+    namespace: kagent
+  rules:
+  - matches:
+    - headers:
+      - type: Exact
+        name: x-kagent-host
+        value: %s
+    backendRefs:
+    - name: %s
+      port: %d
