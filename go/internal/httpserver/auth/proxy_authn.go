@@ -44,10 +44,15 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 			return nil, ErrUnauthenticated
 		}
 
+		userID := a.getStringClaim(rawClaims, a.claims.UserID, "sub")
+		if userID == "" {
+			return nil, ErrUnauthenticated
+		}
+
 		return &SimpleSession{
 			P: auth.Principal{
 				User: auth.User{
-					ID:    a.getStringClaim(rawClaims, a.claims.UserID, "sub"),
+					ID:    userID,
 					Email: a.getStringClaim(rawClaims, a.claims.Email, "email"),
 					Name:  a.getStringClaim(rawClaims, a.claims.Name, "name", "preferred_username"),
 				},
@@ -60,7 +65,12 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 		}, nil
 	}
 
-	// Fall back to service account auth for internal agent-to-controller calls
+	// Fall back to service account auth for internal agent-to-controller calls.
+	// Requires X-Agent-Name to identify the calling agent.
+	if agentID == "" {
+		return nil, ErrUnauthenticated
+	}
+
 	// Agents authenticate via user_id query param or X-User-Id header
 	userID := query.Get("user_id")
 	if userID == "" {

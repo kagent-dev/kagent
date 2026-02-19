@@ -132,6 +132,13 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name: "returns error when JWT has empty sub claim",
+			claims: map[string]any{
+				"email": "user@example.com",
+			},
+			wantErr: true,
+		},
+		{
 			name: "handles single group in array",
 			claims: map[string]any{
 				"sub":    "user123",
@@ -273,23 +280,7 @@ func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "authenticates via user_id query param",
-			queryParams: map[string]string{
-				"user_id": "system:serviceaccount:kagent:kebab-agent",
-			},
-			wantUserID: "system:serviceaccount:kagent:kebab-agent",
-			wantErr:    false,
-		},
-		{
-			name: "authenticates via X-User-Id header",
-			headers: map[string]string{
-				"X-User-Id": "system:serviceaccount:kagent:test-agent",
-			},
-			wantUserID: "system:serviceaccount:kagent:test-agent",
-			wantErr:    false,
-		},
-		{
-			name: "extracts agent identity from X-Agent-Name header",
+			name: "authenticates via user_id query param with agent name",
 			queryParams: map[string]string{
 				"user_id": "system:serviceaccount:kagent:kebab-agent",
 			},
@@ -301,7 +292,24 @@ func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name: "authenticates via X-User-Id header with agent name",
+			headers: map[string]string{
+				"X-User-Id":    "system:serviceaccount:kagent:test-agent",
+				"X-Agent-Name": "kagent/test-agent",
+			},
+			wantUserID:  "system:serviceaccount:kagent:test-agent",
+			wantAgentID: "kagent/test-agent",
+			wantErr:     false,
+		},
+		{
 			name:    "returns error when no auth method available",
+			wantErr: true,
+		},
+		{
+			name: "returns error when no X-Agent-Name header for fallback",
+			queryParams: map[string]string{
+				"user_id": "system:serviceaccount:kagent:kebab-agent",
+			},
 			wantErr: true,
 		},
 	}

@@ -14,7 +14,14 @@ export function decodeJWT(token: string): JWTPayload | null {
   }
 }
 
-export function extractUserFromClaims(claims: JWTPayload) {
+export interface UserClaims {
+  user: string;
+  email: string;
+  name: string;
+  groups: string[];
+}
+
+export function extractUserFromClaims(claims: JWTPayload): UserClaims {
   return {
     user: getClaimValue(claims, CLAIM_USER_ID, ["sub"]) || "",
     email: getClaimValue(claims, CLAIM_EMAIL, ["email"]) || "",

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
@@ -35,6 +34,5 @@ func (h *CurrentUserHandler) HandleGetCurrentUser(w http.ResponseWriter, r *http
 		Groups: principal.Groups,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	RespondWithJSON(w, http.StatusOK, response)
 }

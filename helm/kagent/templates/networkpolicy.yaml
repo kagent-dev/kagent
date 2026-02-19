@@ -49,6 +49,9 @@ spec:
             matchLabels:
               app.kubernetes.io/name: oauth2-proxy
               app.kubernetes.io/instance: {{ .Release.Name }}
+              {{- with .Values.networkPolicy.oauth2ProxySelector }}
+              {{- toYaml . | nindent 14 }}
+              {{- end }}
       ports:
         - protocol: TCP
           port: {{ .Values.controller.service.ports.targetPort }}

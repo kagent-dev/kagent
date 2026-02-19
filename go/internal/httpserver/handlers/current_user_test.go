@@ -85,6 +85,14 @@ func TestHandleGetCurrentUser(t *testing.T) {
 				if response.Name != tt.wantName {
 					t.Errorf("Name = %q, want %q", response.Name, tt.wantName)
 				}
+				if len(response.Groups) != len(tt.wantGroups) {
+					t.Errorf("Groups length = %d, want %d", len(response.Groups), len(tt.wantGroups))
+				}
+				for i, g := range response.Groups {
+					if i < len(tt.wantGroups) && g != tt.wantGroups[i] {
+						t.Errorf("Groups[%d] = %q, want %q", i, g, tt.wantGroups[i])
+					}
+				}
 			}
 		})
 	}

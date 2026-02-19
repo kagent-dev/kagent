@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +13,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// makeTestJWT builds a minimal unsigned JWT (alg:none) with the given claims.
+// This is sufficient for proxy mode testing where the oauth2-proxy has already
+// validated the token and the backend only parses claims without verification.
+func makeTestJWT(claims map[string]any) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, _ := json.Marshal(claims)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
+	return header + "." + payloadB64 + "."
+}
 
 // CurrentUserResponse mirrors the response from GET /api/me
 type CurrentUserResponse struct {
@@ -31,6 +42,8 @@ func kagentURL() string {
 }
 
 // detectAuthMode probes /api/me to determine if the deployment is in proxy or unsecure mode.
+// Sends a JWT Bearer token; in proxy mode the backend parses the JWT and returns the sub claim.
+// In unsecure mode the backend ignores the Bearer token and returns the default user.
 // Returns "proxy" if proxy mode, "unsecure" otherwise.
 func detectAuthMode(t *testing.T) string {
 	t.Helper()
@@ -38,12 +51,10 @@ func detectAuthMode(t *testing.T) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Create request with X-Forwarded-User but no X-User-Id
-	// In proxy mode: will return the forwarded user
-	// In unsecure mode: will return default user (ignores X-Forwarded-User)
+	token := makeTestJWT(map[string]any{"sub": "probe-user"})
 	req, err := http.NewRequestWithContext(ctx, "GET", kagentURL()+"/api/me", nil)
 	require.NoError(t, err)
-	req.Header.Set("X-Forwarded-User", "probe-user")
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -173,13 +184,16 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		t.Skip("Skipping proxy mode tests - deployment is in unsecure mode")
 	}
 
-	t.Run("full_headers", func(t *testing.T) {
-		// GET /api/me with all X-Forwarded-* headers
+	t.Run("full_claims", func(t *testing.T) {
+		// JWT with all standard claims
+		token := makeTestJWT(map[string]any{
+			"sub":    "john",
+			"email":  "john@example.com",
+			"name":   "John Doe",
+			"groups": []string{"admin", "developers"},
+		})
 		resp, body := makeAuthRequest(t, map[string]string{
-			"X-Forwarded-User":               "john",
-			"X-Forwarded-Email":              "john@example.com",
-			"X-Forwarded-Preferred-Username": "John Doe",
-			"X-Forwarded-Groups":             "admin,developers",
+			"Authorization": "Bearer " + token,
 		}, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -190,10 +204,13 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.ElementsMatch(t, []string{"admin", "developers"}, userResp.Groups)
 	})
 
-	t.Run("minimal_headers", func(t *testing.T) {
-		// GET /api/me with only required X-Forwarded-User header
+	t.Run("minimal_claims", func(t *testing.T) {
+		// JWT with only sub claim
+		token := makeTestJWT(map[string]any{
+			"sub": "jane",
+		})
 		resp, body := makeAuthRequest(t, map[string]string{
-			"X-Forwarded-User": "jane",
+			"Authorization": "Bearer " + token,
 		}, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -204,19 +221,31 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.Empty(t, userResp.Groups)
 	})
 
-	t.Run("missing_required_header_returns_401", func(t *testing.T) {
-		// GET /api/me without X-Forwarded-User should return 401
+	t.Run("missing_sub_claim_returns_401", func(t *testing.T) {
+		// JWT without sub claim should return 401
+		token := makeTestJWT(map[string]any{
+			"email": "test@example.com",
+		})
 		resp, _ := makeAuthRequest(t, map[string]string{
-			"X-Forwarded-Email": "test@example.com", // email but no user
+			"Authorization": "Bearer " + token,
 		}, nil)
 		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
-	t.Run("group_parsing_trims_whitespace", func(t *testing.T) {
-		// Groups with whitespace around commas should be trimmed
+	t.Run("no_bearer_token_returns_401", func(t *testing.T) {
+		// No Authorization header and no agent identity should return 401
+		resp, _ := makeAuthRequest(t, nil, nil)
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("comma_separated_groups_string", func(t *testing.T) {
+		// Groups as comma-separated string should be parsed and trimmed
+		token := makeTestJWT(map[string]any{
+			"sub":    "user",
+			"groups": "admin, dev , qa ",
+		})
 		resp, body := makeAuthRequest(t, map[string]string{
-			"X-Forwarded-User":   "user",
-			"X-Forwarded-Groups": "admin, dev , qa ",
+			"Authorization": "Bearer " + token,
 		}, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -224,15 +253,24 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.ElementsMatch(t, []string{"admin", "dev", "qa"}, userResp.Groups)
 	})
 
-	t.Run("empty_groups_header", func(t *testing.T) {
-		// Empty groups header should result in empty groups slice
+	t.Run("agent_fallback_with_user_id", func(t *testing.T) {
+		// Agent callback: X-Agent-Name + user_id query param (no Bearer token)
 		resp, body := makeAuthRequest(t, map[string]string{
-			"X-Forwarded-User":   "user",
-			"X-Forwarded-Groups": "",
-		}, nil)
+			"X-Agent-Name": "kagent/test-agent",
+		}, map[string]string{
+			"user_id": "owner@example.com",
+		})
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Empty(t, userResp.Groups)
+		require.Equal(t, "owner@example.com", userResp.User)
+	})
+
+	t.Run("fallback_without_agent_name_returns_401", func(t *testing.T) {
+		// user_id query param without X-Agent-Name should return 401
+		resp, _ := makeAuthRequest(t, nil, map[string]string{
+			"user_id": "owner@example.com",
+		})
+		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 }

@@ -485,8 +485,6 @@ networkPolicy:
   enabled: true
   # Additional pod selector labels for oauth2-proxy (if using custom labels)
   oauth2ProxySelector: {}
-  # Additional namespaces to allow traffic from (e.g., for monitoring)
-  additionalAllowedNamespaces: []
 
 # ==============================================================================
 # OBSERVABILITY
