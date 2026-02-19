@@ -14,6 +14,8 @@ constraint-dependencies = ["cryptography>=46.0.5"]
 
 [tool.uv.sources]
 kagent-adk = { workspace = true }
+agentsts-adk = { workspace = true }
+agentsts-core = { workspace = true }
 
 [tool.ruff]
 line-length = 120

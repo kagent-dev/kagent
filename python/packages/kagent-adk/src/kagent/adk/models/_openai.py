@@ -307,6 +307,12 @@ class BaseOpenAI(BaseLlm):
     tls_ca_cert_path: Optional[str] = None
     tls_disable_system_cas: Optional[bool] = None
 
+    # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
+    api_key_passthrough: Optional[bool] = None
+
+    def set_passthrough_key(self, token: str) -> None:
+        self.api_key = token
+
     @classmethod
     def supported_models(cls) -> list[str]:
         """Returns a list of supported models in regex for LlmRegistry."""

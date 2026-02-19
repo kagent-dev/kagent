@@ -1,11 +1,12 @@
 """Tests for header propagation to MCP tools."""
 
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
+
 from kagent.adk.types import (
     HttpMcpServerConfig,
     SseMcpServerConfig,
     create_header_provider,
 )
-from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams, SseConnectionParams
 
 
 class MockReadonlyContext:
