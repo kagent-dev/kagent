@@ -19,7 +19,11 @@ lint:
 
 .PHONY: test
 test: update generate-test-certs
-	uv run pytest ./packages/**/tests/
+	uv run pytest $(shell find ./packages -path '*/tests' -type d | grep -v kagent-dapr)
+
+.PHONY: test-dapr
+test-dapr:
+	cd packages/kagent-dapr && uv sync --all-extras && uv run pytest tests/ -v
 
 .PHONY: build
 build: update format
@@ -77,3 +81,7 @@ generate-test-certs:
 .PHONY: basic-openai-sample
 basic-openai-sample:
 	docker build . -f samples/openai/basic_agent/Dockerfile --tag localhost:5001/basic-openai:latest --push
+
+.PHONY: dapr-agent-sample
+dapr-agent-sample:
+	docker build . -f samples/dapr/Dockerfile --tag localhost:5001/my-dapr-agent:latest --push

@@ -1,0 +1,18 @@
+[project]
+name = "dapr-agent"
+version = "0.1.0"
+description = "KAgent Dapr-Agents sample agent"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "kagent-dapr",
+    "dapr-agents>=0.11.0",
+    "uvicorn>=0.20.0",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+kagent-dapr = { path = "../../../packages/kagent-dapr", editable = true }
+kagent-core = { path = "../../../packages/kagent-core", editable = true }
