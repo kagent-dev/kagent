@@ -4,8 +4,13 @@ import random
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.agents.base_agent import BaseAgent
-from typing import AsyncGenerator, override
+from typing import AsyncGenerator
 from google.genai import types
+
+try:
+    from typing import override  # Python 3.12+
+except ImportError:
+    from typing_extensions import override
 
 logger = logging.getLogger(__name__)
 
