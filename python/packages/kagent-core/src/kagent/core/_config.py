@@ -1,8 +1,23 @@
-import os
+from kagent.core.env import register_string
 
-kagent_url = os.getenv("KAGENT_URL")
-kagent_name = os.getenv("KAGENT_NAME")
-kagent_namespace = os.getenv("KAGENT_NAMESPACE")
+kagent_url = register_string(
+    "KAGENT_URL",
+    None,
+    "Base URL for A2A communication with the kagent controller.",
+    "agent-runtime",
+)
+kagent_name = register_string(
+    "KAGENT_NAME",
+    None,
+    "Name of the agent. Injected into agent pods via the controller.",
+    "agent-runtime",
+)
+kagent_namespace = register_string(
+    "KAGENT_NAMESPACE",
+    None,
+    "Kubernetes namespace where the agent is deployed.",
+    "agent-runtime",
+)
 
 
 class KAgentConfig:

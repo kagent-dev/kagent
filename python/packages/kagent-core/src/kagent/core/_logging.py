@@ -1,5 +1,13 @@
 import logging
-import os
+
+from kagent.core.env import register_string
+
+_log_level_var = register_string(
+    "LOG_LEVEL",
+    "INFO",
+    "Python logging level (DEBUG, INFO, WARNING, ERROR).",
+    "agent-runtime",
+)
 
 _logging_configured = False
 
@@ -8,7 +16,7 @@ def configure_logging() -> None:
     """Configure logging based on LOG_LEVEL environment variable."""
     global _logging_configured
 
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = (_log_level_var or "INFO").upper()
 
     # Only configure if not already configured (avoid duplicate handlers)
     if not logging.root.handlers:

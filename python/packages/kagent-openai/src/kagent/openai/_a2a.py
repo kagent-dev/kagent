@@ -22,6 +22,7 @@ from fastapi.responses import PlainTextResponse
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from kagent.core import KAgentConfig, configure_tracing
+from kagent.core.env import register_string
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -63,8 +64,16 @@ def thread_dump(request: Request) -> PlainTextResponse:
 
 
 # Environment variables
-kagent_url_override = os.getenv("KAGENT_URL")
-sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+kagent_url_override = register_string(
+    "KAGENT_URL", None,
+    "Base URL for A2A communication with the kagent controller.",
+    "openai",
+)
+sts_well_known_uri = register_string(
+    "STS_WELL_KNOWN_URI", None,
+    "Well-known endpoint for the Security Token Service (STS).",
+    "openai",
+)
 
 
 def _configure_openai_client() -> None:
@@ -72,8 +81,16 @@ def _configure_openai_client() -> None:
     Configure the default OpenAI client to use OPENAI_API_BASE.
     """
 
-    openai_api_base = os.getenv("OPENAI_API_BASE")
-    api_key = os.getenv("OPENAI_API_KEY")
+    openai_api_base = register_string(
+        "OPENAI_API_BASE", None,
+        "Custom base URL for the OpenAI API.",
+        "openai",
+    )
+    api_key = register_string(
+        "OPENAI_API_KEY", None,
+        "API key for OpenAI.",
+        "openai",
+    )
     if openai_api_base and api_key:
         # Create a custom AsyncOpenAI client with the base URL
         custom_client = AsyncOpenAI(

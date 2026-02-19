@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 )
 
 func TestGetModelProvider(t *testing.T) {
@@ -19,21 +20,21 @@ func TestGetModelProvider(t *testing.T) {
 			name:            "DefaultModelProvider when env var not set",
 			envVarValue:     "",
 			expectedResult:  DefaultModelProvider,
-			expectedAPIKey:  OPENAI_API_KEY,
+			expectedAPIKey:  env.OpenAIAPIKey.Name(),
 			expectedHelmKey: "openAI",
 		},
 		{
 			name:            "OpenAI provider",
 			envVarValue:     string(v1alpha2.ModelProviderOpenAI),
 			expectedResult:  v1alpha2.ModelProviderOpenAI,
-			expectedAPIKey:  OPENAI_API_KEY,
+			expectedAPIKey:  env.OpenAIAPIKey.Name(),
 			expectedHelmKey: "openAI",
 		},
 		{
 			name:            "AzureOpenAI provider",
 			envVarValue:     string(v1alpha2.ModelProviderAzureOpenAI),
 			expectedResult:  v1alpha2.ModelProviderAzureOpenAI,
-			expectedAPIKey:  AZUREOPENAI_API_KEY,
+			expectedAPIKey:  env.AzureOpenAIAPIKey.Name(),
 			expectedHelmKey: "azureOpenAI",
 		},
 		{
@@ -54,7 +55,7 @@ func TestGetModelProvider(t *testing.T) {
 			name:            "Invalid provider",
 			envVarValue:     "InvalidProvider",
 			expectedResult:  DefaultModelProvider,
-			expectedAPIKey:  OPENAI_API_KEY, // Example for testing unrelated API key
+			expectedAPIKey:  env.OpenAIAPIKey.Name(), // Example for testing unrelated API key
 			expectedHelmKey: "openAI",
 		},
 	}
@@ -62,10 +63,10 @@ func TestGetModelProvider(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.envVarValue == "" {
-				os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER) //nolint:errcheck
+				os.Unsetenv(env.KagentDefaultModelProvider.Name()) //nolint:errcheck
 			} else {
-				os.Setenv(KAGENT_DEFAULT_MODEL_PROVIDER, tc.expectedHelmKey)
-				defer os.Unsetenv(KAGENT_DEFAULT_MODEL_PROVIDER) //nolint:errcheck
+				os.Setenv(env.KagentDefaultModelProvider.Name(), tc.expectedHelmKey)
+				defer os.Unsetenv(env.KagentDefaultModelProvider.Name()) //nolint:errcheck
 			}
 
 			result := GetModelProvider()
