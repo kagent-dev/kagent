@@ -241,9 +241,6 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 // If contextID is provided, it will be included in the message to maintain conversation context
 // Checks the full JSON output to support both artifacts and history from different agent types
 func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, contextID ...string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	msg := protocol.Message{
 		Kind:  protocol.KindMessage,
 		Role:  protocol.MessageRoleUser,
@@ -255,15 +252,24 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		msg.ContextID = &contextID[0]
 	}
 
-	var stream <-chan protocol.StreamingMessageEvent
+	var (
+		stream <-chan protocol.StreamingMessageEvent
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
 	err := retry.OnError(defaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
 		var retryErr error
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		stream, retryErr = a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+		if retryErr != nil {
+			cancel()
+		}
 		return retryErr
 	})
 	require.NoError(t, err)
+	defer cancel()
 
 	resultList := []protocol.StreamingMessageEvent{}
 	var text string
@@ -461,11 +467,6 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	// Enable streaming explicitly
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
-
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
 
 	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
