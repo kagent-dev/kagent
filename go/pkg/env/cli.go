@@ -4,7 +4,7 @@ package env
 var (
 	KagentDefaultModelProvider = RegisterStringVar(
 		"KAGENT_DEFAULT_MODEL_PROVIDER",
-		"OpenAI",
+		"openAI",
 		"Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI).",
 		ComponentCLI,
 	)
