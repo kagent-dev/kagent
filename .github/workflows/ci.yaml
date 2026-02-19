@@ -253,6 +253,10 @@ jobs:
     env:
       OPENAI_API_KEY: fake
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    name: python-test (Python ${{ matrix.python-version }})
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -261,12 +265,11 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install python
-        run: uv python install 3.13
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Sync dependencies
         working-directory: ./python
-        run: |
-          uv sync --all-extras
+        run: uv sync --all-extras
 
       - name: Generate test certificates
         working-directory: ./python
@@ -278,7 +281,6 @@ jobs:
 
   python-lint:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -287,12 +289,11 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install python
-        run: uv python install 3.13
+        run: uv python install 3.10
 
       - name: Sync dependencies
         working-directory: ./python
-        run: |
-          uv sync --all-extras
+        run: uv sync --all-extras
 
       - name: Run ruff linter
         working-directory: ./python

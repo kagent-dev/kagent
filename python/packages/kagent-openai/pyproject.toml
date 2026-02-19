@@ -3,7 +3,7 @@ name = "kagent-openai"
 version = "0.1.0"
 description = "OpenAI integration for KAgent with A2A server support"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
   "openai>=1.72.0",
   "openai-agents>=0.4.0",
@@ -38,10 +38,10 @@ packages = ["src/kagent", "src/traceloop"]
 
 [tool.black]
 line-length = 120
-target-version = ['py313']
+target-version = ['py310']
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py310"
 lint.select = ["E", "F", "I", "N", "W", "UP"]
 lint.ignore = ["E501", "N803", "N806"]

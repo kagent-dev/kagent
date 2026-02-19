@@ -6,8 +6,15 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
+
+try:
+    from datetime import UTC  # Python 3.11+
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
 
 from a2a.types import (
     DataPart,
