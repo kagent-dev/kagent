@@ -7,16 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from kagent.core.env import register_string
-
 logger = logging.getLogger(__name__)
-
-_bash_venv_path = register_string(
-    "BASH_VENV_PATH",
-    None,
-    "Path to sandbox virtual environment for bash commands.",
-    "skills",
-)
 
 
 # --- File Operation Tools ---
@@ -135,7 +126,7 @@ async def execute_command(
 
     # If a separate venv for shell commands is specified, use its python and pip
     # Otherwise the system python/pip will be used for backward compatibility
-    bash_venv_path = _bash_venv_path
+    bash_venv_path = os.environ.get("BASH_VENV_PATH")
     if bash_venv_path:
         bash_venv_bin = os.path.join(bash_venv_path, "bin")
         # Prepend bash venv to PATH so its python and pip are used

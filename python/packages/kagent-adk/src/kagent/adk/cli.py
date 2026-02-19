@@ -13,7 +13,6 @@ from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
-from kagent.core.env import register_string
 
 from . import AgentConfig, KAgentApp
 from .skill_fetcher import fetch_skill
@@ -25,31 +24,10 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 app = typer.Typer()
 
 
-kagent_url_override = register_string(
-    "KAGENT_URL",
-    None,
-    "Base URL for A2A communication with the kagent controller.",
-    "adk",
-)
-sts_well_known_uri = register_string(
-    "STS_WELL_KNOWN_URI",
-    None,
-    "Well-known endpoint for the Security Token Service (STS).",
-    "adk",
-)
-propagate_token = register_string(
-    "KAGENT_PROPAGATE_TOKEN",
-    None,
-    "When set, propagates the authentication token to downstream services.",
-    "adk",
-)
-_uvicorn_log_level_raw = register_string(
-    "UVICORN_LOG_LEVEL",
-    None,
-    "Uvicorn server log level. Falls back to LOG_LEVEL if not set.",
-    "adk",
-)
-uvicorn_log_level = (_uvicorn_log_level_raw or os.getenv("LOG_LEVEL", "info")).lower()
+kagent_url_override = os.getenv("KAGENT_URL")
+sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
+uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
 def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
@@ -60,16 +38,8 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         return ADKTokenPropagationPlugin(sts_integration)
 
 
-_kagent_skills_folder = register_string(
-    "KAGENT_SKILLS_FOLDER",
-    None,
-    "Directory path where agent skills are mounted.",
-    "adk",
-)
-
-
 def maybe_add_skills(root_agent: BaseAgent):
-    skills_directory = _kagent_skills_folder
+    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
     if skills_directory:
         logger.info(f"Adding skills from directory: {skills_directory}")
         add_skills_tool_to_agent(skills_directory, root_agent)
@@ -140,7 +110,7 @@ def pull_skills(
         typer.Option("--insecure", help="Allow insecure connections to registries"),
     ] = False,
 ):
-    skill_dir = _kagent_skills_folder or "."
+    skill_dir = os.environ.get("KAGENT_SKILLS_FOLDER", ".")
     logger.info("Pulling skills")
     for skill in skills:
         fetch_skill(skill, skill_dir, insecure)

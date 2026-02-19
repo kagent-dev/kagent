@@ -15,9 +15,10 @@ var (
 // NewEnvCmd returns a cobra command that generates environment variable documentation.
 func NewEnvCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "env",
-		Short: "List all kagent environment variables",
-		Long:  "Generate documentation for all kagent environment variables in markdown, JSON, or table format.",
+		Use:    "env",
+		Hidden: true,
+		Short:  "List all kagent environment variables",
+		Long:   "Generate documentation for all kagent environment variables in markdown, JSON, or table format.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch format {
 			case "markdown", "md":

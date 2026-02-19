@@ -15,55 +15,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from kagent.core.env import register_bool, register_string
-
 from ._span_processor import KagentAttributesSpanProcessor
-
-# Register OTEL env vars in the centralized registry
-_otel_tracing_enabled = register_bool(
-    "OTEL_TRACING_ENABLED",
-    False,
-    "Enable OpenTelemetry tracing.",
-    "agent-runtime",
-)
-_otel_logging_enabled = register_bool(
-    "OTEL_LOGGING_ENABLED",
-    False,
-    "Enable OpenTelemetry logging.",
-    "agent-runtime",
-)
-_otel_traces_endpoint = register_string(
-    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-    None,
-    "OTLP exporter endpoint for traces. Takes precedence over OTEL_EXPORTER_OTLP_ENDPOINT.",
-    "agent-runtime",
-)
-_otel_traces_endpoint_compat = register_string(
-    "OTEL_TRACING_EXPORTER_OTLP_ENDPOINT",
-    None,
-    "OTLP traces endpoint (backward compatibility).",
-    "agent-runtime",
-    deprecated=True,
-)
-_otel_endpoint = register_string(
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
-    None,
-    "Default OTLP exporter endpoint for both traces and logs.",
-    "agent-runtime",
-)
-_otel_logs_endpoint = register_string(
-    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-    None,
-    "OTLP exporter endpoint for logs. Takes precedence over OTEL_EXPORTER_OTLP_ENDPOINT.",
-    "agent-runtime",
-)
-_otel_logs_endpoint_compat = register_string(
-    "OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT",
-    None,
-    "OTLP logs endpoint (backward compatibility).",
-    "agent-runtime",
-    deprecated=True,
-)
 
 
 def _instrument_anthropic(event_logger_provider=None):
