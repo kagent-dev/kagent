@@ -209,7 +209,7 @@ export function Header() {
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                      <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                      <Link href="/servers" className="gap-2 cursor-pointer w-full">
                         <Server className="h-4 w-4" />
                         New MCP Server
                       </Link>

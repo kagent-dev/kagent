@@ -9,7 +9,7 @@ import { ModelConfig, AgentType } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
-import { useRouter, useSearchParams, redirect } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { useReadOnly } from "@/components/ReadOnlyProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -740,14 +740,21 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 // Main component that wraps the content in a Suspense boundary
 export default function AgentPage() {
   const readOnly = useReadOnly();
+  const router = useRouter();
   // Determine if in edit mode
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");
 
+  useEffect(() => {
+    if (readOnly) {
+      router.replace("/");
+    }
+  }, [readOnly, router]);
+
   if (readOnly) {
-    redirect("/");
+    return null;
   }
 
   // Create a key based on the edit mode and agent ID
