@@ -10,35 +10,24 @@ ARG BUILDPLATFORM
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs npm \
+    && update-ca-certificates \
+    && node --version \
+    && npm --version
 
-ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
 
 ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV BUN_INSTALL_CACHE_DIR=/cache/bun
-ENV BUN_INSTALL=/usr/local/bun
 ENV NODE_ENV=production
 ENV CYPRESS_INSTALL_BINARY=0
-ENV PATH=$BUN_INSTALL/bin:$PATH
-
-# Install Bun (uses official install script)
-# brew install oven-sh/bun/bun
-RUN --mount=type=cache,target=/cache/bun,rw \
-    mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
-    && bun --version
 
 WORKDIR /app/ui
 
 # Copy package files and install dependencies
 COPY package*.json ./
 RUN --mount=type=cache,target=/cache/node_modules,rw \
-    bun install --frozen-lockfile \
-    && bun pm ls --all \
-    && bun pm hash
+    npm ci
 
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
@@ -46,12 +35,12 @@ FROM --platform=$BUILDPLATFORM deps AS builder
 # Copy source files
 COPY . .
 
-# Build the application (native compilation for speed)
+# Build the application
 RUN --mount=type=cache,target=/cache/node_modules,rw \
     --mount=type=cache,target=/app/ui/.next/cache,rw \
     export NEXT_TELEMETRY_DEBUG=1 \
-    && bun install --frozen-lockfile \
-    && bun run build \
+    && npm ci \
+    && npm run build \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime
@@ -64,17 +53,9 @@ ARG BUILDPLATFORM
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates
-
-ARG TOOLS_BUN_VERSION
-ENV BUN_INSTALL=/usr/local/bun
-ENV PATH=$BUN_INSTALL/bin:$PATH
-# Install Bun in native arch for running (uses official install script)
-# brew install oven-sh/bun/bun
-RUN mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
-    && bun --version
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs \
+    && update-ca-certificates \
+    && node --version
 
 RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
     && addgroup -g 1001 nginx                        \
