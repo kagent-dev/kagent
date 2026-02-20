@@ -66,13 +66,6 @@ jobs:
         with:
           install_only: true
 
-      - name: Regenerate lockfile for Python version
-        working-directory: go/test/e2e/agents/kebab
-        run: |
-          # Regenerate uv.lock for the current Python version to ensure reproducible builds
-          uv lock
-          echo "✓ Generated uv.lock for Python ${{ matrix.python-version }}"
-
       - name: Install Kagent
         id: install-kagent
         env:
