@@ -37,19 +37,11 @@ jobs:
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-    name: test-e2e (Python ${{ matrix.python-version }})
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Install Python
-        run: uv python install ${{ matrix.python-version }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -74,11 +66,12 @@ jobs:
         with:
           install_only: true
 
-      - name: Set Python version for test agents
+      - name: Regenerate lockfile for Python version
+        working-directory: go/test/e2e/agents/kebab
         run: |
-          # Update .python-version in test agents to use the matrix Python version
-          echo "${{ matrix.python-version }}" > go/test/e2e/agents/kebab/.python-version
-          echo "${{ matrix.python-version }}" > python/.python-version
+          # Regenerate uv.lock for the current Python version to ensure reproducible builds
+          uv lock
+          echo "✓ Generated uv.lock for Python ${{ matrix.python-version }}"
 
       - name: Install Kagent
         id: install-kagent
@@ -87,9 +80,9 @@ jobs:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-py${{ matrix.python-version }}
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e-py${{ matrix.python-version }}
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-py${{ matrix.python-version }},mode=max
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
             --push
         run: |
