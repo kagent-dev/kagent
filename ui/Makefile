@@ -16,9 +16,9 @@ audit:
 	npm audit
 	@echo "Security audit completed."
 
-.PHONY: build
+.PHONY: update
 update:
 	@echo "Updating UI lock file..."
 	npm audit fix
-	npm install --production
+	npm ci
 	@echo "Updating UI lock file done."

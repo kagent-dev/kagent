@@ -19,15 +19,12 @@ ARG TARGETARCH
 
 ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
 ENV CYPRESS_INSTALL_BINARY=0
 
 WORKDIR /app/ui
 
-# Copy package files and install dependencies
+# Copy package files for layer caching
 COPY package*.json ./
-RUN --mount=type=cache,target=/cache/node_modules,rw \
-    npm ci
 
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
@@ -35,11 +32,10 @@ FROM --platform=$BUILDPLATFORM deps AS builder
 # Copy source files
 COPY . .
 
-# Build the application
-RUN --mount=type=cache,target=/cache/node_modules,rw \
+# Install all dependencies (including devDependencies for next build) and build
+RUN --mount=type=cache,target=/root/.npm,rw \
     --mount=type=cache,target=/app/ui/.next/cache,rw \
-    export NEXT_TELEMETRY_DEBUG=1 \
-    && npm ci \
+    npm ci \
     && npm run build \
     && mkdir -p /app/ui/public
 
@@ -47,6 +43,7 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+ENV NODE_ENV=production
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
