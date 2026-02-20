@@ -9,6 +9,7 @@ ARG BUILDPLATFORM
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
+    && rm -f /var/cache/apk/APKINDEX.*.tar.gz \
     && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 npm \
     && update-ca-certificates \
@@ -52,6 +53,7 @@ ARG BUILDPLATFORM
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
+    && rm -f /var/cache/apk/APKINDEX.*.tar.gz \
     && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 \
     && update-ca-certificates \
