@@ -3,7 +3,7 @@ name = "kagent-langgraph"
 version = "0.1.0"
 description = "LangGraph integration for KAgent with A2A server support"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
   "langgraph>=0.6.5",
   "langchain-core>=0.3.0",
@@ -37,10 +37,10 @@ packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120
-target-version = ['py313']
+target-version = ['py310']
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py310"
 lint.select = ["E", "F", "I", "N", "W", "UP"]
 lint.ignore = ["E501", "N803", "N806"]

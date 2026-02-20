@@ -3,7 +3,7 @@ name = "basic-openai-agent"
 version = "0.1.0"
 description = "Basic OpenAI Agent sample for KAgent"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
     "kagent-openai",
     "openai-agents>=0.4.0",
