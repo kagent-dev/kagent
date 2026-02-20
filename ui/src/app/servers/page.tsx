@@ -10,8 +10,10 @@ import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 export default function ServersPage() {
+  const readOnly = useReadOnly();
   // State for servers and tools
   const [servers, setServers] = useState<ToolServerResponse[]>([]);
   const [toolServerTypes, setToolServerTypes] = useState<string[]>([]);
@@ -141,7 +143,7 @@ export default function ServersPage() {
             View Tools →
           </Link>
         </div>
-        {servers.length > 0 && (
+        {servers.length > 0 && !readOnly && (
           <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add MCP Server
@@ -181,9 +183,10 @@ export default function ServersPage() {
                       </div>
                     </div>
 
+                    {!readOnly && (
                     <div className="flex items-center gap-2">
-                      <DropdownMenu 
-                        open={openDropdownMenu === serverName} 
+                      <DropdownMenu
+                        open={openDropdownMenu === serverName}
                         onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
                       >
                         <DropdownMenuTrigger asChild>
@@ -192,7 +195,7 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
+                           <DropdownMenuItem
                              className="text-red-600 focus:text-red-700 focus:bg-red-50"
                              onSelect={(e) => {
                                e.preventDefault();
@@ -206,6 +209,7 @@ export default function ServersPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
+                    )}
                   </div>
                 </div>
 
@@ -245,11 +249,13 @@ export default function ServersPage() {
         <div className="flex flex-col items-center justify-center h-[300px] text-center p-4 border rounded-lg bg-secondary/5">
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No MCP servers connected</h3>
-          <p className="text-muted-foreground mt-1 mb-4">Add an MCP server to discover and use tools.</p>
+          <p className="text-muted-foreground mt-1 mb-4">{readOnly ? "No MCP servers configured yet. Servers are managed via GitOps." : "Add an MCP server to discover and use tools."}</p>
+          {!readOnly && (
           <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add MCP Server
           </Button>
+          )}
         </div>
       )}
 

@@ -14,6 +14,7 @@ import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } fr
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
+import { useReadOnly } from "../ReadOnlyProvider";
 
 interface ChatItemProps {
   sessionId: string;
@@ -27,6 +28,7 @@ interface ChatItemProps {
 
 const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt }: ChatItemProps) => {
   const title = sessionName || "Untitled";
+  const readOnly = useReadOnly();
   
   // Format timestamp based on how recent it is
   const formatTime = (dateString?: string) => {
@@ -81,6 +83,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                   <span>Download</span>
                 </Button>
               </DropdownMenuItem>
+              {!readOnly && (
               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -104,6 +107,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                   </AlertDialogContent>
                 </AlertDialog>
               </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

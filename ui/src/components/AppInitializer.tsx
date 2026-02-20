@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { OnboardingWizard } from './onboarding/OnboardingWizard';
+import { useReadOnly } from './ReadOnlyProvider';
 
 const LOCAL_STORAGE_KEY = 'kagent-onboarding';
 
@@ -14,6 +15,7 @@ const getInitialOnboardingState = (): boolean | null => {
 
 export function AppInitializer({ children }: { children: React.ReactNode }) {
   const [isOnboarding, setIsOnboarding] = useState<boolean | null>(getInitialOnboardingState);
+  const readOnly = useReadOnly();
 
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
@@ -30,7 +32,7 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
     return null; 
   }
 
-  if (isOnboarding) {
+  if (isOnboarding && !readOnly) {
     return <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />;
   }
 

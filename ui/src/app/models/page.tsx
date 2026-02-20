@@ -17,6 +17,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 export default function ModelsPage() {
     const router = useRouter();
@@ -25,6 +26,7 @@ export default function ModelsPage() {
     const [error, setError] = useState<string | null>(null);
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
+    const readOnly = useReadOnly();
 
     useEffect(() => {
         fetchModels();
@@ -93,6 +95,7 @@ export default function ModelsPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-2xl font-bold">Models</h1>
+                    {!readOnly && (
                     <Button
                         variant="default"
                         onClick={() => router.push("/models/new")}
@@ -100,6 +103,7 @@ export default function ModelsPage() {
                         <Plus className="h-4 w-4 mr-2" />
                         New Model
                     </Button>
+                    )}
                 </div>
 
                 {loading ? (
@@ -120,6 +124,7 @@ export default function ModelsPage() {
                                         )}
                                         <span className="font-medium">{model.ref}</span>
                                     </div>
+                                    {!readOnly && (
                                     <div className="flex space-x-2">
                                         <Button
                                             data-test={`edit-model-${model.ref}`}
@@ -143,6 +148,7 @@ export default function ModelsPage() {
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </div>
+                                    )}
                                 </div>
                                 {expandedRows.has(model.ref) && (
                                     <div className="p-4 border-t bg-secondary/10">

@@ -15,6 +15,7 @@ import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
@@ -26,6 +27,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const readOnly = useReadOnly();
 
   const selectedTeam = currentAgent;
 
@@ -232,6 +234,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
                   {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
                 </SidebarGroupLabel>
+                {!readOnly && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -243,6 +246,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                     <Edit className="h-3.5 w-3.5" />
                   </Link>
                 </Button>
+                )}
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>

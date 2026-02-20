@@ -6,6 +6,7 @@ import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
 import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { useReadOnly } from "./ReadOnlyProvider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +16,7 @@ import {
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const readOnly = useReadOnly();
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -55,6 +57,7 @@ export function Header() {
 
 
             {/* Create Dropdown */}
+            {!readOnly && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="link" className="text-secondary-foreground gap-1 px-2">
@@ -84,6 +87,7 @@ export function Header() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            )}
             
             {/* View Dropdown */}
             <DropdownMenu>
@@ -184,6 +188,7 @@ export function Header() {
               </DropdownMenu>
 
               {/* Mobile Create Dropdown */}
+              {!readOnly && (
                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
@@ -213,6 +218,7 @@ export function Header() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
               
               {/* Mobile Other Links */}
               <Button variant="ghost" className="text-secondary-foreground justify-start px-1" asChild>

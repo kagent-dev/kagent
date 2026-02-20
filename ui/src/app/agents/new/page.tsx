@@ -19,6 +19,7 @@ import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -738,11 +739,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
 // Main component that wraps the content in a Suspense boundary
 export default function AgentPage() {
+  const router = useRouter();
+  const readOnly = useReadOnly();
   // Determine if in edit mode
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");
+
+  useEffect(() => {
+    if (readOnly) {
+      router.replace("/");
+    }
+  }, [readOnly, router]);
+
+  if (readOnly) {
+    return <LoadingState />;
+  }
 
   // Create a key based on the edit mode and agent ID
   const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : 'create';
