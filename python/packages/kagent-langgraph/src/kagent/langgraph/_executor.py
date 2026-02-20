@@ -6,6 +6,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any
@@ -37,9 +38,6 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
-
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_DENY,
     TaskResultAggregator,
@@ -53,6 +51,9 @@ from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field
+
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
@@ -70,6 +71,14 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Whether to stream intermediate results
     enable_streaming: bool = True
+
+    # Maximum number of steps before LangGraph raises a recursion error.
+    # Configurable via LANGGRAPH_RECURSION_LIMIT env var. Default is 25 (LangGraph's default).
+    recursion_limit: int = Field(
+        default_factory=lambda: int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "25")),
+        gt=0,
+        description="Maximum number of steps before LangGraph raises a recursion error",
+    )
 
 
 class LangGraphAgentExecutor(AgentExecutor):
@@ -109,6 +118,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 "thread_id": session_id,
                 "app_name": self.app_name,
             },
+            "recursion_limit": self._config.recursion_limit,
             "project_name": self.app_name,
             "run_name": "kagent-langgraph-exec",
             "tags": [
@@ -334,6 +344,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 "thread_id": thread_id,  # Use thread from interrupted task!
                 "app_name": self.app_name,
             },
+            "recursion_limit": self._config.recursion_limit,
             "project_name": self.app_name,
             "run_name": "kagent-langgraph-resume",
             "tags": [
