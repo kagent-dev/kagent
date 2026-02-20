@@ -10,7 +10,7 @@ ARG BUILDPLATFORM
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs npm \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 npm \
     && update-ca-certificates \
     && node --version \
     && npm --version
@@ -53,7 +53,7 @@ ARG BUILDPLATFORM
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs \
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 \
     && update-ca-certificates \
     && node --version
 
