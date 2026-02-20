@@ -9,7 +9,6 @@ ARG BUILDPLATFORM
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
-    && rm -f /var/cache/apk/APKINDEX.*.tar.gz \
     && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 npm \
     && update-ca-certificates \
@@ -51,9 +50,8 @@ ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
-RUN --mount=type=cache,target=/var/cache/apk,rw \
+RUN --mount=type=cache,id=apk-final,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
-    && rm -f /var/cache/apk/APKINDEX.*.tar.gz \
     && apk update \
     && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 \
     && update-ca-certificates \
