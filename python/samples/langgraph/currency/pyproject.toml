@@ -3,7 +3,7 @@ name = "currency"
 version = "0.1.0"
 description = "Basic LangGraph agent for KAgent"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
     "kagent-langgraph",
     "langgraph>=0.2.0",
