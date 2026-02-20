@@ -9,6 +9,7 @@ package env
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -47,6 +48,11 @@ func (v VarType) String() string {
 	}
 }
 
+// MarshalJSON serializes VarType as its string representation.
+func (v VarType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.String())
+}
+
 // Component identifies which part of the kagent system consumes the variable.
 type Component string
 
@@ -61,19 +67,19 @@ const (
 // Var holds the metadata for a single registered environment variable.
 type Var struct {
 	// Name is the environment variable name (e.g. "KAGENT_NAMESPACE").
-	Name string
+	Name string `json:"name"`
 	// DefaultValue is the stringified default value.
-	DefaultValue string
+	DefaultValue string `json:"default"`
 	// Description explains what this variable controls.
-	Description string
+	Description string `json:"description"`
 	// Type is the data type.
-	Type VarType
+	Type VarType `json:"type"`
 	// Component identifies which kagent component uses this variable.
-	Component Component
+	Component Component `json:"component"`
 	// Hidden, when true, excludes the variable from generated documentation.
-	Hidden bool
+	Hidden bool `json:"-"`
 	// Deprecated, when true, marks the variable as deprecated in documentation.
-	Deprecated bool
+	Deprecated bool `json:"deprecated"`
 }
 
 var (
@@ -353,9 +359,7 @@ func ExportMarkdown(component string) string {
 // ExportJSON generates a JSON array of all registered variables.
 func ExportJSON(component string) string {
 	vars := VarDescriptions()
-	var sb strings.Builder
-	sb.WriteString("[\n")
-	first := true
+	out := make([]Var, 0, len(vars))
 	for _, v := range vars {
 		if v.Hidden {
 			continue
@@ -363,13 +367,12 @@ func ExportJSON(component string) string {
 		if component != "" && component != "all" && string(v.Component) != component {
 			continue
 		}
-		if !first {
-			sb.WriteString(",\n")
-		}
-		first = false
-		fmt.Fprintf(&sb, `  {"name": %q, "type": %q, "default": %q, "description": %q, "component": %q, "deprecated": %v}`,
-			v.Name, v.Type, v.DefaultValue, v.Description, v.Component, v.Deprecated)
+		out = append(out, v)
 	}
-	sb.WriteString("\n]\n")
-	return sb.String()
+
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "[]\n"
+	}
+	return string(b) + "\n"
 }
