@@ -24,6 +24,10 @@ help: ## list makefile targets
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	@# Remove format: int64/int32 from CRDs to avoid Kubernetes warnings (see #1318)
+	@for f in config/crd/bases/*.yaml; do \
+		sed -i '/^[[:space:]]*format: int\(32\|64\)$$/d' "$$f"; \
+	done
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

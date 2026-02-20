@@ -129,7 +129,6 @@ spec:
                         observedGeneration represents the .metadata.generation that the condition was set based upon.
                         For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
                         with respect to the current state of the instance.
-                      format: int64
                       minimum: 0
                       type: integer
                     reason:
@@ -184,7 +183,6 @@ spec:
               observedGeneration:
                 description: ObservedGeneration reflects the generation of the most
                   recently observed ModelProviderConfig spec
-                format: int64
                 type: integer
               secretHash:
                 description: SecretHash is a hash of the referenced secret data, used
