@@ -72,8 +72,22 @@ export async function POST(
           keepAliveTimer = setTimeout(sendKeepAlive, KEEP_ALIVE_INTERVAL_MS);
         };
 
-        const pump = (): Promise<void> => {
-          return reader.read().then(({ done, value }): Promise<void> => {
+        const cleanup = async () => {
+          if (keepAliveTimer) clearTimeout(keepAliveTimer);
+          try { await reader.cancel(); } catch { /* ignore */ }
+        };
+
+        // Note: MAX_BUFFER_SIZE and CHUNK_SIZE are measured in UTF-16 code units (JS string length),
+        // which approximates bytes for ASCII/JSON SSE data but may undercount for multi-byte characters.
+        const MAX_BUFFER_SIZE = 1024 * 1024;       // ~1 MB in characters
+        const CHUNK_SIZE = 16 * 1024;              // ~16 KB in characters
+        const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes (from Uint8Array.length)
+        let processedSize = 0;
+
+        const pump = async (): Promise<void> => {
+          try {
+            const { done, value } = await reader.read();
+
             if (done) {
               if (!isClosed) {
                 if (keepAliveTimer) clearTimeout(keepAliveTimer);
@@ -81,13 +95,22 @@ export async function POST(
                 isClosed = true;
                 console.log('A2A Proxy: Backend connection closed.');
               }
-
-              return Promise.resolve();
+              return;
             }
 
             buffer += decoder.decode(value, { stream: true });
 
-            // Process complete SSE events (delimited by \n\n)
+            processedSize += value.length;
+            if (processedSize > MAX_MESSAGE_SIZE) {
+              await cleanup();
+              if (!isClosed) {
+                controller.error(new Error('Message size exceeds maximum allowed limit of 10MB'));
+                isClosed = true;
+              }
+              return;
+            }
+
+            // Process complete SSE events (delimited by \n\n) before checking buffer size
             let eventEndIndex;
             while ((eventEndIndex = buffer.indexOf('\n\n')) >= 0) {
               const eventText = buffer.substring(0, eventEndIndex);
@@ -102,18 +125,22 @@ export async function POST(
               }
             }
 
+            // Truncate remaining buffer if it exceeds the limit (only incomplete data remains)
+            if (buffer.length > MAX_BUFFER_SIZE) {
+              buffer = buffer.slice(-CHUNK_SIZE);
+              console.warn('SSE buffer truncated due to size limit');
+            }
+
             return pump();
-          }).catch(error => {
+          } catch (error) {
             console.error('A2A Proxy: Error in stream pump:', error);
-            if (keepAliveTimer) clearTimeout(keepAliveTimer);
-            
+            await cleanup();
+
             if (!isClosed) {
               controller.error(error);
               isClosed = true;
             }
-
-            return Promise.resolve();
-          });
+          }
         };
 
         pump();
