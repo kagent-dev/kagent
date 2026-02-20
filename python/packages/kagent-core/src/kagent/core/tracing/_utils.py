@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.composite import CompositeHTTPPropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
@@ -63,6 +66,9 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
+        # Set up W3C TraceContext propagator so incoming traceparent headers
+        # are extracted and outgoing requests carry them forward.
+        set_global_textmap(CompositeHTTPPropagator([TraceContextTextMapPropagator()]))
         # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
         trace_endpoint = (
             os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
