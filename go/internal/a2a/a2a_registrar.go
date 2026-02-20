@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"reflect"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -152,7 +152,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 }
 
 func debugOpt() a2aclient.Option {
-	debugAddr := os.Getenv("KAGENT_A2A_DEBUG_ADDR")
+	debugAddr := env.KagentA2ADebugAddr.Get()
 	if debugAddr != "" {
 		client := new(http.Client)
 		client.Transport = &http.Transport{

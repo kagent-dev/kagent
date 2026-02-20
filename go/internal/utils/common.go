@@ -2,11 +2,11 @@ package utils
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/kagent-dev/kagent/go/pkg/env"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,19 +27,13 @@ type ObjectWithModelConfig interface {
 // GetResourceNamespace returns the namespace for resources,
 // using the KAGENT_NAMESPACE environment variable or defaulting to "kagent".
 func GetResourceNamespace() string {
-	if val := os.Getenv("KAGENT_NAMESPACE"); val != "" {
-		return val
-	}
-	return "kagent"
+	return env.KagentNamespace.Get()
 }
 
 // GetControllerName returns the name for the kagent controller,
 // using the KAGENT_CONTROLLER_NAME environment variable or defaulting to "kagent-controller".
 func GetControllerName() string {
-	if val := os.Getenv("KAGENT_CONTROLLER_NAME"); val != "" {
-		return val
-	}
-	return "kagent-controller"
+	return env.KagentControllerName.Get()
 }
 
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.

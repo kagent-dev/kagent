@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cli "github.com/kagent-dev/kagent/go/cli/internal/cli/agent"
+	"github.com/kagent-dev/kagent/go/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli/mcp"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
@@ -413,7 +414,7 @@ Examples:
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {

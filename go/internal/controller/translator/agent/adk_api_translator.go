@@ -20,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/adk"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -354,17 +355,17 @@ func (a *adkApiTranslator) buildManifest(
 	sharedEnv = append(sharedEnv, collectOtelEnvFromProcess()...)
 	sharedEnv = append(sharedEnv,
 		corev1.EnvVar{
-			Name: "KAGENT_NAMESPACE",
+			Name: env.KagentNamespace.Name(),
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
 			},
 		},
 		corev1.EnvVar{
-			Name:  "KAGENT_NAME",
+			Name:  env.KagentName.Name(),
 			Value: agent.Name,
 		},
 		corev1.EnvVar{
-			Name:  "KAGENT_URL",
+			Name:  env.KagentURL.Name(),
 			Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace()),
 		},
 	)
@@ -383,7 +384,7 @@ func (a *adkApiTranslator) buildManifest(
 
 	if len(skills) > 0 {
 		skillsEnv := corev1.EnvVar{
-			Name:  "KAGENT_SKILLS_FOLDER",
+			Name:  env.KagentSkillsFolder.Name(),
 			Value: "/skills",
 		}
 		needSandbox = true
@@ -722,7 +723,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	case v1alpha2.ModelProviderOpenAI:
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: "OPENAI_API_KEY",
+				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
@@ -769,7 +770,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 			if model.Spec.OpenAI.Organization != "" {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name:  "OPENAI_ORGANIZATION",
+					Name:  env.OpenAIOrganization.Name(),
 					Value: model.Spec.OpenAI.Organization,
 				})
 			}
@@ -778,7 +779,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	case v1alpha2.ModelProviderAnthropic:
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: "ANTHROPIC_API_KEY",
+				Name: env.AnthropicAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
@@ -809,7 +810,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if !model.Spec.APIKeyPassthrough {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name: "AZURE_OPENAI_API_KEY",
+				Name: env.AzureOpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
@@ -822,19 +823,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		if model.Spec.AzureOpenAI.AzureADToken != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "AZURE_AD_TOKEN",
+				Name:  env.AzureADToken.Name(),
 				Value: model.Spec.AzureOpenAI.AzureADToken,
 			})
 		}
 		if model.Spec.AzureOpenAI.APIVersion != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "OPENAI_API_VERSION",
+				Name:  env.OpenAIAPIVersion.Name(),
 				Value: model.Spec.AzureOpenAI.APIVersion,
 			})
 		}
 		if model.Spec.AzureOpenAI.Endpoint != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "AZURE_OPENAI_ENDPOINT",
+				Name:  env.AzureOpenAIEndpoint.Name(),
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
 		}
@@ -854,20 +855,20 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			return nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "GOOGLE_CLOUD_PROJECT",
+			Name:  env.GoogleCloudProject.Name(),
 			Value: model.Spec.GeminiVertexAI.ProjectID,
 		})
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "GOOGLE_CLOUD_LOCATION",
+			Name:  env.GoogleCloudLocation.Name(),
 			Value: model.Spec.GeminiVertexAI.Location,
 		})
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "GOOGLE_GENAI_USE_VERTEXAI",
+			Name:  env.GoogleGenAIUseVertexAI.Name(),
 			Value: "true",
 		})
 		if model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+				Name:  env.GoogleApplicationCredentials.Name(),
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
@@ -899,16 +900,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			return nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "GOOGLE_CLOUD_PROJECT",
+			Name:  env.GoogleCloudProject.Name(),
 			Value: model.Spec.AnthropicVertexAI.ProjectID,
 		})
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "GOOGLE_CLOUD_LOCATION",
+			Name:  env.GoogleCloudLocation.Name(),
 			Value: model.Spec.AnthropicVertexAI.Location,
 		})
 		if model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+				Name:  env.GoogleApplicationCredentials.Name(),
 				Value: "/creds/" + model.Spec.APIKeySecretKey,
 			})
 			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
@@ -944,7 +945,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			host = "http://" + host
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "OLLAMA_API_BASE",
+			Name:  env.OllamaAPIBase.Name(),
 			Value: host,
 		})
 		ollama := &adk.Ollama{
@@ -961,7 +962,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: "GOOGLE_API_KEY",
+			Name: env.GoogleAPIKey.Name(),
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -988,7 +989,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		// Set AWS region (always required)
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  "AWS_REGION",
+			Name:  env.AWSRegion.Name(),
 			Value: model.Spec.Bedrock.Region,
 		})
 
@@ -1000,51 +1001,51 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				return nil, nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
 			}
 
-			if _, hasBearerToken := secret.Data["AWS_BEARER_TOKEN_BEDROCK"]; hasBearerToken {
+			if _, hasBearerToken := secret.Data[env.AWSBearerTokenBedrock.Name()]; hasBearerToken {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: "AWS_BEARER_TOKEN_BEDROCK",
+					Name: env.AWSBearerTokenBedrock.Name(),
 					ValueFrom: &corev1.EnvVarSource{
 						SecretKeyRef: &corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: model.Spec.APIKeySecret,
 							},
-							Key: "AWS_BEARER_TOKEN_BEDROCK",
+							Key: env.AWSBearerTokenBedrock.Name(),
 						},
 					},
 				})
 			} else {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: "AWS_ACCESS_KEY_ID",
+					Name: env.AWSAccessKeyID.Name(),
 					ValueFrom: &corev1.EnvVarSource{
 						SecretKeyRef: &corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: model.Spec.APIKeySecret,
 							},
-							Key: "AWS_ACCESS_KEY_ID",
+							Key: env.AWSAccessKeyID.Name(),
 						},
 					},
 				})
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-					Name: "AWS_SECRET_ACCESS_KEY",
+					Name: env.AWSSecretAccessKey.Name(),
 					ValueFrom: &corev1.EnvVarSource{
 						SecretKeyRef: &corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{
 								Name: model.Spec.APIKeySecret,
 							},
-							Key: "AWS_SECRET_ACCESS_KEY",
+							Key: env.AWSSecretAccessKey.Name(),
 						},
 					},
 				})
 				// AWS_SESSION_TOKEN is optional, only needed for temporary/SSO credentials
-				if _, hasSessionToken := secret.Data["AWS_SESSION_TOKEN"]; hasSessionToken {
+				if _, hasSessionToken := secret.Data[env.AWSSessionToken.Name()]; hasSessionToken {
 					modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-						Name: "AWS_SESSION_TOKEN",
+						Name: env.AWSSessionToken.Name(),
 						ValueFrom: &corev1.EnvVarSource{
 							SecretKeyRef: &corev1.SecretKeySelector{
 								LocalObjectReference: corev1.LocalObjectReference{
 									Name: model.Spec.APIKeySecret,
 								},
-								Key: "AWS_SESSION_TOKEN",
+								Key: env.AWSSessionToken.Name(),
 							},
 						},
 					})
