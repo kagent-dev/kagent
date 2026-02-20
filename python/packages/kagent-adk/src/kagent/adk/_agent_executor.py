@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
@@ -153,6 +154,40 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         * Converts the ADK output events into A2A task updates
         * Publishes the updates back to A2A server via event queue
         """
+        try:
+            await self._execute_impl(context, event_queue)
+        except asyncio.CancelledError as e:
+            # anyio cancel scope corruption (from MCP session cleanup in a
+            # different task context) calls Task.cancel() on the current
+            # task. CancelledError can escape from multiple places: the
+            # outer try body, the inner except handler (if the task's
+            # cancellation counter > 1), or the finally block's
+            # _safe_close_runner (which re-raises CancelledError).
+            # This top-level guard ensures CancelledError never propagates
+            # to _run_event_stream in the A2A SDK, which would produce a
+            # 500 Internal Server Error.
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                # Clear all pending cancellation requests so subsequent
+                # awaits (e.g. publishing the failure event) don't re-raise.
+                while current_task.uncancel() > 0:
+                    pass
+            logger.error(
+                "CancelledError escaped execute, converting to failed status: %s",
+                e,
+                exc_info=True,
+            )
+            await self._publish_failed_status_event(
+                context,
+                event_queue,
+                str(e) or "A2A request execution was cancelled.",
+            )
+
+    async def _execute_impl(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
@@ -224,7 +259,59 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
             if runner is not None:
-                await runner.close()
+                await self._safe_close_runner(runner)
+
+    async def _safe_close_runner(self, runner: Runner):
+        """Close the runner in an isolated task to prevent cancel scope
+        corruption from propagating to the caller.
+
+        MCP session cleanup can trigger anyio CancelScope violations when
+        cancel scopes are entered in one task context but exited in another
+        (e.g. via asyncio.wait_for creating a subtask). Running the cleanup
+        in a separate task and collecting exceptions via asyncio.gather
+        ensures cleanup runs in a separate task context. We only suppress
+        the known non-fatal anyio cross-task cancel scope cleanup error and
+        re-raise everything else.
+
+        See: https://github.com/kagent-dev/kagent/issues/1276
+        """
+        cleanup_task = asyncio.create_task(runner.close())
+        try:
+            results = await asyncio.gather(cleanup_task, return_exceptions=True)
+        except asyncio.CancelledError:
+            cleanup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
+            raise
+
+        for result in results:
+            if not isinstance(result, BaseException):
+                continue
+            if isinstance(result, (KeyboardInterrupt, SystemExit)):
+                raise result
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if self._is_anyio_cross_task_cancel_scope_error(result):
+                logger.warning(
+                    "Non-fatal anyio cancel scope error during runner cleanup: %s: %s",
+                    type(result).__name__,
+                    result,
+                )
+                continue
+            raise result
+
+    @staticmethod
+    def _is_anyio_cross_task_cancel_scope_error(error: BaseException) -> bool:
+        current: BaseException | None = error
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, (RuntimeError, asyncio.CancelledError)):
+                msg = str(current).lower()
+                if "cancel scope" in msg and "different task" in msg:
+                    return True
+            current = current.__cause__ or current.__context__
+        return False
 
     async def _publish_failed_status_event(
         self,
@@ -249,7 +336,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     final=True,
                 )
             )
-        except Exception as enqueue_error:
+        except BaseException as enqueue_error:
+            if isinstance(enqueue_error, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     async def _handle_request(
