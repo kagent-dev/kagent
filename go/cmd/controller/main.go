@@ -17,8 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"os"
+	"strings"
+
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/pkg/app"
+	pkgauth "github.com/kagent-dev/kagent/go/pkg/auth"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -27,7 +31,12 @@ import (
 
 //nolint:gocyclo
 func main() {
-	authorizer := &auth.NoopAuthorizer{}
+	var authorizer pkgauth.Authorizer
+	if strings.EqualFold(os.Getenv("KAGENT_READ_ONLY"), "true") {
+		authorizer = &auth.ReadOnlyAuthorizer{}
+	} else {
+		authorizer = &auth.NoopAuthorizer{}
+	}
 	authenticator := &auth.UnsecureAuthenticator{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
 		return &app.ExtensionConfig{

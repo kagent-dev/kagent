@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
+import { useReadOnly } from "./ReadOnlyProvider";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
@@ -15,6 +16,7 @@ interface AgentCardProps {
 
 export function AgentCard({ agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
+  const readOnly = useReadOnly();
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
     agent.metadata.name || ''
@@ -60,21 +62,23 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           <KagentLogo className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">{agentRef}</span>
         </CardTitle>
-        <div className="flex items-center space-x-2 relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleEditClick}
-            aria-label="Edit Agent"
-            className="bg-background/80 hover:bg-background shadow-sm"
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <DeleteButton
-            agentName={agent.metadata.name}
-            namespace={agent.metadata.namespace || ''}
-          />
-        </div>
+        {!readOnly && (
+          <div className="flex items-center space-x-2 relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleEditClick}
+              aria-label="Edit Agent"
+              className="bg-background/80 hover:bg-background shadow-sm"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <DeleteButton
+              agentName={agent.metadata.name}
+              namespace={agent.metadata.namespace || ''}
+            />
+          </div>
+        )}
       </CardHeader>
       <CardContent className="flex flex-col justify-between h-32 relative z-10">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">

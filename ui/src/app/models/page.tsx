@@ -17,9 +17,11 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 export default function ModelsPage() {
     const router = useRouter();
+    const readOnly = useReadOnly();
     const [models, setModels] = useState<ModelConfig[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -93,17 +95,23 @@ export default function ModelsPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-8">
                     <h1 className="text-2xl font-bold">Models</h1>
-                    <Button
-                        variant="default"
-                        onClick={() => router.push("/models/new")}
-                    >
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Model
-                    </Button>
+                    {!readOnly && (
+                        <Button
+                            variant="default"
+                            onClick={() => router.push("/models/new")}
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            New Model
+                        </Button>
+                    )}
                 </div>
 
                 {loading ? (
                     <LoadingState />
+                ) : models.length === 0 && readOnly ? (
+                    <div className="text-center py-12">
+                        <p className="text-muted-foreground">Resources are managed via GitOps</p>
+                    </div>
                 ) : (
                     <div className="space-y-4">
                         {models.map((model) => (
@@ -120,29 +128,31 @@ export default function ModelsPage() {
                                         )}
                                         <span className="font-medium">{model.ref}</span>
                                     </div>
-                                    <div className="flex space-x-2">
-                                        <Button
-                                            data-test={`edit-model-${model.ref}`}
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEdit(model);
-                                            }}
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="destructive"
-                                            size="sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(model);
-                                            }}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
+                                    {!readOnly && (
+                                        <div className="flex space-x-2">
+                                            <Button
+                                                data-test={`edit-model-${model.ref}`}
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEdit(model);
+                                                }}
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDelete(model);
+                                                }}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                                 {expandedRows.has(model.ref) && (
                                     <div className="p-4 border-t bg-secondary/10">

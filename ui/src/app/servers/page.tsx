@@ -10,6 +10,7 @@ import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 export default function ServersPage() {
   // State for servers and tools
@@ -17,6 +18,8 @@ export default function ServersPage() {
   const [toolServerTypes, setToolServerTypes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
+
+  const readOnly = useReadOnly();
 
   // Dialog states
   const [showAddServer, setShowAddServer] = useState(false);
@@ -141,7 +144,7 @@ export default function ServersPage() {
             View Tools →
           </Link>
         </div>
-        {servers.length > 0 && (
+        {!readOnly && servers.length > 0 && (
           <Button onClick={() => setShowAddServer(true)} variant="default">
             <Plus className="h-4 w-4 mr-2" />
             Add MCP Server
@@ -181,31 +184,33 @@ export default function ServersPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <DropdownMenu 
-                        open={openDropdownMenu === serverName} 
-                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
-                      >
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
-                             className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                             onSelect={(e) => {
-                               e.preventDefault();
-                               setOpenDropdownMenu(null);
-                               setShowConfirmDelete(serverName);
-                             }}
-                           >
-                             <Trash2 className="h-4 w-4 mr-2" />
-                             Remove MCP Server
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    {!readOnly && (
+                      <div className="flex items-center gap-2">
+                        <DropdownMenu
+                          open={openDropdownMenu === serverName}
+                          onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? serverName : null)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                             <DropdownMenuItem
+                               className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                               onSelect={(e) => {
+                                 e.preventDefault();
+                                 setOpenDropdownMenu(null);
+                                 setShowConfirmDelete(serverName);
+                               }}
+                             >
+                               <Trash2 className="h-4 w-4 mr-2" />
+                               Remove MCP Server
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -245,11 +250,17 @@ export default function ServersPage() {
         <div className="flex flex-col items-center justify-center h-[300px] text-center p-4 border rounded-lg bg-secondary/5">
           <Server className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
           <h3 className="font-medium text-lg">No MCP servers connected</h3>
-          <p className="text-muted-foreground mt-1 mb-4">Add an MCP server to discover and use tools.</p>
-          <Button onClick={() => setShowAddServer(true)} variant="default">
-            <Plus className="h-4 w-4 mr-2" />
-            Add MCP Server
-          </Button>
+          {readOnly ? (
+            <p className="text-muted-foreground mt-1 mb-4">Resources are managed via GitOps</p>
+          ) : (
+            <>
+              <p className="text-muted-foreground mt-1 mb-4">Add an MCP server to discover and use tools.</p>
+              <Button onClick={() => setShowAddServer(true)} variant="default">
+                <Plus className="h-4 w-4 mr-2" />
+                Add MCP Server
+              </Button>
+            </>
+          )}
         </div>
       )}
 

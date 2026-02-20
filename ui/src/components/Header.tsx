@@ -12,9 +12,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useReadOnly } from "./ReadOnlyProvider";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const readOnly = useReadOnly();
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -54,36 +56,37 @@ export function Header() {
             </Button>
 
 
-            {/* Create Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="link" className="text-secondary-foreground gap-1 px-2">
-                  <Plus className="h-4 w-4" />
-                  Create
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem asChild>
-                  <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
-                    <KagentLogo className="h-4 w-4 text-primary" />
-                    New Agent
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/models/new" className="gap-2 cursor-pointer w-full">
-                    <Brain className="h-4 w-4" />
-                    New Model
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/servers" className="gap-2 cursor-pointer w-full">
-                    <Server className="h-4 w-4" />
-                    New MCP Server
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {!readOnly && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="link" className="text-secondary-foreground gap-1 px-2">
+                    <Plus className="h-4 w-4" />
+                    Create
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
+                      <KagentLogo className="h-4 w-4 text-primary" />
+                      New Agent
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/models/new" className="gap-2 cursor-pointer w-full">
+                      <Brain className="h-4 w-4" />
+                      New Model
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/servers" className="gap-2 cursor-pointer w-full">
+                      <Server className="h-4 w-4" />
+                      New MCP Server
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             
             {/* View Dropdown */}
             <DropdownMenu>
@@ -183,36 +186,37 @@ export function Header() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Mobile Create Dropdown */}
-               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
-                     <Plus className="h-4 w-4" />
-                    Create
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
-                      <KagentLogo className="h-4 w-4 text-primary" />
-                      New Agent
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/models/new" className="gap-2 cursor-pointer w-full">
-                      <Brain className="h-4 w-4" />
-                      New Model
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
-                      <Server className="h-4 w-4" />
-                      New MCP Server
-                    </Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!readOnly && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="text-secondary-foreground justify-start px-1 gap-1 w-full">
+                      <Plus className="h-4 w-4" />
+                      Create
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                      <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
+                        <KagentLogo className="h-4 w-4 text-primary" />
+                        New Agent
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                      <Link href="/models/new" className="gap-2 cursor-pointer w-full">
+                        <Brain className="h-4 w-4" />
+                        New Model
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                      <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                        <Server className="h-4 w-4" />
+                        New MCP Server
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               
               {/* Mobile Other Links */}
               <Button variant="ghost" className="text-secondary-foreground justify-start px-1" asChild>

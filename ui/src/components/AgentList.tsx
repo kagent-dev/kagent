@@ -7,9 +7,11 @@ import { ErrorState } from "./ErrorState";
 import { Button } from "./ui/button";
 import { LoadingState } from "./LoadingState";
 import { useAgents } from "./AgentsProvider";
+import { useReadOnly } from "./ReadOnlyProvider";
 
 export default function AgentList() {
   const { agents , loading, error } = useAgents();
+  const readOnly = useReadOnly();
 
   if (error) {
     return <ErrorState message={error} />;
@@ -31,13 +33,19 @@ export default function AgentList() {
         <div className="text-center py-12">
           <KagentLogo className="h-16 w-16 mx-auto mb-4" />
           <h3 className="text-lg font-medium  mb-2">No agents yet</h3>
-          <p className=" mb-6">Create your first agent to get started</p>
-          <Button className="bg-violet-500 hover:bg-violet-600" asChild>
-            <Link href={"/agents/new"}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create New Agent
-            </Link>
-          </Button>
+          {readOnly ? (
+            <p className="text-muted-foreground mb-6">Resources are managed via GitOps</p>
+          ) : (
+            <>
+              <p className=" mb-6">Create your first agent to get started</p>
+              <Button className="bg-violet-500 hover:bg-violet-600" asChild>
+                <Link href={"/agents/new"}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create New Agent
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <AgentGrid agentResponse={agents || []} />

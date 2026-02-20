@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, redirect } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
@@ -30,6 +30,7 @@ import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 interface ValidationErrors {
   name?: string;
@@ -759,6 +760,12 @@ function ModelPageContent() {
 }
 
 export default function ModelPage() {
+  const readOnly = useReadOnly();
+
+  if (readOnly) {
+    redirect("/");
+  }
+
   return (
     <React.Suspense fallback={<LoadingState />}>
       <ModelPageContent />

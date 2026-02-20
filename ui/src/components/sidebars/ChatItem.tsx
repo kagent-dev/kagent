@@ -14,6 +14,7 @@ import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } fr
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
+import { useReadOnly } from "../ReadOnlyProvider";
 
 interface ChatItemProps {
   sessionId: string;
@@ -26,6 +27,7 @@ interface ChatItemProps {
 }
 
 const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt }: ChatItemProps) => {
+  const readOnly = useReadOnly();
   const title = sessionName || "Untitled";
   
   // Format timestamp based on how recent it is
@@ -81,29 +83,31 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                   <span>Download</span>
                 </Button>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5 text-red-500 hover:text-red-500">
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      <span>Delete</span>
-                    </Button>
-                  </AlertDialogTrigger>
+              {!readOnly && (
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5 text-red-500 hover:text-red-500">
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        <span>Delete</span>
+                      </Button>
+                    </AlertDialogTrigger>
 
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="text-secondary-foreground">Delete Chat</AlertDialogTitle>
-                      <AlertDialogDescription>Are you sure you want to delete this chat? This action cannot be undone.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel className="text-secondary-foreground">Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={async () => onDelete(sessionId)} className="bg-red-500 hover:bg-red-600">
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </DropdownMenuItem>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-secondary-foreground">Delete Chat</AlertDialogTitle>
+                        <AlertDialogDescription>Are you sure you want to delete this chat? This action cannot be undone.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="text-secondary-foreground">Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={async () => onDelete(sessionId)} className="bg-red-500 hover:bg-red-600">
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>
