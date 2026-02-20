@@ -1,5 +1,6 @@
 import AgentList from "@/components/AgentList";
 
 export default async function AgentListPage() {
-  return <AgentList />;
+  const subtitle = process.env.NEXT_PUBLIC_SUBTITLE;
+  return <AgentList subtitle={subtitle} />;
 }
