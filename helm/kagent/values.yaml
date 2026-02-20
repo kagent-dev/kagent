@@ -56,6 +56,9 @@ database:
     databaseName: kagent.db
   postgres:
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+    # Path to a file containing the database URL.
+    # Takes precedence over url when set.
+    urlFile: ""
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
