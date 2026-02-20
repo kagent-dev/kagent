@@ -8,7 +8,7 @@ import { Button } from "./ui/button";
 import { LoadingState } from "./LoadingState";
 import { useAgents } from "./AgentsProvider";
 
-export default function AgentList() {
+export default function AgentList({ subtitle }: { subtitle?: string }) {
   const { agents , loading, error } = useAgents();
 
   if (error) {
@@ -22,8 +22,9 @@ export default function AgentList() {
   return (
     <div className="mt-12 mx-auto max-w-6xl px-6">
       <div className="flex justify-between items-center mb-8">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold">Agents</h1>
+          {subtitle && <p className="text-muted-foreground text-sm">{subtitle}</p>}
         </div>
       </div>
 
