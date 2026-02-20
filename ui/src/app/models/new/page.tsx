@@ -30,6 +30,7 @@ import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { useReadOnly } from "@/components/ReadOnlyProvider";
 
 interface ValidationErrors {
   name?: string;
@@ -759,6 +760,19 @@ function ModelPageContent() {
 }
 
 export default function ModelPage() {
+  const router = useRouter();
+  const readOnly = useReadOnly();
+
+  useEffect(() => {
+    if (readOnly) {
+      router.replace("/");
+    }
+  }, [readOnly, router]);
+
+  if (readOnly) {
+    return <LoadingState />;
+  }
+
   return (
     <React.Suspense fallback={<LoadingState />}>
       <ModelPageContent />
