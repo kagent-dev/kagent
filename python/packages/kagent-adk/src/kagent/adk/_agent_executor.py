@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
+import signal
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
@@ -43,6 +45,152 @@ from .converters.part_converter import convert_a2a_part_to_genai_part, convert_g
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+async def _force_close_mcp_sessions(runner: Runner) -> None:
+    """Force-close orphaned MCP sessions when graceful cleanup fails.
+
+    When Runner.close() fails due to anyio cancel scope task context
+    mismatches (common with MCP stdio sessions created in a different
+    asyncio task), this function directly closes the session exit stacks
+    and terminates any orphaned child processes.
+
+    See: https://github.com/kagent-dev/kagent/issues/1073
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/521
+    """
+    try:
+        toolsets = runner._collect_toolset(runner.agent)
+    except Exception as e:
+        logger.warning("Failed to collect toolsets for force cleanup: %s", e)
+        logger.warning(
+            "Falling back to last-resort child process cleanup"
+        )
+        _terminate_mcp_child_processes()
+        return
+
+    for toolset in toolsets:
+        mgr = getattr(toolset, "_mcp_session_manager", None)
+        if mgr is None:
+            continue
+
+        sessions = getattr(mgr, "_sessions", None)
+        if not sessions:
+            continue
+
+        for session_key in list(sessions.keys()):
+            try:
+                _client_session, exit_stack, _stored_loop = sessions[session_key]
+            except (ValueError, KeyError):
+                continue
+
+            # Attempt to close the AsyncExitStack which manages the
+            # stdio_client context (and its subprocess).
+            closed = False
+            try:
+                await asyncio.wait_for(exit_stack.aclose(), timeout=5.0)
+                logger.info(
+                    "Force-closed MCP session exit stack: %s", session_key
+                )
+                closed = True
+            except Exception as close_err:
+                logger.warning(
+                    "Exit stack close failed for %s (%s: %s), "
+                    "terminating MCP child processes as last resort",
+                    session_key,
+                    type(close_err).__name__,
+                    close_err,
+                )
+                # Last resort: terminate MCP stdio child processes
+                _terminate_mcp_child_processes()
+
+            # Only remove the session if cleanup succeeded to allow
+            # potential future retry if the process wasn't terminated
+            if closed:
+                sessions.pop(session_key, None)
+
+
+def _is_mcp_stdio_process(pid: int) -> bool:
+    """Check if a process is an MCP stdio server by inspecting its command line.
+
+    Returns True if the process command line contains indicators of being
+    an MCP server process (e.g., 'mcp', 'npx', 'uvx' with server args).
+    """
+    try:
+        cmdline_path = f"/proc/{pid}/cmdline"
+        with open(cmdline_path, "rb") as f:
+            cmdline = f.read().decode("utf-8", errors="replace")
+        # cmdline fields are null-separated
+        cmdline_lower = cmdline.lower()
+        # Match common MCP stdio server patterns:
+        # - commands containing "mcp" (mcp server packages, @modelcontextprotocol/*)
+        # - npx/uvx invocations (common MCP stdio launchers)
+        # - python -m mcp or similar
+        mcp_indicators = ["mcp", "npx", "uvx", "modelcontextprotocol"]
+        return any(indicator in cmdline_lower for indicator in mcp_indicators)
+    except (OSError, ValueError):
+        return False
+
+
+def _terminate_mcp_child_processes() -> None:
+    """Terminate orphaned MCP stdio child processes of the current process.
+
+    This is a last-resort cleanup for orphaned MCP stdio subprocesses
+    that could not be terminated through normal exit stack cleanup.
+    Only targets direct children whose command line matches MCP stdio
+    server patterns to minimize blast radius.
+
+    Sends SIGTERM first, then SIGKILL after a short grace period for
+    processes that don't exit.
+    """
+    pid = os.getpid()
+    terminated_pids: list[int] = []
+    try:
+        # Read /proc to find direct children of this process
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                stat_path = f"/proc/{entry}/stat"
+                with open(stat_path, "r") as f:
+                    stat = f.read()
+                # Field 4 (0-indexed: 3) is the parent PID
+                fields = stat.split()
+                if len(fields) > 3 and int(fields[3]) == pid:
+                    child_pid = int(entry)
+                    if not _is_mcp_stdio_process(child_pid):
+                        continue
+                    os.kill(child_pid, signal.SIGTERM)
+                    terminated_pids.append(child_pid)
+                    logger.info(
+                        "Sent SIGTERM to orphaned MCP child process PID %d",
+                        child_pid,
+                    )
+            except (OSError, ValueError, IndexError):
+                continue
+    except OSError:
+        # /proc not available (non-Linux), skip process cleanup
+        return
+
+    if not terminated_pids:
+        return
+
+    # Give processes a short grace period then SIGKILL any survivors
+    import time
+
+    time.sleep(0.5)
+    for child_pid in terminated_pids:
+        try:
+            # Check if process still exists (signal 0 = check only)
+            os.kill(child_pid, 0)
+            # Still alive — force kill
+            os.kill(child_pid, signal.SIGKILL)
+            logger.info(
+                "Sent SIGKILL to MCP child process PID %d (did not exit after SIGTERM)",
+                child_pid,
+            )
+        except OSError:
+            # Process already exited, good
+            pass
 
 
 class A2aAgentExecutorConfig(BaseModel):
@@ -219,12 +367,53 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 await self._publish_failed_status_event(context, event_queue, error_message)
         finally:
             clear_kagent_span_attributes(context_token)
-            # close the runner which cleans up the mcptoolsets
-            # since the runner is created for each a2a request
-            # and the mcptoolsets are not shared between requests
-            # this is necessary to gracefully handle mcp toolset connections
+            # Close the runner which cleans up MCP toolsets.
+            # Since the runner is created per A2A request and MCP toolsets
+            # are not shared between requests, cleanup is mandatory.
+            #
+            # The MCP Python SDK uses anyio cancel scopes that must be
+            # entered and exited in the same asyncio task context. When
+            # cleanup runs in a different task than the one that created
+            # the sessions, a RuntimeError is raised and MCP stdio
+            # subprocesses are left orphaned, causing high CPU at idle.
+            # See: https://github.com/kagent-dev/kagent/issues/1073
             if runner is not None:
-                await runner.close()
+                try:
+                    await runner.close()
+                except asyncio.CancelledError as e:
+                    logger.warning(
+                        "Runner.close() was cancelled, "
+                        "forcing MCP session cleanup",
+                    )
+                    await _force_close_mcp_sessions(runner)
+                    # Re-raise so upstream cancellation handling still works
+                    raise
+                except RuntimeError as e:
+                    # Only suppress the specific anyio cancel-scope mismatch
+                    # error; re-raise unexpected RuntimeErrors after cleanup.
+                    is_cancel_scope_error = "cancel scope" in str(e).lower()
+                    if is_cancel_scope_error:
+                        logger.warning(
+                            "Runner.close() hit cancel-scope mismatch (%s), "
+                            "forcing MCP session cleanup",
+                            e,
+                        )
+                    else:
+                        logger.error(
+                            "Unexpected RuntimeError during runner cleanup: %s",
+                            e,
+                            exc_info=True,
+                        )
+                    await _force_close_mcp_sessions(runner)
+                    if not is_cancel_scope_error:
+                        raise
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error during runner cleanup: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    await _force_close_mcp_sessions(runner)
 
     async def _publish_failed_status_event(
         self,
