@@ -128,17 +128,17 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
             return (
               <Card key={toolIdentifierForDisplay}>
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-xs">
-                      <div className="inline-flex space-x-2 items-center">
-                        <Icon className={`h-4 w-4 ${iconColor}`} />
-                        <div className="inline-flex flex-col space-y-1">
-                          <span className="">{displayName}</span>
-                          <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center text-xs min-w-0 flex-1">
+                      <div className="inline-flex space-x-2 items-center min-w-0">
+                        <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
+                        <div className="inline-flex flex-col space-y-1 min-w-0">
+                          <span className="truncate">{displayName}</span>
+                          <span className="text-muted-foreground line-clamp-2">{displayDescription}</span>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)} disabled={isSubmitting}>
                         <X className="h-4 w-4" />
                       </Button>
@@ -166,17 +166,17 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           return [( // flatMap expects an array
             <Card key={parentToolIdentifier}>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center text-xs">
-                    <div className="inline-flex space-x-2 items-center">
-                      <CurrentIcon className={`h-4 w-4 ${currentIconColor}`} />
-                      <div className="inline-flex flex-col space-y-1">
-                        <span className="">{displayName}</span>
-                        <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <div className="flex items-center text-xs min-w-0 flex-1">
+                    <div className="inline-flex space-x-2 items-center min-w-0">
+                      <CurrentIcon className={`h-4 w-4 flex-shrink-0 ${currentIconColor}`} />
+                      <div className="inline-flex flex-col space-y-1 min-w-0">
+                        <span className="truncate">{displayName}</span>
+                        <span className="text-muted-foreground line-clamp-2">{displayDescription}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
                       <X className="h-4 w-4" />
                     </Button>
