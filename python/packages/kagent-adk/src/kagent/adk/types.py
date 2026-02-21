@@ -218,10 +218,35 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
+ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock]
+
+
+class ContextCompressionSettings(BaseModel):
+    compaction_interval: int
+    overlap_size: int
+    summarizer_model: ModelUnion | None = Field(default=None, discriminator="type")
+    prompt_template: str | None = None
+    token_threshold: int | None = None
+    event_retention_size: int | None = None
+
+
+class ContextCacheSettings(BaseModel):
+    """Settings for prefix context caching."""
+
+    cache_intervals: int | None = None
+    ttl_seconds: int | None = None
+    min_tokens: int | None = None
+
+
+class ContextConfig(BaseModel):
+    """Context management configuration containing compaction and cache settings."""
+
+    compaction: ContextCompressionSettings | None = None
+    cache: ContextCacheSettings | None = None
+
+
 class AgentConfig(BaseModel):
-    model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
-        discriminator="type"
-    )
+    model: ModelUnion = Field(discriminator="type")
     description: str
     instruction: str
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
@@ -230,6 +255,7 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     # This stream option refers to LLM response streaming, not A2A streaming
     stream: bool | None = None
+    context_config: ContextConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -337,75 +363,8 @@ class AgentConfig(BaseModel):
 
                 tools.append(AgentTool(agent=remote_a2a_agent))
 
-        extra_headers = self.model.headers or {}
-
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
-
-        if self.model.type == "openai":
-            model = OpenAINative(
-                type="openai",
-                base_url=self.model.base_url,
-                default_headers=extra_headers,
-                frequency_penalty=self.model.frequency_penalty,
-                max_tokens=self.model.max_tokens,
-                model=self.model.model,
-                n=self.model.n,
-                presence_penalty=self.model.presence_penalty,
-                reasoning_effort=self.model.reasoning_effort,
-                seed=self.model.seed,
-                temperature=self.model.temperature,
-                timeout=self.model.timeout,
-                top_p=self.model.top_p,
-                # TLS configuration
-                tls_disable_verify=self.model.tls_disable_verify,
-                tls_ca_cert_path=self.model.tls_ca_cert_path,
-                tls_disable_system_cas=self.model.tls_disable_system_cas,
-                # API key passthrough
-                api_key_passthrough=self.model.api_key_passthrough,
-            )
-        elif self.model.type == "anthropic":
-            model = KAgentLiteLlm(
-                model=f"anthropic/{self.model.model}",
-                base_url=self.model.base_url,
-                extra_headers=extra_headers,
-                api_key_passthrough=self.model.api_key_passthrough,
-            )
-        elif self.model.type == "gemini_vertex_ai":
-            model = GeminiLLM(model=self.model.model)
-        elif self.model.type == "gemini_anthropic":
-            model = ClaudeLLM(model=self.model.model)
-        elif self.model.type == "ollama":
-            # Convert string options to correct types (int, float, bool) for Ollama API
-            ollama_options = _convert_ollama_options(self.model.options)
-            model = KAgentLiteLlm(
-                model=f"ollama_chat/{self.model.model}",
-                extra_headers=extra_headers,
-                api_key_passthrough=self.model.api_key_passthrough,
-                **ollama_options,
-            )
-        elif self.model.type == "azure_openai":
-            model = OpenAIAzure(
-                model=self.model.model,
-                type="azure_openai",
-                default_headers=extra_headers,
-                # TLS configuration
-                tls_disable_verify=self.model.tls_disable_verify,
-                tls_ca_cert_path=self.model.tls_ca_cert_path,
-                tls_disable_system_cas=self.model.tls_disable_system_cas,
-                # API key passthrough
-                api_key_passthrough=self.model.api_key_passthrough,
-            )
-        elif self.model.type == "gemini":
-            model = self.model.model
-        elif self.model.type == "bedrock":
-            # LiteLLM handles Bedrock via boto3 internally when model starts with "bedrock/"
-            model = KAgentLiteLlm(
-                model=f"bedrock/{self.model.model}",
-                extra_headers=extra_headers,
-                api_key_passthrough=self.model.api_key_passthrough,
-            )
-        else:
-            raise ValueError(f"Invalid model type: {self.model.type}")
+        model = _create_llm_from_model_config(self.model)
         return Agent(
             name=name,
             model=model,
@@ -414,3 +373,113 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
         )
+
+
+def _create_llm_from_model_config(model_config: ModelUnion):
+    extra_headers = model_config.headers or {}
+    base_url = getattr(model_config, "base_url", None)
+
+    if model_config.type == "openai":
+        return OpenAINative(
+            type="openai",
+            base_url=base_url,
+            default_headers=extra_headers,
+            frequency_penalty=model_config.frequency_penalty,
+            max_tokens=model_config.max_tokens,
+            model=model_config.model,
+            n=model_config.n,
+            presence_penalty=model_config.presence_penalty,
+            reasoning_effort=model_config.reasoning_effort,
+            seed=model_config.seed,
+            temperature=model_config.temperature,
+            timeout=model_config.timeout,
+            top_p=model_config.top_p,
+            # TLS configuration
+            tls_disable_verify=model_config.tls_disable_verify,
+            tls_ca_cert_path=model_config.tls_ca_cert_path,
+            tls_disable_system_cas=model_config.tls_disable_system_cas,
+            # API key passthrough
+            api_key_passthrough=model_config.api_key_passthrough,
+        )
+    if model_config.type == "anthropic":
+        return KAgentLiteLlm(
+            model=f"anthropic/{model_config.model}",
+            base_url=base_url,
+            extra_headers=extra_headers,
+            # API key passthrough
+            api_key_passthrough=model_config.api_key_passthrough,
+        )
+    if model_config.type == "gemini_vertex_ai":
+        return GeminiLLM(model=model_config.model)
+    if model_config.type == "gemini_anthropic":
+        return ClaudeLLM(model=model_config.model)
+    if model_config.type == "ollama":
+        # Convert string options to correct types (int, float, bool) for Ollama API
+        ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
+        return KAgentLiteLlm(model=f"ollama_chat/{model_config.model}", extra_headers=extra_headers, **ollama_options)
+    if model_config.type == "azure_openai":
+        return OpenAIAzure(
+            model=model_config.model,
+            type="azure_openai",
+            default_headers=extra_headers,
+            # TLS configuration
+            tls_disable_verify=model_config.tls_disable_verify,
+            tls_ca_cert_path=model_config.tls_ca_cert_path,
+            tls_disable_system_cas=model_config.tls_disable_system_cas,
+        )
+    if model_config.type == "gemini":
+        return model_config.model
+    if model_config.type == "bedrock":
+        return KAgentLiteLlm(
+            model=f"bedrock/{model_config.model}",
+            extra_headers=extra_headers,
+            # API key passthrough
+            api_key_passthrough=model_config.api_key_passthrough,
+        )
+    raise ValueError(f"Invalid model type: {model_config.type}")
+
+
+def build_adk_context_configs(context_config: ContextConfig) -> tuple:
+    from google.adk.agents.context_cache_config import (
+        ContextCacheConfig as AdkContextCacheConfig,
+    )
+    from google.adk.apps.app import EventsCompactionConfig
+
+    events_compaction_config = None
+    context_cache_config = None
+
+    if context_config.compaction is not None:
+        comp = context_config.compaction
+        summarizer = None
+
+        if comp.summarizer_model is not None:
+            from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+
+            summarizer = LlmEventSummarizer(
+                llm=_create_llm_from_model_config(comp.summarizer_model),
+                prompt_template=comp.prompt_template,
+            )
+
+        compaction_kwargs: dict = {
+            "compaction_interval": comp.compaction_interval,
+            "overlap_size": comp.overlap_size,
+            "summarizer": summarizer,
+        }
+        if comp.token_threshold is not None and hasattr(EventsCompactionConfig, "token_threshold"):
+            compaction_kwargs["token_threshold"] = comp.token_threshold
+        if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
+            compaction_kwargs["event_retention_size"] = comp.event_retention_size
+        events_compaction_config = EventsCompactionConfig(**compaction_kwargs)
+
+    if context_config.cache is not None:
+        cache = context_config.cache
+        kwargs = {}
+        if cache.cache_intervals is not None:
+            kwargs["cache_intervals"] = cache.cache_intervals
+        if cache.ttl_seconds is not None:
+            kwargs["ttl_seconds"] = cache.ttl_seconds
+        if cache.min_tokens is not None:
+            kwargs["min_tokens"] = cache.min_tokens
+        context_cache_config = AdkContextCacheConfig(**kwargs)
+
+    return events_compaction_config, context_cache_config

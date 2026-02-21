@@ -17,11 +17,27 @@ from kagent.core import KAgentConfig, configure_logging, configure_tracing
 from . import AgentConfig, KAgentApp
 from .skill_fetcher import fetch_skill
 from .tools import add_skills_tool_to_agent
+from .types import build_adk_context_configs
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
 
 app = typer.Typer()
+
+
+def _build_context_kwargs(agent_config: AgentConfig) -> dict:
+    """Build context config kwargs for KAgentApp from agent config."""
+    kwargs = {}
+    if agent_config.context_config is not None:
+        events_compaction_config, context_cache_config = build_adk_context_configs(
+            agent_config.context_config,
+        )
+        if events_compaction_config is not None:
+            kwargs["events_compaction_config"] = events_compaction_config
+        if context_cache_config is not None:
+            kwargs["context_cache_config"] = context_cache_config
+
+    return kwargs
 
 
 kagent_url_override = os.getenv("KAGENT_URL")
@@ -80,6 +96,7 @@ def static(
 
         return root_agent
 
+    context_kwargs = _build_context_kwargs(agent_config)
     kagent_app = KAgentApp(
         root_agent_factory,
         agent_card,
@@ -87,6 +104,7 @@ def static(
         app_cfg.app_name,
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
+        **context_kwargs,
     )
 
     server = kagent_app.build()
@@ -190,6 +208,7 @@ def run(
     except Exception:
         logger.exception(f"Failed to load agent module '{name}' for lifespan")
 
+    context_kwargs = _build_context_kwargs(agent_config) if agent_config else {}
     kagent_app = KAgentApp(
         root_agent_factory,
         agent_card,
@@ -198,6 +217,7 @@ def run(
         lifespan=lifespan,
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
+        **context_kwargs,
     )
 
     if local:
@@ -229,7 +249,8 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         maybe_add_skills(root_agent)
         return root_agent
 
-    app = KAgentApp(root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    context_kwargs = _build_context_kwargs(agent_config)
+    app = KAgentApp(root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins, **context_kwargs)
     await app.test(task)
 
 

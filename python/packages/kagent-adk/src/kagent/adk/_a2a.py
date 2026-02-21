@@ -8,16 +8,19 @@ import httpx
 from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
+from a2a.types import AgentCard, Task, TaskState, TaskStatusUpdateEvent
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
+from google.adk.agents.context_cache_config import ContextCacheConfig as AdkContextCacheConfig
 from google.adk.apps import App
+from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.genai import types
 
 from kagent.core.a2a import (
@@ -60,6 +63,8 @@ class KAgentApp:
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: List[BasePlugin] = None,
         stream: bool = False,
+        events_compaction_config: Optional[EventsCompactionConfig] = None,
+        context_cache_config: Optional[AdkContextCacheConfig] = None,
     ):
         """Initialize the KAgent application.
 
@@ -71,6 +76,8 @@ class KAgentApp:
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
+            events_compaction_config: ADK compaction configuration
+            context_cache_config: ADK context caching config
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
@@ -79,6 +86,8 @@ class KAgentApp:
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
+        self.events_compaction_config = events_compaction_config
+        self.context_cache_config = context_cache_config
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
@@ -95,7 +104,13 @@ class KAgentApp:
 
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
-            adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
+            adk_app = App(
+                name=self.app_name,
+                root_agent=root_agent,
+                plugins=self.plugins,
+                events_compaction_config=self.events_compaction_config,
+                context_cache_config=self.context_cache_config,
+            )
 
             return Runner(
                 app=adk_app,

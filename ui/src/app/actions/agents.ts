@@ -114,6 +114,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       modelConfig: modelConfigName || "",
       stream: agentFormData.stream ?? true,
       tools: convertTools(agentFormData.tools || []),
+      context: agentFormData.context,
     };
 
     if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {

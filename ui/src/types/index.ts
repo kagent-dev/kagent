@@ -251,6 +251,31 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  context?: ContextConfig;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+  cache?: ContextCacheConfig;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval: number;
+  overlapSize: number;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+  summarizer?: ContextSummarizerConfig;
+}
+
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
+}
+
+export interface ContextCacheConfig {
+  cacheIntervals?: number;
+  ttlSeconds?: number;
+  minTokens?: number;
 }
 
 export interface BYOAgentSpec {

@@ -118,6 +118,11 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
+
+	// Context configures context management for this agent.
+	// This includes event compaction (compression) and context caching.
+	// +optional
+	Context *ContextConfig `json:"context,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -125,6 +130,77 @@ type DeclarativeDeploymentSpec struct {
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
+}
+
+// ContextConfig configures context management for an agent.
+// Context management includes event compaction (compression/summarization) and context caching.
+type ContextConfig struct {
+	// Compaction configures event history compaction.
+	// When enabled, older events in the conversation are compacted (compressed/summarized)
+	// to reduce context size while preserving key information.
+	// +optional
+	Compaction *ContextCompressionConfig `json:"compaction,omitempty"`
+	// Cache configures context caching.
+	// When enabled, prefix context is cached at the provider level to reduce
+	// redundant processing of repeated context.
+	// +optional
+	Cache *ContextCacheConfig `json:"cache,omitempty"`
+}
+
+// ContextCompressionConfig configures event history compaction/compression.
+// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) && has(self.overlapSize)",message="compactionInterval and overlapSize are required"
+type ContextCompressionConfig struct {
+	// The number of *new* user-initiated invocations that, once fully represented in the session's events, will trigger a compaction.
+	// +kubebuilder:validation:Minimum=1
+	CompactionInterval int `json:"compactionInterval"`
+	// The number of preceding invocations to include from the end of the last compacted range. This creates an overlap between consecutive compacted summaries, maintaining context.
+	// +kubebuilder:validation:Minimum=0
+	OverlapSize int `json:"overlapSize"`
+	// Summarizer configures an LLM-based summarizer for event compaction.
+	// If not specified, compacted events are simply truncated without summarization.
+	// +optional
+	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
+	// Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+	// observed prompt token count meets or exceeds this threshold.
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events to always retain.
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+}
+
+// ContextSummarizerConfig configures the LLM-based event summarizer.
+type ContextSummarizerConfig struct {
+	// ModelConfig is the name of a ModelConfig resource to use for summarization.
+	// Must be in the same namespace as the Agent.
+	// If not specified, uses the agent's own model.
+	// +optional
+	ModelConfig string `json:"modelConfig,omitempty"`
+	// PromptTemplate is a custom prompt template for the summarizer.
+	// +optional
+	PromptTemplate string `json:"promptTemplate,omitempty"`
+}
+
+// ContextCacheConfig configures prefix context caching at the LLM provider level.
+type ContextCacheConfig struct {
+	// CacheIntervals specifies how often (in number of events) to update the cache.
+	// Default: 10
+	// +optional
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=1
+	CacheIntervals *int `json:"cacheIntervals,omitempty"`
+	// TTLSeconds specifies the time-to-live for cached context in seconds.
+	// Default: 1800 (30 minutes)
+	// +optional
+	// +kubebuilder:default=1800
+	// +kubebuilder:validation:Minimum=0
+	TTLSeconds *int `json:"ttlSeconds,omitempty"`
+	// MinTokens is the minimum number of tokens before caching is activated.
+	// Default: 0
+	// +optional
+	// +kubebuilder:default=0
+	// +kubebuilder:validation:Minimum=0
+	MinTokens *int `json:"minTokens,omitempty"`
 }
 
 type BYOAgentSpec struct {
