@@ -33,25 +33,37 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false,
   const hasNestedCalls = nestedCalls && nestedCalls.length > 0;
 
   // Build nested-of-nested: for each nested agent call, find its children among the
-  // remaining nested calls using author matching
+  // remaining nested calls using ordering-based disambiguation.
   const nestedCallsMap = useMemo(() => {
     if (!nestedCalls || depth >= MAX_NESTING_DEPTH) return new Map<string, ToolCallState[]>();
 
     const NAMESPACE_SEPARATOR = "__NS__";
     const map = new Map<string, ToolCallState[]>();
 
+    // Single pass: assign each child to the most recent preceding agent call
+    // for the matching sub-agent name (disambiguates repeat invocations).
+    const activeParent = new Map<string, string>();
+
     for (const nc of nestedCalls) {
       if (isAgentToolName(nc.call.name)) {
         const lastIdx = nc.call.name.lastIndexOf(NAMESPACE_SEPARATOR);
         if (lastIdx === -1) continue;
         const subAgentName = nc.call.name.substring(lastIdx + NAMESPACE_SEPARATOR.length);
-        const children = nestedCalls.filter(c =>
-          c.id !== nc.id && c.author === subAgentName
-        );
-        if (children.length > 0) {
-          map.set(nc.id, children);
+        activeParent.set(subAgentName, nc.id);
+        if (!map.has(nc.id)) {
+          map.set(nc.id, []);
+        }
+      } else if (nc.author) {
+        const parentId = activeParent.get(nc.author);
+        if (parentId) {
+          map.get(parentId)!.push(nc);
         }
       }
+    }
+
+    // Remove empty entries
+    for (const [id, children] of map) {
+      if (children.length === 0) map.delete(id);
     }
 
     return map;

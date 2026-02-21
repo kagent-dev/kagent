@@ -324,21 +324,36 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
   }, [allMessages]);
 
   // Build parent-child map: agent call ID -> nested tool call states
+  // Uses message ordering to disambiguate multiple invocations of the same sub-agent.
   const nestedCallsMap = useMemo(() => {
     const map = new Map<string, ToolCallState[]>();
     const allCalls = Array.from(allToolCalls.values());
 
-    // For each agent-as-tool call, find child calls whose author matches the sub-agent name
+    // Single pass: assign each child to the most recent preceding agent call
+    // for the matching sub-agent name (disambiguates repeat invocations).
+    // Track: subAgentName -> current parent call ID
+    const activeParent = new Map<string, string>();
+
     for (const call of allCalls) {
       if (isAgentToolName(call.call.name)) {
+        // This is an agent-as-tool call; register it as the active parent
         const subAgentName = extractAgentName(call.call.name);
-        const children = allCalls.filter(c =>
-          c.id !== call.id && c.author === subAgentName
-        );
-        if (children.length > 0) {
-          map.set(call.id, children);
+        activeParent.set(subAgentName, call.id);
+        if (!map.has(call.id)) {
+          map.set(call.id, []);
+        }
+      } else if (call.author) {
+        // This is a regular tool call with an author — attach to active parent
+        const parentId = activeParent.get(call.author);
+        if (parentId) {
+          map.get(parentId)!.push(call);
         }
       }
+    }
+
+    // Remove empty entries
+    for (const [id, children] of map) {
+      if (children.length === 0) map.delete(id);
     }
 
     return map;
