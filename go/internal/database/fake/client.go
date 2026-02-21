@@ -238,12 +238,13 @@ func (c *InMemoryFakeClient) GetSession(sessionID string, userID string) (*datab
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	key := c.sessionKey(sessionID, userID)
-	session, exists := c.sessions[key]
-	if !exists {
-		return nil, gorm.ErrRecordNotFound
+	// Look up by ID only (ignore userID) — permissions are not enforced yet
+	for _, session := range c.sessions {
+		if session.ID == sessionID {
+			return session, nil
+		}
 	}
-	return session, nil
+	return nil, gorm.ErrRecordNotFound
 }
 
 // GetAgent retrieves an agent by name
