@@ -1,4 +1,7 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+
+/** Union of all event types that can arrive from an A2A SSE stream. */
+export type StreamEvent = Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
@@ -528,7 +531,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     appendMessage(message);
   };
 
-  const handleMessageEvent = (message: Message) => {
+  const handleMessageEvent = (message: StreamEvent) => {
     if (messageUtils.isA2ATask(message)) {
       handlers.setIsStreaming(true);
       return;
