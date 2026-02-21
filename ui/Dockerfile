@@ -43,6 +43,9 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
 
+ARG VERSION
+ENV NEXT_PUBLIC_KAGENT_VERSION=$VERSION
+
 # Copy source files
 COPY . .
 
