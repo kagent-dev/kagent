@@ -32,19 +32,9 @@ from openai import AsyncOpenAI
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 from ._session_service import KAgentSessionFactory
 
-# Configure logging
+# Logging is configured by kagent.core (imported above) which sets
+# timestamp format via configure_logging() at import time.
 logger = logging.getLogger(__name__)
-
-
-def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    numeric_level = getattr(logging, log_level, logging.INFO)
-    logging.basicConfig(level=numeric_level)
-    logging.info(f"Logging configured with level: {log_level}")
-
-
-configure_logging()
 
 
 def health_check(request: Request) -> PlainTextResponse:
