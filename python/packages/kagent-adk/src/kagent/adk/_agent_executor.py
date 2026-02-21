@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
+import signal
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
@@ -43,6 +45,93 @@ from .converters.part_converter import convert_a2a_part_to_genai_part, convert_g
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+async def _force_close_mcp_sessions(runner: Runner) -> None:
+    """Force-close orphaned MCP sessions when graceful cleanup fails.
+
+    When Runner.close() fails due to anyio cancel scope task context
+    mismatches (common with MCP stdio sessions created in a different
+    asyncio task), this function directly closes the session exit stacks
+    and kills any orphaned child processes.
+
+    See: https://github.com/kagent-dev/kagent/issues/1073
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/521
+    """
+    try:
+        toolsets = runner._collect_toolset(runner.agent)
+    except Exception as e:
+        logger.warning("Failed to collect toolsets for force cleanup: %s", e)
+        return
+
+    for toolset in toolsets:
+        mgr = getattr(toolset, "_mcp_session_manager", None)
+        if mgr is None:
+            continue
+
+        sessions = getattr(mgr, "_sessions", None)
+        if not sessions:
+            continue
+
+        for session_key in list(sessions.keys()):
+            try:
+                _client_session, exit_stack, _stored_loop = sessions[session_key]
+            except (ValueError, KeyError):
+                continue
+
+            # Attempt to close the AsyncExitStack which manages the
+            # stdio_client context (and its subprocess).
+            try:
+                await asyncio.wait_for(exit_stack.aclose(), timeout=5.0)
+                logger.info(
+                    "Force-closed MCP session exit stack: %s", session_key
+                )
+            except Exception as close_err:
+                logger.warning(
+                    "Exit stack close failed for %s (%s: %s), "
+                    "killing child processes as last resort",
+                    session_key,
+                    type(close_err).__name__,
+                    close_err,
+                )
+                # Last resort: kill child processes spawned by this process
+                _kill_child_processes()
+
+            # Remove the session from the manager to prevent double-cleanup
+            sessions.pop(session_key, None)
+
+
+def _kill_child_processes() -> None:
+    """Kill direct child processes of the current process.
+
+    This is a last-resort cleanup for orphaned MCP stdio subprocesses
+    that could not be terminated through normal exit stack cleanup.
+    Only targets direct children to minimize blast radius.
+    """
+    pid = os.getpid()
+    try:
+        # Read /proc to find direct children of this process
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                stat_path = f"/proc/{entry}/stat"
+                with open(stat_path, "r") as f:
+                    stat = f.read()
+                # Field 4 (0-indexed: 3) is the parent PID
+                fields = stat.split()
+                if len(fields) > 3 and int(fields[3]) == pid:
+                    child_pid = int(entry)
+                    os.kill(child_pid, signal.SIGTERM)
+                    logger.info(
+                        "Sent SIGTERM to orphaned child process PID %d",
+                        child_pid,
+                    )
+            except (OSError, ValueError, IndexError):
+                continue
+    except OSError:
+        # /proc not available (non-Linux), skip process cleanup
+        pass
 
 
 class A2aAgentExecutorConfig(BaseModel):
@@ -219,12 +308,34 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 await self._publish_failed_status_event(context, event_queue, error_message)
         finally:
             clear_kagent_span_attributes(context_token)
-            # close the runner which cleans up the mcptoolsets
-            # since the runner is created for each a2a request
-            # and the mcptoolsets are not shared between requests
-            # this is necessary to gracefully handle mcp toolset connections
+            # Close the runner which cleans up MCP toolsets.
+            # Since the runner is created per A2A request and MCP toolsets
+            # are not shared between requests, cleanup is mandatory.
+            #
+            # The MCP Python SDK uses anyio cancel scopes that must be
+            # entered and exited in the same asyncio task context. When
+            # cleanup runs in a different task than the one that created
+            # the sessions, a RuntimeError is raised and MCP stdio
+            # subprocesses are left orphaned, causing high CPU at idle.
+            # See: https://github.com/kagent-dev/kagent/issues/1073
             if runner is not None:
-                await runner.close()
+                try:
+                    await runner.close()
+                except (asyncio.CancelledError, RuntimeError) as e:
+                    logger.warning(
+                        "Runner.close() failed (%s: %s), "
+                        "forcing MCP session cleanup",
+                        type(e).__name__,
+                        e,
+                    )
+                    await _force_close_mcp_sessions(runner)
+                except Exception as e:
+                    logger.error(
+                        "Unexpected error during runner cleanup: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    await _force_close_mcp_sessions(runner)
 
     async def _publish_failed_status_event(
         self,
