@@ -263,22 +263,50 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                 </div>
                 <SidebarMenu>
                   <TooltipProvider>
-                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
-                      <SidebarMenuItem key={index}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <SidebarMenuButton className="w-full">
-                              <div className="flex items-center justify-between w-full">
-                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
-                              </div>
-                            </SidebarMenuButton>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">
-                            <p className="max-w-xs break-all">{skillRef}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    ))}
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => {
+                      const parts = skillRef.split('/');
+                      const hasRegistry = parts.length > 1 && (
+                        parts[0].includes('.') || 
+                        parts[0].includes('localhost') || 
+                        parts[0].includes(':')
+                      );
+                      
+                      const registry = hasRegistry ? parts[0] : null;
+                      const imagePath = hasRegistry ? parts.slice(1).join('/') : skillRef;
+                      
+                      const tagIndex = imagePath.lastIndexOf(':');
+                      const hasTag = tagIndex !== -1;
+                      
+                      const repoName = hasTag ? imagePath.substring(0, tagIndex) : imagePath;
+                      const tag = hasTag ? imagePath.substring(tagIndex + 1) : 'latest';
+
+                      return (
+                        <SidebarMenuItem key={index}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2">
+                                <div className="flex flex-col items-start w-full min-w-0 gap-0.5">
+                                  <div className="flex items-center w-full justify-between gap-2">
+                                    <span className="truncate text-sm font-medium leading-tight">{repoName}</span>
+                                    <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                      {tag}
+                                    </span>
+                                  </div>
+                                  {registry && (
+                                    <span className="truncate w-full text-xs text-muted-foreground leading-tight" title={registry}>
+                                      {registry}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p className="max-w-xs break-all">{skillRef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </TooltipProvider>
                 </SidebarMenu>
               </SidebarGroup>
