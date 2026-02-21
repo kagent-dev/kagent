@@ -409,7 +409,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                 >
                                   <div className="flex-1 overflow-hidden pr-2">
                                     <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
-                                    {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
+                                    {description && <p className="text-xs text-muted-foreground line-clamp-2">{highlightMatch(description, searchTerm)}</p>}
                                     {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
                                   </div>
                                   {!isSelected && !isDisabled && (
