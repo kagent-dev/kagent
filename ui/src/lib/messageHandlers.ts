@@ -282,7 +282,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     contextId: string | undefined,
     taskId: string | undefined,
     source: string,
-    options?: { setProcessingStatus?: boolean }
+    options?: { setProcessingStatus?: boolean; author?: string }
   ) => {
     if (options?.setProcessingStatus && handlers.setChatStatus) {
       handlers.setChatStatus("processing_tools");
@@ -292,6 +292,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       name: toolData.name,
       args: toolData.args || {}
     }];
+    const additionalMetadata: Record<string, unknown> = { toolCallData: toolCallContent };
+    if (options?.author) {
+      additionalMetadata.kagent_author = options.author;
+    }
     const convertedMessage = createMessage(
       "",
       source,
@@ -299,7 +303,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         originalType: "ToolCallRequestEvent",
         contextId,
         taskId,
-        additionalMetadata: { toolCallData: toolCallContent }
+        additionalMetadata,
       }
     );
     appendMessage(convertedMessage);
@@ -309,7 +313,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     toolData: ToolResponseData,
     contextId: string | undefined,
     taskId: string | undefined,
-    defaultSource: string
+    defaultSource: string,
+    author?: string
   ) => {
     const toolResultContent: ProcessedToolResultData[] = [{
       call_id: toolData.id,
@@ -317,6 +322,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       content: normalizeToolResultToText(toolData),
       is_error: toolData.response?.isError || false
     }];
+    const additionalMetadata: Record<string, unknown> = { toolResultData: toolResultContent };
+    if (author) {
+      additionalMetadata.kagent_author = author;
+    }
     const execEvent = createMessage(
       "",
       defaultSource,
@@ -324,7 +333,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         originalType: "ToolCallExecutionEvent",
         contextId,
         taskId,
-        additionalMetadata: { toolResultData: toolResultContent }
+        additionalMetadata,
       }
     );
     appendMessage(execEvent);
@@ -384,15 +393,16 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
             const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
+            const author = getMetadataValue<string>(adkMetadata as Record<string, unknown>, "author");
             if (partType === "function_call") {
               const toolData = data as unknown as ToolCallData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
+              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true, author });
 
             } else if (partType === "function_response") {
               const toolData = data as unknown as ToolResponseData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
+              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, author);
             }
           }
         }
@@ -433,10 +443,13 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
         const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
+        const author = getMetadataValue<string>(adkMetadata as Record<string, unknown>, "author");
         if (partType === "function_call") {
           const toolData = data as unknown as ToolCallData;
           const toolCallContent: ProcessedToolCallData[] = [{ id: toolData.id, name: toolData.name, args: toolData.args || {} }];
-          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent } });
+          const additionalMeta: Record<string, unknown> = { toolCallData: toolCallContent };
+          if (author) additionalMeta.kagent_author = author;
+          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: additionalMeta });
           convertedMessages.push(convertedMessage);
           continue;
         }
@@ -445,7 +458,9 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
           const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
-          const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
+          const additionalMeta: Record<string, unknown> = { toolResultData: toolResultContent };
+          if (author) additionalMeta.kagent_author = author;
+          const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: additionalMeta });
           convertedMessages.push(convertedMessage);
           continue;
         }
