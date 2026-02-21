@@ -26,7 +26,7 @@ export function Footer() {
       <div className="text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
         <KagentLogo animate={true} className="h-6 w-6 text-[#942DE7]" />
         <p>
-          {version ? `v${version} · ` : ""}is an open source project
+          {version ? `v${version.replace(/^v/, "")} · ` : ""}is an open source project
         </p>
       </div>
     </footer>
