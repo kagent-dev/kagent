@@ -69,6 +69,7 @@ type AgentSpec struct {
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="size(self.refs) > 0 || size(self.gitRefs) > 0",message="at least one of refs or gitRefs must be specified"
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
 	// Meant for development and testing purposes only.
