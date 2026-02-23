@@ -122,7 +122,7 @@ type Config struct {
 	HttpServerAddr     string
 	WatchNamespaces    string
 	A2ABaseUrl         string
-	Database struct {
+	Database           struct {
 		Type    string
 		Path    string
 		Url     string
