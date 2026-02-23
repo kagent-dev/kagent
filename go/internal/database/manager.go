@@ -2,11 +2,11 @@ package database
 
 import (
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/glebarez/sqlite"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -39,27 +39,21 @@ type Config struct {
 	PostgresConfig *PostgresConfig
 }
 
-const (
-	gormLogLevel = "GORM_LOG_LEVEL"
-)
-
 // NewManager creates a new database manager
 func NewManager(config *Config) (*Manager, error) {
 	var db *gorm.DB
 	var err error
 
 	logLevel := logger.Silent
-	if val, ok := os.LookupEnv(gormLogLevel); ok {
-		switch val {
-		case "error":
-			logLevel = logger.Error
-		case "warn":
-			logLevel = logger.Warn
-		case "info":
-			logLevel = logger.Info
-		case "silent":
-			logLevel = logger.Silent
-		}
+	switch env.GormLogLevel.Get() {
+	case "error":
+		logLevel = logger.Error
+	case "warn":
+		logLevel = logger.Warn
+	case "info":
+		logLevel = logger.Info
+	case "silent":
+		logLevel = logger.Silent
 	}
 
 	switch config.DatabaseType {
