@@ -269,11 +269,9 @@ func TestSessionsHandler(t *testing.T) {
 			userID := "test-user"
 			sessionID := "test-session"
 
-			// Create test session
 			agentID := "1"
 			createTestSession(dbClient, sessionID, userID, agentID)
 
-			// Create events with different timestamps
 			event1 := &database.Event{
 				ID:        "event-1",
 				SessionID: sessionID,
@@ -517,6 +515,60 @@ func TestSessionsHandler(t *testing.T) {
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 
 			handler.HandleListTasksForSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+	})
+
+	t.Run("HandleFindSessionByFunctionCall", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler()
+			userID := "test-user"
+			sessionID := "test-session"
+			functionCallID := "call-123"
+
+			agentID := "1"
+			session := createTestSession(dbClient, sessionID, userID, agentID)
+
+			event := &database.Event{
+				ID:        "event-1",
+				SessionID: sessionID,
+				UserID:    userID,
+				Data:      `{"parent_function_call_id": "` + functionCallID + `"}`,
+			}
+			dbClient.StoreEvents(event)
+
+			req := httptest.NewRequest("GET", "/api/sessions/find-by-function-call?function_call_id="+functionCallID, nil)
+
+			handler.HandleFindSessionByFunctionCall(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var response api.StandardResponse[*database.Session]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, session.ID, response.Data.ID)
+		})
+
+		t.Run("SessionNotFound", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+			functionCallID := "non-existent-call"
+
+			req := httptest.NewRequest("GET", "/api/sessions/find-by-function-call?function_call_id="+functionCallID, nil)
+
+			handler.HandleFindSessionByFunctionCall(responseRecorder, req)
+
+			assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("MissingFunctionCallID", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/sessions/find-by-function-call", nil)
+
+			handler.HandleFindSessionByFunctionCall(responseRecorder, req)
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)

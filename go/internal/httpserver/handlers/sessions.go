@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	stdErrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"github.com/kagent-dev/kagent/go/pkg/database"
+	"gorm.io/gorm"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -393,6 +395,32 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	log.Info("Successfully added event to session")
 	data := api.NewResponse(event, "Event added to session successfully", false)
 	RespondWithJSON(w, http.StatusCreated, data)
+}
+
+func (h *SessionsHandler) HandleFindSessionByFunctionCall(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "find-by-function-call")
+
+	functionCallID := r.URL.Query().Get("function_call_id")
+	if functionCallID == "" {
+		w.RespondWithError(errors.NewBadRequestError("function_call_id query parameter is required", nil))
+		return
+	}
+	log = log.WithValues("function_call_id", functionCallID)
+
+	log.V(1).Info("Finding session by parent function call ID")
+	session, err := h.DatabaseService.FindSessionByParentFunctionCallID(functionCallID)
+	if err != nil {
+		if stdErrors.Is(err, gorm.ErrRecordNotFound) {
+			w.RespondWithError(errors.NewNotFoundError("Session not found for function call ID", err))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to find session by function call ID", err))
+		return
+	}
+
+	log.Info("Successfully found session", "sessionID", session.ID)
+	data := api.NewResponse(session, "Successfully found session", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
 
 func getUserID(r *http.Request) (string, error) {

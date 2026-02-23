@@ -164,14 +164,23 @@ def convert_genai_part_to_a2a_part(
         )
 
     if part.function_response:
+        data = part.function_response.model_dump(by_alias=True, exclude_none=True)
+        metadata = {
+            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE
+        }
+        # Extract embedded sub-agent A2A metadata (injected by SubAgentSessionPlugin)
+        response = data.get("response", {})
+        if isinstance(response, dict):
+            sub_ctx_id = response.pop("a2a:context_id", None)
+            sub_task_id = response.pop("a2a:task_id", None)
+            if sub_ctx_id:
+                metadata["a2a:context_id"] = sub_ctx_id
+            if sub_task_id:
+                metadata["a2a:task_id"] = sub_task_id
         return a2a_types.Part(
             root=a2a_types.DataPart(
-                data=part.function_response.model_dump(by_alias=True, exclude_none=True),
-                metadata={
-                    get_kagent_metadata_key(
-                        A2A_DATA_PART_METADATA_TYPE_KEY
-                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE
-                },
+                data=data,
+                metadata=metadata,
             )
         )
 

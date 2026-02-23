@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { FunctionCall } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { convertToUserFriendlyName } from "@/lib/utils";
@@ -17,12 +18,19 @@ interface AgentCallDisplayProps {
   isError?: boolean;
 }
 
+const AGENT_TOOL_NAME_RE = /^(.+)__NS__(.+)$/;
+
 const AgentCallDisplay = ({ call, result, status = "requested", isError = false }: AgentCallDisplayProps) => {
   const [areInputsExpanded, setAreInputsExpanded] = useState(false);
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
 
   const agentDisplay = useMemo(() => convertToUserFriendlyName(call.name), [call.name]);
   const hasResult = result !== undefined;
+
+  const agentMatch = call.name.match(AGENT_TOOL_NAME_RE);
+  const functionCallLink = agentMatch
+    ? `/agents/${agentMatch[1].replace(/_/g, "-")}/${agentMatch[2].replace(/_/g, "-")}/function-calls/${call.id}`
+    : null;
 
   const getStatusDisplay = () => {
     if (isError && status === "executing") {
@@ -76,7 +84,15 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false 
             <KagentLogo className="w-4 h-4 mr-2" />
             {agentDisplay}
           </div>
-          <div className="font-light">{call.id}</div>
+          <div className="font-light">
+            {functionCallLink ? (
+              <Link href={functionCallLink} className="text-blue-500 hover:underline">
+                {call.id}
+              </Link>
+            ) : (
+              call.id
+            )}
+          </div>
         </CardTitle>
         <div className="flex justify-center items-center text-xs">
           {getStatusDisplay()}

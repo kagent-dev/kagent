@@ -16,6 +16,7 @@ from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
 from kagent.adk._mcp_toolset import KAgentMcpToolset
+from kagent.adk._sub_agent_session_plugin import get_current_function_call_id
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
+
+# Key used to propagate parent function_call_id to sub-agents via A2A request metadata
+PARENT_FUNCTION_CALL_ID_KEY = "parent_function_call_id"
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"
@@ -82,6 +86,13 @@ def create_header_provider(
         return headers
 
     return header_provider
+
+
+def _parent_context_meta_provider(_ctx: Any, _msg: Any) -> dict[str, Any] | None:
+    fc_id = get_current_function_call_id()
+    if fc_id:
+        return {PARENT_FUNCTION_CALL_ID_KEY: fc_id}
+    return None
 
 
 def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
@@ -333,6 +344,7 @@ class AgentConfig(BaseModel):
                     agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                     description=remote_agent.description,
                     httpx_client=client,
+                    a2a_request_meta_provider=_parent_context_meta_provider,
                 )
 
                 tools.append(AgentTool(agent=remote_a2a_agent))

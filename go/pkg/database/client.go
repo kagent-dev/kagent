@@ -55,6 +55,9 @@ type Client interface {
 	ListEventsForSession(sessionID, userID string, options QueryOptions) ([]*Event, error)
 	ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error)
 
+	// Lookup methods
+	FindSessionByParentFunctionCallID(functionCallID string) (*Session, error)
+
 	// Helper methods
 	RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
 

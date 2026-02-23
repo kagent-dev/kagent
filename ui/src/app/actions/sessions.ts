@@ -109,6 +109,17 @@ export async function checkSessionExists(sessionId: string): Promise<BaseRespons
   }
 }
 
+export async function findSessionByFunctionCallId(functionCallId: string): Promise<BaseResponse<Session>> {
+  try {
+    const data = await fetchApi<BaseResponse<Session>>(
+      `/sessions/find-by-function-call?function_call_id=${encodeURIComponent(functionCallId)}`
+    );
+    return { message: "Session found successfully", data: data.data };
+  } catch (error) {
+    return createErrorResponse<Session>(error, "Error finding session by function call ID");
+  }
+}
+
 /**
  * Updates a session
  * @param session The session to update

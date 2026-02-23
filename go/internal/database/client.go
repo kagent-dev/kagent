@@ -491,6 +491,27 @@ func (c *clientImpl) DeleteCheckpoint(userID, threadID string) error {
 	})
 }
 
+func (c *clientImpl) FindSessionByParentFunctionCallID(functionCallID string) (*dbpkg.Session, error) {
+	var event dbpkg.Event
+	// Use a wildcard between the key and value to handle potential whitespace (e.g. ": " vs ":")
+	searchPattern := fmt.Sprintf("%%\"parent_function_call_id\"%%\"%s\"%%", functionCallID)
+	err := c.db.Where("data LIKE ?", searchPattern).First(&event).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, gorm.ErrRecordNotFound
+		}
+		return nil, fmt.Errorf("failed to find event by parent function call ID: %w", err)
+	}
+
+	var session dbpkg.Session
+	err = c.db.Where("id = ?", event.SessionID).First(&session).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to find session for event: %w", err)
+	}
+
+	return &session, nil
+}
+
 // CrewAI methods
 
 // StoreCrewAIMemory stores CrewAI agent memory

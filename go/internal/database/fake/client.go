@@ -741,6 +741,26 @@ func (c *InMemoryFakeClient) ListWrites(userID, threadID, checkpointNS, checkpoi
 	return writes[start:end], nil
 }
 
+func (c *InMemoryFakeClient) FindSessionByParentFunctionCallID(functionCallID string) (*database.Session, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	searchPattern1 := fmt.Sprintf(`"parent_function_call_id":"%s"`, functionCallID)
+	searchPattern2 := fmt.Sprintf(`"parent_function_call_id": "%s"`, functionCallID)
+
+	for _, event := range c.events {
+		if strings.Contains(event.Data, searchPattern1) || strings.Contains(event.Data, searchPattern2) {
+			for _, session := range c.sessions {
+				if session.ID == event.SessionID {
+					return session, nil
+				}
+			}
+			return nil, gorm.ErrRecordNotFound
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 // CrewAI methods
 
 // StoreCrewAIMemory stores CrewAI agent memory

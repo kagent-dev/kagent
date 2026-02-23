@@ -33,6 +33,7 @@ from pydantic import BaseModel
 from typing_extensions import override
 
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
+
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -262,11 +263,14 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
-        # set request headers to session state
+        # set request headers and A2A request metadata to session state
         headers = context.call_context.state.get("headers", {})
-        state_changes = {
+        state_changes: dict[str, Any] = {
             "headers": headers,
         }
+        request_metadata = context.metadata
+        if request_metadata:
+            state_changes["a2a_request_metadata"] = request_metadata
 
         actions_with_update = EventActions(state_delta=state_changes)
         system_event = Event(
