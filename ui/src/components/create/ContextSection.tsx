@@ -147,11 +147,12 @@ export const ContextSection = ({ config, onChange, error, disabled, models, agen
               </div>
               <div>
                 <Label>Token Threshold (optional)</Label>
+                <p className="text-xs text-muted-foreground">Requires Event Retention Size to be set.</p>
                 <Input
                   type="number"
                   value={compaction.tokenThreshold || ""}
                   onChange={(e) => updateCompaction("tokenThreshold", e.target.value ? parseInt(e.target.value) : undefined)}
-                  placeholder="e.g. 1000"
+                  placeholder="e.g. 150000"
                   disabled={disabled}
                 />
               </div>
@@ -161,7 +162,7 @@ export const ContextSection = ({ config, onChange, error, disabled, models, agen
                   type="number"
                   value={compaction.eventRetentionSize || ""}
                   onChange={(e) => updateCompaction("eventRetentionSize", e.target.value ? parseInt(e.target.value) : undefined)}
-                  placeholder="e.g. 50"
+                  placeholder="e.g. 3"
                   disabled={disabled}
                 />
               </div>
