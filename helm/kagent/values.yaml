@@ -72,6 +72,8 @@ controller:
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+  # -- The image used by the git-skills-init container to clone skills from Git repositories.
+  gitInitImage: "alpine/git:2.47.2"
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024

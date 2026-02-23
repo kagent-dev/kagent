@@ -12,20 +12,25 @@
       "text"
     ],
     "description": "",
-    "name": "passthrough_agent",
+    "name": "git_skills_agent",
     "skills": null,
-    "url": "http://passthrough-agent.test:8080",
+    "url": "http://git-skills-agent.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "You are a helpful assistant.",
+    "instruction": "You are a helpful assistant with skills from git.",
     "model": {
-      "api_key_passthrough": true,
       "base_url": "",
+      "headers": {
+        "User-Agent": "kagent/1.0"
+      },
+      "max_tokens": 1024,
       "model": "gpt-4o",
+      "reasoning_effort": "low",
       "temperature": 0.7,
+      "top_p": 0.95,
       "type": "openai"
     },
     "remote_agents": null,
@@ -40,11 +45,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "passthrough-agent",
+          "app.kubernetes.io/name": "git-skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "passthrough-agent"
+          "kagent": "git-skills-agent"
         },
-        "name": "passthrough-agent",
+        "name": "git-skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -52,14 +57,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "passthrough-agent",
+            "name": "git-skills-agent",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"passthrough_agent\",\"description\":\"\",\"url\":\"http://passthrough-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"api_key_passthrough\":true,\"base_url\":\"\",\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"git_skills_agent\",\"description\":\"\",\"url\":\"http://git-skills-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"reasoning_effort\":\"low\",\"temperature\":0.7,\"top_p\":0.95},\"description\":\"\",\"instruction\":\"You are a helpful assistant with skills from git.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
       }
     },
     {
@@ -69,11 +74,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "passthrough-agent",
+          "app.kubernetes.io/name": "git-skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "passthrough-agent"
+          "kagent": "git-skills-agent"
         },
-        "name": "passthrough-agent",
+        "name": "git-skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -81,7 +86,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "passthrough-agent",
+            "name": "git-skills-agent",
             "uid": ""
           }
         ]
@@ -94,11 +99,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "passthrough-agent",
+          "app.kubernetes.io/name": "git-skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "passthrough-agent"
+          "kagent": "git-skills-agent"
         },
-        "name": "passthrough-agent",
+        "name": "git-skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -106,7 +111,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "passthrough-agent",
+            "name": "git-skills-agent",
             "uid": ""
           }
         ]
@@ -115,7 +120,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "passthrough-agent"
+            "kagent": "git-skills-agent"
           }
         },
         "strategy": {
@@ -128,14 +133,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "17345807287857683497"
+              "kagent.dev/config-hash": "11835878454410491036"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "passthrough-agent",
+              "app.kubernetes.io/name": "git-skills-agent",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "passthrough-agent"
+              "kagent": "git-skills-agent"
             }
           },
           "spec": {
@@ -151,6 +156,15 @@
                 ],
                 "env": [
                   {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
                     "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
                     "value": "delta"
                   },
@@ -164,11 +178,15 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "passthrough-agent"
+                    "value": "git-skills-agent"
                   },
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SKILLS_FOLDER",
+                    "value": "/skills"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
@@ -199,10 +217,18 @@
                     "memory": "384Mi"
                   }
                 },
+                "securityContext": {
+                  "privileged": true
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/config",
                     "name": "config"
+                  },
+                  {
+                    "mountPath": "/skills",
+                    "name": "kagent-skills",
+                    "readOnly": true
                   },
                   {
                     "mountPath": "/var/run/secrets/tokens",
@@ -211,12 +237,69 @@
                 ]
               }
             ],
-            "serviceAccountName": "passthrough-agent",
+            "initContainers": [
+              {
+                "command": [
+                  "/bin/sh",
+                  "-c",
+                  "set -e\nif [ -f '/git-auth/ssh-privatekey' ]; then\n  mkdir -p ~/.ssh\n  cp '/git-auth/ssh-privatekey' ~/.ssh/id_rsa\n  chmod 600 ~/.ssh/id_rsa\n  ssh-keyscan github.com gitlab.com bitbucket.org \u003e\u003e ~/.ssh/known_hosts 2\u003e/dev/null\nelif [ -f '/git-auth/token' ]; then\n  git config --global credential.helper '!f() { echo username=x-access-token; echo password=$(cat /git-auth/token); }; f'\nfi\ngit clone --depth 1 --branch 'v2.0.0' -- 'https://github.com/org/my-skills' '/skills/k8s-skill'\n_tmp=\"$(mktemp -d)\"\ncp -a '/skills/k8s-skill/skills/k8s/.' \"$_tmp/\"\nrm -rf '/skills/k8s-skill'\nmv \"$_tmp\" '/skills/k8s-skill'\ngit clone -- 'https://github.com/org/another-skill' '/skills/another-skill'\ncd '/skills/another-skill' \u0026\u0026 git checkout 'abc123def456abc123def456abc123def456abc1'\ngit clone --depth 1 --branch 'main' -- 'https://github.com/org/private-skill' '/skills/private-skill'\n"
+                ],
+                "image": "alpine/git:2.47.2",
+                "name": "git-skills-init",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/skills",
+                    "name": "kagent-skills"
+                  },
+                  {
+                    "mountPath": "/git-auth",
+                    "name": "git-auth",
+                    "readOnly": true
+                  }
+                ]
+              },
+              {
+                "args": [
+                  "ghcr.io/org/oci-skill:v1.0"
+                ],
+                "command": [
+                  "kagent-adk",
+                  "pull-skills"
+                ],
+                "env": [
+                  {
+                    "name": "KAGENT_SKILLS_FOLDER",
+                    "value": "/skills"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "name": "skills-init",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/skills",
+                    "name": "kagent-skills"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "git-skills-agent",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "passthrough-agent"
+                  "secretName": "git-skills-agent"
+                }
+              },
+              {
+                "emptyDir": {},
+                "name": "kagent-skills"
+              },
+              {
+                "name": "git-auth",
+                "secret": {
+                  "secretName": "github-token"
                 }
               },
               {
@@ -246,11 +329,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "passthrough-agent",
+          "app.kubernetes.io/name": "git-skills-agent",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "passthrough-agent"
+          "kagent": "git-skills-agent"
         },
-        "name": "passthrough-agent",
+        "name": "git-skills-agent",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -258,7 +341,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "passthrough-agent",
+            "name": "git-skills-agent",
             "uid": ""
           }
         ]
@@ -273,7 +356,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "passthrough-agent"
+          "kagent": "git-skills-agent"
         },
         "type": "ClusterIP"
       },

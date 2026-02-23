@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -11,8 +13,11 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -87,6 +92,11 @@ var DefaultImageConfig = ImageConfig{
 	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
+
+// DefaultGitInitImage is the image used by the git-skills-init container to clone
+// skill repositories from Git. Configurable via the --git-init-image flag or the
+// GIT_INIT_IMAGE environment variable.
+var DefaultGitInitImage = "alpine/git:2.47.2"
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
@@ -371,9 +381,14 @@ func (a *adkApiTranslator) buildManifest(
 	)
 
 	var skills []string
-	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Refs) != 0 {
+	var gitRefs []v1alpha2.GitRepo
+	var gitAuthSecretRef *corev1.LocalObjectReference
+	if agent.Spec.Skills != nil {
 		skills = agent.Spec.Skills.Refs
+		gitRefs = agent.Spec.Skills.GitRefs
+		gitAuthSecretRef = agent.Spec.Skills.GitAuthSecretRef
 	}
+	hasSkills := len(skills) > 0 || len(gitRefs) > 0
 
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
@@ -382,12 +397,36 @@ func (a *adkApiTranslator) buildManifest(
 
 	var initContainers []corev1.Container
 
-	if len(skills) > 0 {
+	// Add shared skills volume and env var when any skills (OCI or git) are present
+	if hasSkills {
 		skillsEnv := corev1.EnvVar{
 			Name:  env.KagentSkillsFolder.Name(),
 			Value: "/skills",
 		}
 		needSandbox = true
+		volumes = append(volumes, corev1.Volume{
+			Name: "kagent-skills",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "kagent-skills",
+			MountPath: "/skills",
+			ReadOnly:  true,
+		})
+		sharedEnv = append(sharedEnv, skillsEnv)
+	}
+
+	// Git-based skills init container (runs before OCI skills init)
+	if len(gitRefs) > 0 {
+		gitContainer, gitVolumes, _ := buildGitSkillsInitContainer(gitRefs, gitAuthSecretRef, dep.SecurityContext)
+		initContainers = append(initContainers, gitContainer)
+		volumes = append(volumes, gitVolumes...)
+	}
+
+	// OCI-based skills init container
+	if len(skills) > 0 {
 		insecure := agent.Spec.Skills.InsecureSkipVerify
 		command := []string{"kagent-adk", "pull-skills"}
 		if insecure {
@@ -405,21 +444,12 @@ func (a *adkApiTranslator) buildManifest(
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "kagent-skills", MountPath: "/skills"},
 			},
-			Env:             []corev1.EnvVar{skillsEnv},
+			Env: []corev1.EnvVar{{
+				Name:  env.KagentSkillsFolder.Name(),
+				Value: "/skills",
+			}},
 			SecurityContext: initContainerSecurityContext,
 		})
-		volumes = append(volumes, corev1.Volume{
-			Name: "kagent-skills",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "kagent-skills",
-			MountPath: "/skills",
-			ReadOnly:  true,
-		})
-		sharedEnv = append(sharedEnv, skillsEnv)
 	}
 
 	// Token volume
@@ -1343,6 +1373,125 @@ func collectOtelEnvFromProcess() []corev1.EnvVar {
 	})
 
 	return envVars
+}
+
+// isCommitSHA returns true if ref looks like a full 40-character hex commit SHA.
+var commitSHARegex = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+
+func isCommitSHA(ref string) bool {
+	return commitSHARegex.MatchString(ref)
+}
+
+// gitSkillName returns the directory name for a git skill ref.
+// If Name is set, it is used; otherwise the last path segment of the repo URL
+// (with any .git suffix stripped) is used.
+func gitSkillName(ref v1alpha2.GitRepo) string {
+	if ref.Name != "" {
+		return ref.Name
+	}
+	// Extract repo name from URL
+	u := ref.URL
+	u = strings.TrimSuffix(u, ".git")
+	return path.Base(u)
+}
+
+// gitSkillRefData holds pre-computed fields for each git skill ref, used by the script template.
+type gitSkillRefData struct {
+	v1alpha2.GitRepo
+	Dest      string // e.g. /skills/my-skill
+	IsCommit  bool   // true if Ref is a 40-char hex SHA
+	SubPath   string // Path with trailing slash stripped
+	MountPath string // e.g. /git-auth (empty if no auth)
+}
+
+//go:embed git-init.sh.tmpl
+var gitInitScriptTmpl string
+
+// gitSkillsScriptTemplate is the shell script template for cloning skills from Git.
+var gitSkillsScriptTemplate = template.Must(template.New("git-skills").Parse(gitInitScriptTmpl))
+
+// buildGitSkillsScript builds the shell script that the git-skills-init container runs
+// by rendering the gitSkillsScriptTemplate with pre-computed data for each ref.
+func buildGitSkillsScript(refs []gitSkillRefData) string {
+	var buf bytes.Buffer
+	if err := gitSkillsScriptTemplate.Execute(&buf, refs); err != nil {
+		// Template is statically defined; this should never fail at runtime.
+		panic(fmt.Sprintf("failed to render git skills script: %v", err))
+	}
+	return buf.String()
+}
+
+// prepareGitSkillRefs converts GitRepo CRD values to the template-ready data structs.
+// If authSecretRef is non-nil, every entry gets a shared MountPath pointing to the
+// single auth volume.
+func prepareGitSkillRefs(gitRefs []v1alpha2.GitRepo, authSecretRef *corev1.LocalObjectReference) []gitSkillRefData {
+	data := make([]gitSkillRefData, len(gitRefs))
+	for i, ref := range gitRefs {
+		gitRef := ref.Ref
+		if gitRef == "" {
+			gitRef = "main"
+		}
+		ref.Ref = gitRef
+
+		data[i] = gitSkillRefData{
+			GitRepo: ref,
+			Dest:    "/skills/" + gitSkillName(ref),
+			IsCommit: isCommitSHA(gitRef),
+			SubPath:  strings.TrimSuffix(ref.Path, "/"),
+		}
+		if authSecretRef != nil {
+			data[i].MountPath = "/git-auth"
+		}
+	}
+	return data
+}
+
+// buildGitSkillsInitContainer creates the init container and associated volumes/mounts
+// for cloning skills from Git repositories.
+// If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
+func buildGitSkillsInitContainer(
+	gitRefs []v1alpha2.GitRepo,
+	authSecretRef *corev1.LocalObjectReference,
+	securityContext *corev1.SecurityContext,
+) (container corev1.Container, volumes []corev1.Volume, secretVolumeMounts []corev1.VolumeMount) {
+	refData := prepareGitSkillRefs(gitRefs, authSecretRef)
+	script := buildGitSkillsScript(refData)
+
+	initSecCtx := securityContext
+	if initSecCtx != nil {
+		initSecCtx = initSecCtx.DeepCopy()
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{Name: "kagent-skills", MountPath: "/skills"},
+	}
+
+	// Mount single auth secret if provided
+	if authSecretRef != nil {
+		volumes = append(volumes, corev1.Volume{
+			Name: "git-auth",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: authSecretRef.Name,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "git-auth",
+			MountPath: "/git-auth",
+			ReadOnly:  true,
+		})
+	}
+
+	container = corev1.Container{
+		Name:            "git-skills-init",
+		Image:           DefaultGitInitImage,
+		Command:         []string{"/bin/sh", "-c", script},
+		VolumeMounts:    volumeMounts,
+		SecurityContext: initSecCtx,
+	}
+
+	return container, volumes, nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error {
