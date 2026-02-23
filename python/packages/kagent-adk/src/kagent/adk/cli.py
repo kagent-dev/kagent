@@ -87,6 +87,7 @@ def static(
         app_cfg.app_name,
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
+        agent_config=agent_config,
     )
 
     server = kagent_app.build()
@@ -198,6 +199,7 @@ def run(
         lifespan=lifespan,
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
+        agent_config=agent_config,
     )
 
     if local:
@@ -229,7 +231,9 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         maybe_add_skills(root_agent)
         return root_agent
 
-    app = KAgentApp(root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    app = KAgentApp(
+        root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
+    )
     await app.test(task)
 
 

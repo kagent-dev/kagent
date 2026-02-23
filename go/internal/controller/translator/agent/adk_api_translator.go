@@ -574,6 +574,40 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
+	// Handle Memory Configuration
+	if agent.Spec.Declarative.Memory != nil && agent.Spec.Declarative.Memory.Enabled {
+		cfg.MemoryEnabled = true
+
+		// Resolve Embedding Model Config
+		embeddingConfigName := agent.Spec.Declarative.Memory.ModelConfig
+		if embeddingConfigName == "" {
+			// Default to main model config if not specified
+			embeddingConfigName = agent.Spec.Declarative.ModelConfig
+			if embeddingConfigName == "" {
+				// If main model config is also empty/default
+				embeddingConfigName = a.defaultModelConfig.Name
+			}
+		}
+
+		// Use translateModel to resolve the embedding model config
+		embeddingCfg, embMdd, embHash, err := a.translateModel(ctx, agent.Namespace, embeddingConfigName)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+		}
+
+		cfg.Embedding = embeddingCfg
+
+		// Merge EnvVars from embedding config (e.g. API Keys)
+		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
+		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
+		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
+
+		// Merge secret hash
+		if len(embHash) > 0 {
+			secretHashBytes = append(secretHashBytes, embHash...)
+		}
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {
@@ -1065,9 +1099,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
-
-	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {

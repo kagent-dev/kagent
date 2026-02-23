@@ -107,6 +107,22 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Start background cleanup task
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := s.config.DbClient.PruneExpiredMemories(); err != nil {
+					log.Error(err, "Failed to prune expired memories")
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// Wait for context cancellation to shut down
 	go func() {
 		<-ctx.Done()
@@ -206,11 +222,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
 
 	// Memories
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/sessions/batch", adaptHandler(s.handlers.Memory.AddSessionBatch)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.Delete)).Methods(http.MethodDelete)
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)

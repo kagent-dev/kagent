@@ -9863,6 +9863,19 @@ spec:
                       Code will be executed in a sandboxed environment.
                       due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configuration for the agent.
+                    properties:
+                      enabled:
+                        description: Enabled determines whether memory is enabled
+                          for the agent.
+                        type: boolean
+                      modelConfig:
+                        description: |-
+                          The name of the model config to use for embeddings.
+                          If not specified, it defaults to the agent's main ModelConfig.
+                        type: string
+                    type: object
                   modelConfig:
                     description: |-
                       The name of the model config to use.

@@ -298,24 +298,30 @@ type RemoteAgentConfig struct {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model        Model                 `json:"model"`
-	Description  string                `json:"description"`
-	Instruction  string                `json:"instruction"`
-	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
-	ExecuteCode  bool                  `json:"execute_code,omitempty"`
-	Stream       bool                  `json:"stream"`
+	Model         Model                 `json:"model"`
+	Description   string                `json:"description"`
+	Instruction   string                `json:"instruction"`
+	HttpTools     []HttpMcpServerConfig `json:"http_tools"`
+	SseTools      []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode   bool                  `json:"execute_code,omitempty"`
+	Stream        bool                  `json:"stream"`
+	MemoryEnabled bool                  `json:"memory_enabled,omitempty"`
+	Embedding     Model                 `json:"embedding,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model         json.RawMessage       `json:"model"`
+		Description   string                `json:"description"`
+		Instruction   string                `json:"instruction"`
+		HttpTools     []HttpMcpServerConfig `json:"http_tools"`
+		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
+		ExecuteCode   bool                  `json:"execute_code,omitempty"`
+		Stream        bool                  `json:"stream"`
+		MemoryEnabled bool                  `json:"memory_enabled"`
+		Embedding     json.RawMessage       `json:"embedding"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -324,12 +330,24 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	var embedding Model
+	if tmp.Embedding != nil {
+		embedding, err = ParseModel(tmp.Embedding)
+		if err != nil {
+			return err
+		}
+	}
+
 	a.Model = model
 	a.Description = tmp.Description
 	a.Instruction = tmp.Instruction
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.ExecuteCode = tmp.ExecuteCode
+	a.Stream = tmp.Stream
+	a.MemoryEnabled = tmp.MemoryEnabled
+	a.Embedding = embedding
 	return nil
 }
 

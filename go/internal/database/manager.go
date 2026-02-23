@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -9,14 +10,16 @@ import (
 	"github.com/glebarez/sqlite"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/kagent-dev/kagent/go/pkg/env"
+	_ "turso.tech/database/tursogo"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // Manager handles database connection and initialization
 type Manager struct {
 	db       *gorm.DB
+	config   *Config
 	initLock sync.Mutex
 }
 
@@ -28,12 +31,14 @@ const (
 )
 
 type SqliteConfig struct {
-	DatabasePath string
+	DatabasePath  string
+	VectorEnabled bool
 }
 
 type PostgresConfig struct {
-	URL     string
-	URLFile string
+	URL           string
+	URLFile       string
+	VectorEnabled bool
 }
 
 type Config struct {
@@ -61,10 +66,33 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
-			Logger:         logger.Default.LogMode(logLevel),
-			TranslateError: true,
-		})
+		if config.SqliteConfig.VectorEnabled {
+			// Use Turso driver (libSQL with native vector support)
+			// Note: Turso/libSQL handles WAL mode and concurrency internally
+			sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
+			if sqlErr != nil {
+				return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
+			}
+			// Limit connections to avoid SQLite locking issues
+			sqlDB.SetMaxOpenConns(1)
+
+			db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+		} else {
+			// Use Go sqlite driver (no vector support)
+			dsn := config.SqliteConfig.DatabasePath
+			if strings.Contains(dsn, "?") {
+				dsn += "&_loc=auto"
+			} else {
+				dsn += "?_loc=auto"
+			}
+			db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
+				Logger:         logger.Default.LogMode(logLevel),
+				TranslateError: true,
+			})
+		}
 	case DatabaseTypePostgres:
 		url := config.PostgresConfig.URL
 		if config.PostgresConfig.URLFile != "" {
@@ -86,15 +114,17 @@ func NewManager(config *Config) (*Manager, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &Manager{db: db}, nil
+	return &Manager{db: db, config: config}, nil
 }
 
 // Initialize sets up the database tables
 func (m *Manager) Initialize() error {
-	if !m.initLock.TryLock() {
-		return fmt.Errorf("database initialization already in progress")
+	// Create extensions if using Postgres and Vector is enabled
+	if m.db.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
+			return fmt.Errorf("failed to create vector extension: %w", err)
+		}
 	}
-	defer m.initLock.Unlock()
 
 	// AutoMigrate all models
 	err := m.db.AutoMigrate(
@@ -114,6 +144,46 @@ func (m *Manager) Initialize() error {
 
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	// DatabaseTypePostgres check for Memory table
+	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.AutoMigrate(&dbpkg.Memory{}); err != nil {
+			return fmt.Errorf("failed to migrate memory table: %w", err)
+		}
+
+		// Manually create the HNSW index with the correct operator class
+		// GORM doesn't support adding "op class" in struct tags easily for Postgres vectors
+		indexQuery := `CREATE INDEX IF NOT EXISTS idx_memory_embedding_hnsw ON memory USING hnsw (embedding vector_cosine_ops)`
+		if err := m.db.Exec(indexQuery).Error; err != nil {
+			return fmt.Errorf("failed to create hnsw index: %w", err)
+		}
+	}
+
+	// DatabaseTypeSqlite check for Memory table
+	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector
+	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags
+	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
+		createMemoryTableSQL := `
+			CREATE TABLE IF NOT EXISTS memory (
+				id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+				agent_name TEXT,
+				user_id TEXT,
+				content TEXT,
+				embedding F32_BLOB(768),
+				metadata TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				expires_at DATETIME,
+				access_count INTEGER DEFAULT 0
+			)
+		`
+		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory table: %w", err)
+		}
+		// Create indexes
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_name ON memory(agent_name)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory(user_id)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)
 	}
 
 	return nil

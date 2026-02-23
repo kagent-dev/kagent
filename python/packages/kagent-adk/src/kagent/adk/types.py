@@ -5,6 +5,7 @@ import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
@@ -230,6 +231,8 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     # This stream option refers to LLM response streaming, not A2A streaming
     stream: bool | None = None
+    memory_enabled: bool = False
+    embedding: dict[str, Any] | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -406,7 +409,8 @@ class AgentConfig(BaseModel):
             )
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
-        return Agent(
+
+        agent = Agent(
             name=name,
             model=model,
             description=self.description,
@@ -414,3 +418,53 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
         )
+
+        # Configure memory if enabled
+        if self.memory_enabled:
+            self._configure_memory(agent)
+
+        return agent
+
+    def _configure_memory(self, agent: Agent) -> None:
+        """Configure memory tools and callbacks for the agent."""
+        try:
+            from google.adk.tools.preload_memory_tool import PreloadMemoryTool
+
+            from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
+
+            # Add memory tools
+            # UNCOMMENT THIS LINE IF YOU WANT TO USE PRELOAD MEMORY TOOL
+            # agent.tools.append(PreloadMemoryTool())
+            agent.tools.append(LoadMemoryTool())
+            agent.tools.append(SaveMemoryTool())
+
+            # Define auto-save callback
+            async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
+                try:
+                    session = callback_context._invocation_context.session
+                    # Count user messages from events list
+                    user_msg_count = sum(1 for e in session.events if e.author == "user")
+
+                    # Save every 5 turns (skip 0)
+                    if user_msg_count > 0 and user_msg_count % 5 == 0:
+                        logger.info("Auto-saving session %s to memory (turn %d)", session.id, user_msg_count)
+
+                        # Pass the agent's model directly for summarization
+                        await callback_context._invocation_context.memory_service.add_session_to_memory(
+                            session,
+                            model=agent.model,
+                        )
+                    else:
+                        logger.debug("Skipping auto-save for session %s (turn %d)", session.id, user_msg_count)
+                except Exception as e:
+                    logger.error("Failed to auto-save session to memory: %s", e)
+
+            # Append to after agent callback list
+            if not hasattr(agent, "after_agent_callback") or agent.after_agent_callback is None:
+                agent.after_agent_callback = []
+            agent.after_agent_callback.append(auto_save_session_to_memory_callback)
+
+        except ImportError as e:
+            logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
+        except Exception as e:
+            logger.error("Failed to inject memory configuration: %s", e)

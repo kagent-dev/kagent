@@ -37,6 +37,7 @@ dependencies = [
   "python-multipart>=0.0.22",  # CVE-2026-24486: Arbitrary file write via path traversal
   "boto3>=1.28.57",
   "ollama >=0.3.6",  # Ollama SDK
+  "numpy>=2.2.6",
 ]
 
 [tool.uv.sources]

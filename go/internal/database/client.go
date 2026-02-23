@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -569,4 +572,168 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIF
 	}
 
 	return &state, nil
+}
+
+// AgentMemory methods
+
+func (c *clientImpl) StoreAgentMemory(memory *dbpkg.Memory) error {
+	if c.db.Name() == "sqlite" {
+		// For SQLite with sqlite-vec, we need to insert into two tables:
+		// 1. memory table for metadata
+		// 2. memory_vec virtual table for the embedding
+		return c.db.Transaction(func(tx *gorm.DB) error {
+			// Insert into memory table (without embedding)
+			memorySQL := `
+				INSERT INTO memory (id, agent_name, user_id, content, metadata, created_at, expires_at, access_count)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`
+			if err := tx.Exec(memorySQL,
+				memory.ID, memory.AgentName, memory.UserID, memory.Content,
+				memory.Metadata, memory.CreatedAt, memory.ExpiresAt, memory.AccessCount,
+			).Error; err != nil {
+				return fmt.Errorf("failed to insert memory metadata: %w", err)
+			}
+
+			// Get the rowid of the inserted row (last_insert_rowid())
+			var rowid int64
+			if err := tx.Raw("SELECT last_insert_rowid()").Scan(&rowid).Error; err != nil {
+				return fmt.Errorf("failed to get rowid: %w", err)
+			}
+
+			// Insert embedding into memory_vec with matching rowid
+			if memory.Embedding.Slice() != nil && len(memory.Embedding.Slice()) > 0 {
+				embeddingBytes, err := sqlite_vec.SerializeFloat32(memory.Embedding.Slice())
+				if err != nil {
+					return fmt.Errorf("failed to serialize embedding: %w", err)
+				}
+				vecSQL := `INSERT INTO memory_vec (rowid, embedding) VALUES (?, ?)`
+				if err := tx.Exec(vecSQL, rowid, embeddingBytes).Error; err != nil {
+					return fmt.Errorf("failed to insert memory embedding: %w", err)
+				}
+			}
+			return nil
+		})
+	}
+	// Postgres: use standard GORM save which handles pgvector
+	return save(c.db, memory)
+}
+
+func (c *clientImpl) StoreAgentMemories(memories []*dbpkg.Memory) error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		for _, memory := range memories {
+			if err := save(tx, memory); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+	var results []dbpkg.AgentMemorySearchResult
+
+	if c.db.Name() == "sqlite" {
+		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
+		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
+		// and parameter binding with ? fails with "unexpected token" errors
+		embeddingJSON, err := json.Marshal(embedding.Slice())
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
+		}
+
+		// Safe formatting because we control the JSON string generation from float slice
+		query := fmt.Sprintf(`
+			SELECT id, agent_name, user_id, content, metadata, created_at, expires_at, access_count,
+			       1 - vector_distance_cos(embedding, vector32('%s')) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY vector_distance_cos(embedding, vector32('%s')) ASC
+			LIMIT ?
+		`, string(embeddingJSON), string(embeddingJSON))
+
+		if err := c.db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
+		}
+	} else {
+		// Postgres pgvector syntax: uses <=> operator for cosine distance
+		// pgvector.Vector implements sql.Scanner and driver.Valuer
+		query := `
+			SELECT *, 1 - (embedding <=> ?) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY embedding <=> ? ASC
+			LIMIT ?
+		`
+		if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (postgres): %w", err)
+		}
+	}
+
+	// Increment access count for found memories asynchronously
+	go func(memories []dbpkg.AgentMemorySearchResult) {
+		ids := make([]string, len(memories))
+		for i, m := range memories {
+			ids[i] = m.ID
+		}
+		if len(ids) > 0 {
+			if err := c.db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+				// Just log error, don't fail the request
+				fmt.Printf("failed to increment access count: %v\n", err)
+			}
+		}
+	}(results)
+
+	// Print results, the content and the associated score
+	for _, result := range results {
+		fmt.Printf("Memory: %v, Score: %v\n", result.Content, result.Score)
+	}
+
+	return results, nil
+}
+
+// PruneExpiredMemories deletes expired memories if they haven't been accessed enough,
+// otherwise extends their TTL.
+func (c *clientImpl) PruneExpiredMemories() error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+
+		// 1. Extend TTL for popular memories (AccessCount >= 10)
+		if err := tx.Model(&dbpkg.Memory{}).
+			Where("expires_at < ? AND access_count >= ?", now, 10).
+			Updates(map[string]any{
+				"expires_at":   now.Add(15 * 24 * time.Hour),
+				"access_count": 0, // Reset count to ensure it's still relevant next time
+			}).Error; err != nil {
+			return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
+		}
+
+		// 2. Delete unpopular expired memories (AccessCount < 10)
+		if err := tx.Where("expires_at < ? AND access_count < ?", now, 10).
+			Delete(&dbpkg.Memory{}).Error; err != nil {
+			return fmt.Errorf("failed to delete expired memories: %w", err)
+		}
+
+		return nil
+	})
+}
+
+func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
+
+	// Delete both original name and normalized name
+	// Sometimes frontend has naming inconsistencies with backend
+	err := delete[dbpkg.Memory](c.db,
+		Clause{Key: "agent_name", Value: agentName},
+		Clause{Key: "user_id", Value: userID})
+	if err != nil {
+		return err
+	}
+
+	if normalizedName != agentName {
+		return delete[dbpkg.Memory](c.db,
+			Clause{Key: "agent_name", Value: normalizedName},
+			Clause{Key: "user_id", Value: userID})
+	}
+
+	return nil
 }

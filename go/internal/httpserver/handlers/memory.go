@@ -1,22 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
-	"strings"
+	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
-	common "github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/pkg/auth"
-	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/pgvector/pgvector-go"
 )
 
 // MemoryHandler handles Memory requests
@@ -29,334 +23,207 @@ func NewMemoryHandler(base *Base) *MemoryHandler {
 	return &MemoryHandler{Base: base}
 }
 
-// HandleListMemories handles GET /api/memories/ requests
-func (h *MemoryHandler) HandleListMemories(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "list-memories")
-	log.Info("Listing Memories")
-
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory"}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-	memoryList := &v1alpha1.MemoryList{}
-	if err := h.KubeClient.List(r.Context(), memoryList); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list Memories", err))
-		return
-	}
-
-	memoryResponses := make([]api.MemoryResponse, len(memoryList.Items))
-	for i, memory := range memoryList.Items {
-		memoryRef := common.GetObjectRef(&memory)
-		log.V(1).Info("Processing Memory", "memoryRef", memoryRef)
-
-		memoryParams := make(map[string]any)
-		if memory.Spec.Pinecone != nil {
-			FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
-		}
-
-		memoryResponses[i] = api.MemoryResponse{
-			Ref:             memoryRef,
-			ProviderName:    string(memory.Spec.Provider),
-			APIKeySecretRef: memory.Spec.APIKeySecretRef,
-			APIKeySecretKey: memory.Spec.APIKeySecretKey,
-			MemoryParams:    memoryParams,
-		}
-	}
-
-	log.Info("Successfully listed Memories", "count", len(memoryResponses))
-	data := api.NewResponse(memoryResponses, "Successfully listed Memories", false)
-	RespondWithJSON(w, http.StatusOK, data)
+// AddSessionMemoryRequest represents the request body for adding a memory session
+type AddSessionMemoryRequest struct {
+	AgentName string          `json:"agent_name"`
+	UserID    string          `json:"user_id"`
+	Content   string          `json:"content"`
+	Vector    []float32       `json:"vector"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
-// HandleCreateMemory handles POST /api/memories/ requests
-func (h *MemoryHandler) HandleCreateMemory(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "create")
-	log.Info("Received request to create Memory")
+// SearchSessionMemoryRequest represents the request body for searching memory sessions
+type SearchSessionMemoryRequest struct {
+	AgentName string    `json:"agent_name"`
+	UserID    string    `json:"user_id"`
+	Vector    []float32 `json:"vector"`
+	Limit     int       `json:"limit"`
+	MinScore  float64   `json:"min_score"` // Minimum similarity score (0-1)
+}
 
-	var req api.CreateMemoryRequest
+// SearchSessionMemoryResponse represents a found memory item
+type SearchSessionMemoryResponse struct {
+	ID        string          `json:"id"`
+	Content   string          `json:"content"`
+	Score     float64         `json:"score"`
+	Metadata  json.RawMessage `json:"metadata"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// AddSession handles POST /api/memories/sessions
+func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
+	// Read body for debugging
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	// Restore body for decoding
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	// log.Printf("Received AddSession request: %s", string(bodyBytes))
+
+	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Error(err, "Failed to decode request body")
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	memoryRef, err := common.ParseRefString(req.Ref, common.GetResourceNamespace())
-	if err != nil {
-		log.Error(err, "Failed to parse Ref")
-		w.RespondWithError(errors.NewBadRequestError("Invalid Ref", err))
-		return
-	}
-	if !strings.Contains(req.Ref, "/") {
-		log.V(4).Info("Namespace not provided in request. Creating in controller installation namespace",
-			"defaultNamespace", memoryRef.Namespace)
-	}
+	// log.Printf("Decoded AddSession request: %+v", req)
 
-	log = log.WithValues(
-		"memoryNamespace", memoryRef.Namespace,
-		"memoryName", memoryRef.Name,
-		"provider", req.Provider.Type,
-	)
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: memoryRef.String()}); err != nil {
-		w.RespondWithError(err)
+	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
+		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")
 		return
 	}
 
-	log.V(1).Info("Checking if Memory already exists")
-	existingMemory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(
-		r.Context(),
-		memoryRef,
-		existingMemory,
-	)
-	if err == nil {
-		log.Info("Memory already exists")
-		w.RespondWithError(errors.NewConflictError("Memory already exists", nil))
-		return
-	} else if !apierrors.IsNotFound(err) {
-		log.Error(err, "Failed to check if Memory exists")
-		w.RespondWithError(errors.NewInternalServerError("Failed to check if Memory exists", err))
-		return
+	// Default TTL: 15 days
+	expiresAt := time.Now().Add(15 * 24 * time.Hour)
+
+	// Ensure metadata is valid JSON
+	metadata := req.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage("{}")
 	}
 
-	providerTypeEnum := v1alpha1.MemoryProvider(req.Provider.Type)
-	memorySpec := v1alpha1.MemorySpec{
-		Provider:        providerTypeEnum,
-		APIKeySecretRef: memoryRef.String(),
-		APIKeySecretKey: fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type)),
+	memory := &database.Memory{
+		AgentName: req.AgentName,
+		UserID:    req.UserID,
+		Content:   req.Content,
+		Embedding: pgvector.NewVector(req.Vector),
+		Metadata:  string(metadata),
+		ExpiresAt: &expiresAt,
 	}
 
-	if providerTypeEnum == v1alpha1.Pinecone {
-		memorySpec.Pinecone = req.PineconeParams
-	}
-
-	memory := &v1alpha1.Memory{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      memoryRef.Name,
-			Namespace: memoryRef.Namespace,
-		},
-		Spec: memorySpec,
-	}
-
-	if err := h.KubeClient.Create(r.Context(), memory); err != nil {
-		log.Error(err, "Failed to create Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to create Memory", err))
+	if err := h.DatabaseService.StoreAgentMemory(memory); err != nil {
+		log.Printf("Failed to store agent memory: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory: %v", err))
 		return
 	}
-	log.V(1).Info("Successfully created Memory")
 
-	err = createSecretWithOwnerReference(
-		r.Context(),
-		h.KubeClient,
-		map[string]string{memorySpec.APIKeySecretKey: req.APIKey},
-		memory,
-	)
-	if err != nil {
-		log.Error(err, "Failed to create Memory API key secret")
-	} else {
-		log.V(1).Info("Successfully created Memory API key secret with OwnerReference")
-	}
+	log.Printf("Successfully added memory ID %s for user %s agent %s", memory.ID, req.UserID, req.AgentName)
 
-	log.Info("Memory created successfully")
-	data := api.NewResponse(memory, "Successfully created Memory", false)
-	RespondWithJSON(w, http.StatusCreated, data)
+	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
 }
 
-// HandleDeleteMemory handles DELETE /api/memories/{namespace}/{name} requests
-func (h *MemoryHandler) HandleDeleteMemory(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "delete")
-	log.Info("Received request to delete Memory")
+// AddSessionMemoryBatchRequest represents the request body for adding multiple memory sessions
+type AddSessionMemoryBatchRequest struct {
+	Items []AddSessionMemoryRequest `json:"items"`
+}
 
-	namespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		log.Error(err, "Failed to get namespace from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+// AddSessionBatch handles POST /api/memories/sessions/batch
+func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) {
+	var req AddSessionMemoryBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	memoryName, err := GetPathParam(r, "name")
-	if err != nil {
-		log.Error(err, "Failed to get name from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+	if len(req.Items) == 0 {
+		RespondWithError(w, http.StatusBadRequest, "Empty batch")
 		return
 	}
 
-	log = log.WithValues(
-		"memoryNamespace", namespace,
-		"memoryName", memoryName,
-	)
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
+	var memories []*database.Memory
+	expiresAt := time.Now().Add(15 * 24 * time.Hour)
 
-	log.V(1).Info("Checking if Memory exists")
-	existingMemory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(
-		r.Context(),
-		client.ObjectKey{
-			Namespace: namespace,
-			Name:      memoryName,
-		},
-		existingMemory,
-	)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Memory not found")
-			w.RespondWithError(errors.NewNotFoundError("Memory not found", nil))
+	for _, item := range req.Items {
+		if item.AgentName == "" || item.UserID == "" || len(item.Vector) == 0 {
+			RespondWithError(w, http.StatusBadRequest, "Missing required fields in batch item")
 			return
 		}
-		log.Error(err, "Failed to get Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to get Memory", err))
-		return
-	}
 
-	log.Info("Deleting Memory")
-	if err := h.KubeClient.Delete(r.Context(), existingMemory); err != nil {
-		log.Error(err, "Failed to delete Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to delete Memory", err))
-		return
-	}
-
-	log.Info("Memory deleted successfully")
-	data := api.NewResponse(struct{}{}, "Memory deleted successfully", false)
-	RespondWithJSON(w, http.StatusOK, data)
-}
-
-// HandleGetMemory handles GET /api/memories/{namespace}/{name} requests
-func (h *MemoryHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "get")
-	log.Info("Received request to get Memory")
-
-	namespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		log.Error(err, "Failed to get namespace from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-
-	memoryName, err := GetPathParam(r, "name")
-	if err != nil {
-		log.Error(err, "Failed to get name from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
-		return
-	}
-
-	log = log.WithValues(
-		"memoryNamespace", namespace,
-		"memoryName", memoryName,
-	)
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-
-	log.V(1).Info("Checking if Memory already exists")
-	memory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(
-		r.Context(),
-		client.ObjectKey{
-			Namespace: namespace,
-			Name:      memoryName,
-		},
-		memory,
-	)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Memory not found")
-			w.RespondWithError(errors.NewNotFoundError("Memory not found", nil))
-			return
+		// Ensure metadata is valid JSON
+		metadata := item.Metadata
+		if len(metadata) == 0 {
+			metadata = json.RawMessage("{}")
 		}
-		log.Error(err, "Failed to get Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to get Memory", err))
+
+		memories = append(memories, &database.Memory{
+			AgentName: item.AgentName,
+			UserID:    item.UserID,
+			Content:   item.Content,
+			Embedding: pgvector.NewVector(item.Vector),
+			Metadata:  string(metadata),
+			ExpiresAt: &expiresAt,
+		})
+	}
+
+	if err := h.DatabaseService.StoreAgentMemories(memories); err != nil {
+		log.Printf("Failed to store agent memory batch: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory batch: %v", err))
 		return
 	}
 
-	memoryParams := make(map[string]any)
-	if memory.Spec.Pinecone != nil {
-		FlattenStructToMap(memory.Spec.Pinecone, memoryParams)
-	}
-
-	apiKeySecretRef, err := common.ParseRefString(memory.Spec.APIKeySecretRef, memory.Namespace)
-	if err != nil {
-		log.Error(err, "Failed to parse APIKeySecretRef")
-		w.RespondWithError(errors.NewBadRequestError("Failed to parse APIKeySecretRef", err))
-		return
-	}
-
-	memoryResponse := api.MemoryResponse{
-		Ref:             common.GetObjectRef(memory),
-		ProviderName:    string(memory.Spec.Provider),
-		APIKeySecretRef: apiKeySecretRef.String(),
-		APIKeySecretKey: memory.Spec.APIKeySecretKey,
-		MemoryParams:    memoryParams,
-	}
-
-	log.Info("Memory retrieved successfully")
-	data := api.NewResponse(memoryResponse, "Successfully retrieved Memory", false)
-	RespondWithJSON(w, http.StatusOK, data)
+	log.Printf("Successfully added %d memory items", len(memories))
+	RespondWithJSON(w, http.StatusCreated, map[string]int{"count": len(memories)})
 }
 
-// HandleUpdateMemory handles PUT /api/memories/{namespace}/{name} requests
-func (h *MemoryHandler) HandleUpdateMemory(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("memory-handler").WithValues("operation", "update")
-	log.Info("Received request to update Memory")
-
-	namespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		log.Error(err, "Failed to get namespace from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-
-	memoryName, err := GetPathParam(r, "name")
-	if err != nil {
-		log.Error(err, "Failed to get name from path")
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
-		return
-	}
-
-	log = log.WithValues(
-		"memoryNamespace", namespace,
-		"memoryName", memoryName,
-	)
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Memory", Name: types.NamespacedName{Namespace: namespace, Name: memoryName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-
-	var req api.UpdateMemoryRequest
+// Search handles POST /api/memories/search
+func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
+	var req SearchSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Error(err, "Failed to decode request body")
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	existingMemory := &v1alpha1.Memory{}
-	err = h.KubeClient.Get(
-		r.Context(),
-		client.ObjectKey{
-			Namespace: namespace,
-			Name:      memoryName,
-		},
-		existingMemory,
-	)
+	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
+		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")
+		return
+	}
+
+	if req.Limit <= 0 {
+		req.Limit = 5
+	}
+
+	// Format vector using pgvector.NewVector
+	vector := pgvector.NewVector(req.Vector)
+
+	// Update DB client call to pass pgvector.Vector
+	results, err := h.DatabaseService.SearchAgentMemory(req.AgentName, req.UserID, vector, req.Limit)
 	if err != nil {
-		log.Error(err, "Failed to get Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to get Memory", err))
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("search failed: %v", err))
 		return
 	}
 
-	if req.PineconeParams != nil {
-		existingMemory.Spec.Pinecone = req.PineconeParams
+	response := make([]SearchSessionMemoryResponse, 0, len(results))
+	for _, res := range results {
+		// Filter by MinScore if provided
+		if req.MinScore > 0 && res.Score < req.MinScore {
+			continue
+		}
+
+		// Handle empty or invalid metadata
+		metadata := json.RawMessage(res.Metadata)
+		if len(metadata) == 0 {
+			metadata = json.RawMessage("{}")
+		}
+
+		response = append(response, SearchSessionMemoryResponse{
+			ID:        res.ID,
+			Content:   res.Content,
+			Score:     res.Score,
+			Metadata:  metadata,
+			CreatedAt: res.CreatedAt,
+		})
 	}
 
-	if err := h.KubeClient.Update(r.Context(), existingMemory); err != nil {
-		log.Error(err, "Failed to update Memory")
-		w.RespondWithError(errors.NewInternalServerError("Failed to update Memory", err))
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+// Delete handles DELETE /api/memories
+func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
+	agentName := r.URL.Query().Get("agent_name")
+	userID := r.URL.Query().Get("user_id")
+
+	if agentName == "" || userID == "" {
+		RespondWithError(w, http.StatusBadRequest, "Missing required query parameters (agent_name, user_id)")
 		return
 	}
 
-	log.Info("Memory updated successfully")
-	data := api.NewResponse(existingMemory, "Successfully updated Memory", false)
-	RespondWithJSON(w, http.StatusOK, data)
+	if err := h.DatabaseService.DeleteAgentMemory(agentName, userID); err != nil {
+		log.Printf("Failed to delete agent memory: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete memory: %v", err))
+		return
+	}
+
+	RespondWithJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

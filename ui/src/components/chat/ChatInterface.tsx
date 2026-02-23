@@ -18,15 +18,26 @@ import StreamingMessage from "./StreamingMessage";
 import TokenStatsDisplay from "./TokenStats";
 import type { TokenStats, Session, ChatStatus } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
+import {
+  createSession,
+  getSessionTasks,
+  checkSessionExists,
+} from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import {
+  createMessageHandlers,
+  extractMessagesFromTasks,
+  extractTokenStatsFromTasks,
+  createMessage,
+} from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
 import { Message } from "@a2a-js/sdk";
+
+import ClearMemoryButton from "./ClearMemoryButton";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -35,7 +46,12 @@ interface ChatInterfaceProps {
   sessionId?: string;
 }
 
-export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
+export default function ChatInterface({
+  selectedAgentName,
+  selectedNamespace,
+  selectedSession,
+  sessionId,
+}: ChatInterfaceProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -47,7 +63,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
-  const [session, setSession] = useState<Session | null>(selectedSession || null);
+  const [session, setSession] = useState<Session | null>(
+    selectedSession || null,
+  );
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -82,8 +100,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setChatStatus,
     agentContext: {
       namespace: selectedNamespace,
-      agentName: selectedAgentName
-    }
+      agentName: selectedAgentName,
+    },
   });
 
   useEffect(() => {
@@ -123,10 +141,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
           setStoredMessages([]);
           setTokenStats({ total: 0, input: 0, output: 0 });
-        }
-        else {
-          const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
-          const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+        } else {
+          const extractedMessages = extractMessagesFromTasks(
+            messagesResponse.data,
+          );
+          const extractedTokenStats = extractTokenStatsFromTasks(
+            messagesResponse.data,
+          );
           setStoredMessages(extractedMessages);
           setTokenStats(extractedTokenStats);
         }
@@ -143,18 +164,22 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   useEffect(() => {
     if (containerRef.current) {
-      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+      const viewport = containerRef.current.querySelector(
+        "[data-radix-scroll-area-viewport]",
+      ) as HTMLElement;
       if (viewport) {
         viewport.scrollTop = viewport.scrollHeight;
       }
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
-
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+    if (
+      !currentInputMessage.trim() ||
+      !selectedAgentName ||
+      !selectedNamespace
+    ) {
       return;
     }
 
@@ -166,7 +191,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     const userMessageText = currentInputMessage;
     setCurrentInputMessage("");
     setChatStatus("thinking");
-    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStoredMessages((prev) => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
     setStreamingContent(""); // Reset streaming content for new message
 
@@ -175,16 +200,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       kind: "message",
       messageId: uuidv4(),
       role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
+      parts: [
+        {
+          kind: "text",
+          text: userMessageText,
+        },
+      ],
       metadata: {
-        timestamp: Date.now()
-      }
+        timestamp: Date.now(),
+      },
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -203,7 +230,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const newSessionResponse = await createSession({
             user_id: await getCurrentUserId(),
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+            name:
+              userMessageText.slice(0, 20) +
+              (userMessageText.length > 20 ? "..." : ""),
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -219,15 +248,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           // Update URL without triggering navigation or component reload
           const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
-          window.history.replaceState({}, '', newUrl);
+          window.history.replaceState({}, "", newUrl);
 
           // Dispatch a custom event to notify that a new session was created
           // Include the full session object to avoid needing a DB reload
-          const newSessionEvent = new CustomEvent('new-session-created', {
+          const newSessionEvent = new CustomEvent("new-session-created", {
             detail: {
               agentRef: `${selectedNamespace}/${selectedAgentName}`,
-              session: newSessionResponse.data
-            }
+              session: newSessionResponse.data,
+            },
           });
           window.dispatchEvent(newSessionEvent);
         } catch (error) {
@@ -250,24 +279,28 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         });
         const sendParams = {
           message: a2aMessage,
-          metadata: {}
+          metadata: {},
         };
         const stream = await kagentA2AClient.sendMessageStream(
           selectedNamespace,
           selectedAgentName,
           sendParams,
-          abortControllerRef.current?.signal
+          abortControllerRef.current?.signal,
         );
 
         let timeoutTimer: NodeJS.Timeout | null = null;
         let streamActive = true;
         const streamTimeout = 600000; // 10 minutes
-        
+
         // Timeout handler
         const handleTimeout = () => {
           if (streamActive) {
-            console.error("⏰ Stream timeout - no events received for 10 minutes");
-            toast.error("⏰ Stream timed out - no events received for 10 minutes");
+            console.error(
+              "⏰ Stream timeout - no events received for 10 minutes",
+            );
+            toast.error(
+              "⏰ Stream timed out - no events received for 10 minutes",
+            );
             streamActive = false;
             if (abortControllerRef.current) abortControllerRef.current.abort();
           }
@@ -287,7 +320,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             try {
               handleMessageEvent(event);
             } catch (error) {
-              console.error(`❌ Error handling event: ${error}\nEvent: ${event}`);
+              console.error(
+                `❌ Error handling event: ${error}\nEvent: ${event}`,
+              );
             }
 
             // Check if we should stop streaming due to cancellation
@@ -306,7 +341,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           toast.info("Request cancelled");
           setChatStatus("ready");
         } else {
-          toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+          toast.error(
+            `Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
         }
@@ -346,7 +383,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      if (
+        currentInputMessage.trim() &&
+        selectedAgentName &&
+        selectedNamespace &&
+        chatStatus === "ready"
+      ) {
         handleSendMessage(e);
       }
     }
@@ -356,8 +398,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     return (
       <div className="flex flex-col items-center justify-center w-full h-full">
         <div className="text-xl font-semibold mb-4">Session not found</div>
-        <p className="text-muted-foreground mb-6">This chat session may have been deleted or does not exist.</p>
-        <Button onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}>
+        <p className="text-muted-foreground mb-6">
+          This chat session may have been deleted or does not exist.
+        </p>
+        <Button
+          onClick={() =>
+            router.push(
+              `/agents/${selectedNamespace}/${selectedAgentName}/chat`,
+            )
+          }
+        >
           Start a new chat
         </Button>
       </div>
@@ -369,19 +419,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5 px-4">
             {/* Never show loading for first message/new session */}
-            {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
+            {isLoading &&
+            sessionId &&
+            !isFirstMessage &&
+            !isCreatingSessionRef.current ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
                 <div className="flex flex-col items-center gap-2">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-muted-foreground text-sm">Loading your chat session...</p>
+                  <p className="text-muted-foreground text-sm">
+                    Loading your chat session...
+                  </p>
                 </div>
               </div>
-            ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
+            ) : storedMessages.length === 0 &&
+              streamingMessages.length === 0 &&
+              !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
                 <div className="bg-card p-6 rounded-lg shadow-sm border max-w-md text-center">
-                  <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
+                  <h3 className="text-lg font-medium mb-2">
+                    Start a conversation
+                  </h3>
                   <p className="text-muted-foreground">
-                    To begin chatting with the agent, type your message in the input box below.
+                    To begin chatting with the agent, type your message in the
+                    input box below.
                   </p>
                 </div>
               </div>
@@ -389,35 +449,35 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               <>
                 {/* Display stored messages from session */}
                 {storedMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stored-${index}`}
-                    message={message}
-                    allMessages={storedMessages}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
-                  />
+                  return (
+                    <ChatMessage
+                      key={`stored-${index}`}
+                      message={message}
+                      allMessages={storedMessages}
+                      agentContext={{
+                        namespace: selectedNamespace,
+                        agentName: selectedAgentName,
+                      }}
+                    />
+                  );
                 })}
 
                 {/* Display streaming messages */}
                 {streamingMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stream-${index}`}
-                    message={message}
-                    allMessages={streamingMessages}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
-                  />
+                  return (
+                    <ChatMessage
+                      key={`stream-${index}`}
+                      message={message}
+                      allMessages={streamingMessages}
+                      agentContext={{
+                        namespace: selectedNamespace,
+                        agentName: selectedAgentName,
+                      }}
+                    />
+                  );
                 })}
 
-                {isStreaming && (
-                  <StreamingMessage
-                    content={streamingContent}
-                  />
-                )}
+                {isStreaming && <StreamingMessage content={streamingContent} />}
               </>
             )}
           </div>
@@ -427,7 +487,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
         <div className="flex items-center justify-between mb-4">
           <StatusDisplay chatStatus={chatStatus} />
-          <TokenStatsDisplay stats={tokenStats} />
+          <div className="flex items-center gap-2">
+            <ClearMemoryButton
+              agentName={selectedAgentName}
+              namespace={selectedNamespace}
+            />
+            <TokenStatsDisplay stats={tokenStats} />
+          </div>
         </div>
 
         <form onSubmit={handleSendMessage}>

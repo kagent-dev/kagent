@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/pkg/adk"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -202,6 +203,25 @@ type CrewAIFlowState struct {
 	StateData string `gorm:"type:text;not null" json:"state_data"`
 }
 
+// Memory represents a memory/session embedding with TTL support
+type Memory struct {
+	ID          string          `gorm:"primaryKey;default:gen_random_uuid()" json:"id"`
+	AgentName   string          `gorm:"index" json:"agent_name"`
+	UserID      string          `gorm:"index" json:"user_id"`
+	Content     string          `gorm:"type:text" json:"content"`
+	Embedding   pgvector.Vector `gorm:"type:vector(768)" json:"embedding"`
+	Metadata    string          `gorm:"type:text" json:"metadata"`
+	CreatedAt   time.Time       `gorm:"autoCreateTime" json:"created_at"`
+	ExpiresAt   *time.Time      `gorm:"index" json:"expires_at,omitempty"` // TTL: auto-delete after this time
+	AccessCount int             `gorm:"default:0" json:"access_count"`     // Track usage for more robust db cleanup
+}
+
+// AgentMemorySearchResult is the result of a vector similarity search over Memory (e.g. SELECT *, 1 - (embedding <=> ?) as score).
+type AgentMemorySearchResult struct {
+	Memory
+	Score float64 `gorm:"column:score" json:"score"`
+}
+
 // TableName methods to match Python table names
 func (Agent) TableName() string                    { return "agent" }
 func (Event) TableName() string                    { return "event" }
@@ -213,5 +233,6 @@ func (Tool) TableName() string                     { return "tool" }
 func (ToolServer) TableName() string               { return "toolserver" }
 func (LangGraphCheckpoint) TableName() string      { return "lg_checkpoint" }
 func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write" }
-func (CrewAIAgentMemory) TableName() string        { return "crewai_agent_memory" }
+func (CrewAIAgentMemory) TableName() string        { return "crewai_agentp_memory" }
 func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
+func (Memory) TableName() string                   { return "memory" }
