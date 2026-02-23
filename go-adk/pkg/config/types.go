@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type Model interface {
@@ -180,61 +181,61 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream       *bool                 `json:"stream,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
-		return err
+		return fmt.Errorf("failed to parse agent config: %w", err)
 	}
 
 	var base BaseModel
 	if err := json.Unmarshal(tmp.Model, &base); err != nil {
-		return err
+		return fmt.Errorf("failed to parse model base type: %w", err)
 	}
 
 	switch base.Type {
 	case ModelTypeOpenAI:
 		var m OpenAI
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeAzureOpenAI:
 		var m AzureOpenAI
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeAnthropic:
 		var m Anthropic
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeGeminiVertexAI:
 		var m GeminiVertexAI
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeGeminiAnthropic:
 		var m GeminiAnthropic
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeGemini:
 		var m Gemini
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	case ModelTypeOllama:
 		var m Ollama
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse %s model config: %w", base.Type, err)
 		}
 		a.Model = &m
 	default:
 		var m GenericModel
 		if err := json.Unmarshal(tmp.Model, &m); err != nil {
-			return err
+			return fmt.Errorf("failed to parse model config (type %q): %w", base.Type, err)
 		}
 		a.Model = &m
 	}

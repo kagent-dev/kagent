@@ -104,8 +104,14 @@ type TokenRoundTripper struct {
 }
 
 func (rt *TokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	rt.tokenService.AddHeaders(req)
-	return rt.base.RoundTrip(req)
+	if rt.tokenService != nil {
+		rt.tokenService.AddHeaders(req)
+	}
+	base := rt.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
 }
 
 // NewHTTPClientWithToken creates an HTTP client with token service integration

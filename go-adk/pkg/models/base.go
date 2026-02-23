@@ -4,5 +4,5 @@ import (
 	"time"
 )
 
-// DefaultExecutionTimeout is the default execution timeout (30 minutes).
-const DefaultExecutionTimeout = 30 * time.Minute
+// defaultTimeout is the default execution timeout used by model implementations.
+const defaultTimeout = 30 * time.Minute

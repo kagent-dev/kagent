@@ -50,7 +50,7 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	}
 
 	// Set timeout
-	timeout := DefaultExecutionTimeout
+	timeout := defaultTimeout
 	if config.Timeout != nil {
 		timeout = time.Duration(*config.Timeout) * time.Second
 	}

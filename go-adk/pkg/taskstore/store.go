@@ -14,9 +14,10 @@ import (
 
 // Constants inlined from pkg/a2a to avoid import cycle (taskstore ↔ a2a).
 const (
-	metadataKeyAdkPartial = "adk_partial"
-	headerContentType     = "Content-Type"
-	contentTypeJSON       = "application/json"
+	metadataKeyKagentAdkPartial = "kagent_adk_partial"
+	metadataKeyAdkPartial       = "adk_partial"
+	headerContentType           = "Content-Type"
+	contentTypeJSON             = "application/json"
 )
 
 // KAgentTaskStore persists A2A tasks to KAgent via REST API
@@ -44,25 +45,42 @@ type KAgentTaskResponse struct {
 	Message string        `json:"message,omitempty"`
 }
 
-// isPartialEvent checks if a history item is a partial ADK streaming event
-func (s *KAgentTaskStore) isPartialEvent(item *a2atype.Message) bool {
-	if item == nil || item.Metadata == nil {
+// isPartialMeta checks if a metadata map has a partial flag set to true.
+// It checks both the upstream ADK key (adk_partial) and the kagent key
+// (kagent_adk_partial) so that events from either prefix are recognised.
+func isPartialMeta(meta map[string]any) bool {
+	if meta == nil {
 		return false
 	}
-	if partial, ok := item.Metadata[metadataKeyAdkPartial].(bool); ok {
-		return partial
+	if partial, ok := meta[metadataKeyAdkPartial].(bool); ok && partial {
+		return true
+	}
+	if partial, ok := meta[metadataKeyKagentAdkPartial].(bool); ok && partial {
+		return true
 	}
 	return false
 }
 
 // cleanPartialEvents removes partial streaming events from history.
-// History in a2a-go Task is []*Message.
-func (s *KAgentTaskStore) cleanPartialEvents(history []*a2atype.Message) []*a2atype.Message {
+func cleanPartialEvents(history []*a2atype.Message) []*a2atype.Message {
 	var cleaned []*a2atype.Message
 	for _, item := range history {
-		if !s.isPartialEvent(item) {
-			cleaned = append(cleaned, item)
+		if item != nil && isPartialMeta(item.Metadata) {
+			continue
 		}
+		cleaned = append(cleaned, item)
+	}
+	return cleaned
+}
+
+// cleanPartialArtifacts removes partial streaming artifacts.
+func cleanPartialArtifacts(artifacts []*a2atype.Artifact) []*a2atype.Artifact {
+	var cleaned []*a2atype.Artifact
+	for _, a := range artifacts {
+		if a != nil && isPartialMeta(a.Metadata) {
+			continue
+		}
+		cleaned = append(cleaned, a)
 	}
 	return cleaned
 }
@@ -76,7 +94,10 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 	// Work on a shallow copy so the caller's task is not mutated.
 	taskCopy := *task
 	if taskCopy.History != nil {
-		taskCopy.History = s.cleanPartialEvents(taskCopy.History)
+		taskCopy.History = cleanPartialEvents(taskCopy.History)
+	}
+	if taskCopy.Artifacts != nil {
+		taskCopy.Artifacts = cleanPartialArtifacts(taskCopy.Artifacts)
 	}
 
 	taskJSON, err := json.Marshal(&taskCopy)
@@ -92,7 +113,7 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to execute save task request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -113,7 +134,7 @@ func (s *KAgentTaskStore) Get(ctx context.Context, taskID string) (*a2atype.Task
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute get task request: %w", err)
 	}
 	defer resp.Body.Close()
 

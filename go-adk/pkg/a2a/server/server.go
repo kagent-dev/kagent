@@ -26,29 +26,19 @@ type A2AServer struct {
 	httpServer *http.Server
 	logger     logr.Logger
 	config     ServerConfig
+	listenErr  chan error
 }
 
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
-	// Create request handler with the agent executor
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
-
-	// Create JSONRPC HTTP handler
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 
-	// Create mux to handle both A2A routes and health endpoints
 	mux := http.NewServeMux()
-
-	// Register health endpoints first
 	RegisterHealthEndpoints(mux)
-
-	// Register agent card endpoint
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
-
-	// All other routes go to the A2A JSONRPC handler
 	mux.Handle("/", jsonrpcHandler)
 
-	// Create HTTP server
 	addr := ":" + config.Port
 	if config.Host != "" {
 		addr = config.Host + ":" + config.Port
@@ -68,23 +58,28 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 func (s *A2AServer) Start() error {
 	s.logger.Info("Starting Go ADK server!", "addr", s.httpServer.Addr)
 
+	s.listenErr = make(chan error, 1)
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error(err, "Server failed")
-			os.Exit(1)
+			s.listenErr <- err
 		}
 	}()
 
 	return nil
 }
 
-// WaitForShutdown blocks until a shutdown signal is received, then gracefully shuts down.
+// WaitForShutdown blocks until a shutdown signal is received or the listener
+// fails, then gracefully shuts down.
 func (s *A2AServer) WaitForShutdown() error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	<-stop
-	s.logger.Info("Shutting down server...")
+	select {
+	case <-stop:
+		s.logger.Info("Shutting down server...")
+	case err := <-s.listenErr:
+		return fmt.Errorf("server listen failed: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
 	defer cancel()

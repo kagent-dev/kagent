@@ -45,7 +45,7 @@ func (s *localSession) LastUpdateTime() time.Time {
 }
 
 func (s *localSession) appendEvent(event *adksession.Event) error {
-	if event.Partial {
+	if event == nil || event.Partial {
 		return nil
 	}
 
@@ -124,7 +124,8 @@ func (s *sessionState) All() iter.Seq2[string, any] {
 	}
 }
 
-// trimTempDeltaState removes temporary state delta keys from the event.
+// trimTempDeltaState returns an event with temporary state delta keys removed.
+// It creates a shallow copy of the event to avoid mutating the original.
 func trimTempDeltaState(event *adksession.Event) *adksession.Event {
 	if event == nil || len(event.Actions.StateDelta) == 0 {
 		return event
@@ -135,8 +136,9 @@ func trimTempDeltaState(event *adksession.Event) *adksession.Event {
 			filtered[key] = value
 		}
 	}
-	event.Actions.StateDelta = filtered
-	return event
+	eventCopy := *event
+	eventCopy.Actions.StateDelta = filtered
+	return &eventCopy
 }
 
 // updateSessionState applies event state delta to the session.

@@ -1,23 +1,23 @@
 package a2a
 
-import "time"
-
-// Timeout constants
-const (
-	DefaultExecutionTimeout = 30 * time.Minute
-)
-
-// Session state keys
 const (
 	StateKeySessionName = "session_name"
+
+	requestEucFunctionCallName = "request_euc"
 )
 
-// A2A Data Part Metadata Constants
+// A2A DataPart metadata keys and type values.
 const (
-	A2ADataPartMetadataTypeKey                 = "type"
-	A2ADataPartMetadataIsLongRunningKey        = "is_long_running"
-	A2ADataPartMetadataTypeFunctionCall        = "function_call"
-	A2ADataPartMetadataTypeFunctionResponse    = "function_response"
-	A2ADataPartMetadataTypeCodeExecutionResult = "code_execution_result"
-	A2ADataPartMetadataTypeExecutableCode      = "executable_code"
+	A2ADataPartMetadataTypeKey              = "type"
+	A2ADataPartMetadataIsLongRunningKey     = "is_long_running"
+	A2ADataPartMetadataTypeFunctionCall     = "function_call"
+	A2ADataPartMetadataTypeFunctionResponse = "function_response"
+)
+
+// DataPart map keys for GenAI-style function call / response content.
+const (
+	PartKeyName     = "name"
+	PartKeyArgs     = "args"
+	PartKeyResponse = "response"
+	PartKeyID       = "id"
 )

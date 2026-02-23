@@ -19,13 +19,20 @@ import (
 const (
 	// Default timeout matching Python KAGENT_REMOTE_AGENT_TIMEOUT
 	defaultTimeout = 30 * time.Minute
-
-	// MCPInitTimeout is the default timeout for MCP toolset initialization.
-	MCPInitTimeout = 2 * time.Minute
-
-	// MCPInitTimeoutMax is the maximum timeout for MCP initialization.
-	MCPInitTimeoutMax = 5 * time.Minute
 )
+
+// mcpServerParams groups connection parameters for an MCP server,
+// reducing parameter sprawl across createTransport / initializeToolSet.
+type mcpServerParams struct {
+	URL                 string
+	Headers             map[string]string
+	ServerType          string // "http" or "sse"
+	Timeout             *float64
+	SseReadTimeout      *float64
+	TLSDisableVerify    *bool
+	TLSCACertPath       *string
+	TLSDisableSystemCAs *bool
+}
 
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
 // returning the accumulated toolsets. Errors on individual servers are logged
@@ -36,91 +43,89 @@ func CreateToolsets(ctx context.Context, httpTools []config.HttpMcpServerConfig,
 
 	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
 	for i, httpTool := range httpTools {
-		url := httpTool.Params.Url
-		headers := httpTool.Params.Headers
-		if headers == nil {
-			headers = make(map[string]string)
+		params := mcpServerParams{
+			URL:                 httpTool.Params.Url,
+			Headers:             httpTool.Params.Headers,
+			ServerType:          "http",
+			Timeout:             httpTool.Params.Timeout,
+			SseReadTimeout:      httpTool.Params.SseReadTimeout,
+			TLSDisableVerify:    httpTool.Params.TlsDisableVerify,
+			TLSCACertPath:       httpTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs: httpTool.Params.TlsDisableSystemCas,
 		}
-		toolFilter := make(map[string]bool, len(httpTool.Tools))
-		for _, name := range httpTool.Tools {
-			toolFilter[name] = true
-		}
-
-		if len(toolFilter) > 0 {
-			log.Info("Adding HTTP MCP tool", "index", i+1, "url", url, "toolFilterCount", len(toolFilter), "tools", httpTool.Tools)
-		} else {
-			log.Info("Adding HTTP MCP tool", "index", i+1, "url", url, "toolFilterCount", "all")
-		}
-
-		ts, err := initializeToolSet(ctx, url, headers, "http", toolFilter, httpTool.Params.Timeout, httpTool.Params.SseReadTimeout, httpTool.Params.TlsDisableVerify, httpTool.Params.TlsCaCertPath, httpTool.Params.TlsDisableSystemCas)
+		ts, err := addToolset(ctx, log, params, httpTool.Tools, "HTTP", i+1)
 		if err != nil {
-			log.Error(err, "Failed to fetch tools from HTTP MCP server", "url", url)
 			continue
 		}
-		log.Info("Successfully added HTTP MCP toolset", "url", url)
 		toolsets = append(toolsets, ts)
 	}
 
 	log.Info("Processing SSE MCP tools", "sseToolsCount", len(sseTools))
 	for i, sseTool := range sseTools {
-		url := sseTool.Params.Url
-		headers := sseTool.Params.Headers
-		if headers == nil {
-			headers = make(map[string]string)
+		params := mcpServerParams{
+			URL:                 sseTool.Params.Url,
+			Headers:             sseTool.Params.Headers,
+			ServerType:          "sse",
+			Timeout:             sseTool.Params.Timeout,
+			SseReadTimeout:      sseTool.Params.SseReadTimeout,
+			TLSDisableVerify:    sseTool.Params.TlsDisableVerify,
+			TLSCACertPath:       sseTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs: sseTool.Params.TlsDisableSystemCas,
 		}
-		toolFilter := make(map[string]bool, len(sseTool.Tools))
-		for _, name := range sseTool.Tools {
-			toolFilter[name] = true
-		}
-
-		if len(toolFilter) > 0 {
-			log.Info("Adding SSE MCP tool", "index", i+1, "url", url, "toolFilterCount", len(toolFilter), "tools", sseTool.Tools)
-		} else {
-			log.Info("Adding SSE MCP tool", "index", i+1, "url", url, "toolFilterCount", "all")
-		}
-
-		ts, err := initializeToolSet(ctx, url, headers, "sse", toolFilter, sseTool.Params.Timeout, sseTool.Params.SseReadTimeout, sseTool.Params.TlsDisableVerify, sseTool.Params.TlsCaCertPath, sseTool.Params.TlsDisableSystemCas)
+		ts, err := addToolset(ctx, log, params, sseTool.Tools, "SSE", i+1)
 		if err != nil {
-			log.Error(err, "Failed to fetch tools from SSE MCP server", "url", url)
 			continue
 		}
-		log.Info("Successfully added SSE MCP toolset", "url", url)
 		toolsets = append(toolsets, ts)
 	}
 
 	return toolsets
 }
 
+// addToolset logs, initializes, and returns a single MCP toolset.
+func addToolset(ctx context.Context, log logr.Logger, params mcpServerParams, tools []string, label string, index int) (tool.Toolset, error) {
+	if params.Headers == nil {
+		params.Headers = make(map[string]string)
+	}
+
+	toolFilter := make(map[string]bool, len(tools))
+	for _, name := range tools {
+		toolFilter[name] = true
+	}
+
+	if len(toolFilter) > 0 {
+		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", len(toolFilter), "tools", tools)
+	} else {
+		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", "all")
+	}
+
+	ts, err := initializeToolSet(ctx, params, toolFilter)
+	if err != nil {
+		log.Error(err, fmt.Sprintf("Failed to fetch tools from %s MCP server", label), "url", params.URL)
+		return nil, err
+	}
+	log.Info(fmt.Sprintf("Successfully added %s MCP toolset", label), "url", params.URL)
+	return ts, nil
+}
+
 // createTransport creates an MCP transport based on server type and configuration.
 // Uses the official MCP SDK (github.com/modelcontextprotocol/go-sdk/mcp).
-func createTransport(
-	ctx context.Context,
-	url string,
-	headers map[string]string,
-	serverType string,
-	timeout *float64,
-	sseReadTimeout *float64,
-	tlsDisableVerify *bool,
-	tlsCaCertPath *string,
-	tlsDisableSystemCas *bool,
-) (mcpsdk.Transport, error) {
+func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transport, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	operationTimeout := defaultTimeout
-	if timeout != nil && *timeout > 0 {
-		operationTimeout = time.Duration(*timeout) * time.Second
+	if params.Timeout != nil && *params.Timeout > 0 {
+		operationTimeout = time.Duration(*params.Timeout) * time.Second
 		if operationTimeout < 1*time.Second {
 			operationTimeout = 1 * time.Second
 		}
 	}
 
 	httpTimeout := operationTimeout
-	if serverType == "sse" && sseReadTimeout != nil && *sseReadTimeout > 0 {
-		configuredSseTimeout := time.Duration(*sseReadTimeout) * time.Second
+	if params.ServerType == "sse" && params.SseReadTimeout != nil && *params.SseReadTimeout > 0 {
+		configuredSseTimeout := time.Duration(*params.SseReadTimeout) * time.Second
 		if configuredSseTimeout > operationTimeout {
 			httpTimeout = configuredSseTimeout
-		} else {
-			httpTimeout = operationTimeout
 		}
 		if httpTimeout < 1*time.Second {
 			httpTimeout = 1 * time.Second
@@ -129,25 +134,23 @@ func createTransport(
 
 	baseTransport := &http.Transport{}
 
-	if tlsDisableVerify != nil && *tlsDisableVerify {
-		log.Info("WARNING: TLS certificate verification disabled for MCP server - this is insecure and not recommended for production", "url", url)
+	if params.TLSDisableVerify != nil && *params.TLSDisableVerify {
+		log.Info("WARNING: TLS certificate verification disabled for MCP server - this is insecure and not recommended for production", "url", params.URL)
 		baseTransport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
-	} else if tlsCaCertPath != nil && *tlsCaCertPath != "" {
-		caCert, err := os.ReadFile(*tlsCaCertPath)
+	} else if params.TLSCACertPath != nil && *params.TLSCACertPath != "" {
+		caCert, err := os.ReadFile(*params.TLSCACertPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read CA certificate from %s: %w", *tlsCaCertPath, err)
+			return nil, fmt.Errorf("failed to read CA certificate from %s: %w", *params.TLSCACertPath, err)
 		}
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA certificate from %s", *tlsCaCertPath)
+			return nil, fmt.Errorf("failed to parse CA certificate from %s", *params.TLSCACertPath)
 		}
 
-		tlsConfig := &tls.Config{
-			RootCAs: caCertPool,
-		}
-		if tlsDisableSystemCas != nil && *tlsDisableSystemCas {
+		tlsConfig := &tls.Config{}
+		if params.TLSDisableSystemCAs != nil && *params.TLSDisableSystemCAs {
 			tlsConfig.RootCAs = caCertPool
 		} else {
 			systemCAs, err := x509.SystemCertPool()
@@ -162,10 +165,10 @@ func createTransport(
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(headers) > 0 {
+	if len(params.Headers) > 0 {
 		httpTransport = &headerRoundTripper{
 			base:    baseTransport,
-			headers: headers,
+			headers: params.Headers,
 		}
 	}
 
@@ -175,14 +178,14 @@ func createTransport(
 	}
 
 	var mcpTransport mcpsdk.Transport
-	if serverType == "sse" {
+	if params.ServerType == "sse" {
 		mcpTransport = &mcpsdk.SSEClientTransport{
-			Endpoint:   url,
+			Endpoint:   params.URL,
 			HTTPClient: httpClient,
 		}
 	} else {
 		mcpTransport = &mcpsdk.StreamableClientTransport{
-			Endpoint:   url,
+			Endpoint:   params.URL,
 			HTTPClient: httpClient,
 		}
 	}
@@ -206,21 +209,10 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 
 // initializeToolSet fetches tools from an MCP server using Google ADK's mcptoolset.
 // Returns the created toolset on success.
-func initializeToolSet(
-	ctx context.Context,
-	url string,
-	headers map[string]string,
-	serverType string,
-	toolFilter map[string]bool,
-	timeout *float64,
-	sseReadTimeout *float64,
-	tlsDisableVerify *bool,
-	tlsCaCertPath *string,
-	tlsDisableSystemCas *bool,
-) (tool.Toolset, error) {
-	mcpTransport, err := createTransport(ctx, url, headers, serverType, timeout, sseReadTimeout, tlsDisableVerify, tlsCaCertPath, tlsDisableSystemCas)
+func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (tool.Toolset, error) {
+	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create transport for %s: %w", url, err)
+		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
 	var toolPredicate tool.Predicate
@@ -239,7 +231,7 @@ func initializeToolSet(
 
 	toolset, err := mcptoolset.New(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", url, err)
+		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
 	return toolset, nil

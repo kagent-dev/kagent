@@ -41,7 +41,7 @@ func (a *SessionServiceAdapter) Create(ctx context.Context, req *adksession.Crea
 
 	session, err := a.service.CreateSession(ctx, req.AppName, req.UserID, state, req.SessionID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	return &adksession.CreateResponse{
@@ -61,12 +61,12 @@ func (a *SessionServiceAdapter) Get(ctx context.Context, req *adksession.GetRequ
 
 	session, err := a.service.GetSession(ctx, req.AppName, req.UserID, req.SessionID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
 	if session == nil {
-		log.Info("Session not found, returning nil")
-		return &adksession.GetResponse{Session: nil}, nil
+		log.Info("Session not found")
+		return nil, fmt.Errorf("session not found: %s", req.SessionID)
 	}
 
 	log.V(1).Info("Session loaded from backend", "sessionID", session.ID, "eventsBeforeParse", len(session.Events))
@@ -97,7 +97,10 @@ func (a *SessionServiceAdapter) Delete(ctx context.Context, req *adksession.Dele
 	if a.service == nil {
 		return fmt.Errorf("session service is nil")
 	}
-	return a.service.DeleteSession(ctx, req.AppName, req.UserID, req.SessionID)
+	if err := a.service.DeleteSession(ctx, req.AppName, req.UserID, req.SessionID); err != nil {
+		return fmt.Errorf("failed to delete session: %w", err)
+	}
+	return nil
 }
 
 // AppendEvent implements session.Service.
@@ -115,12 +118,12 @@ func (a *SessionServiceAdapter) AppendEvent(ctx context.Context, session adksess
 	defer cancel()
 	ourSession := convertADKSessionToOurs(session)
 	if err := a.service.AppendEvent(persistCtx, ourSession, event); err != nil {
-		return err
+		return fmt.Errorf("failed to persist event to remote session: %w", err)
 	}
 
 	if ls, ok := session.(*localSession); ok {
 		if err := ls.appendEvent(event); err != nil {
-			return err
+			return fmt.Errorf("failed to append event to local session: %w", err)
 		}
 	}
 

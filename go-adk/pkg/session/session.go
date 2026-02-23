@@ -29,7 +29,6 @@ type SessionService interface {
 	GetSession(ctx context.Context, appName, userID, sessionID string) (*Session, error)
 	DeleteSession(ctx context.Context, appName, userID, sessionID string) error
 	AppendEvent(ctx context.Context, session *Session, event any) error
-	AppendFirstSystemEvent(ctx context.Context, session *Session) error
 }
 
 // Compile-time interface compliance check
@@ -83,7 +82,7 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute create session request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -102,7 +101,7 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode create session response: %w", err)
 	}
 
 	log.V(1).Info("Session created successfully", "sessionID", result.Data.ID, "userID", result.Data.UserID)
@@ -128,7 +127,7 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute get session request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -153,7 +152,7 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode get session response: %w", err)
 	}
 
 	log.V(1).Info("Session retrieved successfully", "sessionID", result.Data.Session.ID, "userID", result.Data.Session.UserID, "eventsCount", len(result.Data.Events))
@@ -212,7 +211,7 @@ func (s *KAgentSessionService) DeleteSession(ctx context.Context, appName, userI
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to execute delete session request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -260,7 +259,7 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to execute append event request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -272,15 +271,6 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, session *Session
 
 	log.V(1).Info("Event appended to session successfully", "sessionID", session.ID, "eventID", eventID)
 	return nil
-}
-
-// AppendFirstSystemEvent appends the initial system event (header_update) before run.
-func (s *KAgentSessionService) AppendFirstSystemEvent(ctx context.Context, session *Session) error {
-	event := map[string]any{
-		"InvocationID": "header_update",
-		"Author":       "system",
-	}
-	return s.AppendEvent(ctx, session, event)
 }
 
 func extractEventID(ctx context.Context, event any, eventData []byte) string {

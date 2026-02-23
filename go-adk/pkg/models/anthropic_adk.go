@@ -272,11 +272,14 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		inputJSON string
 	})
 	var stopReason anthropic.StopReason
+	var inputTokens, outputTokens int64
 
 	for stream.Next() {
 		event := stream.Current()
 
 		switch e := event.AsAny().(type) {
+		case anthropic.MessageStartEvent:
+			inputTokens = e.Message.Usage.InputTokens
 		case anthropic.ContentBlockStartEvent:
 			idx := int(e.Index)
 			if e.ContentBlock.Type == "tool_use" {
@@ -313,6 +316,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 			}
 		case anthropic.MessageDeltaEvent:
 			stopReason = e.Delta.StopReason
+			outputTokens = e.Usage.OutputTokens
 		}
 	}
 
@@ -341,11 +345,19 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		}
 	}
 
+	var usage *genai.GenerateContentResponseUsageMetadata
+	if inputTokens > 0 || outputTokens > 0 {
+		usage = &genai.GenerateContentResponseUsageMetadata{
+			PromptTokenCount:     int32(inputTokens),
+			CandidatesTokenCount: int32(outputTokens),
+		}
+	}
 	_ = yield(&model.LLMResponse{
-		Partial:      false,
-		TurnComplete: true,
-		FinishReason: anthropicStopReasonToGenai(stopReason),
-		Content:      &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
+		Partial:       false,
+		TurnComplete:  true,
+		FinishReason:  anthropicStopReasonToGenai(stopReason),
+		UsageMetadata: usage,
+		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}, nil)
 }
 

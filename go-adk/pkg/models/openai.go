@@ -83,7 +83,7 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	if config.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
-	timeout := DefaultExecutionTimeout
+	timeout := defaultTimeout
 	if config.Timeout != nil {
 		timeout = time.Duration(*config.Timeout) * time.Second
 	}
@@ -134,7 +134,7 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		option.WithHeader("Api-Key", apiKey),
 		option.WithMiddleware(azurePathRewriteMiddleware()),
 	}
-	timeout := DefaultExecutionTimeout
+	timeout := defaultTimeout
 	if config.Timeout != nil {
 		timeout = time.Duration(*config.Timeout) * time.Second
 	}

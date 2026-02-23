@@ -1,11 +1,9 @@
 package a2a
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
@@ -31,7 +29,6 @@ const (
 	KAgentHitlDecisionTypeKey           = "decision_type"
 	KAgentHitlDecisionTypeApprove       = "approve"
 	KAgentHitlDecisionTypeDeny          = "deny"
-	KAgentHitlDecisionTypeReject        = "reject"
 )
 
 var (
@@ -45,7 +42,6 @@ type DecisionType string
 const (
 	DecisionApprove DecisionType = "approve"
 	DecisionDeny    DecisionType = "deny"
-	DecisionReject  DecisionType = "reject"
 )
 
 // ToolApprovalRequest represents a tool call requiring user approval.
@@ -53,11 +49,6 @@ type ToolApprovalRequest struct {
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
 	ID   string         `json:"id,omitempty"`
-}
-
-// EventWriter is an interface for writing A2A events to a queue.
-type EventWriter interface {
-	Write(ctx context.Context, event a2atype.Event) error
 }
 
 // GetKAgentMetadataKey returns the prefixed metadata key.
@@ -74,13 +65,11 @@ func ExtractDecisionFromText(text string) DecisionType {
 			return DecisionDeny
 		}
 	}
-
 	for _, pattern := range approveWordPatterns {
 		if pattern.MatchString(text) {
 			return DecisionApprove
 		}
 	}
-
 	return ""
 }
 
@@ -100,17 +89,14 @@ func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 					return DecisionApprove
 				case KAgentHitlDecisionTypeDeny:
 					return DecisionDeny
-				case KAgentHitlDecisionTypeReject:
-					return DecisionReject
 				}
 			}
 		}
 	}
 
 	for _, part := range message.Parts {
-		switch p := part.(type) {
-		case a2atype.TextPart:
-			if decision := ExtractDecisionFromText(p.Text); decision != "" {
+		if tp, ok := part.(a2atype.TextPart); ok {
+			if decision := ExtractDecisionFromText(tp.Text); decision != "" {
 				return decision
 			}
 		}
@@ -119,46 +105,37 @@ func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 	return ""
 }
 
-// IsInputRequiredTask checks if a task state indicates waiting for user input.
-func IsInputRequiredTask(state a2atype.TaskState) bool {
-	return state == a2atype.TaskStateInputRequired
-}
-
 // escapeMarkdownBackticks escapes backticks to prevent markdown rendering issues.
-func escapeMarkdownBackticks(text any) string {
-	str := fmt.Sprintf("%v", text)
-	return strings.ReplaceAll(str, "`", "\\`")
+func escapeMarkdownBackticks(text string) string {
+	return strings.ReplaceAll(text, "`", "\\`")
 }
 
-// formatToolApprovalTextParts formats tool approval requests as human-readable TextParts.
-func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) []a2atype.Part {
-	var parts []a2atype.Part
-
-	parts = append(parts, a2atype.TextPart{Text: "**Approval Required**\n\n"})
-	parts = append(parts, a2atype.TextPart{Text: "The following actions require your approval:\n\n"})
+// formatToolApprovalTextParts formats tool approval requests as a single
+// human-readable TextPart in markdown.
+func formatToolApprovalTextParts(actionRequests []ToolApprovalRequest) a2atype.TextPart {
+	var b strings.Builder
+	b.WriteString("**Approval Required**\n\n")
+	b.WriteString("The following actions require your approval:\n\n")
 
 	for _, action := range actionRequests {
-		escapedToolName := escapeMarkdownBackticks(action.Name)
-		parts = append(parts, a2atype.TextPart{Text: fmt.Sprintf("**Tool**: `%s`\n", escapedToolName)})
-		parts = append(parts, a2atype.TextPart{Text: "**Arguments**:\n"})
-
+		fmt.Fprintf(&b, "**Tool**: `%s`\n", escapeMarkdownBackticks(action.Name))
+		b.WriteString("**Arguments**:\n")
 		for key, value := range action.Args {
-			escapedKey := escapeMarkdownBackticks(key)
-			escapedValue := escapeMarkdownBackticks(value)
-			parts = append(parts, a2atype.TextPart{Text: fmt.Sprintf("  • %s: `%s`\n", escapedKey, escapedValue)})
+			fmt.Fprintf(&b, "  • %s: `%s`\n",
+				escapeMarkdownBackticks(key),
+				escapeMarkdownBackticks(fmt.Sprintf("%v", value)))
 		}
-
-		parts = append(parts, a2atype.TextPart{Text: "\n"})
+		b.WriteByte('\n')
 	}
 
-	return parts
+	return a2atype.TextPart{Text: b.String()}
 }
 
 // BuildToolApprovalMessage creates an A2A message with human-readable text
-// parts describing the tool calls and a structured DataPart for machine
-// processing by the client.
+// describing the tool calls and a structured DataPart for machine processing
+// by the client.
 func BuildToolApprovalMessage(actionRequests []ToolApprovalRequest) *a2atype.Message {
-	textParts := formatToolApprovalTextParts(actionRequests)
+	textPart := formatToolApprovalTextParts(actionRequests)
 
 	actionRequestsData := make([]map[string]any, len(actionRequests))
 	for i, req := range actionRequests {
@@ -171,58 +148,15 @@ func BuildToolApprovalMessage(actionRequests []ToolApprovalRequest) *a2atype.Mes
 		}
 	}
 
-	interruptData := map[string]any{
-		"interrupt_type":  KAgentHitlInterruptTypeToolApproval,
-		"action_requests": actionRequestsData,
-	}
-
 	dataPart := &a2atype.DataPart{
-		Data: interruptData,
+		Data: map[string]any{
+			"interrupt_type":  KAgentHitlInterruptTypeToolApproval,
+			"action_requests": actionRequestsData,
+		},
 		Metadata: map[string]any{
 			GetKAgentMetadataKey("type"): "interrupt_data",
 		},
 	}
 
-	allParts := append(textParts, dataPart)
-	return a2atype.NewMessage(a2atype.MessageRoleAgent, allParts...)
-}
-
-// HandleToolApprovalInterrupt sends an input_required event for tool approval.
-// This is a framework-agnostic handler that any executor can call when
-// it needs user approval for tool calls. It returns the message that was
-// written so callers can use it for final-event tracking.
-func HandleToolApprovalInterrupt(
-	ctx context.Context,
-	actionRequests []ToolApprovalRequest,
-	infoProvider a2atype.TaskInfoProvider,
-	queue EventWriter,
-	appName string,
-) (*a2atype.Message, error) {
-	msg := BuildToolApprovalMessage(actionRequests)
-
-	eventMetadata := map[string]any{
-		"interrupt_type": KAgentHitlInterruptTypeToolApproval,
-	}
-	if appName != "" {
-		eventMetadata["app_name"] = appName
-	}
-
-	now := time.Now().UTC()
-	event := &a2atype.TaskStatusUpdateEvent{
-		TaskID:    infoProvider.TaskInfo().TaskID,
-		ContextID: infoProvider.TaskInfo().ContextID,
-		Status: a2atype.TaskStatus{
-			State:     a2atype.TaskStateInputRequired,
-			Timestamp: &now,
-			Message:   msg,
-		},
-		Final:    false,
-		Metadata: eventMetadata,
-	}
-
-	if err := queue.Write(ctx, event); err != nil {
-		return nil, fmt.Errorf("failed to write hitl event: %w", err)
-	}
-
-	return msg, nil
+	return a2atype.NewMessage(a2atype.MessageRoleAgent, textPart, dataPart)
 }

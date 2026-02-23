@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go-adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/adk/server/adka2a"
 )
 
 func defaultAgentCard() *a2atype.AgentCard {
@@ -132,17 +133,16 @@ func main() {
 	if err != nil {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
-	} else {
-		logger.Info("Loaded agent config", "configDir", configDir)
-		logger.Info("AgentConfig summary", "summary", config.GetAgentConfigSummary(agentConfig))
-		logger.Info("Agent configuration",
-			"model", agentConfig.Model.GetType(),
-			"stream", agentConfig.GetStream(),
-			"executeCode", agentConfig.GetExecuteCode(),
-			"httpTools", len(agentConfig.HttpTools),
-			"sseTools", len(agentConfig.SseTools),
-			"remoteAgents", len(agentConfig.RemoteAgents))
 	}
+	logger.Info("Loaded agent config", "configDir", configDir)
+	logger.Info("AgentConfig summary", "summary", config.GetAgentConfigSummary(agentConfig))
+	logger.Info("Agent configuration",
+		"model", agentConfig.Model.GetType(),
+		"stream", agentConfig.GetStream(),
+		"executeCode", agentConfig.GetExecuteCode(),
+		"httpTools", len(agentConfig.HttpTools),
+		"sseTools", len(agentConfig.SseTools),
+		"remoteAgents", len(agentConfig.RemoteAgents))
 
 	appName := buildAppName(agentCard, logger)
 	logger.Info("Final app_name for session creation", "app_name", appName)
@@ -175,23 +175,23 @@ func main() {
 	ctx := logr.NewContext(context.Background(), logger)
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
 
-	// Create Google ADK runner eagerly
-	adkRunner, err := runnerpkg.CreateGoogleADKRunner(ctx, agentConfig, sessionService, toolsets, appName)
+	// Create runner config for the Google ADK executor
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, toolsets, appName)
 	if err != nil {
-		logger.Error(err, "Failed to create Google ADK Runner")
+		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
 	}
 
-	stream := false
-	if agentConfig != nil {
-		stream = agentConfig.GetStream()
-	}
+	stream := agentConfig.GetStream()
 
-	// Create executor that directly implements a2asrv.AgentExecutor
-	executor := a2a.NewKAgentExecutor(adkRunner, sessionService, a2a.KAgentExecutorConfig{
-		Stream:           stream,
-		ExecutionTimeout: a2a.DefaultExecutionTimeout,
-	}, appName)
+	// Build the adka2a.ExecutorConfig with kagent-specific callbacks,
+	// then create the Google ADK A2A executor directly.
+	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
+	adkExecutor := adka2a.NewExecutor(execConfig)
+
+	// Wrap with a thin queue adapter that emits history status events for
+	// each artifact update — required to preserve the kagent task structure.
+	executor := a2a.WrapExecutorQueue(adkExecutor)
 
 	// Build handler options
 	var handlerOpts []a2asrv.RequestHandlerOption
@@ -200,9 +200,15 @@ func main() {
 		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStoreAdapter))
 	}
 
-
 	if agentCard == nil {
 		agentCard = defaultAgentCard()
+	}
+
+	// Enrich agent card with skills derived from the ADK agent
+	a2a.EnrichAgentCard(agentCard, runnerConfig.Agent)
+	agentCard.Capabilities = a2atype.AgentCapabilities{
+		Streaming:              stream,
+		StateTransitionHistory: true,
 	}
 
 	serverConfig := server.ServerConfig{

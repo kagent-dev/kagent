@@ -261,15 +261,23 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 }
 
 func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
+	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+		IncludeUsage: param.NewOpt(true),
+	}
 	stream := m.Client.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()
 
 	var aggregatedText string
 	toolCallsAcc := make(map[int64]map[string]interface{})
 	var finishReason string
+	var promptTokens, completionTokens int64
 
 	for stream.Next() {
 		chunk := stream.Current()
+		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			promptTokens = chunk.Usage.PromptTokens
+			completionTokens = chunk.Usage.CompletionTokens
+		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -340,18 +348,27 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			finalParts = append(finalParts, p)
 		}
 	}
+
+	var usage *genai.GenerateContentResponseUsageMetadata
+	if promptTokens > 0 || completionTokens > 0 {
+		usage = &genai.GenerateContentResponseUsageMetadata{
+			PromptTokenCount:     int32(promptTokens),
+			CandidatesTokenCount: int32(completionTokens),
+		}
+	}
 	_ = yield(&model.LLMResponse{
-		Partial:      false,
-		TurnComplete: true,
-		FinishReason: openAIFinishReasonToGenai(finishReason),
-		Content:      &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
+		Partial:       false,
+		TurnComplete:  true,
+		FinishReason:  openAIFinishReasonToGenai(finishReason),
+		UsageMetadata: usage,
+		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}, nil)
 }
 
 func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
 	completion, err := m.Client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		yield(nil, err)
+		yield(nil, fmt.Errorf("OpenAI chat completion request failed: %w", err))
 		return
 	}
 	if len(completion.Choices) == 0 {

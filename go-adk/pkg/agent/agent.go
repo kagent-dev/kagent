@@ -19,7 +19,8 @@ import (
 
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // Toolsets are passed in directly (created by mcp.CreateToolsets).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *config.AgentConfig, toolsets []tool.Toolset) (agent.Agent, error) {
+// agentName is used as the ADK agent identity (appears in event Author field).
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *config.AgentConfig, toolsets []tool.Toolset, agentName string) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -37,8 +38,12 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *config.AgentConfig, 
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
 
+	if agentName == "" {
+		agentName = "agent"
+	}
+
 	llmAgentConfig := llmagent.Config{
-		Name:            "agent",
+		Name:            agentName,
 		Description:     agentConfig.Description,
 		Instruction:     agentConfig.Instruction,
 		Model:           llmModel,
@@ -247,17 +252,28 @@ func mapKeys(m map[string]any) []string {
 
 // truncateArgs returns a JSON string of args truncated for safe logging.
 func truncateArgs(args map[string]any) string {
-	const maxLen = 1000
+	const (
+		maxValueLen = 100
+		maxTotalLen = 500
+	)
 	if args == nil {
 		return "{}"
 	}
-	b, err := json.Marshal(args)
+	truncated := make(map[string]any, len(args))
+	for k, v := range args {
+		if s, ok := v.(string); ok && len(s) > maxValueLen {
+			truncated[k] = s[:maxValueLen] + "..."
+		} else {
+			truncated[k] = v
+		}
+	}
+	b, err := json.Marshal(truncated)
 	if err != nil {
 		return fmt.Sprintf("<marshal error: %v>", err)
 	}
 	s := string(b)
-	if len(s) > maxLen {
-		return s[:maxLen] + "... (truncated)"
+	if len(s) > maxTotalLen {
+		return s[:maxTotalLen] + "... (truncated)"
 	}
 	return s
 }
