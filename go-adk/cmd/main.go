@@ -9,62 +9,19 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go-adk/pkg/a2a"
-	"github.com/kagent-dev/kagent/go-adk/pkg/a2a/server"
+	"github.com/kagent-dev/kagent/go-adk/pkg/app"
 	"github.com/kagent-dev/kagent/go-adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go-adk/pkg/config"
 	"github.com/kagent-dev/kagent/go-adk/pkg/mcp"
 	runnerpkg "github.com/kagent-dev/kagent/go-adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go-adk/pkg/session"
-	"github.com/kagent-dev/kagent/go-adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/adk/server/adka2a"
 )
-
-func defaultAgentCard() *a2atype.AgentCard {
-	return &a2atype.AgentCard{
-		Name:        "go-adk-agent",
-		Description: "Go-based Agent Development Kit",
-		Version:     "0.2.0",
-	}
-}
-
-func newHTTPClient(tokenService *auth.KAgentTokenService) *http.Client {
-	if tokenService != nil {
-		return auth.NewHTTPClientWithToken(tokenService)
-	}
-	return &http.Client{Timeout: 30 * time.Second}
-}
-
-func buildAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
-
-	if kagentNamespace != "" && kagentName != "" {
-		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
-		name := strings.ReplaceAll(kagentName, "-", "_")
-		appName := namespace + "__NS__" + name
-		logger.Info("Built app_name from environment variables",
-			"KAGENT_NAMESPACE", kagentNamespace,
-			"KAGENT_NAME", kagentName,
-			"app_name", appName)
-		return appName
-	}
-
-	if agentCard != nil && agentCard.Name != "" {
-		logger.Info("Using agent card name as app_name (KAGENT_NAMESPACE/KAGENT_NAME not set)",
-			"app_name", agentCard.Name)
-		return agentCard.Name
-	}
-
-	logger.Info("Using default app_name (KAGENT_NAMESPACE/KAGENT_NAME not set and no agent card)",
-		"app_name", "go-adk-agent")
-	return "go-adk-agent"
-}
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
 	var zapLevel zapcore.Level
@@ -113,9 +70,6 @@ func main() {
 	if port == "" {
 		port = os.Getenv("PORT")
 	}
-	if port == "" {
-		port = "8080"
-	}
 
 	configDir := *filepathFlag
 	if configDir == "" {
@@ -125,8 +79,6 @@ func main() {
 		configDir = "/config"
 	}
 
-	// KAGENT_URL controls remote session/task persistence. When empty,
-	// the agent falls back to in-memory sessions with no task persistence.
 	kagentURL := os.Getenv("KAGENT_URL")
 
 	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
@@ -135,47 +87,45 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("Loaded agent config", "configDir", configDir)
-	logger.Info("AgentConfig summary", "summary", config.GetAgentConfigSummary(agentConfig))
 	logger.Info("Agent configuration",
 		"model", agentConfig.Model.GetType(),
 		"stream", agentConfig.GetStream(),
-		"executeCode", agentConfig.GetExecuteCode(),
 		"httpTools", len(agentConfig.HttpTools),
 		"sseTools", len(agentConfig.SseTools),
 		"remoteAgents", len(agentConfig.RemoteAgents))
 
-	appName := buildAppName(agentCard, logger)
-	logger.Info("Final app_name for session creation", "app_name", appName)
+	// Derive app name from env or agent card.
+	appName := deriveAppName(agentCard, logger)
 
+	// Create authenticated HTTP client when kagent persistence is enabled.
+	// This client is shared between the executor's session service and
+	// app.New's task store, avoiding duplicate token services.
+	var httpClient *http.Client
 	var tokenService *auth.KAgentTokenService
 	if kagentURL != "" {
 		tokenService = auth.NewKAgentTokenService(appName)
-		ctx := context.Background()
-		if err := tokenService.Start(ctx); err != nil {
+		if err := tokenService.Start(context.Background()); err != nil {
 			logger.Error(err, "Failed to start token service")
 		} else {
 			logger.Info("Token service started")
 		}
 		defer tokenService.Stop()
+		httpClient = auth.NewHTTPClientWithToken(tokenService)
 	}
 
+	// The executor needs a session service for its BeforeExecute callback
+	// (session creation/lookup). This must be created before the executor.
 	var sessionService session.SessionService
-	var taskStoreInstance *taskstore.KAgentTaskStore
 	if kagentURL != "" {
-		httpClient := newHTTPClient(tokenService)
 		sessionService = session.NewKAgentSessionService(kagentURL, httpClient)
 		logger.Info("Using KAgent session service", "url", kagentURL)
-		taskStoreInstance = taskstore.NewKAgentTaskStoreWithClient(kagentURL, httpClient)
-		logger.Info("Using KAgent task store", "url", kagentURL)
 	} else {
 		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
 	}
 
-	// Create MCP toolsets from configured HTTP and SSE servers
 	ctx := logr.NewContext(context.Background(), logger)
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
 
-	// Create runner config for the Google ADK executor
 	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, toolsets, appName)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
@@ -183,48 +133,66 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
-
-	// Build the adka2a.ExecutorConfig with kagent-specific callbacks,
-	// then create the Google ADK A2A executor directly.
 	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
-	adkExecutor := adka2a.NewExecutor(execConfig)
+	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
 
-	// Wrap with a thin queue adapter that emits history status events for
-	// each artifact update — required to preserve the kagent task structure.
-	executor := a2a.WrapExecutorQueue(adkExecutor)
-
-	// Build handler options
-	var handlerOpts []a2asrv.RequestHandlerOption
-	if taskStoreInstance != nil {
-		taskStoreAdapter := taskstore.NewA2ATaskStoreAdapter(taskStoreInstance)
-		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStoreAdapter))
-	}
-
+	// Build the agent card.
 	if agentCard == nil {
-		agentCard = defaultAgentCard()
+		agentCard = &a2atype.AgentCard{
+			Name:        "go-adk-agent",
+			Description: "Go-based Agent Development Kit",
+			Version:     "0.2.0",
+		}
 	}
-
-	// Enrich agent card with skills derived from the ADK agent
-	a2a.EnrichAgentCard(agentCard, runnerConfig.Agent)
 	agentCard.Capabilities = a2atype.AgentCapabilities{
 		Streaming:              stream,
 		StateTransitionHistory: true,
 	}
 
-	serverConfig := server.ServerConfig{
+	// Delegate server, task store, and remaining infrastructure to app.New.
+	// Passing HTTPClient prevents app.New from creating a second token service.
+	kagentApp, err := app.New(app.AppConfig{
+		AgentCard:       *agentCard,
 		Host:            *host,
 		Port:            port,
+		KAgentURL:       kagentURL,
+		AppName:         appName,
 		ShutdownTimeout: 5 * time.Second,
-	}
-
-	a2aServer, err := server.NewA2AServer(*agentCard, executor, logger, serverConfig, handlerOpts...)
+		Logger:          logger,
+		HTTPClient:      httpClient,
+		Agent:           runnerConfig.Agent,
+	}, executor)
 	if err != nil {
-		logger.Error(err, "Failed to create A2A server")
+		logger.Error(err, "Failed to create app")
 		os.Exit(1)
 	}
 
-	if err := a2aServer.Run(); err != nil {
+	if err := kagentApp.Run(); err != nil {
 		logger.Error(err, "Server error")
 		os.Exit(1)
 	}
+}
+
+func deriveAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
+	kagentName := os.Getenv("KAGENT_NAME")
+	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+
+	if kagentNamespace != "" && kagentName != "" {
+		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
+		name := strings.ReplaceAll(kagentName, "-", "_")
+		appName := namespace + "__NS__" + name
+		logger.Info("Built app_name from environment variables",
+			"KAGENT_NAMESPACE", kagentNamespace,
+			"KAGENT_NAME", kagentName,
+			"app_name", appName)
+		return appName
+	}
+
+	if agentCard != nil && agentCard.Name != "" {
+		logger.Info("Using agent card name as app_name", "app_name", agentCard.Name)
+		return agentCard.Name
+	}
+
+	logger.Info("Using default app_name", "app_name", "go-adk-agent")
+	return "go-adk-agent"
 }
