@@ -192,21 +192,6 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 	return loadErr
 }
 
-// resolvePostgresURLFile reads a PostgreSQL connection URL from a file and
-// returns the trimmed contents. It returns an error if the file cannot be read
-// or if the file is empty/whitespace-only.
-func resolvePostgresURLFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("reading postgres database URL file: %w", err)
-	}
-	url := strings.TrimSpace(string(content))
-	if url == "" {
-		return "", fmt.Errorf("postgres database URL file %s is empty or contains only whitespace", path)
-	}
-	return url, nil
-}
-
 type BootstrapConfig struct {
 	Ctx      context.Context
 	Manager  manager.Manager
@@ -246,16 +231,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	ctrl.SetLogger(logger)
-
-	// If a URL file is specified and the database type is postgres, read the URL from it (takes precedence over --postgres-database-url)
-	if cfg.Database.UrlFile != "" && cfg.Database.Type == "postgres" {
-		url, err := resolvePostgresURLFile(cfg.Database.UrlFile)
-		if err != nil {
-			setupLog.Error(err, "failed to resolve postgres database URL from file", "path", cfg.Database.UrlFile)
-			os.Exit(1)
-		}
-		cfg.Database.Url = url
-	}
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate)
 
@@ -377,7 +352,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 			DatabasePath: cfg.Database.Path,
 		},
 		PostgresConfig: &database.PostgresConfig{
-			URL: cfg.Database.Url,
+			URL:     cfg.Database.Url,
+			URLFile: cfg.Database.UrlFile,
 		},
 	})
 	if err != nil {
