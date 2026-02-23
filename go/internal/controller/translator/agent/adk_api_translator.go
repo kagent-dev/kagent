@@ -1439,4 +1439,3 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent
 	}
 	return errs
 }
-
