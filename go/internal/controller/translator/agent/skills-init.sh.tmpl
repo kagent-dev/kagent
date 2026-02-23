@@ -1,0 +1,31 @@
+set -e
+{{- if .AuthMountPath }}
+if [ -f '{{ .AuthMountPath }}/ssh-privatekey' ]; then
+  mkdir -p ~/.ssh
+  cp '{{ .AuthMountPath }}/ssh-privatekey' ~/.ssh/id_rsa
+  chmod 600 ~/.ssh/id_rsa
+  ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null
+elif [ -f '{{ .AuthMountPath }}/token' ]; then
+  git config --global credential.helper '!f() { echo username=x-access-token; echo password=$(cat {{ .AuthMountPath }}/token); }; f'
+fi
+{{- end }}
+{{- range .GitRefs }}
+{{- if .IsCommit }}
+git clone -- '{{ .URL }}' '{{ .Dest }}'
+cd '{{ .Dest }}' && git checkout '{{ .Ref }}'
+{{- else }}
+git clone --depth 1 --branch '{{ .Ref }}' -- '{{ .URL }}' '{{ .Dest }}'
+{{- end }}
+{{- if .SubPath }}
+_tmp="$(mktemp -d)"
+cp -a '{{ .Dest }}/{{ .SubPath }}/.' "$_tmp/"
+rm -rf '{{ .Dest }}'
+mv "$_tmp" '{{ .Dest }}'
+{{- end }}
+{{- end }}
+{{- range .OCIRefs }}
+krane export{{ if $.InsecureOCI }} --insecure{{ end }} '{{ .Image }}' '/tmp/oci-skill.tar'
+mkdir -p '{{ .Dest }}'
+tar xf '/tmp/oci-skill.tar' -C '{{ .Dest }}'
+rm -f '/tmp/oci-skill.tar'
+{{- end }}

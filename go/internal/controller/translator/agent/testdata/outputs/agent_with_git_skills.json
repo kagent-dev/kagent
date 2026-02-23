@@ -165,10 +165,6 @@
                     }
                   },
                   {
-                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
-                    "value": "delta"
-                  },
-                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -242,10 +238,10 @@
                 "command": [
                   "/bin/sh",
                   "-c",
-                  "set -e\nif [ -f '/git-auth/ssh-privatekey' ]; then\n  mkdir -p ~/.ssh\n  cp '/git-auth/ssh-privatekey' ~/.ssh/id_rsa\n  chmod 600 ~/.ssh/id_rsa\n  ssh-keyscan github.com gitlab.com bitbucket.org \u003e\u003e ~/.ssh/known_hosts 2\u003e/dev/null\nelif [ -f '/git-auth/token' ]; then\n  git config --global credential.helper '!f() { echo username=x-access-token; echo password=$(cat /git-auth/token); }; f'\nfi\ngit clone --depth 1 --branch 'v2.0.0' -- 'https://github.com/org/my-skills' '/skills/k8s-skill'\n_tmp=\"$(mktemp -d)\"\ncp -a '/skills/k8s-skill/skills/k8s/.' \"$_tmp/\"\nrm -rf '/skills/k8s-skill'\nmv \"$_tmp\" '/skills/k8s-skill'\ngit clone -- 'https://github.com/org/another-skill' '/skills/another-skill'\ncd '/skills/another-skill' \u0026\u0026 git checkout 'abc123def456abc123def456abc123def456abc1'\ngit clone --depth 1 --branch 'main' -- 'https://github.com/org/private-skill' '/skills/private-skill'\n"
+                  "set -e\nif [ -f '/git-auth/ssh-privatekey' ]; then\n  mkdir -p ~/.ssh\n  cp '/git-auth/ssh-privatekey' ~/.ssh/id_rsa\n  chmod 600 ~/.ssh/id_rsa\n  ssh-keyscan github.com gitlab.com bitbucket.org \u003e\u003e ~/.ssh/known_hosts 2\u003e/dev/null\nelif [ -f '/git-auth/token' ]; then\n  git config --global credential.helper '!f() { echo username=x-access-token; echo password=$(cat /git-auth/token); }; f'\nfi\ngit clone --depth 1 --branch 'v2.0.0' -- 'https://github.com/org/my-skills' '/skills/k8s-skill'\n_tmp=\"$(mktemp -d)\"\ncp -a '/skills/k8s-skill/skills/k8s/.' \"$_tmp/\"\nrm -rf '/skills/k8s-skill'\nmv \"$_tmp\" '/skills/k8s-skill'\ngit clone -- 'https://github.com/org/another-skill' '/skills/another-skill'\ncd '/skills/another-skill' \u0026\u0026 git checkout 'abc123def456abc123def456abc123def456abc1'\ngit clone --depth 1 --branch 'main' -- 'https://github.com/org/private-skill' '/skills/private-skill'\nkrane export 'ghcr.io/org/oci-skill:v1.0' '/tmp/oci-skill.tar'\nmkdir -p '/skills/oci-skill'\ntar xf '/tmp/oci-skill.tar' -C '/skills/oci-skill'\nrm -f '/tmp/oci-skill.tar'\n"
                 ],
-                "image": "alpine/git:2.47.2",
-                "name": "git-skills-init",
+                "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
+                "name": "skills-init",
                 "resources": {},
                 "volumeMounts": [
                   {
@@ -256,30 +252,6 @@
                     "mountPath": "/git-auth",
                     "name": "git-auth",
                     "readOnly": true
-                  }
-                ]
-              },
-              {
-                "args": [
-                  "ghcr.io/org/oci-skill:v1.0"
-                ],
-                "command": [
-                  "kagent-adk",
-                  "pull-skills"
-                ],
-                "env": [
-                  {
-                    "name": "KAGENT_SKILLS_FOLDER",
-                    "value": "/skills"
-                  }
-                ],
-                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
-                "name": "skills-init",
-                "resources": {},
-                "volumeMounts": [
-                  {
-                    "mountPath": "/skills",
-                    "name": "kagent-skills"
                   }
                 ]
               }

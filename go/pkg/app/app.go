@@ -170,7 +170,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
-	commandLine.StringVar(&agent_translator.DefaultGitInitImage, "git-init-image", agent_translator.DefaultGitInitImage, "The image to use for the git skills init container.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 }
 
 // LoadFromEnv loads configuration values from environment variables.

@@ -85,6 +85,11 @@ type ImageConfig struct {
 	Repository string `json:"repository,omitempty"`
 }
 
+// Image returns the fully qualified image reference (registry/repository:tag).
+func (c ImageConfig) Image() string {
+	return fmt.Sprintf("%s/%s:%s", c.Registry, c.Repository, c.Tag)
+}
+
 var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
@@ -93,10 +98,14 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-// DefaultGitInitImage is the image used by the git-skills-init container to clone
-// skill repositories from Git. Configurable via the --git-init-image flag or the
-// GIT_INIT_IMAGE environment variable.
-var DefaultGitInitImage = "alpine/git:2.47.2"
+// DefaultSkillsInitImageConfig is the image config for the skills-init container
+// that clones skill repositories from Git and pulls OCI skill images.
+var DefaultSkillsInitImageConfig = ImageConfig{
+	Registry:   "cr.kagent.dev",
+	Tag:        version.Get().Version,
+	PullPolicy: string(corev1.PullIfNotPresent),
+	Repository: "kagent-dev/kagent/skills-init",
+}
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
@@ -418,38 +427,15 @@ func (a *adkApiTranslator) buildManifest(
 		sharedEnv = append(sharedEnv, skillsEnv)
 	}
 
-	// Git-based skills init container (runs before OCI skills init)
-	if len(gitRefs) > 0 {
-		gitContainer, gitVolumes, _ := buildGitSkillsInitContainer(gitRefs, gitAuthSecretRef, dep.SecurityContext)
-		initContainers = append(initContainers, gitContainer)
-		volumes = append(volumes, gitVolumes...)
-	}
-
-	// OCI-based skills init container
-	if len(skills) > 0 {
-		insecure := agent.Spec.Skills.InsecureSkipVerify
-		command := []string{"kagent-adk", "pull-skills"}
-		if insecure {
-			command = append(command, "--insecure")
+	// Unified skills init container (handles both git and OCI skills)
+	if hasSkills {
+		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
+		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build skills init container: %w", err)
 		}
-		initContainerSecurityContext := dep.SecurityContext
-		if initContainerSecurityContext != nil {
-			initContainerSecurityContext = initContainerSecurityContext.DeepCopy()
-		}
-		initContainers = append(initContainers, corev1.Container{
-			Name:    "skills-init",
-			Image:   dep.Image,
-			Command: command,
-			Args:    skills,
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "kagent-skills", MountPath: "/skills"},
-			},
-			Env: []corev1.EnvVar{{
-				Name:  env.KagentSkillsFolder.Name(),
-				Value: "/skills",
-			}},
-			SecurityContext: initContainerSecurityContext,
-		})
+		initContainers = append(initContainers, container)
+		volumes = append(volumes, skillsVolumes...)
 	}
 
 	// Token volume
@@ -1395,67 +1381,117 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 	return path.Base(u)
 }
 
-// gitSkillRefData holds pre-computed fields for each git skill ref, used by the script template.
-type gitSkillRefData struct {
-	v1alpha2.GitRepo
-	Dest      string // e.g. /skills/my-skill
-	IsCommit  bool   // true if Ref is a 40-char hex SHA
-	SubPath   string // Path with trailing slash stripped
-	MountPath string // e.g. /git-auth (empty if no auth)
+// skillsInitData holds the template data for the unified skills-init script.
+type skillsInitData struct {
+	AuthMountPath string       // "/git-auth" or "" (for git auth)
+	GitRefs       []gitRefData // git repos to clone
+	OCIRefs       []ociRefData // OCI images to pull
+	InsecureOCI   bool         // --insecure flag for krane
 }
 
-//go:embed git-init.sh.tmpl
-var gitInitScriptTmpl string
+// gitRefData holds pre-computed fields for each git skill ref, used by the script template.
+type gitRefData struct {
+	URL      string
+	Ref      string
+	Dest     string // e.g. /skills/my-skill
+	IsCommit bool   // true if Ref is a 40-char hex SHA
+	SubPath  string // Path with trailing slash stripped
+}
 
-// gitSkillsScriptTemplate is the shell script template for cloning skills from Git.
-var gitSkillsScriptTemplate = template.Must(template.New("git-skills").Parse(gitInitScriptTmpl))
+// ociRefData holds pre-computed fields for each OCI skill ref, used by the script template.
+type ociRefData struct {
+	Image string // full image ref e.g. ghcr.io/org/skill:v1
+	Dest  string // /skills/<name>
+}
 
-// buildGitSkillsScript builds the shell script that the git-skills-init container runs
-// by rendering the gitSkillsScriptTemplate with pre-computed data for each ref.
-func buildGitSkillsScript(refs []gitSkillRefData) string {
+//go:embed skills-init.sh.tmpl
+var skillsInitScriptTmpl string
+
+// skillsScriptTemplate is the shell script template for fetching skills from Git and OCI.
+var skillsScriptTemplate = template.Must(template.New("skills-init").Parse(skillsInitScriptTmpl))
+
+// buildSkillsScript renders the unified skills-init shell script.
+func buildSkillsScript(data skillsInitData) (string, error) {
 	var buf bytes.Buffer
-	if err := gitSkillsScriptTemplate.Execute(&buf, refs); err != nil {
-		// Template is statically defined; this should never fail at runtime.
-		panic(fmt.Sprintf("failed to render git skills script: %v", err))
+	if err := skillsScriptTemplate.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render skills init script: %w", err)
 	}
-	return buf.String()
+	return buf.String(), nil
 }
 
-// prepareGitSkillRefs converts GitRepo CRD values to the template-ready data structs.
-// If authSecretRef is non-nil, every entry gets a shared MountPath pointing to the
-// single auth volume.
-func prepareGitSkillRefs(gitRefs []v1alpha2.GitRepo, authSecretRef *corev1.LocalObjectReference) []gitSkillRefData {
-	data := make([]gitSkillRefData, len(gitRefs))
-	for i, ref := range gitRefs {
+// ociSkillName extracts a skill directory name from an OCI image reference.
+// It takes the last path component of the repo (stripped of tag/digest).
+func ociSkillName(imageRef string) string {
+	ref := imageRef
+	// Strip digest
+	if i := strings.LastIndex(ref, "@"); i != -1 {
+		ref = ref[:i]
+	}
+	// Strip tag (colon after the last slash is a tag, not a port)
+	if i := strings.LastIndex(ref, ":"); i != -1 {
+		if j := strings.LastIndex(ref, "/"); i > j {
+			ref = ref[:i]
+		}
+	}
+	return path.Base(ref)
+}
+
+// prepareSkillsInitData converts CRD values to the template-ready data struct.
+func prepareSkillsInitData(
+	gitRefs []v1alpha2.GitRepo,
+	authSecretRef *corev1.LocalObjectReference,
+	ociRefs []string,
+	insecureOCI bool,
+) skillsInitData {
+	data := skillsInitData{
+		InsecureOCI: insecureOCI,
+	}
+
+	if authSecretRef != nil {
+		data.AuthMountPath = "/git-auth"
+	}
+
+	for _, ref := range gitRefs {
 		gitRef := ref.Ref
 		if gitRef == "" {
 			gitRef = "main"
 		}
 		ref.Ref = gitRef
 
-		data[i] = gitSkillRefData{
-			GitRepo: ref,
-			Dest:    "/skills/" + gitSkillName(ref),
+		data.GitRefs = append(data.GitRefs, gitRefData{
+			URL:      ref.URL,
+			Ref:      gitRef,
+			Dest:     "/skills/" + gitSkillName(ref),
 			IsCommit: isCommitSHA(gitRef),
 			SubPath:  strings.TrimSuffix(ref.Path, "/"),
-		}
-		if authSecretRef != nil {
-			data[i].MountPath = "/git-auth"
-		}
+		})
 	}
+
+	for _, imageRef := range ociRefs {
+		data.OCIRefs = append(data.OCIRefs, ociRefData{
+			Image: imageRef,
+			Dest:  "/skills/" + ociSkillName(imageRef),
+		})
+	}
+
 	return data
 }
 
-// buildGitSkillsInitContainer creates the init container and associated volumes/mounts
-// for cloning skills from Git repositories.
+// buildSkillsInitContainer creates the unified init container and associated volumes
+// for fetching skills from both Git repositories and OCI registries.
 // If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
-func buildGitSkillsInitContainer(
+func buildSkillsInitContainer(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
+	ociRefs []string,
+	insecureOCI bool,
 	securityContext *corev1.SecurityContext,
-) (container corev1.Container, volumes []corev1.Volume, secretVolumeMounts []corev1.VolumeMount) {
-	refData := prepareGitSkillRefs(gitRefs, authSecretRef)
-	script := buildGitSkillsScript(refData)
+) (container corev1.Container, volumes []corev1.Volume, err error) {
+	data := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	script, err := buildSkillsScript(data)
+	if err != nil {
+		return corev1.Container{}, nil, err
+	}
 
 	initSecCtx := securityContext
 	if initSecCtx != nil {
@@ -1484,8 +1520,8 @@ func buildGitSkillsInitContainer(
 	}
 
 	container = corev1.Container{
-		Name:            "git-skills-init",
-		Image:           DefaultGitInitImage,
+		Name:            "skills-init",
+		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
 		VolumeMounts:    volumeMounts,
 		SecurityContext: initSecCtx,

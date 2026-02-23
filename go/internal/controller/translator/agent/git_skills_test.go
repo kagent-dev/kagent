@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func Test_AdkApiTranslator_GitSkills(t *testing.T) {
+func Test_AdkApiTranslator_Skills(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 
@@ -44,13 +44,12 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 		name  string
 		agent *v1alpha2.Agent
 		// assertions
-		wantGitInit        bool
-		wantOCIInit        bool
+		wantSkillsInit     bool
 		wantSkillsVolume   bool
-		wantGitImage       string
 		wantContainsBranch string
 		wantContainsCommit string
 		wantContainsPath   string
+		wantContainsKrane  bool
 		wantAuthVolume     bool
 	}{
 		{
@@ -65,12 +64,11 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      false,
-			wantOCIInit:      false,
+			wantSkillsInit:   false,
 			wantSkillsVolume: false,
 		},
 		{
-			name: "only OCI skills - no git init container",
+			name: "only OCI skills - unified init container with krane",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-oci-only", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -84,12 +82,12 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      false,
-			wantOCIInit:      true,
-			wantSkillsVolume: true,
+			wantSkillsInit:    true,
+			wantSkillsVolume:  true,
+			wantContainsKrane: true,
 		},
 		{
-			name: "only git skills - git init container, no OCI init",
+			name: "only git skills - unified init container with git clone",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-git-only", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -108,14 +106,12 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:        true,
-			wantOCIInit:        false,
+			wantSkillsInit:     true,
 			wantSkillsVolume:   true,
-			wantGitImage:       "alpine/git:2.47.2",
 			wantContainsBranch: "v1.0.0",
 		},
 		{
-			name: "both OCI and git skills - both init containers",
+			name: "both OCI and git skills - single unified init container",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-both", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -135,9 +131,9 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      true,
-			wantOCIInit:      true,
-			wantSkillsVolume: true,
+			wantSkillsInit:    true,
+			wantSkillsVolume:  true,
+			wantContainsKrane: true,
 		},
 		{
 			name: "git skill with commit SHA",
@@ -159,8 +155,7 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:        true,
-			wantOCIInit:        false,
+			wantSkillsInit:     true,
 			wantSkillsVolume:   true,
 			wantContainsCommit: "abc123def456abc123def456abc123def456abc1",
 		},
@@ -185,10 +180,9 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      true,
-			wantOCIInit:      false,
-			wantSkillsVolume: true,
-			wantContainsPath: "skills/k8s",
+			wantSkillsInit:    true,
+			wantSkillsVolume:  true,
+			wantContainsPath:  "skills/k8s",
 		},
 		{
 			name: "git skills with shared auth secret",
@@ -217,8 +211,7 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      true,
-			wantOCIInit:      false,
+			wantSkillsInit:   true,
 			wantSkillsVolume: true,
 			wantAuthVolume:   true,
 		},
@@ -243,9 +236,28 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					},
 				},
 			},
-			wantGitInit:      true,
-			wantOCIInit:      false,
+			wantSkillsInit:   true,
 			wantSkillsVolume: true,
+		},
+		{
+			name: "OCI skills with insecure flag",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-insecure", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						InsecureSkipVerify: true,
+						Refs:               []string{"localhost:5000/skill:dev"},
+					},
+				},
+			},
+			wantSkillsInit:    true,
+			wantSkillsVolume:  true,
+			wantContainsKrane: true,
 		},
 	}
 
@@ -273,30 +285,24 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 
 			initContainers := deployment.Spec.Template.Spec.InitContainers
 
-			// Check git init container
-			var gitInitContainer *corev1.Container
-			var ociInitContainer *corev1.Container
+			// Find the unified skills-init container
+			var skillsInitContainer *corev1.Container
 			for i := range initContainers {
-				switch initContainers[i].Name {
-				case "git-skills-init":
-					gitInitContainer = &initContainers[i]
-				case "skills-init":
-					ociInitContainer = &initContainers[i]
+				if initContainers[i].Name == "skills-init" {
+					skillsInitContainer = &initContainers[i]
 				}
 			}
 
-			if tt.wantGitInit {
-				require.NotNil(t, gitInitContainer, "git-skills-init container should exist")
-
-				if tt.wantGitImage != "" {
-					assert.Equal(t, tt.wantGitImage, gitInitContainer.Image)
-				}
+			if tt.wantSkillsInit {
+				require.NotNil(t, skillsInitContainer, "skills-init container should exist")
+				// There should be exactly one init container
+				assert.Len(t, initContainers, 1, "should have exactly one init container")
 
 				// Verify the script is passed via /bin/sh -c
-				require.Len(t, gitInitContainer.Command, 3)
-				assert.Equal(t, "/bin/sh", gitInitContainer.Command[0])
-				assert.Equal(t, "-c", gitInitContainer.Command[1])
-				script := gitInitContainer.Command[2]
+				require.Len(t, skillsInitContainer.Command, 3)
+				assert.Equal(t, "/bin/sh", skillsInitContainer.Command[0])
+				assert.Equal(t, "-c", skillsInitContainer.Command[1])
+				script := skillsInitContainer.Command[2]
 
 				if tt.wantContainsBranch != "" {
 					assert.Contains(t, script, tt.wantContainsBranch)
@@ -313,22 +319,21 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 					assert.Contains(t, script, "mktemp")
 				}
 
+				if tt.wantContainsKrane {
+					assert.Contains(t, script, "krane export")
+				}
+
 				// Verify /skills volume mount exists
 				hasSkillsMount := false
-				for _, vm := range gitInitContainer.VolumeMounts {
+				for _, vm := range skillsInitContainer.VolumeMounts {
 					if vm.Name == "kagent-skills" && vm.MountPath == "/skills" {
 						hasSkillsMount = true
 					}
 				}
-				assert.True(t, hasSkillsMount, "git init container should mount kagent-skills volume")
+				assert.True(t, hasSkillsMount, "skills-init container should mount kagent-skills volume")
 			} else {
-				assert.Nil(t, gitInitContainer, "git-skills-init container should not exist")
-			}
-
-			if tt.wantOCIInit {
-				require.NotNil(t, ociInitContainer, "skills-init container should exist")
-			} else {
-				assert.Nil(t, ociInitContainer, "skills-init container should not exist")
+				assert.Nil(t, skillsInitContainer, "skills-init container should not exist")
+				assert.Empty(t, initContainers, "should have no init containers")
 			}
 
 			// Check skills volume exists
@@ -358,40 +363,32 @@ func Test_AdkApiTranslator_GitSkills(t *testing.T) {
 				}
 				assert.True(t, hasAuthVolume, "git-auth volume should exist")
 
-				// Verify git init container has auth volume mount
-				require.NotNil(t, gitInitContainer)
+				// Verify skills-init container has auth volume mount
+				require.NotNil(t, skillsInitContainer)
 				hasAuthMount := false
-				for _, vm := range gitInitContainer.VolumeMounts {
+				for _, vm := range skillsInitContainer.VolumeMounts {
 					if vm.Name == "git-auth" && vm.MountPath == "/git-auth" {
 						hasAuthMount = true
 					}
 				}
-				assert.True(t, hasAuthMount, "git init container should mount auth secret")
+				assert.True(t, hasAuthMount, "skills-init container should mount auth secret")
 
-				// Verify script contains credential helper setup for all repos
-				script := gitInitContainer.Command[2]
+				// Verify script contains credential helper setup
+				script := skillsInitContainer.Command[2]
 				assert.Contains(t, script, "credential.helper")
 			}
 
-			// When both exist, verify git init comes before OCI init
-			if tt.wantGitInit && tt.wantOCIInit {
-				gitIdx := -1
-				ociIdx := -1
-				for i, c := range initContainers {
-					if c.Name == "git-skills-init" {
-						gitIdx = i
-					}
-					if c.Name == "skills-init" {
-						ociIdx = i
-					}
-				}
-				assert.Less(t, gitIdx, ociIdx, "git init container should come before OCI init container")
+			// Verify insecure flag for OCI skills
+			if tt.agent.Spec.Skills != nil && tt.agent.Spec.Skills.InsecureSkipVerify {
+				require.NotNil(t, skillsInitContainer)
+				script := skillsInitContainer.Command[2]
+				assert.Contains(t, script, "--insecure")
 			}
 		})
 	}
 }
 
-func Test_AdkApiTranslator_GitSkillsConfigurableImage(t *testing.T) {
+func Test_AdkApiTranslator_SkillsConfigurableImage(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 
@@ -428,10 +425,14 @@ func Test_AdkApiTranslator_GitSkillsConfigurableImage(t *testing.T) {
 		},
 	}
 
-	// Override the default git init image
-	originalImage := translator.DefaultGitInitImage
-	translator.DefaultGitInitImage = "custom-registry/git:latest"
-	defer func() { translator.DefaultGitInitImage = originalImage }()
+	// Override the default skills init image config
+	originalConfig := translator.DefaultSkillsInitImageConfig
+	translator.DefaultSkillsInitImageConfig = translator.ImageConfig{
+		Registry:   "custom-registry",
+		Repository: "skills-init",
+		Tag:        "latest",
+	}
+	defer func() { translator.DefaultSkillsInitImageConfig = originalConfig }()
 
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -455,12 +456,12 @@ func Test_AdkApiTranslator_GitSkillsConfigurableImage(t *testing.T) {
 	}
 	require.NotNil(t, deployment)
 
-	var gitInitContainer *corev1.Container
+	var skillsInitContainer *corev1.Container
 	for i := range deployment.Spec.Template.Spec.InitContainers {
-		if deployment.Spec.Template.Spec.InitContainers[i].Name == "git-skills-init" {
-			gitInitContainer = &deployment.Spec.Template.Spec.InitContainers[i]
+		if deployment.Spec.Template.Spec.InitContainers[i].Name == "skills-init" {
+			skillsInitContainer = &deployment.Spec.Template.Spec.InitContainers[i]
 		}
 	}
-	require.NotNil(t, gitInitContainer)
-	assert.Equal(t, "custom-registry/git:latest", gitInitContainer.Image)
+	require.NotNil(t, skillsInitContainer)
+	assert.Equal(t, "custom-registry/skills-init:latest", skillsInitContainer.Image)
 }

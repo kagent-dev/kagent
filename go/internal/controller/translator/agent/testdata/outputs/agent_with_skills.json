@@ -165,10 +165,6 @@
                     }
                   },
                   {
-                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
-                    "value": "delta"
-                  },
-                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -239,20 +235,12 @@
             ],
             "initContainers": [
               {
-                "args": [
-                  "foo:latest"
-                ],
                 "command": [
-                  "kagent-adk",
-                  "pull-skills"
+                  "/bin/sh",
+                  "-c",
+                  "set -e\nkrane export 'foo:latest' '/tmp/oci-skill.tar'\nmkdir -p '/skills/foo'\ntar xf '/tmp/oci-skill.tar' -C '/skills/foo'\nrm -f '/tmp/oci-skill.tar'\n"
                 ],
-                "env": [
-                  {
-                    "name": "KAGENT_SKILLS_FOLDER",
-                    "value": "/skills"
-                  }
-                ],
-                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
                 "resources": {},
                 "volumeMounts": [
