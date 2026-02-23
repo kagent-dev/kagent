@@ -180,9 +180,9 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 					},
 				},
 			},
-			wantSkillsInit:    true,
-			wantSkillsVolume:  true,
-			wantContainsPath:  "skills/k8s",
+			wantSkillsInit:   true,
+			wantSkillsVolume: true,
+			wantContainsPath: "skills/k8s",
 		},
 		{
 			name: "git skills with shared auth secret",
