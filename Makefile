@@ -247,9 +247,6 @@ lint:
 	make -C go lint
 	make -C python lint
 
-.PHONY: push
-push: push-controller push-ui push-app push-kagent-adk push-skills-init
-
 .PHONY: controller-manifests
 controller-manifests:
 	make -C go manifests

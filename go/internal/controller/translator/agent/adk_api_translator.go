@@ -1371,14 +1371,36 @@ func isCommitSHA(ref string) bool {
 // gitSkillName returns the directory name for a git skill ref.
 // If Name is set, it is used; otherwise the last path segment of the repo URL
 // (with any .git suffix stripped) is used.
+// Query parameters and fragments are stripped before extracting the base name.
 func gitSkillName(ref v1alpha2.GitRepo) string {
 	if ref.Name != "" {
 		return ref.Name
 	}
-	// Extract repo name from URL
+	// Parse the URL to strip query params and fragments
 	u := ref.URL
+	if parsed, err := url.Parse(u); err == nil {
+		u = parsed.Path
+		// If the path is empty (e.g. just a host), fall back to the raw URL
+		if u == "" {
+			u = ref.URL
+		}
+	}
 	u = strings.TrimSuffix(u, ".git")
 	return path.Base(u)
+}
+
+// validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
+func validateSubPath(p string) error {
+	if p == "" {
+		return nil
+	}
+	if path.IsAbs(p) {
+		return fmt.Errorf("skill subPath must be relative, got %q", p)
+	}
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		return fmt.Errorf("skill subPath must not contain '..', got %q", p)
+	}
+	return nil
 }
 
 // skillsInitData holds the template data for the unified skills-init script.
@@ -1437,12 +1459,13 @@ func ociSkillName(imageRef string) string {
 }
 
 // prepareSkillsInitData converts CRD values to the template-ready data struct.
+// It validates subPaths and detects duplicate skill directory names.
 func prepareSkillsInitData(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
-) skillsInitData {
+) (skillsInitData, error) {
 	data := skillsInitData{
 		InsecureOCI: insecureOCI,
 	}
@@ -1451,30 +1474,49 @@ func prepareSkillsInitData(
 		data.AuthMountPath = "/git-auth"
 	}
 
+	seen := make(map[string]bool)
+
 	for _, ref := range gitRefs {
+		subPath := strings.TrimSuffix(ref.Path, "/")
+		if err := validateSubPath(subPath); err != nil {
+			return skillsInitData{}, err
+		}
+
 		gitRef := ref.Ref
 		if gitRef == "" {
 			gitRef = "main"
 		}
 		ref.Ref = gitRef
 
+		name := gitSkillName(ref)
+		if seen[name] {
+			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+		}
+		seen[name] = true
+
 		data.GitRefs = append(data.GitRefs, gitRefData{
 			URL:      ref.URL,
 			Ref:      gitRef,
-			Dest:     "/skills/" + gitSkillName(ref),
+			Dest:     "/skills/" + name,
 			IsCommit: isCommitSHA(gitRef),
-			SubPath:  strings.TrimSuffix(ref.Path, "/"),
+			SubPath:  subPath,
 		})
 	}
 
 	for _, imageRef := range ociRefs {
+		name := ociSkillName(imageRef)
+		if seen[name] {
+			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+		}
+		seen[name] = true
+
 		data.OCIRefs = append(data.OCIRefs, ociRefData{
 			Image: imageRef,
-			Dest:  "/skills/" + ociSkillName(imageRef),
+			Dest:  "/skills/" + name,
 		})
 	}
 
-	return data
+	return data, nil
 }
 
 // buildSkillsInitContainer creates the unified init container and associated volumes
@@ -1487,7 +1529,10 @@ func buildSkillsInitContainer(
 	insecureOCI bool,
 	securityContext *corev1.SecurityContext,
 ) (container corev1.Container, volumes []corev1.Volume, err error) {
-	data := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	if err != nil {
+		return corev1.Container{}, nil, err
+	}
 	script, err := buildSkillsScript(data)
 	if err != nil {
 		return corev1.Container{}, nil, err

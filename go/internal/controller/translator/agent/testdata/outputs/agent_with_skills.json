@@ -238,7 +238,7 @@
                 "command": [
                   "/bin/sh",
                   "-c",
-                  "set -e\nkrane export 'foo:latest' '/tmp/oci-skill.tar'\nmkdir -p '/skills/foo'\ntar xf '/tmp/oci-skill.tar' -C '/skills/foo'\nrm -f '/tmp/oci-skill.tar'\n"
+                  "set -e\n_image=\"$(cat \u003c\u003c'ENDVAL'\nfoo:latest\nENDVAL\n)\"\n_dest=\"$(cat \u003c\u003c'ENDVAL'\n/skills/foo\nENDVAL\n)\"\necho \"Exporting OCI image ${_image} into ${_dest}\"\nkrane export \"$_image\" '/tmp/oci-skill.tar'\nmkdir -p \"$_dest\"\ntar xf '/tmp/oci-skill.tar' -C \"$_dest\"\nrm -f '/tmp/oci-skill.tar'\n"
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
