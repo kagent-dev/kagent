@@ -47,7 +47,7 @@ Note that this does not use `pgvectorscale` which is more performant than the or
 
 #### SQLite / Turso (Local Development)
 
-> This change replaced the original driver `go-sqlite` based on `modernc/sqlite` with `turso` go driver for all sqlite database access.
+> This change replaced the original driver `go-sqlite` based on `modernc/sqlite` with `turso` go driver for all sqlite database usage.
 
 - **Driver**: All SQLite connections use Turso (`turso.tech/database/tursogo`), which embeds libSQL with native vector support (no CGO; container needs C/C++ runtime libs). GORM talks to it via `glebarez/sqlite` as a dialector over the Turso `*sql.DB`.
 - **Schema**:
@@ -60,8 +60,7 @@ Note that this does not use `pgvectorscale` which is more performant than the or
   - Uses brute-force scan for small datasets (efficient for under ~10k vectors).
   - Supports `libsql_vector_idx` for ANN at larger scales (currently using direct scan; some issues when enabling the index).
 
-- **Turso datetime incompatibility**: Turso returns datetime columns as TEXT (e.g. `"2006-01-02 15:04:05"`). Go’s `database/sql` scans into `time.Time` using RFC3339 only, so scanning fails. 
-- **Current fix**: custom types in `pkg/database/time.go` — `FlexibleTime` and `NullableFlexibleTime` implement `sql.Scanner` (and `driver.Valuer`) and accept string, `[]byte`, or `time.Time`; models use these instead of `time.Time` so GORM works with Turso without forking the driver. A driver-level fix (parse time strings in `Rows.Next()`) would allow reverting to standard `time.Time` and `gorm.DeletedAt`; upstream Turso driver does not do this today.
+An alternative would be to fork `glebarez/sqlite` and replace everything with `turso` so we can remove the dependency of `go-sqlite` and `modernc/sqlite`. Both works.
 
 **SQLite vector alternatives (not used):**
 
