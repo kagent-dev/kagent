@@ -425,10 +425,7 @@ func (a *adkApiTranslator) buildManifest(
 			ReadOnly:  true,
 		})
 		sharedEnv = append(sharedEnv, skillsEnv)
-	}
 
-	// Unified skills init container (handles both git and OCI skills)
-	if hasSkills {
 		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
 		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext)
 		if err != nil {

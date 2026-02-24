@@ -10084,9 +10084,6 @@ spec:
                     maxItems: 20
                     type: array
                 type: object
-                x-kubernetes-validations:
-                - message: at least one of refs or gitRefs must be specified
-                  rule: size(self.refs) > 0 || size(self.gitRefs) > 0
               type:
                 allOf:
                 - enum:
