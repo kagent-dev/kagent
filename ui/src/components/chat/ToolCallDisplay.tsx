@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
-import AgentCallDisplay from "@/components/chat/AgentCallDisplay";
+import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
 import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
@@ -9,6 +9,9 @@ import { FunctionCall } from "@/types";
 interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
+  onApproveAll?: () => void;
+  onApprove?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
 }
 
 interface ToolCallState {
@@ -33,14 +36,19 @@ const isToolCallRequestMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
-    return metadata?.originalType === "ToolCallRequestEvent";
+    return metadata?.originalType === "ToolCallRequestEvent" || metadata?.originalType === "ToolApprovalRequest";
   }
-  
+
   return hasDataParts;
+};
+
+const isToolApprovalRequestMessage = (message: Message): boolean => {
+  const metadata = message.metadata as ADKMetadata;
+  return metadata?.originalType === "ToolApprovalRequest";
 };
 
 const isToolCallExecutionMessage = (message: Message): boolean => {
@@ -50,13 +58,13 @@ const isToolCallExecutionMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallExecutionEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -67,11 +75,11 @@ const isToolCallSummaryMessage = (message: Message): boolean => {
 
 const extractToolCallRequests = (message: Message): FunctionCall[] => {
   if (!isToolCallRequestMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const functionCalls: FunctionCall[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
@@ -84,16 +92,16 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
       }
     }
   }
-  
+
   // If we found function calls in data parts, return them
   if (functionCalls.length > 0) {
     return functionCalls;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
-  
+
   try {
     // Tool call data might be stored as JSON in content or metadata
     const metadata = message.metadata as ADKMetadata;
@@ -106,11 +114,11 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
 
 const extractToolCallResults = (message: Message): ProcessedToolResultData[] => {
   if (!isToolCallExecutionMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const toolResults: ProcessedToolResultData[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
@@ -127,17 +135,17 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
       }
     }
   }
-  
+
   // If we found tool results in data parts, return them
   if (toolResults.length > 0) {
     return toolResults;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
-  
+
   try {
     const metadata = message.metadata as ADKMetadata;
     const resultData = metadata?.toolResultData || JSON.parse(content || "[]");
@@ -147,9 +155,11 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   }
 };
 
-const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) => {
+const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove, onReject }: ToolCallDisplayProps) => {
   // Track which call IDs this component instance registered in the cache
   const registeredIdsRef = useRef<Set<string>>(new Set());
+
+  const isApprovalMessage = isToolApprovalRequestMessage(currentMessage);
 
   // Compute owned call IDs based on current message (memoized)
   const ownedCallIds = useMemo(() => {
@@ -192,10 +202,15 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         const requests = extractToolCallRequests(message);
         for (const request of requests) {
           if (request.id && ownedCallIds.has(request.id)) {
+            // For approval requests, set status to pending_approval
+            const msgMetadata = message.metadata as ADKMetadata;
+            const initialStatus: ToolCallStatus = msgMetadata?.originalType === "ToolApprovalRequest"
+              ? "pending_approval"
+              : "requested";
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
-              status: "requested"
+              status: initialStatus,
             });
           }
         }
@@ -224,7 +239,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     for (const message of allMessages) {
       if (isToolCallSummaryMessage(message)) {
         summaryMessageEncountered = true;
-        break; 
+        break;
       }
     }
 
@@ -251,15 +266,29 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
   if (currentDisplayableCalls.length === 0) return null;
 
+  // Count pending approval calls for "Approve All" button
+  const pendingApprovalCalls = currentDisplayableCalls.filter(call => call.status === "pending_approval");
+  const showApproveAll = isApprovalMessage && pendingApprovalCalls.length > 1 && onApproveAll;
+
   return (
     <div className="space-y-2">
+      {showApproveAll && (
+        <div className="flex justify-end">
+          <button
+            className="text-sm px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={onApproveAll}
+          >
+            Approve All ({pendingApprovalCalls.length})
+          </button>
+        </div>
+      )}
       {currentDisplayableCalls.map(toolCall => (
         isAgentToolName(toolCall.call.name) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}
             result={toolCall.result}
-            status={toolCall.status}
+            status={toolCall.status === "pending_approval" ? "requested" : toolCall.status as AgentCallStatus}
             isError={toolCall.result?.is_error}
           />
         ) : (
@@ -269,6 +298,8 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
             result={toolCall.result}
             status={toolCall.status}
             isError={toolCall.result?.is_error}
+            onApprove={isApprovalMessage && onApprove ? () => onApprove(toolCall.id) : undefined}
+            onReject={isApprovalMessage && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
           />
         )
       ))}

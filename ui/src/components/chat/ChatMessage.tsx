@@ -16,9 +16,12 @@ interface ChatMessageProps {
     namespace: string;
     agentName: string;
   };
+  onApproveAll?: () => void;
+  onApprove?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApproveAll, onApprove, onReject }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -80,6 +83,17 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
 
   // Also check for streaming tool calls via originalType (fallback for streaming messages)
   const isStreamingToolCall = originalType === "ToolCallRequestEvent" || originalType === "ToolCallExecutionEvent";
+
+  // Tool approval requests get routed to ToolCallDisplay with approval callbacks
+  if (originalType === "ToolApprovalRequest") {
+    return <ToolCallDisplay
+      currentMessage={message}
+      allMessages={allMessages}
+      onApproveAll={onApproveAll}
+      onApprove={onApprove}
+      onReject={onReject}
+    />;
+  }
 
   if (hasToolCallParts || isStreamingToolCall) {
     return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;

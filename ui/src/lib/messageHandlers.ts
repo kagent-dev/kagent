@@ -50,11 +50,12 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   };
 }
 
-export type OriginalMessageType = 
+export type OriginalMessageType =
   | "TextMessage"
-  | "ToolCallRequestEvent" 
+  | "ToolCallRequestEvent"
   | "ToolCallExecutionEvent"
-  | "ToolCallSummaryMessage";
+  | "ToolCallSummaryMessage"
+  | "ToolApprovalRequest";
 
 export interface ADKMetadata {
   kagent_app_name?: string;
@@ -342,6 +343,59 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       const adkMetadata = getADKMetadata(statusUpdate);
 
       updateTokenStatsFromMetadata(adkMetadata);
+
+      // Check for tool approval interrupt
+      if (
+        statusUpdate.status.state === "input-required" &&
+        statusUpdate.status.message
+      ) {
+        const message = statusUpdate.status.message;
+
+        // Look for a DataPart with interrupt_type: "tool_approval"
+        const approvalDataPart = message.parts.find(
+          (part): part is DataPart =>
+            isDataPart(part) &&
+            (part.data as Record<string, unknown>)?.interrupt_type === "tool_approval"
+        );
+
+        if (approvalDataPart) {
+          const approvalData = approvalDataPart.data as {
+            interrupt_type: string;
+            action_requests: Array<{ name: string; args: Record<string, unknown>; id: string | null }>;
+          };
+
+          // Create tool call request messages for each pending approval
+          const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+          for (const actionRequest of approvalData.action_requests) {
+            const toolCallContent: ProcessedToolCallData[] = [{
+              id: actionRequest.id || `approval_${actionRequest.name}_${Date.now()}`,
+              name: actionRequest.name,
+              args: actionRequest.args || {}
+            }];
+            const approvalMessage = createMessage(
+              "",
+              source,
+              {
+                originalType: "ToolApprovalRequest",
+                contextId: statusUpdate.contextId,
+                taskId: statusUpdate.taskId,
+                additionalMetadata: {
+                  toolCallData: toolCallContent,
+                  hitlApprovalRequests: approvalData.action_requests,
+                  hitlTaskId: statusUpdate.taskId,
+                  hitlContextId: statusUpdate.contextId,
+                }
+              }
+            );
+            appendMessage(approvalMessage);
+          }
+
+          if (handlers.setChatStatus) {
+            handlers.setChatStatus("input_required");
+          }
+          return;
+        }
+      }
 
       // If the status update has a message, process it
       if (statusUpdate.status.message) {

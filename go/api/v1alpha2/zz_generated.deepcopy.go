@@ -473,6 +473,11 @@ func (in *McpServerTool) DeepCopyInto(out *McpServerTool) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.RequireApproval != nil {
+		in, out := &in.RequireApproval, &out.RequireApproval
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.AllowedHeaders != nil {
 		in, out := &in.AllowedHeaders, &out.AllowedHeaders
 		*out = make([]string, len(*in))

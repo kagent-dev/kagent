@@ -15,6 +15,7 @@ from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnect
 from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
+from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
@@ -142,12 +143,14 @@ class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
 class RemoteAgentConfig(BaseModel):
@@ -235,6 +238,7 @@ class AgentConfig(BaseModel):
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
+        tools_requiring_approval: set[str] = set()
         sts_header_provider = None
         if sts_integration:
             sts_header_provider = sts_integration.header_provider
@@ -252,6 +256,8 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if http_tool.require_approval:
+                    tools_requiring_approval.update(http_tool.require_approval)
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
                 # Create header provider combining STS and allowed headers for this tool
@@ -266,6 +272,8 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if sse_tool.require_approval:
+                    tools_requiring_approval.update(sse_tool.require_approval)
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
                 # Prepare httpx client parameters
@@ -341,6 +349,9 @@ class AgentConfig(BaseModel):
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
 
+        # Build before_tool_callback if any tools require approval
+        before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+
         if self.model.type == "openai":
             model = OpenAINative(
                 type="openai",
@@ -413,4 +424,5 @@ class AgentConfig(BaseModel):
             instruction=self.instruction,
             tools=tools,
             code_executor=code_executor,
+            before_tool_callback=before_tool_callback,
         )
