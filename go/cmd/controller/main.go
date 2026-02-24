@@ -17,24 +17,37 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/pkg/app"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	pkgauth "github.com/kagent-dev/kagent/go/pkg/auth"
 )
 
-//nolint:gocyclo
 func main() {
-	authorizer := &auth.NoopAuthorizer{}
 	authenticator := &auth.UnsecureAuthenticator{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
+		var authorizer pkgauth.Authorizer
+		if endpoint := os.Getenv("EXTERNAL_AUTHZ_ENDPOINT"); endpoint != "" {
+			provider, err := auth.ProviderByName(os.Getenv("AUTHZ_PROVIDER"))
+			if err != nil {
+				return nil, fmt.Errorf("invalid authz provider: %w", err)
+			}
+			authorizer = &auth.ExternalAuthorizer{
+				Endpoint: endpoint,
+				Provider: provider,
+				Client:   &http.Client{Timeout: 5 * time.Second},
+			}
+		} else {
+			authorizer = &auth.NoopAuthorizer{}
+		}
+
 		return &app.ExtensionConfig{
-			Authenticator:    authenticator,
-			Authorizer:       authorizer,
-			AgentPlugins:     nil,
-			MCPServerPlugins: nil,
+			Authenticator: authenticator,
+			Authorizer:    authorizer,
 		}, nil
 	})
 }

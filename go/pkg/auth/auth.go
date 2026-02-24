@@ -16,8 +16,8 @@ const (
 )
 
 type Resource struct {
-	Name string
-	Type string
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 type User struct {
@@ -28,7 +28,6 @@ type Agent struct {
 	ID string
 }
 
-// Authn
 type Principal struct {
 	User  User
 	Agent Agent
@@ -36,6 +35,7 @@ type Principal struct {
 
 type Session interface {
 	Principal() Principal
+	Claims() map[string]any
 }
 
 // Responsibilities:
@@ -50,18 +50,30 @@ type AuthProvider interface {
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
-// Authz
-type Authorizer interface {
-	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
+// AuthzRequest contains the data sent to an authorizer.
+type AuthzRequest struct {
+	Claims   map[string]any `json:"claims"`
+	Resource Resource       `json:"resource"`
+	Action   Verb           `json:"action"`
 }
 
-// context utils
+// AuthzDecision represents an authorization decision.
+type AuthzDecision struct {
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason"`
+}
+
+// Authorizer makes authorization decisions.
+// Implementations should be fail-open: if the authorizer encounters a system
+// error (e.g., unreachable policy engine), it should return an error alongside
+// a nil decision. The caller decides how to handle system errors.
+type Authorizer interface {
+	Check(ctx context.Context, req AuthzRequest) (*AuthzDecision, error)
+}
 
 type sessionKeyType struct{}
 
-var (
-	sessionKey = sessionKeyType{}
-)
+var sessionKey = sessionKeyType{}
 
 func AuthSessionFrom(ctx context.Context) (Session, bool) {
 	v, ok := ctx.Value(sessionKey).(Session)

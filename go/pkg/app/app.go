@@ -121,8 +121,8 @@ type Config struct {
 	DefaultModelConfig types.NamespacedName
 	HttpServerAddr     string
 	WatchNamespaces    string
-	A2ABaseUrl         string
-	Database           struct {
+	A2ABaseUrl string
+	Database   struct {
 		Type string
 		Path string
 		Url  string
