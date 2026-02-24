@@ -58,9 +58,11 @@ type Authorizer interface {
 // context utils
 
 type sessionKeyType struct{}
+type traceHeadersKeyType struct{}
 
 var (
-	sessionKey = sessionKeyType{}
+	sessionKey      = sessionKeyType{}
+	traceHeadersKey = traceHeadersKeyType{}
 )
 
 func AuthSessionFrom(ctx context.Context) (Session, bool) {
@@ -70,6 +72,19 @@ func AuthSessionFrom(ctx context.Context) (Session, bool) {
 
 func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
+}
+
+// TraceHeadersFrom retrieves W3C trace context headers (traceparent, tracestate)
+// that were captured from an incoming request.
+func TraceHeadersFrom(ctx context.Context) (http.Header, bool) {
+	v, ok := ctx.Value(traceHeadersKey).(http.Header)
+	return v, ok && v != nil
+}
+
+// TraceHeadersTo stores W3C trace context headers in the context so they can
+// be propagated to outgoing requests (e.g., from the controller to agent pods).
+func TraceHeadersTo(ctx context.Context, headers http.Header) context.Context {
+	return context.WithValue(ctx, traceHeadersKey, headers)
 }
 
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
