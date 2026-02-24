@@ -30,8 +30,6 @@ Agents require long-term memory to remember and learn from past interactions.
 
 ## Implementation
 
-The memory implementation spans across the Postgres database, Go Controller, and Python ADK:
-
 ### 1. Database
 
 #### PostgreSQL + pgvector
@@ -49,39 +47,81 @@ Note that this does not use `pgvectorscale` which is more performant than the or
 
 #### SQLite / Turso (Local Development)
 
-- **Driver**: Uses `turso-go` which embeds libSQL with native vector support. This does not require CGO but it requires the container to have some C/C++ runtime libraries.
+> This change replaced the original driver `go-sqlite` based on `modernc/sqlite` with `turso` go driver for all sqlite database access.
+
+- **Driver**: All SQLite connections use Turso (`turso.tech/database/tursogo`), which embeds libSQL with native vector support (no CGO; container needs C/C++ runtime libs). GORM talks to it via `glebarez/sqlite` as a dialector over the Turso `*sql.DB`.
 - **Schema**:
   - `embedding` (F32_BLOB): 768-dimensional float32 blob `F32_BLOB(768)`.
 - **Query Syntax**:
   - Uses `vector_distance_cos(embedding, vector32(?))` for similarity search.
   - Requires specific handling of vector params (passed as JSON string literals) due to driver limitations.
-  - Note that this does not use the same query syntax as Postgres.
+  - Does not use the same query syntax as Postgres.
 - **Indexing**:
-  - Uses brute-force scan for small datasets (highly efficient for <10k vectors).
-  - Supports `libsql_vector_idx` for ANN search at larger scales (though currently using direct scan for simplicity) -- there are some issues when trying to use this
+  - Uses brute-force scan for small datasets (efficient for under ~10k vectors).
+  - Supports `libsql_vector_idx` for ANN at larger scales (currently using direct scan; some issues when enabling the index).
+
+- **Turso datetime incompatibility**: Turso returns datetime columns as TEXT (e.g. `"2006-01-02 15:04:05"`). Go’s `database/sql` scans into `time.Time` using RFC3339 only, so scanning fails. 
+- **Current fix**: custom types in `pkg/database/time.go` — `FlexibleTime` and `NullableFlexibleTime` implement `sql.Scanner` (and `driver.Valuer`) and accept string, `[]byte`, or `time.Time`; models use these instead of `time.Time` so GORM works with Turso without forking the driver. A driver-level fix (parse time strings in `Rows.Next()`) would allow reverting to standard `time.Time` and `gorm.DeletedAt`; upstream Turso driver does not do this today.
+
+**SQLite vector alternatives (not used):**
+
+| Option | Why not used |
+|--------|----------------|
+| **CGO SQLite + sqlite-vec** (e.g. mattn/go-sqlite3 + vector extension) | Lots of reliable extensions exist, but requires CGO. |
+| **SQLite vtable API from modernc sqlite** | Purego (current choice), but no existing extensions for vector, need to homebrew (non-trivial). |
+| **Turso/libSQL native (F32_BLOB)** | **What we use.** No CGO, native vector support in the engine, single driver path for all SQLite, optimized vector search. |
 
 [Turso's AI and Embedding documentation can be found here](https://docs.turso.tech/features/ai-and-embeddings)
 
 ### 2. Kagent Controller (Go)
 
+#### HTTPServer
+
 - POST `/api/memories/sessions`: Adds memories (with default 15-day TTL).
 - POST `/api/memories/sessions/batch`: Adds memories in batch (with default 15-day TTL).
 - POST `/api/memories/search`: Performs cosine similarity search.
+- GET `/api/memories`: returns all memories for an agent+user, ranked by access frequency.
 - DELETE `/api/memories`: Clears memories for an agent/user.
 
-### 3. Python ADK
+The controller does not provide endpoints for embedding and reranking or summarising. These are done in the Python runtime instead, see below.
+
+#### Translator
+
+**Embedding config in AgentConfig**: The `embedding` field is an `EmbeddingConfig` (provider, model, optional base_url). Serialized JSON uses the key `provider` (not `type`) so it matches Python’s `EmbeddingConfig` schema. The translator turns the resolved ModelConfig into `EmbeddingConfig` via `ModelToEmbeddingConfig()`. Unmarshaling accepts either `type` or `provider` in JSON.
+
+#### CRD
+
+```yaml
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+...
+spec:
+  type: Declarative
+  declarative:
+    ...
+    memory:
+      enabled: true
+      modelConfig: embedding-model # create this separately
+```
+
+### 3. Python Agent Runtime
 
 - **Tools**:
-  - `SaveMemoryTool`: Allows agents to explicitly save specific text facts.
-  - `LoadMemoryTool`: Allows agents to search for memories by semantic query.
-  - `PreloadMemoryTool`: Pre-fetches context (optional).
+  - `SaveMemoryTool`: Saves explicit text facts to memory.
+  - `LoadMemoryTool`: Semantic search by query; returns compact JSON (null/empty fields omitted) to keep token usage low when passed to the LLM.
+  - `PrefetchMemoryTool`: Runs on the first user message only and auto-appends relevant past context to the initial user message.
 - **Service**:
-  - `KagentMemoryService`: Handles embedding generation (defaulting to LiteLLM, truncated to 768 dims) and session summarization via LLM.
-  - **Auto-Save Callback**: Automatically triggers `add_session_to_memory` every 5 user turns.
+  - `KagentMemoryService`: Embedding generation (LiteLLM, 768 dims) and session summarization. Expects an `EmbeddingConfig` instance (e.g. `agent_config.embedding`).
+  - **Auto-Save Callback**: Fires `add_session_to_memory` every 5 user turns.
+- **Instruction**: When memory is enabled, the agent’s instruction is extended with two lines: use `save_memory` for findings and learnings, and `load_memory` when more context is needed.
+
+### 4. UI
+
+The user can view memories for an agent and clear it manually.
 
 ## Memory Mechanism
 
-This describes how the memory system works for an agent. This is based on the [memory docs from ADK](https://google.github.io/adk-docs/sessions/memory/#how-memory-works-in-practice).
+This describes how the memory system works for an agent. This is inspired by the [memory docs from ADK](https://google.github.io/adk-docs/sessions/memory/#how-memory-works-in-practice).
 
 ### Saving Memory
 
@@ -102,8 +142,7 @@ Memory is saved in two ways:
   2. The database performs a vector similarity search (Cosine Similarity).
   3. Results are filtered by a `min_score` (currently ~0.3) to ensure relevance.
 - **Popularity Tracking**: When a memory is successfully returned in a search, its `access_count` is incremented in the background. This signals that the memory is "useful".
-
-NOTE: We disabled the `PrefetchMemoryTool` because it is making a memory search for every single LLM call, which is expensive and slows down the response time, and it does not really aid performance. This is a potential area of improvement (and nontrivial to find out) -- when do we provide LLM with the memory?
+- **Prefetch**: Memory is prefetched only on the first user message in a session; top results are injected into that turn’s LLM request. Prefetch does not run on every LLM call (that would be too expensive).
 
 ### Pruning and Deletion
 
