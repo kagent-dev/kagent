@@ -121,11 +121,12 @@ type Config struct {
 	DefaultModelConfig types.NamespacedName
 	HttpServerAddr     string
 	WatchNamespaces    string
-	A2ABaseUrl string
-	Database   struct {
-		Type string
-		Path string
-		Url  string
+	A2ABaseUrl         string
+	Database           struct {
+		Type    string
+		Path    string
+		Url     string
+		UrlFile string
 	}
 }
 
@@ -156,6 +157,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
 	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
+	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -350,7 +352,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 			DatabasePath: cfg.Database.Path,
 		},
 		PostgresConfig: &database.PostgresConfig{
-			URL: cfg.Database.Url,
+			URL:     cfg.Database.Url,
+			URLFile: cfg.Database.UrlFile,
 		},
 	})
 	if err != nil {

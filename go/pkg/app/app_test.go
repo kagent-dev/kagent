@@ -248,6 +248,23 @@ func TestLoadFromEnvDurationFlags(t *testing.T) {
 	}
 }
 
+func TestDatabaseUrlFileFlag(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	// Verify the flag exists and has the right default
+	f := fs.Lookup("postgres-database-url-file")
+	assert.NotNil(t, f, "postgres-database-url-file flag should be registered")
+	assert.Equal(t, "", f.DefValue, "default should be empty string")
+
+	// Verify env var loading works for the new flag
+	t.Setenv("POSTGRES_DATABASE_URL_FILE", "/etc/credentials/db-url")
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
+}
+
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
 		"METRICS_BIND_ADDRESS":           ":9090",

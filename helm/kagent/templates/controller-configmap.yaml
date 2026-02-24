@@ -54,8 +54,12 @@ data:
   {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
-  {{- else if and (eq .Values.database.type "postgres") (not (eq .Values.database.postgres.url "")) }}
+  {{- else if eq .Values.database.type "postgres" }}
+  {{- if not (eq .Values.database.postgres.urlFile "") }}
+  POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
+  {{- else if not (eq .Values.database.postgres.url "") }}
   POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
+  {{- end }}
   {{- end }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
