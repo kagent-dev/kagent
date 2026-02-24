@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from opentelemetry import _logs, trace
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.composite import CompositeHTTPPropagator
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
@@ -29,6 +32,20 @@ def _instrument_anthropic(event_logger_provider=None):
             AnthropicInstrumentor().instrument()
     except ImportError:
         # Anthropic SDK is not installed; skipping instrumentation.
+        pass
+
+
+def _instrument_aiohttp_client():
+    """Instrument aiohttp client if available.
+
+    This ensures outbound HTTP calls made via aiohttp (e.g. litellm's default
+    transport) create OTEL spans and propagate trace context headers.
+    """
+    try:
+        from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
+
+        AioHttpClientInstrumentor().instrument()
+    except ImportError:
         pass
 
 
@@ -63,6 +80,9 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
+        # Set up W3C TraceContext propagator so incoming traceparent headers
+        # are extracted and outgoing requests carry them forward.
+        set_global_textmap(CompositeHTTPPropagator([TraceContextTextMapPropagator()]))
         # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
         trace_endpoint = (
             os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
@@ -91,6 +111,7 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             logging.info("Created new TracerProvider")
 
         HTTPXClientInstrumentor().instrument()
+        _instrument_aiohttp_client()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app)
     # Configure logging if enabled

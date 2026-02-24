@@ -544,9 +544,10 @@ func (a *adkApiTranslator) buildManifest(
 		Spec: corev1.ServiceSpec{
 			Selector: selectorLabels,
 			Ports: []corev1.ServicePort{{
-				Name:       "http",
-				Port:       dep.Port,
-				TargetPort: intstr.FromInt(int(dep.Port)),
+				Name:        "http",
+				Port:        dep.Port,
+				TargetPort:  intstr.FromInt(int(dep.Port)),
+				AppProtocol: ptr.To("kgateway.dev/a2a"),
 			}},
 			Type: corev1.ServiceTypeClusterIP,
 		},
