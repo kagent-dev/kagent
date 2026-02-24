@@ -154,6 +154,9 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run())
 
+	// Poll until the A2A endpoint is actually serving requests through the proxy
+	waitForEndpoint(t, agent.Namespace, agent.Name)
+
 	return agent
 }
 
@@ -179,9 +182,9 @@ func extractTextFromArtifacts(taskResult *protocol.Task) string {
 }
 
 var defaultRetry = wait.Backoff{
-	Steps:    3,
-	Duration: 1 * time.Second,
-	Factor:   2.0,
+	Steps:    5,
+	Duration: 2 * time.Second,
+	Factor:   1.5,
 	Jitter:   0.2,
 }
 
@@ -208,8 +211,9 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		return err != nil
 	}, func() error {
 		var retryErr error
-		// to make sure we actually retry, setup a short timeout contex. this should be fine as LLM is mocked
-		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		// to make sure we actually retry, setup a short timeout context. this should be fine as LLM is mocked
+		// but cold pods with MCP tools may need more than 3s for first request
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		t.Logf("%s trying to send message", time.Now().Format(time.RFC3339))
 		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
@@ -252,40 +256,50 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		msg.ContextID = &contextID[0]
 	}
 
-	var (
-		stream <-chan protocol.StreamingMessageEvent
-		ctx    context.Context
-		cancel context.CancelFunc
-	)
+	// Retry the entire stream-connect-read-check cycle.
+	// The most common failure mode is: stream connects but yields zero events
+	// (agent not ready, stream closes early), so we need to retry the whole operation.
+	var lastJSON string
 	err := retry.OnError(defaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
-		var retryErr error
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-		stream, retryErr = a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
-		if retryErr != nil {
-			cancel()
-		}
-		return retryErr
-	})
-	require.NoError(t, err)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-	resultList := []protocol.StreamingMessageEvent{}
-	var text string
-	for event := range stream {
-		msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
-		if !ok {
-			continue
+		t.Logf("%s trying to open stream", time.Now().Format(time.RFC3339))
+		stream, streamErr := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
+		if streamErr != nil {
+			t.Logf("%s stream connection failed: %v", time.Now().Format(time.RFC3339), streamErr)
+			return streamErr
 		}
-		if msgResult.Status.Message != nil {
-			text += a2a.ExtractText(*msgResult.Status.Message)
+
+		resultList := []protocol.StreamingMessageEvent{}
+		for event := range stream {
+			msgResult, ok := event.Result.(*protocol.TaskStatusUpdateEvent)
+			if !ok {
+				continue
+			}
+			if msgResult.Status.Message != nil {
+				// accumulate results
+			}
+			resultList = append(resultList, event)
 		}
-		resultList = append(resultList, event)
-	}
-	jsn, err := json.Marshal(resultList)
-	require.NoError(t, err)
-	require.Contains(t, string(jsn), expectedText, string(jsn))
+
+		jsn, marshalErr := json.Marshal(resultList)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		lastJSON = string(jsn)
+
+		if !strings.Contains(lastJSON, expectedText) {
+			t.Logf("%s stream completed but expected text %q not found in response (got %d events)", time.Now().Format(time.RFC3339), expectedText, len(resultList))
+			return fmt.Errorf("expected text %q not found in streaming response (%d events)", expectedText, len(resultList))
+		}
+
+		t.Logf("%s stream completed successfully with %d events", time.Now().Format(time.RFC3339), len(resultList))
+		return nil
+	})
+	require.NoError(t, err, lastJSON)
 }
 
 func a2aUrl(namespace, name string) string {
@@ -296,6 +310,36 @@ func a2aUrl(namespace, name string) string {
 	}
 	// A2A URL format: <base_url>/<namespace>/<agent_name>
 	return kagentURL + "/api/a2a/" + namespace + "/" + name
+}
+
+// waitForEndpoint polls the A2A agent card endpoint until it returns a non-5xx response.
+// This bridges the gap between "kubectl wait --for=condition=Ready" (K8s readiness probe passed)
+// and the agent actually being able to serve requests through the controller proxy.
+func waitForEndpoint(t *testing.T, namespace, name string) {
+	t.Helper()
+	url := a2aUrl(namespace, name)
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+
+	t.Logf("Waiting for endpoint %s to become ready", url)
+	pollErr := wait.PollUntilContextTimeout(t.Context(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return false, err
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			t.Logf("Endpoint %s not ready: %v", url, err)
+			return false, nil
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			t.Logf("Endpoint %s returned %d, retrying", url, resp.StatusCode)
+			return false, nil
+		}
+		t.Logf("Endpoint %s ready (status %d)", url, resp.StatusCode)
+		return true, nil
+	})
+	require.NoError(t, pollErr, "timed out waiting for endpoint %s", url)
 }
 
 func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
@@ -652,6 +696,9 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run())
 
+	// Poll until the A2A endpoint is actually serving requests through the proxy
+	waitForEndpoint(t, agent.Namespace, agent.Name)
+
 	defer func() {
 		cli.Delete(t.Context(), agent)    //nolint:errcheck
 		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
@@ -728,8 +775,8 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run())
 
-	// Give the agent pod extra time to fully initialize its A2A endpoint
-	time.Sleep(5 * time.Second)
+	// Poll until the A2A endpoint is actually serving requests through the proxy
+	waitForEndpoint(t, agent.Namespace, agent.Name)
 
 	// Setup A2A client
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
