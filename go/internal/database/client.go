@@ -597,7 +597,7 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 	if c.db.Name() == "sqlite" {
 		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
 		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
-		// and parameter binding with ? fails with "unexpected token" errors
+		// and parameter binding with ? fails with "unexpected token" errors (GORM limitation)
 		embeddingJSON, err := json.Marshal(embedding.Slice())
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
@@ -632,8 +632,6 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 	}
 
 	// Increment access count for found memories synchronously.
-	// This is a fast indexed UPDATE and doing it inline avoids a race
-	// where the DB connection could be closed before a background goroutine finishes.
 	if len(results) > 0 {
 		ids := make([]string, len(results))
 		for i, m := range results {

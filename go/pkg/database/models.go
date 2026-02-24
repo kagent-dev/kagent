@@ -6,15 +6,16 @@ import (
 
 	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"github.com/pgvector/pgvector-go"
+	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // Agent represents an agent configuration
 type Agent struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`
+	ID        string         `gorm:"primaryKey" json:"id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	Type string `gorm:"not null" json:"type"`
 	// Config is optional and may be nil for some agent types.
@@ -24,12 +25,12 @@ type Agent struct {
 }
 
 type Event struct {
-	ID        string    `gorm:"primaryKey;not null" json:"id"`
-	SessionID string    `gorm:"index" json:"session_id"`
-	UserID    string    `gorm:"primaryKey;not null" json:"user_id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`
+	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	SessionID string         `gorm:"index" json:"session_id"`
+	UserID    string         `gorm:"primaryKey;not null" json:"user_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	Data string `gorm:"type:text;not null" json:"data"` // JSON serialized protocol.Message
 }
@@ -56,23 +57,23 @@ func ParseMessages(messages []Event) ([]*protocol.Message, error) {
 }
 
 type Session struct {
-	ID        string    `gorm:"primaryKey;not null" json:"id"`
-	Name      *string   `gorm:"index" json:"name,omitempty"`
-	UserID    string    `gorm:"primaryKey" json:"user_id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`
+	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	Name      *string        `gorm:"index" json:"name,omitempty"`
+	UserID    string         `gorm:"primaryKey" json:"user_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	AgentID *string `gorm:"index" json:"agent_id"`
 }
 
 type Task struct {
-	ID        string    `gorm:"primaryKey;not null" json:"id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`
-	Data      string    `gorm:"type:text;not null" json:"data"` // JSON serialized task data
-	SessionID string    `gorm:"index" json:"session_id"`
+	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Data      string         `gorm:"type:text;not null" json:"data"` // JSON serialized task data
+	SessionID string         `gorm:"index" json:"session_id"`
 }
 
 func (t *Task) Parse() (protocol.Task, error) {
@@ -97,12 +98,12 @@ func ParseTasks(tasks []Task) ([]*protocol.Task, error) {
 }
 
 type PushNotification struct {
-	ID        string    `gorm:"primaryKey;not null" json:"id"`
-	TaskID    string    `gorm:"not null;index" json:"task_id"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`
-	Data      string    `gorm:"type:text;not null" json:"data"` // JSON serialized push notification config
+	ID        string         `gorm:"primaryKey;not null" json:"id"`
+	TaskID    string         `gorm:"not null;index" json:"task_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Data      string         `gorm:"type:text;not null" json:"data"` // JSON serialized push notification config
 }
 
 // FeedbackIssueType represents the category of feedback issue

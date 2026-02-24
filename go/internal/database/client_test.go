@@ -197,7 +197,6 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 }
 
 // setupTestDB creates an in-memory SQLite database for testing using Turso.
-// Turso driver (via replace github.com/glebarez/sqlite) handles datetime scanning.
 func setupTestDB(t *testing.T) *Manager {
 	t.Helper()
 

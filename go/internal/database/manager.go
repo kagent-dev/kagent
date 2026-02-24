@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/glebarez/sqlite"
@@ -129,7 +131,6 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	// DatabaseTypePostgres check for Memory table
 	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.AutoMigrate(&dbpkg.Memory{}); err != nil {
 			return fmt.Errorf("failed to migrate memory table: %w", err)
@@ -143,7 +144,6 @@ func (m *Manager) Initialize() error {
 		}
 	}
 
-	// DatabaseTypeSqlite check for Memory table
 	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector
 	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags
 	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
