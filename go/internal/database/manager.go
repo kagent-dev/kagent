@@ -1,14 +1,12 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"sync"
 
 	"github.com/glebarez/sqlite"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/kagent-dev/kagent/go/pkg/env"
-	_ "turso.tech/database/tursogo"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -65,17 +63,16 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		// Use Turso (embedded libSQL) for all SQLite; GORM uses glebarez/sqlite as dialector over the connection
-		sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
-		if sqlErr != nil {
-			return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
-		}
-		sqlDB.SetMaxOpenConns(1)
-
-		db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
+		// Use custom Turso/GORM dialector (turso-gorm driver with datetime parsing and error translation)
+		db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
 			TranslateError: true,
 		})
+		if err == nil {
+			if sqlDB, sqlErr := db.DB(); sqlErr == nil {
+				sqlDB.SetMaxOpenConns(1)
+			}
+		}
 	case DatabaseTypePostgres:
 		url := config.PostgresConfig.URL
 		if config.PostgresConfig.URLFile != "" {

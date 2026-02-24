@@ -90,7 +90,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		Content:   req.Content,
 		Embedding: pgvector.NewVector(req.Vector),
 		Metadata:  string(metadata),
-		ExpiresAt: database.FromTime(&expiresAt),
+		ExpiresAt: &expiresAt,
 	}
 
 	if err := h.DatabaseService.StoreAgentMemory(memory); err != nil {
@@ -143,7 +143,7 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 			Content:   item.Content,
 			Embedding: pgvector.NewVector(item.Vector),
 			Metadata:  string(metadata),
-			ExpiresAt: database.FromTime(&expiresAt),
+			ExpiresAt: &expiresAt,
 		})
 	}
 
@@ -202,7 +202,7 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 			Content:   res.Content,
 			Score:     res.Score,
 			Metadata:  metadata,
-			CreatedAt: res.CreatedAt.Time,
+			CreatedAt: res.CreatedAt,
 		})
 	}
 
@@ -241,10 +241,10 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 			ID:          m.ID,
 			Content:     m.Content,
 			AccessCount: m.AccessCount,
-			CreatedAt:   m.CreatedAt.Time.Format(time.RFC3339),
+			CreatedAt:   m.CreatedAt.Format(time.RFC3339),
 		}
-		if m.ExpiresAt.Valid {
-			item.ExpiresAt = m.ExpiresAt.Time.Time.Format(time.RFC3339)
+		if m.ExpiresAt != nil {
+			item.ExpiresAt = m.ExpiresAt.Format(time.RFC3339)
 		}
 		response = append(response, item)
 	}

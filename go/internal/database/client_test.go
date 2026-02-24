@@ -197,7 +197,7 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 }
 
 // setupTestDB creates an in-memory SQLite database for testing using Turso.
-// Models use FlexibleTime so Turso's TEXT datetimes scan correctly.
+// Turso driver (via replace github.com/glebarez/sqlite) handles datetime scanning.
 func setupTestDB(t *testing.T) *Manager {
 	t.Helper()
 
@@ -277,7 +277,7 @@ func TestListEventsForSessionOrdering(t *testing.T) {
 			ID:        fmt.Sprintf("event-%d", i),
 			SessionID: sessionID,
 			UserID:    userID,
-			CreatedAt: dbpkg.FlexibleTime{Time: baseTime.Add(time.Duration(i) * time.Hour)},
+			CreatedAt: baseTime.Add(time.Duration(i) * time.Hour),
 			Data:      "{}",
 		}
 		err := client.StoreEvents(event)
@@ -531,7 +531,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 		UserID:      userID,
 		Content:     "cold expired memory",
 		Embedding:   makeEmbedding(0.1),
-		ExpiresAt:   dbpkg.FromTime(&past),
+		ExpiresAt:   &past,
 		AccessCount: 2,
 	}))
 
@@ -542,7 +542,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 		UserID:      userID,
 		Content:     "hot expired memory",
 		Embedding:   makeEmbedding(0.9),
-		ExpiresAt:   dbpkg.FromTime(&past),
+		ExpiresAt:   &past,
 		AccessCount: 15,
 	}))
 
@@ -554,7 +554,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 		UserID:      userID,
 		Content:     "non-expired memory",
 		Embedding:   makeEmbedding(0.5),
-		ExpiresAt:   dbpkg.FromTime(&future),
+		ExpiresAt:   &future,
 		AccessCount: 0,
 	}))
 

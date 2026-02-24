@@ -719,16 +719,16 @@ func lineCount(s string) int {
 // sortSessions sorts sessions by UpdatedAt then CreatedAt descending.
 func sortSessions(sessions []*api.Session) {
 	slices.SortStableFunc(sessions, func(i, j *api.Session) int {
-		if i.UpdatedAt.Time.After(j.UpdatedAt.Time) {
+		if i.UpdatedAt.After(j.UpdatedAt) {
 			return 1
 		}
-		if j.UpdatedAt.Time.After(i.UpdatedAt.Time) {
+		if j.UpdatedAt.After(i.UpdatedAt) {
 			return -1
 		}
-		if i.CreatedAt.Time.After(j.CreatedAt.Time) {
+		if i.CreatedAt.After(j.CreatedAt) {
 			return 1
 		}
-		if j.CreatedAt.Time.After(i.CreatedAt.Time) {
+		if j.CreatedAt.After(i.CreatedAt) {
 			return -1
 		}
 		return 0

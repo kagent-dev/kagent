@@ -278,14 +278,14 @@ func TestSessionsHandler(t *testing.T) {
 				ID:        "event-1",
 				SessionID: sessionID,
 				UserID:    userID,
-				CreatedAt: database.FlexibleTime{Time: time.Now().Add(-2 * time.Hour)},
+				CreatedAt: time.Now().Add(-2 * time.Hour),
 				Data:      "{}",
 			}
 			event2 := &database.Event{
 				ID:        "event-2",
 				SessionID: sessionID,
 				UserID:    userID,
-				CreatedAt: database.FlexibleTime{Time: time.Now().Add(-1 * time.Hour)},
+				CreatedAt: time.Now().Add(-1 * time.Hour),
 				Data:      "{}",
 			}
 			dbClient.StoreEvents(event1, event2)
