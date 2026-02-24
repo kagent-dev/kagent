@@ -225,6 +225,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathMemories+"/sessions/batch", adaptHandler(s.handlers.Memory.AddSessionBatch)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.List)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.Delete)).Methods(http.MethodDelete)
 
 	// Namespaces

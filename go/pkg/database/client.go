@@ -76,6 +76,7 @@ type Client interface {
 	StoreAgentMemory(memory *Memory) error
 	StoreAgentMemories(memories []*Memory) error
 	SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error)
+	ListAgentMemories(agentName, userID string) ([]Memory, error)
 	DeleteAgentMemory(agentName, userID string) error
 	PruneExpiredMemories() error
 }

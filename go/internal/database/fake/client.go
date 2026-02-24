@@ -617,7 +617,7 @@ func (c *InMemoryFakeClient) GetLatestCheckpoint(userID, threadID, checkpointNS 
 	// Find the latest checkpoint by creation time
 	for key, checkpoint := range c.checkpoints {
 		if checkpoint.UserID == userID && checkpoint.ThreadID == threadID && checkpoint.CheckpointNS == checkpointNS {
-			if latest == nil || checkpoint.CreatedAt.After(latest.CreatedAt) {
+			if latest == nil || checkpoint.CreatedAt.Time.After(latest.CreatedAt.Time) {
 				latest = checkpoint
 				latestKey = key
 			}
@@ -682,7 +682,7 @@ func (c *InMemoryFakeClient) ListCheckpoints(userID, threadID, checkpointNS stri
 	// Sort by creation time (newest first)
 	for i := 0; i < len(result)-1; i++ {
 		for j := i + 1; j < len(result); j++ {
-			if result[i].Checkpoint.CreatedAt.Before(result[j].Checkpoint.CreatedAt) {
+			if result[i].Checkpoint.CreatedAt.Time.Before(result[j].Checkpoint.CreatedAt.Time) {
 				result[i], result[j] = result[j], result[i]
 			}
 		}
@@ -797,8 +797,8 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
 	slices.SortStableFunc(allMemories, func(i, j *database.CrewAIAgentMemory) int {
 		// First sort by created_at DESC (most recent first)
-		if !i.CreatedAt.Equal(j.CreatedAt) {
-			if i.CreatedAt.After(j.CreatedAt) {
+		if !i.CreatedAt.Time.Equal(j.CreatedAt.Time) {
+			if i.CreatedAt.Time.After(j.CreatedAt.Time) {
 				return -1
 			} else {
 				return 1
@@ -910,6 +910,12 @@ func (c *InMemoryFakeClient) StoreAgentMemories(memories []*database.Memory) err
 func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
 	// Stub implementation for testing - returns empty results
 	return []database.AgentMemorySearchResult{}, nil
+}
+
+// ListAgentMemories lists agent memories ordered by access count (stub for testing)
+func (c *InMemoryFakeClient) ListAgentMemories(agentName, userID string) ([]database.Memory, error) {
+	// Stub implementation for testing - returns empty results
+	return []database.Memory{}, nil
 }
 
 // DeleteAgentMemory deletes agent memory (stub for testing)

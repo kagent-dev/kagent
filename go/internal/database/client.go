@@ -577,44 +577,6 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIF
 // AgentMemory methods
 
 func (c *clientImpl) StoreAgentMemory(memory *dbpkg.Memory) error {
-	if c.db.Name() == "sqlite" {
-		// For SQLite with sqlite-vec, we need to insert into two tables:
-		// 1. memory table for metadata
-		// 2. memory_vec virtual table for the embedding
-		return c.db.Transaction(func(tx *gorm.DB) error {
-			// Insert into memory table (without embedding)
-			memorySQL := `
-				INSERT INTO memory (id, agent_name, user_id, content, metadata, created_at, expires_at, access_count)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			`
-			if err := tx.Exec(memorySQL,
-				memory.ID, memory.AgentName, memory.UserID, memory.Content,
-				memory.Metadata, memory.CreatedAt, memory.ExpiresAt, memory.AccessCount,
-			).Error; err != nil {
-				return fmt.Errorf("failed to insert memory metadata: %w", err)
-			}
-
-			// Get the rowid of the inserted row (last_insert_rowid())
-			var rowid int64
-			if err := tx.Raw("SELECT last_insert_rowid()").Scan(&rowid).Error; err != nil {
-				return fmt.Errorf("failed to get rowid: %w", err)
-			}
-
-			// Insert embedding into memory_vec with matching rowid
-			if memory.Embedding.Slice() != nil && len(memory.Embedding.Slice()) > 0 {
-				embeddingBytes, err := sqlite_vec.SerializeFloat32(memory.Embedding.Slice())
-				if err != nil {
-					return fmt.Errorf("failed to serialize embedding: %w", err)
-				}
-				vecSQL := `INSERT INTO memory_vec (rowid, embedding) VALUES (?, ?)`
-				if err := tx.Exec(vecSQL, rowid, embeddingBytes).Error; err != nil {
-					return fmt.Errorf("failed to insert memory embedding: %w", err)
-				}
-			}
-			return nil
-		})
-	}
-	// Postgres: use standard GORM save which handles pgvector
 	return save(c.db, memory)
 }
 
@@ -669,23 +631,17 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 		}
 	}
 
-	// Increment access count for found memories asynchronously
-	go func(memories []dbpkg.AgentMemorySearchResult) {
-		ids := make([]string, len(memories))
-		for i, m := range memories {
+	// Increment access count for found memories synchronously.
+	// This is a fast indexed UPDATE and doing it inline avoids a race
+	// where the DB connection could be closed before a background goroutine finishes.
+	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, m := range results {
 			ids[i] = m.ID
 		}
-		if len(ids) > 0 {
-			if err := c.db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
-				// Just log error, don't fail the request
-				fmt.Printf("failed to increment access count: %v\n", err)
-			}
+		if err := c.db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+			return nil, fmt.Errorf("failed to increment access count: %w", err)
 		}
-	}(results)
-
-	// Print results, the content and the associated score
-	for _, result := range results {
-		fmt.Printf("Memory: %v, Score: %v\n", result.Content, result.Score)
 	}
 
 	return results, nil
@@ -715,6 +671,19 @@ func (c *clientImpl) PruneExpiredMemories() error {
 
 		return nil
 	})
+}
+
+func (c *clientImpl) ListAgentMemories(agentName, userID string) ([]dbpkg.Memory, error) {
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
+
+	var memories []dbpkg.Memory
+	query := c.db.Where("(agent_name = ? OR agent_name = ?) AND user_id = ?", agentName, normalizedName, userID).
+		Order("access_count DESC")
+
+	if err := query.Find(&memories).Error; err != nil {
+		return nil, fmt.Errorf("failed to list agent memories: %w", err)
+	}
+	return memories, nil
 }
 
 func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {

@@ -1,0 +1,61 @@
+operation: translateAgent
+targetObject: agent-with-memory
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: embedding-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: text-embedding-3-small
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-memory
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: Agent with long-term memory enabled
+        systemMessage: You are a helpful assistant with memory. Save important findings and use past context when relevant.
+        modelConfig: basic-model
+        memory:
+          enabled: true
+          modelConfig: embedding-model  # optional; omit to use basic-model for embeddings
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []

@@ -14,6 +14,8 @@ from google.adk.sessions import Session
 from google.genai import types
 from litellm import aembedding
 
+from kagent.adk.types import EmbeddingConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +33,7 @@ class KagentMemoryService(BaseMemoryService):
         agent_name: str,
         http_client: httpx.AsyncClient,
         memory_enabled: bool = False,
-        embedding_config: Optional[Dict[str, Any]] = None,
+        embedding_config: Optional[EmbeddingConfig] = None,
     ):
         """Initialize KagentMemoryService.
 
@@ -39,12 +41,12 @@ class KagentMemoryService(BaseMemoryService):
             agent_name: Name of the agent (used as namespace in storage)
             http_client: Async HTTP client configured with base_url for Kagent API
             memory_enabled: Whether memory operations are enabled
-            embedding_config: Configuration for embedding model (type, model, etc.)
+            embedding_config: Configuration for embedding model (EmbeddingConfig only).
         """
         self.agent_name = agent_name
         self.client = http_client
         self.memory_enabled = memory_enabled
-        self.embedding_config = embedding_config or {}
+        self.embedding_config = embedding_config
 
     async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
         """Add a session's content to long-term memory.
@@ -309,8 +311,8 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("No embedding configuration found")
             return []
 
-        model_name = self.embedding_config.get("model")
-        provider = self.embedding_config.get("type")
+        model_name = self.embedding_config.model
+        provider = self.embedding_config.provider
 
         if not model_name:
             logger.warning("No embedding model specified in config")
@@ -332,6 +334,7 @@ class KagentMemoryService(BaseMemoryService):
 
             # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
             # https://huggingface.co/blog/matryoshka
+            # We must ensure that embeddings have proper dimensions for compatibility with vector storage backend
             response = await aembedding(model=litellm_model, input=texts, dimensions=768)
 
             embeddings = []
@@ -386,9 +389,10 @@ Focus on:
 - Important facts mentioned (names, dates, project names, etc.)
 - Action items or commitments made
 - Contextual information that provides background
+- Lessons learned from the conversation
 
 You MUST output a JSON list of strings, where each string is a distinct fact or memory.
-Example: ["User prefers dark mode", "Project name is Orion", "Meeting scheduled for Friday"]
+Example: ["User prefers dark mode", "Meeting scheduled for Friday", "Always use the save_memory tool to store memory"]
 
 Do not include any preamble or markdown formatting like ```json.
 Output ONLY the JSON list.

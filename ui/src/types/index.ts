@@ -409,3 +409,11 @@ export interface DiscoveredTool {
   name: string;
   description: string;
 }
+
+export interface AgentMemory {
+  id: string;
+  content: string;
+  access_count: number;
+  created_at: string;
+  expires_at?: string;
+}

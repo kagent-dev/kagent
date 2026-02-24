@@ -595,7 +595,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
 
-		cfg.Embedding = embeddingCfg
+		cfg.Embedding = adk.ModelToEmbeddingConfig(embeddingCfg)
 
 		// Merge EnvVars from embedding config (e.g. API Keys)
 		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)

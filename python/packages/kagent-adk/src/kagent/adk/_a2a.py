@@ -19,6 +19,7 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -100,20 +101,11 @@ class KAgentApp:
             session_service = KAgentSessionService(http_client)
 
             if self.agent_config and self.agent_config.memory_enabled:
-                # Get embedding config from agent config
-                embedding_config = None
-                if hasattr(self.agent_config, "embedding") and self.agent_config.embedding:
-                    # Convert to dict if it's a pydantic model
-                    if hasattr(self.agent_config.embedding, "model_dump"):
-                        embedding_config = self.agent_config.embedding.model_dump()
-                    elif isinstance(self.agent_config.embedding, dict):
-                        embedding_config = self.agent_config.embedding
-
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
                     http_client=http_client,
                     memory_enabled=True,
-                    embedding_config=embedding_config,
+                    embedding_config=self.agent_config.embedding,
                 )
 
         def create_runner() -> Runner:

@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+def _strip_null_and_empty(obj: Any) -> Any:
+    """Recursively remove None and empty dict/list to produce minimal JSON (saves tokens)."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        out: Dict[str, Any] = {}
+        for k, v in obj.items():
+            v2 = _strip_null_and_empty(v)
+            if v2 is not None and v2 != {} and v2 != []:
+                out[k] = v2
+        return out
+    if isinstance(obj, list):
+        out_list: List[Any] = []
+        for item in obj:
+            s = _strip_null_and_empty(item)
+            if s is not None and s != {}:
+                out_list.append(s)
+        return out_list
+    return obj
 
 
 class SaveMemoryTool(BaseTool):
@@ -103,9 +125,10 @@ class LoadMemoryTool(BaseTool):
             # Use helper method on ToolContext
             search_response = await tool_context.search_memory(query)
 
-            # Serialize to JSON string for LLM compatibility
-            if hasattr(search_response, "model_dump_json"):
-                return search_response.model_dump_json()
+            # Serialize to minimal JSON (omit null/empty fields) to save tokens
+            if hasattr(search_response, "model_dump"):
+                compact = _strip_null_and_empty(search_response.model_dump())
+                return json.dumps(compact)
             return str(search_response)
 
         except ValueError as e:

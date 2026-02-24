@@ -219,6 +219,11 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
+class EmbeddingConfig(BaseModel):
+    model: str
+    provider: str
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -229,10 +234,11 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
-    # This stream option refers to LLM response streaming, not A2A streaming
-    stream: bool | None = None
+    stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory_enabled: bool = False
-    embedding: dict[str, Any] | None = None
+    """When True, enables memory tools and prefetch. Prefetch runs once on first user message."""
+    embedding: EmbeddingConfig | None = None
+    """Embedding model config for memory tools."""
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -426,17 +432,25 @@ class AgentConfig(BaseModel):
         return agent
 
     def _configure_memory(self, agent: Agent) -> None:
-        """Configure memory tools and callbacks for the agent."""
+        """Configures the agent to properly use memory.
+
+        1. Adds memory tools to the agent
+        2. Adds a callback to auto-save the session to memory
+        3. Adds instructions to the agent to use memory
+        """
         try:
-            from google.adk.tools.preload_memory_tool import PreloadMemoryTool
-
             from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
+            from kagent.adk.tools.prefetch_memory_tool import PrefetchMemoryTool
 
-            # Add memory tools
-            # UNCOMMENT THIS LINE IF YOU WANT TO USE PRELOAD MEMORY TOOL
-            # agent.tools.append(PreloadMemoryTool())
+            agent.tools.append(PrefetchMemoryTool())
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
+
+            agent.instruction = (
+                f"{agent.instruction}\n\n"
+                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+                "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
+            )
 
             # Define auto-save callback
             async def auto_save_session_to_memory_callback(callback_context: CallbackContext):

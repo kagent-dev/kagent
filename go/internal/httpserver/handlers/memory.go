@@ -90,7 +90,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		Content:   req.Content,
 		Embedding: pgvector.NewVector(req.Vector),
 		Metadata:  string(metadata),
-		ExpiresAt: &expiresAt,
+		ExpiresAt: database.FromTime(&expiresAt),
 	}
 
 	if err := h.DatabaseService.StoreAgentMemory(memory); err != nil {
@@ -143,7 +143,7 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 			Content:   item.Content,
 			Embedding: pgvector.NewVector(item.Vector),
 			Metadata:  string(metadata),
-			ExpiresAt: &expiresAt,
+			ExpiresAt: database.FromTime(&expiresAt),
 		})
 	}
 
@@ -202,8 +202,51 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 			Content:   res.Content,
 			Score:     res.Score,
 			Metadata:  metadata,
-			CreatedAt: res.CreatedAt,
+			CreatedAt: res.CreatedAt.Time,
 		})
+	}
+
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+// ListMemoryResponse represents a single memory item for the list endpoint
+type ListMemoryResponse struct {
+	ID          string `json:"id"`
+	Content     string `json:"content"`
+	AccessCount int    `json:"access_count"`
+	CreatedAt   string `json:"created_at"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
+// List handles GET /api/memories and returns all memories for an agent+user, ranked by access frequency
+func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
+	agentName := r.URL.Query().Get("agent_name")
+	userID := r.URL.Query().Get("user_id")
+
+	if agentName == "" || userID == "" {
+		RespondWithError(w, http.StatusBadRequest, "Missing required query parameters (agent_name, user_id)")
+		return
+	}
+
+	memories, err := h.DatabaseService.ListAgentMemories(agentName, userID)
+	if err != nil {
+		log.Printf("Failed to list agent memories: %v", err)
+		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list memories: %v", err))
+		return
+	}
+
+	response := make([]ListMemoryResponse, 0, len(memories))
+	for _, m := range memories {
+		item := ListMemoryResponse{
+			ID:          m.ID,
+			Content:     m.Content,
+			AccessCount: m.AccessCount,
+			CreatedAt:   m.CreatedAt.Time.Format(time.RFC3339),
+		}
+		if m.ExpiresAt.Valid {
+			item.ExpiresAt = m.ExpiresAt.Time.Time.Format(time.RFC3339)
+		}
+		response = append(response, item)
 	}
 
 	RespondWithJSON(w, http.StatusOK, response)

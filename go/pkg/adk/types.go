@@ -296,6 +296,66 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// EmbeddingConfig is the embedding model config for memory tools.
+// JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
+type EmbeddingConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseUrl  string `json:"base_url,omitempty"`
+}
+
+func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Type     string `json:"type"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseUrl  string `json:"base_url"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	e.Model = tmp.Model
+	e.BaseUrl = tmp.BaseUrl
+	if tmp.Provider != "" {
+		e.Provider = tmp.Provider
+	} else {
+		e.Provider = tmp.Type
+	}
+	return nil
+}
+
+// ModelToEmbeddingConfig converts a Model (e.g. from translateModel) to EmbeddingConfig
+// so serialized AgentConfig has embedding.provider for Python EmbeddingConfig validation.
+func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
+	if m == nil {
+		return nil
+	}
+	e := &EmbeddingConfig{Provider: m.GetType()}
+	switch v := m.(type) {
+	case *OpenAI:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *AzureOpenAI:
+		e.Model = v.Model
+	case *Anthropic:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *GeminiVertexAI:
+		e.Model = v.Model
+	case *GeminiAnthropic:
+		e.Model = v.Model
+	case *Ollama:
+		e.Model = v.Model
+	case *Gemini:
+		e.Model = v.Model
+	case *Bedrock:
+		e.Model = v.Model
+	default:
+		e.Model = ""
+	}
+	return e
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -307,7 +367,7 @@ type AgentConfig struct {
 	ExecuteCode   bool                  `json:"execute_code,omitempty"`
 	Stream        bool                  `json:"stream"`
 	MemoryEnabled bool                  `json:"memory_enabled,omitempty"`
-	Embedding     Model                 `json:"embedding,omitempty"`
+	Embedding     *EmbeddingConfig      `json:"embedding,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
@@ -330,12 +390,13 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	var embedding Model
-	if tmp.Embedding != nil {
-		embedding, err = ParseModel(tmp.Embedding)
-		if err != nil {
+	var embedding *EmbeddingConfig
+	if len(tmp.Embedding) > 0 && string(tmp.Embedding) != "null" {
+		var e EmbeddingConfig
+		if err := json.Unmarshal(tmp.Embedding, &e); err != nil {
 			return err
 		}
+		embedding = &e
 	}
 
 	a.Model = model

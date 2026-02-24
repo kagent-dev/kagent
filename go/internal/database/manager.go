@@ -3,8 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 
 	"github.com/glebarez/sqlite"
@@ -14,6 +12,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // Manager handles database connection and initialization
@@ -66,33 +65,17 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		if config.SqliteConfig.VectorEnabled {
-			// Use Turso driver (libSQL with native vector support)
-			// Note: Turso/libSQL handles WAL mode and concurrency internally
-			sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
-			if sqlErr != nil {
-				return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
-			}
-			// Limit connections to avoid SQLite locking issues
-			sqlDB.SetMaxOpenConns(1)
-
-			db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
-				Logger:         logger.Default.LogMode(logLevel),
-				TranslateError: true,
-			})
-		} else {
-			// Use Go sqlite driver (no vector support)
-			dsn := config.SqliteConfig.DatabasePath
-			if strings.Contains(dsn, "?") {
-				dsn += "&_loc=auto"
-			} else {
-				dsn += "?_loc=auto"
-			}
-			db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
-				Logger:         logger.Default.LogMode(logLevel),
-				TranslateError: true,
-			})
+		// Use Turso (embedded libSQL) for all SQLite; GORM uses glebarez/sqlite as dialector over the connection
+		sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
+		if sqlErr != nil {
+			return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
 		}
+		sqlDB.SetMaxOpenConns(1)
+
+		db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
+			Logger:         logger.Default.LogMode(logLevel),
+			TranslateError: true,
+		})
 	case DatabaseTypePostgres:
 		url := config.PostgresConfig.URL
 		if config.PostgresConfig.URLFile != "" {
