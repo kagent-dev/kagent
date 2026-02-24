@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { FunctionCall } from "@/types";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
-import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loader2, Text, Check, Copy, AlertCircle } from "lucide-react";
+import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loader2, Text, Check, Copy, AlertCircle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 
-export type ToolCallStatus = "requested" | "executing" | "completed";
+export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval";
 
 interface ToolDisplayProps {
   call: FunctionCall;
@@ -15,12 +16,17 @@ interface ToolDisplayProps {
   };
   status?: ToolCallStatus;
   isError?: boolean;
+  onApprove?: () => void;
+  onReject?: (reason?: string) => void;
 }
 
-const ToolDisplay = ({ call, result, status = "requested", isError = false }: ToolDisplayProps) => {
-  const [areArgumentsExpanded, setAreArgumentsExpanded] = useState(false);
+const ToolDisplay = ({ call, result, status = "requested", isError = false, onApprove, onReject }: ToolDisplayProps) => {
+  const [areArgumentsExpanded, setAreArgumentsExpanded] = useState(status === "pending_approval");
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const hasResult = result !== undefined;
 
@@ -32,6 +38,18 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false }: To
     } catch (err) {
       console.error("Failed to copy text:", err);
     }
+  };
+
+  const handleApprove = async () => {
+    if (!onApprove) return;
+    setIsSubmitting(true);
+    onApprove();
+  };
+
+  const handleReject = async () => {
+    if (!onReject) return;
+    setIsSubmitting(true);
+    onReject(rejectReason || undefined);
   };
 
   // Define UI elements based on status
@@ -51,6 +69,13 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false }: To
           <>
             <Clock className="w-3 h-3 inline-block mr-2 text-blue-500" />
             Call requested
+          </>
+        );
+      case "pending_approval":
+        return (
+          <>
+            <ShieldAlert className="w-3 h-3 inline-block mr-2 text-amber-500" />
+            Approval required
           </>
         );
       case "executing":
@@ -80,8 +105,14 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false }: To
     }
   };
 
+  const borderClass = status === "pending_approval"
+    ? 'border-amber-300 dark:border-amber-700'
+    : isError
+      ? 'border-red-300'
+      : '';
+
   return (
-    <Card className={`w-full mx-auto my-1 min-w-full ${isError ? 'border-red-300' : ''}`}>
+    <Card className={`w-full mx-auto my-1 min-w-full ${borderClass}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-xs flex space-x-5">
           <div className="flex items-center font-medium">
@@ -111,6 +142,66 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false }: To
             </div>
           )}
         </div>
+
+        {/* Approval buttons */}
+        {status === "pending_approval" && !isSubmitting && (
+          <div className="mt-4 space-y-2">
+            {!showRejectInput ? (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleApprove}
+                >
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setShowRejectInput(true)}
+                >
+                  Reject
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Reason for rejection (optional)"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="min-h-[60px] text-sm"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleReject}
+                  >
+                    Confirm Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowRejectInput(false);
+                      setRejectReason("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {status === "pending_approval" && isSubmitting && (
+          <div className="flex items-center gap-2 py-2 mt-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm text-muted-foreground">Submitting decision...</span>
+          </div>
+        )}
+
         <div className="mt-4 w-full">
           {status === "executing" && !hasResult && (
             <div className="flex items-center gap-2 py-2">

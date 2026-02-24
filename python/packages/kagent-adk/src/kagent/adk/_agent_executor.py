@@ -12,6 +12,7 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
+    DataPart,
     Message,
     Part,
     Role,
@@ -30,15 +31,24 @@ from google.adk.a2a.executor.a2a_agent_executor import (
 from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.utils.context_utils import Aclosing
+from google.genai import types as genai_types
 from pydantic import BaseModel
 from typing_extensions import override
 
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
+from kagent.core.a2a import (
+    KAGENT_HITL_DECISION_TYPE_APPROVE,
+    TaskResultAggregator,
+    ToolApprovalRequest,
+    extract_decision_from_message,
+    get_kagent_metadata_key,
+    handle_tool_approval_interrupt,
+)
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
 
+from ._approval import APPROVAL_REQUIRED_STATUS, HITL_PENDING_TOOLS_KEY, make_approval_key
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
@@ -98,6 +108,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         *,
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
+        task_store=None,
     ):
         # Build upstream config with kagent's custom converters
         upstream_config = UpstreamA2aAgentExecutorConfig(
@@ -108,6 +119,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         )
         super().__init__(runner=runner, config=upstream_config)
         self._kagent_config = config
+        self._task_store = task_store
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -329,6 +341,32 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 raise
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
+    def _extract_approval_markers(self, adk_event: Event) -> list[ToolApprovalRequest]:
+        """Extract approval-required markers from an ADK event's function response parts.
+
+        When the before_tool_callback returns an APPROVAL_REQUIRED marker dict,
+        the ADK wraps it in a FunctionResponse. This method inspects the event
+        for such markers and returns the blocked tool calls.
+        """
+        blocked: list[ToolApprovalRequest] = []
+        if not adk_event.content or not adk_event.content.parts:
+            return blocked
+
+        for part in adk_event.content.parts:
+            if not hasattr(part, "function_response") or not part.function_response:
+                continue
+            response = part.function_response.response
+            if not isinstance(response, dict):
+                continue
+            if response.get("status") != APPROVAL_REQUIRED_STATUS:
+                continue
+            tool_name = response.get("tool", "unknown")
+            tool_args = response.get("args", {})
+            tool_id = getattr(part.function_response, "id", None) or part.function_response.name
+            blocked.append(ToolApprovalRequest(name=tool_name, args=tool_args, id=tool_id))
+
+        return blocked
+
     async def _handle_request(
         self,
         context: RequestContext,
@@ -339,20 +377,75 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
-        # set request headers to session state
-        headers = context.call_context.state.get("headers", {})
-        state_changes = {
-            "headers": headers,
-        }
+        # Check if this is a HITL continuation (user responding to approval request)
+        decision = extract_decision_from_message(context.message)
+        pending_tools_from_state = session.state.get(HITL_PENDING_TOOLS_KEY)
 
-        actions_with_update = EventActions(state_delta=state_changes)
-        system_event = Event(
-            invocation_id="header_update",
-            author="system",
-            actions=actions_with_update,
-        )
+        if decision and pending_tools_from_state:
+            logger.info(
+                "HITL continuation detected: decision=%s, pending_tools=%d", decision, len(pending_tools_from_state)
+            )
 
-        await runner.session_service.append_event(session, system_event)
+            if decision == KAGENT_HITL_DECISION_TYPE_APPROVE:
+                # Store approval keys in session state for each pending tool call
+                state_delta: dict[str, Any] = {HITL_PENDING_TOOLS_KEY: None}
+                for tool_info in pending_tools_from_state:
+                    approval_key = make_approval_key(tool_info["name"], tool_info.get("args", {}))
+                    state_delta[approval_key] = True
+
+                approval_event = Event(
+                    invocation_id="hitl_approval",
+                    author="system",
+                    actions=EventActions(state_delta=state_delta),
+                )
+                await runner.session_service.append_event(session, approval_event)
+
+                # Replace the user message with a synthetic one guiding the LLM
+                tool_names = ", ".join(t["name"] for t in pending_tools_from_state)
+                run_args["new_message"] = genai_types.Content(
+                    parts=[
+                        genai_types.Part(
+                            text=f"The user approved the pending tool calls ({tool_names}). Please proceed with executing them."
+                        )
+                    ],
+                    role="user",
+                )
+            else:
+                # Rejected — extract reason from the user's message
+                reason = self._extract_rejection_reason(context.message)
+                reason_text = f" because: {reason}" if reason else ""
+
+                clear_event = Event(
+                    invocation_id="hitl_rejection",
+                    author="system",
+                    actions=EventActions(state_delta={HITL_PENDING_TOOLS_KEY: None}),
+                )
+                await runner.session_service.append_event(session, clear_event)
+
+                tool_names = ", ".join(t["name"] for t in pending_tools_from_state)
+                run_args["new_message"] = genai_types.Content(
+                    parts=[
+                        genai_types.Part(
+                            text=f"The user rejected the pending tool calls ({tool_names}){reason_text}. Please try a different approach."
+                        )
+                    ],
+                    role="user",
+                )
+        else:
+            # Normal flow: set request headers to session state
+            headers = context.call_context.state.get("headers", {})
+            state_changes = {
+                "headers": headers,
+            }
+
+            actions_with_update = EventActions(state_delta=state_changes)
+            system_event = Event(
+                invocation_id="header_update",
+                author="system",
+                actions=actions_with_update,
+            )
+
+            await runner.session_service.append_event(session, system_event)
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
@@ -387,6 +480,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # This adds the invocation_id of the run to the metadata of the FINAL event (completed or failed)
         real_invocation_id: str | None = None
 
+        # Collect tool calls that need approval (detected via APPROVAL_REQUIRED markers)
+        pending_approvals: list[ToolApprovalRequest] = []
+
         task_result_aggregator = TaskResultAggregator()
         async with Aclosing(runner.run_async(**run_args)) as agen:
             async for adk_event in agen:
@@ -395,6 +491,15 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if event_inv_id and not real_invocation_id:
                     real_invocation_id = event_inv_id
                     run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+
+                # Check for approval-required markers in tool response events
+                blocked_tools = self._extract_approval_markers(adk_event)
+                if blocked_tools:
+                    pending_approvals.extend(blocked_tools)
+                    # Don't forward approval marker events to the client — they're internal
+                    # Still need to break to prevent the next LLM call with the marker response
+                    break
+
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
@@ -403,6 +508,27 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     if not adk_event.partial:
                         task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
+
+        # If tool calls need approval, send interrupt and return
+        if pending_approvals:
+            # Store pending tools in session state for continuation detection
+            pending_tools_data = [{"name": t.name, "args": t.args, "id": t.id} for t in pending_approvals]
+            store_event = Event(
+                invocation_id="hitl_store_pending",
+                author="system",
+                actions=EventActions(state_delta={HITL_PENDING_TOOLS_KEY: pending_tools_data}),
+            )
+            await runner.session_service.append_event(session, store_event)
+
+            await handle_tool_approval_interrupt(
+                action_requests=pending_approvals,
+                task_id=context.task_id,
+                context_id=context.context_id,
+                event_queue=event_queue,
+                task_store=self._task_store,
+                app_name=runner.app_name,
+            )
+            return
 
         # publish the task result event - this is final
         if (
@@ -450,6 +576,23 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     metadata=run_metadata,
                 )
             )
+
+    @staticmethod
+    def _extract_rejection_reason(message: Message | None) -> str | None:
+        """Extract the rejection reason from a user's denial message."""
+        if not message or not message.parts:
+            return None
+        for part in message.parts:
+            if not hasattr(part, "root"):
+                continue
+            inner = part.root
+            if isinstance(inner, DataPart) and isinstance(inner.data, dict):
+                reason = inner.data.get("reason")
+                if reason:
+                    return str(reason)
+            if isinstance(inner, TextPart) and inner.text:
+                return inner.text
+        return None
 
     async def _prepare_session(self, context: RequestContext, run_args: dict[str, Any], runner: Runner):
         session_id = run_args["session_id"]

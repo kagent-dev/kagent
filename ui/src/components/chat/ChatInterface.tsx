@@ -26,7 +26,7 @@ import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromT
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message } from "@a2a-js/sdk";
+import { Message, DataPart } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -343,6 +343,119 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     toast.error("Request cancelled");
   };
 
+  const sendApprovalDecision = async (decision: "approve" | "deny", reason?: string) => {
+    const currentSessionId = session?.id || sessionId;
+    if (!currentSessionId || !selectedAgentName || !selectedNamespace) return;
+
+    setChatStatus("thinking");
+    setStoredMessages(prev => [...prev, ...streamingMessages]);
+    setStreamingMessages([]);
+    setStreamingContent("");
+
+    // Build the approval/rejection message
+    const displayText = decision === "approve" ? "Approved" : `Rejected${reason ? `: ${reason}` : ""}`;
+    const decisionData: Record<string, unknown> = { decision_type: decision };
+    if (reason) decisionData.reason = reason;
+
+    const messageId = uuidv4();
+    const a2aMessage: Message = {
+      kind: "message",
+      messageId,
+      role: "user",
+      parts: [
+        { kind: "data", data: decisionData, metadata: {} } as DataPart,
+        { kind: "text", text: displayText },
+      ],
+      contextId: currentSessionId,
+      metadata: {
+        timestamp: Date.now(),
+      },
+    };
+
+    // Show the user's decision as a message
+    const userMessage: Message = {
+      kind: "message",
+      messageId: uuidv4(),
+      role: "user",
+      parts: [{ kind: "text", text: displayText }],
+      metadata: { timestamp: Date.now() },
+    };
+    setStreamingMessages([userMessage]);
+
+    isFirstAssistantChunkRef.current = true;
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const sendParams = { message: a2aMessage, metadata: {} };
+      const stream = await kagentA2AClient.sendMessageStream(
+        selectedNamespace,
+        selectedAgentName,
+        sendParams,
+        abortControllerRef.current?.signal
+      );
+
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      let streamActive = true;
+      const streamTimeout = 600000;
+
+      const handleTimeout = () => {
+        if (streamActive) {
+          streamActive = false;
+          if (abortControllerRef.current) abortControllerRef.current.abort();
+        }
+      };
+
+      const startTimeout = () => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+      };
+      startTimeout();
+
+      try {
+        for await (const event of stream) {
+          startTimeout();
+          try {
+            handleMessageEvent(event);
+          } catch (error) {
+            console.error(`Error handling event: ${error}`);
+          }
+          if (abortControllerRef.current?.signal.aborted) {
+            streamActive = false;
+            break;
+          }
+        }
+      } finally {
+        streamActive = false;
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setChatStatus("ready");
+      } else {
+        toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        setChatStatus("error");
+      }
+      setIsStreaming(false);
+      setStreamingContent("");
+    } finally {
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleApproveAll = () => {
+    sendApprovalDecision("approve");
+  };
+
+  const handleApprove = (_toolCallId: string) => {
+    // For now, approving a single tool approves all pending (since the executor
+    // processes all pending tools together). Individual approval could be added later.
+    sendApprovalDecision("approve");
+  };
+
+  const handleReject = (_toolCallId: string, reason?: string) => {
+    sendApprovalDecision("deny", reason);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -397,6 +510,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
                     }}
+                    onApproveAll={handleApproveAll}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
                   />
                 })}
 
@@ -410,6 +526,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
                     }}
+                    onApproveAll={handleApproveAll}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
                   />
                 })}
 
