@@ -52,12 +52,12 @@ flowchart TB
         LoginPage["/login Page<br/>SSO redirect button"]
         AuthContext["AuthContext Provider<br/>- User state management<br/>- Loading/error states"]
         AuthActions["Server Actions<br/>getCurrentUser()"]
-        JWTLib["JWT Library<br/>- Decode tokens<br/>- Extract claims"]
+        JWTLib["JWT Library<br/>- Decode tokens<br/>- Check expiry"]
         AuthLib["Auth Library<br/>- Header forwarding"]
     end
 
     subgraph Backend["Backend Layer (Go)"]
-        ProxyAuth["ProxyAuthenticator<br/>- JWT claim extraction<br/>- Service account fallback"]
+        ProxyAuth["ProxyAuthenticator<br/>- Raw JWT claims passthrough<br/>- Service account fallback"]
         HTTPServer["HTTP Server<br/>API endpoints"]
     end
 
@@ -71,7 +71,7 @@ flowchart TB
 
     AuthLib -->|"5. Forward JWT"| HTTPServer
     HTTPServer --> ProxyAuth
-    ProxyAuth -->|"6. Extract Principal"| HTTPServer
+    ProxyAuth -->|"6. Extract Principal + raw claims"| HTTPServer
 ```
 
 ## Key Components
@@ -82,33 +82,41 @@ flowchart TB
 |-----------|------|---------|
 | **Login Page** | `ui/src/app/login/page.tsx` | Branded login UI with SSO redirect button |
 | **AuthContext** | `ui/src/contexts/AuthContext.tsx` | React context managing user state, loading, and error states |
-| **Auth Actions** | `ui/src/app/actions/auth.ts` | Server action to get current user from JWT |
-| **JWT Library** | `ui/src/lib/jwt.ts` | Decode JWT tokens and extract user claims |
+| **Auth Actions** | `ui/src/app/actions/auth.ts` | Server action to get current user from JWT (returns raw claims) |
+| **JWT Library** | `ui/src/lib/jwt.ts` | Decode JWT tokens and check expiry |
 | **Auth Library** | `ui/src/lib/auth.ts` | Extract and forward auth headers to backend |
 
 ### Backend (Go)
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **ProxyAuthenticator** | `go/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens |
+| **ProxyAuthenticator** | `go/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens, pass through raw claims |
+| **CurrentUserHandler** | `go/internal/httpserver/handlers/current_user.go` | Returns raw JWT claims (or `{"sub": userId}` for non-JWT auth) |
 
 ## Authentication Modes
 
-The system supports two authentication modes via `AUTH_MODE` environment variable:
+The system supports two authentication modes, configured via the `auth-mode` flag / `AUTH_MODE` environment variable:
 
 1. **`proxy`** (new): Trust oauth2-proxy to handle authentication, extract identity from JWT
-2. **`noop`** (existing): No authentication, for development/testing
+2. **`unsecure`** (existing): No authentication, for development/testing
 
-## JWT Claim Mapping
+## Configuration
 
-Claims are configurable via environment variables with sensible defaults:
+Only two configuration options are needed:
 
-| Claim | Env Var | Default | Fallbacks |
-|-------|---------|---------|-----------|
-| User ID | `JWT_CLAIM_USER_ID` | `sub` | - |
-| Email | `JWT_CLAIM_EMAIL` | `email` | - |
-| Name | `JWT_CLAIM_NAME` | - | `name`, `preferred_username` |
-| Groups | `JWT_CLAIM_GROUPS` | - | `groups`, `cognito:groups`, `roles` |
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure` or `proxy` |
+| `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | `sub` | JWT claim name for user identity |
+
+### Raw Claims Passthrough
+
+Instead of mapping specific JWT claims to fixed fields, the backend passes through all raw JWT claims. The `/api/me` endpoint returns the full JWT payload as-is, allowing the frontend to display whatever claims are available (name, email, groups, etc.) without backend configuration.
+
+This approach:
+- **Eliminates claim mapping configuration** — no need for `AUTH_JWT_CLAIM_EMAIL`, `AUTH_JWT_CLAIM_NAME`, etc.
+- **Works with any OIDC provider** — Cognito, Okta, Azure AD, etc. all use different claim names
+- **Frontend adapts automatically** — the UI tries common claim names (`name`, `preferred_username`, `email`) for display
 
 ## Authentication Boundary
 
@@ -138,8 +146,8 @@ For internal agent-to-controller communication, the `ProxyAuthenticator` support
 flowchart TD
     A[Incoming Request] --> B{Has Bearer token?}
     B -->|Yes| C[Parse JWT claims]
-    C --> D[Return Principal from JWT]
-    B -->|No| E{Has user_id param/header?}
+    C --> D[Return Principal with raw claims]
+    B -->|No| E{Has X-Agent-Name + user_id?}
     E -->|Yes| F[Return Principal from user_id]
     E -->|No| G[Return ErrUnauthenticated]
 ```
@@ -154,83 +162,7 @@ oauth2-proxy is deployed as an optional Helm subchart dependency, configured in:
 
 ## Security Considerations
 
-1. **JWT validation is delegated to oauth2-proxy** - The backend does not re-validate JWT signatures, trusting that oauth2-proxy has already done so
-2. **Tokens are forwarded upstream** - The original Authorization header is preserved for backend API calls
-3. **Session cookies are httpOnly** - Managed by oauth2-proxy, not accessible to JavaScript
-4. **Network policies enforce proxy routing** - When enabled, Kubernetes NetworkPolicies prevent direct access to UI and Controller, forcing all external traffic through oauth2-proxy
-
-## Network Policies
-
-When OIDC proxy authentication is enabled, Kubernetes NetworkPolicies are automatically created to enforce that all external traffic flows through oauth2-proxy. Without these policies, users could bypass authentication by accessing services directly via their ClusterIP or pod IPs.
-
-### Protected Traffic Flow
-
-```mermaid
-flowchart LR
-    subgraph External
-        User["External User"]
-    end
-
-    subgraph Cluster["Kubernetes Cluster"]
-        Proxy["oauth2-proxy<br/>:4180"]
-        UI["UI<br/>:8080"]
-        Controller["Controller<br/>:8083"]
-        Engine["Engine Pods"]
-        Tools["kagent-tools"]
-    end
-
-    User -->|"✓ Allowed"| Proxy
-    User -.->|"✗ Blocked"| UI
-    User -.->|"✗ Blocked"| Controller
-
-    Proxy -->|"✓ Allowed"| UI
-    Proxy -->|"✓ Allowed"| Controller
-    UI -->|"✓ Allowed"| Controller
-    Engine -->|"✓ Allowed"| Controller
-    Tools -->|"✓ Allowed"| Controller
-```
-
-### NetworkPolicy Rules
-
-Two NetworkPolicies are created:
-
-**UI NetworkPolicy** (`kagent-ui`):
-- Only allows ingress from oauth2-proxy pods
-- Blocks all other ingress traffic
-
-**Controller NetworkPolicy** (`kagent-controller`):
-- Allows ingress from oauth2-proxy (direct API access)
-- Allows ingress from UI pods (UI → Controller communication)
-- Allows ingress from engine pods (A2A communication)
-- Allows ingress from kagent-tools pods (tool → Controller communication)
-
-### Configuration
-
-NetworkPolicies are automatically enabled when both conditions are met:
-- `oauth2-proxy.enabled: true`
-- `controller.auth.mode: proxy`
-
-To disable network policies while keeping auth enabled:
-
-```yaml
-networkPolicy:
-  enabled: false
-```
-
-Additional configuration options:
-
-```yaml
-networkPolicy:
-  # Disable network policies (default: true when auth enabled)
-  enabled: true
-  # Additional labels to match oauth2-proxy pods (if using custom labels)
-  oauth2ProxySelector: {}
-  # Additional namespaces to allow traffic from (e.g., monitoring)
-  additionalAllowedNamespaces: []
-```
-
-### Limitations
-
-- **No egress restrictions**: Egress policies are not included to avoid breaking outbound connections to OIDC providers, databases, etc.
-- **Same-namespace only**: Policies assume all Kagent components are in the same namespace
-- **CNI requirement**: NetworkPolicies require a CNI plugin that supports them (Calico, Cilium, etc.)
+1. **JWT validation is delegated to oauth2-proxy** — The backend does not re-validate JWT signatures, trusting that oauth2-proxy has already done so
+2. **Tokens are forwarded upstream** — The original Authorization header is preserved for backend API calls
+3. **Session cookies are httpOnly** — Managed by oauth2-proxy, not accessible to JavaScript
+4. **Network policies** — NetworkPolicies to restrict direct access to UI/Controller (bypassing oauth2-proxy) are planned for a follow-up PR

@@ -21,10 +21,7 @@ type Resource struct {
 }
 
 type User struct {
-	ID    string
-	Email string
-	Name  string
-	Roles []string
+	ID string
 }
 
 type Agent struct {
@@ -35,7 +32,7 @@ type Agent struct {
 type Principal struct {
 	User   User
 	Agent  Agent
-	Groups []string
+	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
 }
 
 type Session interface {

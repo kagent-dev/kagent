@@ -6,25 +6,22 @@ import (
 
 func TestPrincipalHasRequiredFields(t *testing.T) {
 	p := Principal{
-		User: User{
-			ID:    "user123",
-			Email: "user@example.com",
-			Name:  "Test User",
+		User:  User{ID: "user123"},
+		Agent: Agent{ID: "agent1"},
+		Claims: map[string]any{
+			"sub":   "user123",
+			"email": "user@example.com",
+			"name":  "Test User",
 		},
-		Groups: []string{"admin", "developers"},
-		Agent:  Agent{ID: "agent1"},
 	}
 
 	if p.User.ID != "user123" {
 		t.Errorf("expected User.ID 'user123', got '%s'", p.User.ID)
 	}
-	if p.User.Email != "user@example.com" {
-		t.Errorf("expected User.Email 'user@example.com', got '%s'", p.User.Email)
+	if p.Claims["email"] != "user@example.com" {
+		t.Errorf("expected Claims[email] 'user@example.com', got '%v'", p.Claims["email"])
 	}
-	if p.User.Name != "Test User" {
-		t.Errorf("expected User.Name 'Test User', got '%s'", p.User.Name)
-	}
-	if len(p.Groups) != 2 {
-		t.Errorf("expected 2 groups, got %d", len(p.Groups))
+	if p.Claims["name"] != "Test User" {
+		t.Errorf("expected Claims[name] 'Test User', got '%v'", p.Claims["name"])
 	}
 }

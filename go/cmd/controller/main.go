@@ -17,8 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"os"
-
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/pkg/app"
 	pkgauth "github.com/kagent-dev/kagent/go/pkg/auth"
@@ -28,11 +26,11 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
-// nolint:gocyclo
+//nolint:gocyclo
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
-	authenticator := getAuthenticator()
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
+		authenticator := getAuthenticator(bootstrap.Config.Auth)
 		return &app.ExtensionConfig{
 			Authenticator:    authenticator,
 			Authorizer:       authorizer,
@@ -42,16 +40,10 @@ func main() {
 	})
 }
 
-func getAuthenticator() pkgauth.AuthProvider {
-	switch os.Getenv("AUTH_MODE") {
+func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthProvider {
+	switch authCfg.Mode {
 	case "proxy":
-		claimsConfig := auth.ClaimsConfig{
-			UserID: os.Getenv("AUTH_JWT_CLAIM_USER_ID"),
-			Email:  os.Getenv("AUTH_JWT_CLAIM_EMAIL"),
-			Name:   os.Getenv("AUTH_JWT_CLAIM_NAME"),
-			Groups: os.Getenv("AUTH_JWT_CLAIM_GROUPS"),
-		}
-		return auth.NewProxyAuthenticator(claimsConfig)
+		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
 	default:
 		return &auth.UnsecureAuthenticator{}
 	}

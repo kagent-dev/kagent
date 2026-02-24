@@ -23,28 +23,39 @@ func TestHandleGetCurrentUser(t *testing.T) {
 		name           string
 		session        auth.Session
 		wantStatusCode int
-		wantUser       string
-		wantEmail      string
-		wantName       string
-		wantGroups     []string
+		wantResponse   map[string]any
 	}{
 		{
-			name: "returns user info from session",
+			name: "returns raw claims from JWT session",
 			session: &mockSession{
 				principal: auth.Principal{
-					User: auth.User{
-						ID:    "user123",
-						Email: "user@example.com",
-						Name:  "Test User",
+					User: auth.User{ID: "user123"},
+					Claims: map[string]any{
+						"sub":    "user123",
+						"email":  "user@example.com",
+						"name":   "Test User",
+						"groups": []any{"admin", "developers"},
 					},
-					Groups: []string{"admin", "developers"},
 				},
 			},
 			wantStatusCode: http.StatusOK,
-			wantUser:       "user123",
-			wantEmail:      "user@example.com",
-			wantName:       "Test User",
-			wantGroups:     []string{"admin", "developers"},
+			wantResponse: map[string]any{
+				"sub":   "user123",
+				"email": "user@example.com",
+				"name":  "Test User",
+			},
+		},
+		{
+			name: "returns sub-only map for non-JWT session",
+			session: &mockSession{
+				principal: auth.Principal{
+					User: auth.User{ID: "admin@kagent.dev"},
+				},
+			},
+			wantStatusCode: http.StatusOK,
+			wantResponse: map[string]any{
+				"sub": "admin@kagent.dev",
+			},
 		},
 		{
 			name:           "returns 401 when no session",
@@ -71,26 +82,21 @@ func TestHandleGetCurrentUser(t *testing.T) {
 			}
 
 			if tt.wantStatusCode == http.StatusOK {
-				var response handlers.CurrentUserResponse
+				var response map[string]any
 				if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
 
-				if response.User != tt.wantUser {
-					t.Errorf("User = %q, want %q", response.User, tt.wantUser)
-				}
-				if response.Email != tt.wantEmail {
-					t.Errorf("Email = %q, want %q", response.Email, tt.wantEmail)
-				}
-				if response.Name != tt.wantName {
-					t.Errorf("Name = %q, want %q", response.Name, tt.wantName)
-				}
-				if len(response.Groups) != len(tt.wantGroups) {
-					t.Errorf("Groups length = %d, want %d", len(response.Groups), len(tt.wantGroups))
-				}
-				for i, g := range response.Groups {
-					if i < len(tt.wantGroups) && g != tt.wantGroups[i] {
-						t.Errorf("Groups[%d] = %q, want %q", i, g, tt.wantGroups[i])
+				for k, wantV := range tt.wantResponse {
+					gotV, ok := response[k]
+					if !ok {
+						t.Errorf("response missing key %q", k)
+						continue
+					}
+					if wantStr, ok := wantV.(string); ok {
+						if gotStr, ok := gotV.(string); !ok || gotStr != wantStr {
+							t.Errorf("response[%q] = %v, want %q", k, gotV, wantStr)
+						}
 					}
 				}
 			}

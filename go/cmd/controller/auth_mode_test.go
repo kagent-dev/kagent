@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
@@ -11,36 +10,34 @@ import (
 func TestGetAuthenticator(t *testing.T) {
 	tests := []struct {
 		name     string
-		authMode string
+		authCfg  struct{ Mode, UserIDClaim string }
 		wantType string
 	}{
 		{
 			name:     "defaults to UnsecureAuthenticator",
-			authMode: "",
+			authCfg:  struct{ Mode, UserIDClaim string }{"", ""},
 			wantType: "*auth.UnsecureAuthenticator",
 		},
 		{
 			name:     "unsecure mode uses UnsecureAuthenticator",
-			authMode: "unsecure",
+			authCfg:  struct{ Mode, UserIDClaim string }{"unsecure", ""},
 			wantType: "*auth.UnsecureAuthenticator",
 		},
 		{
 			name:     "proxy mode uses ProxyAuthenticator",
-			authMode: "proxy",
+			authCfg:  struct{ Mode, UserIDClaim string }{"proxy", ""},
+			wantType: "*auth.ProxyAuthenticator",
+		},
+		{
+			name:     "proxy mode with custom claim",
+			authCfg:  struct{ Mode, UserIDClaim string }{"proxy", "user_id"},
 			wantType: "*auth.ProxyAuthenticator",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.authMode != "" {
-				os.Setenv("AUTH_MODE", tt.authMode)
-				defer os.Unsetenv("AUTH_MODE")
-			} else {
-				os.Unsetenv("AUTH_MODE")
-			}
-
-			authenticator := getAuthenticator()
+			authenticator := getAuthenticator(tt.authCfg)
 			gotType := getTypeName(authenticator)
 			if gotType != tt.wantType {
 				t.Errorf("getAuthenticator() = %s, want %s", gotType, tt.wantType)

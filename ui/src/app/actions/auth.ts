@@ -1,14 +1,9 @@
 "use server";
 
 import { headers } from "next/headers";
-import { decodeJWT, extractUserFromClaims, isTokenExpired } from "@/lib/jwt";
+import { decodeJWT, isTokenExpired } from "@/lib/jwt";
 
-export interface CurrentUser {
-  user: string;
-  email: string;
-  name: string;
-  groups: string[];
-}
+export type CurrentUser = Record<string, unknown>;
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const headersList = await headers();
@@ -25,5 +20,5 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     return null;
   }
 
-  return extractUserFromClaims(claims);
+  return claims as CurrentUser;
 }

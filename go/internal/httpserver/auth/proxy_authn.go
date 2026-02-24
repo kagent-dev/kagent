@@ -14,20 +14,15 @@ import (
 
 var ErrUnauthenticated = errors.New("unauthenticated: missing or invalid Authorization header")
 
-// ClaimsConfig holds configurable JWT claim names
-type ClaimsConfig struct {
-	UserID string // Default: "sub"
-	Email  string // Default: "email"
-	Name   string // Default: tries "name", "preferred_username"
-	Groups string // Default: tries "groups", "cognito:groups", "roles"
-}
-
 type ProxyAuthenticator struct {
-	claims ClaimsConfig
+	userIDClaim string
 }
 
-func NewProxyAuthenticator(claims ClaimsConfig) *ProxyAuthenticator {
-	return &ProxyAuthenticator{claims: claims}
+func NewProxyAuthenticator(userIDClaim string) *ProxyAuthenticator {
+	if userIDClaim == "" {
+		userIDClaim = "sub"
+	}
+	return &ProxyAuthenticator{userIDClaim: userIDClaim}
 }
 
 func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
@@ -44,22 +39,19 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 			return nil, ErrUnauthenticated
 		}
 
-		userID := a.getStringClaim(rawClaims, a.claims.UserID, "sub")
+		userID, _ := rawClaims[a.userIDClaim].(string)
+		if userID == "" && a.userIDClaim != "sub" {
+			userID, _ = rawClaims["sub"].(string)
+		}
 		if userID == "" {
 			return nil, ErrUnauthenticated
 		}
 
 		return &SimpleSession{
 			P: auth.Principal{
-				User: auth.User{
-					ID:    userID,
-					Email: a.getStringClaim(rawClaims, a.claims.Email, "email"),
-					Name:  a.getStringClaim(rawClaims, a.claims.Name, "name", "preferred_username"),
-				},
-				Groups: a.getGroupsClaim(rawClaims),
-				Agent: auth.Agent{
-					ID: agentID, // Include agent identity if present
-				},
+				User:   auth.User{ID: userID},
+				Agent:  auth.Agent{ID: agentID},
+				Claims: rawClaims,
 			},
 			authHeader: authHeader,
 		}, nil
@@ -98,58 +90,6 @@ func (a *ProxyAuthenticator) UpstreamAuth(r *http.Request, session auth.Session,
 		r.Header.Set("Authorization", simpleSession.authHeader)
 	}
 	return nil
-}
-
-// getStringClaim tries configured key first, then fallbacks
-func (a *ProxyAuthenticator) getStringClaim(claims map[string]any, configured string, fallbacks ...string) string {
-	if configured != "" {
-		if v, ok := claims[configured].(string); ok {
-			return v
-		}
-	}
-	for _, key := range fallbacks {
-		if v, ok := claims[key].(string); ok {
-			return v
-		}
-	}
-	return ""
-}
-
-// getGroupsClaim tries configured key first, then common provider claim names
-func (a *ProxyAuthenticator) getGroupsClaim(claims map[string]any) []string {
-	fallbacks := []string{"groups", "cognito:groups", "roles"}
-	keysToTry := fallbacks
-	if a.claims.Groups != "" {
-		keysToTry = append([]string{a.claims.Groups}, fallbacks...)
-	}
-
-	for _, key := range keysToTry {
-		switch v := claims[key].(type) {
-		case []any:
-			groups := make([]string, 0, len(v))
-			for _, g := range v {
-				if s, ok := g.(string); ok {
-					groups = append(groups, s)
-				}
-			}
-			if len(groups) > 0 {
-				return groups
-			}
-		case string:
-			if v != "" {
-				groups := strings.Split(v, ",")
-				result := make([]string, 0, len(groups))
-				for _, g := range groups {
-					trimmed := strings.TrimSpace(g)
-					if trimmed != "" {
-						result = append(result, trimmed)
-					}
-				}
-				return result
-			}
-		}
-	}
-	return []string{}
 }
 
 // parseJWTPayload decodes JWT payload without signature verification

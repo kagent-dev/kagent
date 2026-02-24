@@ -69,18 +69,12 @@ controller:
   # - proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
   auth:
     mode: unsecure
-    # JWT claim mapping configuration (only used when mode: proxy)
-    # These are optional - sensible defaults are used if not specified
-    jwt:
-      claims:
-        # Claim name for user ID (default: "sub")
-        userId: ""
-        # Claim name for email (default: "email")
-        email: ""
-        # Claim name for display name (default: tries "name", then "preferred_username")
-        name: ""
-        # Claim name for groups (default: tries "groups", "cognito:groups", "roles")
-        groups: ""
+    # JWT claim for user identity (default: "sub")
+    # Override only if your OIDC provider uses a different claim
+    userIdClaim: ""
+  # -- The base URL of the A2A Server endpoint, as advertised to clients.
+  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  a2aBaseUrl: ""
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app
@@ -121,19 +115,20 @@ controller:
       port: 8083
       targetPort: 8083
   env: []
+  envFrom: []
 
-# Additional volumes on the output Deployment definition.
+  # Additional volumes on the output Deployment definition.
   volumes: []
-#   - name: foo
-#     secret:
-#       secretName: mysecret
-#       optional: false
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
 
-# Additional volumeMounts on the output Deployment definition.
+  # Additional volumeMounts on the output Deployment definition.
   volumeMounts: []
-#   - name: foo
-#     mountPath: "/etc/foo"
-#     readOnly: true
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -224,7 +219,7 @@ kmcp:
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
   image:
-    tag: "0.1.9" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
+    tag: "0.2.2" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
   # See https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml for chart values
 
 # ==============================================================================
@@ -246,9 +241,23 @@ kagent-tools:
     loglevel: "debug"
 
 # ==============================================================================
+# PROXY CONFIGURATION
+# ==============================================================================
+# Global proxy configuration for the controller
+# This proxy applies to all internally-built k8s URLs:
+# - Agents as tools (agent -> agent traffic)
+# - Services as MCP Tools
+# - MCPServer resources and RemoteMCPServer resources with internal k8s URLs
+# Set this once and the controller will apply it to all agents automatically
+# Note: RemoteMCPServer resources use user-supplied URLs and do not use this proxy unless the URL is an internal k8s URL.
+proxy:
+  # Proxy URL for internally-built k8s URLs
+  # Example: "http://proxy.kagent.svc.cluster.local:8080"
+  url: ""
+
+# ==============================================================================
 # AGENTS
 # ==============================================================================
-
 agents:
   k8s-agent:
     enabled: true
@@ -368,7 +377,7 @@ querydoc:
   image:
     registry: ghcr.io
     repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.13
+    tag: 1.1.14
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -472,19 +481,6 @@ oauth2-proxy:
   service:
     type: ClusterIP
     portNumber: 4180
-
-# ==============================================================================
-# NETWORK POLICY CONFIGURATION
-# ==============================================================================
-# NetworkPolicies are automatically enabled when auth is configured
-# They restrict access to UI and Controller to only allow traffic from oauth2-proxy
-# and internal cluster communication
-
-networkPolicy:
-  # Set to false to disable network policies even when auth is enabled
-  enabled: true
-  # Additional pod selector labels for oauth2-proxy (if using custom labels)
-  oauth2ProxySelector: {}
 
 # ==============================================================================
 # OBSERVABILITY

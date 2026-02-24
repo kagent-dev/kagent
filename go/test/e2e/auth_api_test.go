@@ -24,14 +24,6 @@ func makeTestJWT(claims map[string]any) string {
 	return header + "." + payloadB64 + "."
 }
 
-// CurrentUserResponse mirrors the response from GET /api/me
-type CurrentUserResponse struct {
-	User   string   `json:"user"`
-	Email  string   `json:"email"`
-	Name   string   `json:"name"`
-	Groups []string `json:"groups"`
-}
-
 // kagentURL returns the base URL for kagent API.
 // Configurable via KAGENT_URL env var.
 func kagentURL() string {
@@ -61,11 +53,11 @@ func detectAuthMode(t *testing.T) string {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		var userResp CurrentUserResponse
+		var userResp map[string]any
 		err = json.NewDecoder(resp.Body).Decode(&userResp)
 		require.NoError(t, err)
 
-		if userResp.User == "probe-user" {
+		if sub, _ := userResp["sub"].(string); sub == "probe-user" {
 			return "proxy"
 		}
 	}
@@ -114,10 +106,10 @@ func makeAuthRequest(t *testing.T, headers map[string]string, queryParams map[st
 	return resp, body
 }
 
-// parseUserResponse parses a CurrentUserResponse from JSON body.
-func parseUserResponse(t *testing.T, body []byte) CurrentUserResponse {
+// parseUserResponse parses a raw claims map from JSON body.
+func parseUserResponse(t *testing.T, body []byte) map[string]any {
 	t.Helper()
-	var userResp CurrentUserResponse
+	var userResp map[string]any
 	err := json.Unmarshal(body, &userResp)
 	require.NoError(t, err)
 	return userResp
@@ -135,10 +127,7 @@ func TestE2EAuthUnsecureMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "admin@kagent.dev", userResp.User)
-		require.Empty(t, userResp.Email)
-		require.Empty(t, userResp.Name)
-		require.Empty(t, userResp.Groups)
+		require.Equal(t, "admin@kagent.dev", userResp["sub"])
 	})
 
 	t.Run("x_user_id_header", func(t *testing.T) {
@@ -149,7 +138,7 @@ func TestE2EAuthUnsecureMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "alice@example.com", userResp.User)
+		require.Equal(t, "alice@example.com", userResp["sub"])
 	})
 
 	t.Run("user_id_query_param", func(t *testing.T) {
@@ -160,7 +149,7 @@ func TestE2EAuthUnsecureMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "bob@example.com", userResp.User)
+		require.Equal(t, "bob@example.com", userResp["sub"])
 	})
 
 	t.Run("header_takes_precedence_over_query", func(t *testing.T) {
@@ -174,7 +163,7 @@ func TestE2EAuthUnsecureMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "query-user", userResp.User)
+		require.Equal(t, "query-user", userResp["sub"])
 	})
 }
 
@@ -198,10 +187,13 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "john", userResp.User)
-		require.Equal(t, "john@example.com", userResp.Email)
-		require.Equal(t, "John Doe", userResp.Name)
-		require.ElementsMatch(t, []string{"admin", "developers"}, userResp.Groups)
+		require.Equal(t, "john", userResp["sub"])
+		require.Equal(t, "john@example.com", userResp["email"])
+		require.Equal(t, "John Doe", userResp["name"])
+		// Groups come through as raw claim
+		groups, ok := userResp["groups"].([]any)
+		require.True(t, ok, "groups should be an array")
+		require.Len(t, groups, 2)
 	})
 
 	t.Run("minimal_claims", func(t *testing.T) {
@@ -215,10 +207,10 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "jane", userResp.User)
-		require.Empty(t, userResp.Email)
-		require.Empty(t, userResp.Name)
-		require.Empty(t, userResp.Groups)
+		require.Equal(t, "jane", userResp["sub"])
+		require.Nil(t, userResp["email"])
+		require.Nil(t, userResp["name"])
+		require.Nil(t, userResp["groups"])
 	})
 
 	t.Run("missing_sub_claim_returns_401", func(t *testing.T) {
@@ -238,21 +230,6 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
-	t.Run("comma_separated_groups_string", func(t *testing.T) {
-		// Groups as comma-separated string should be parsed and trimmed
-		token := makeTestJWT(map[string]any{
-			"sub":    "user",
-			"groups": "admin, dev , qa ",
-		})
-		resp, body := makeAuthRequest(t, map[string]string{
-			"Authorization": "Bearer " + token,
-		}, nil)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-
-		userResp := parseUserResponse(t, body)
-		require.ElementsMatch(t, []string{"admin", "dev", "qa"}, userResp.Groups)
-	})
-
 	t.Run("agent_fallback_with_user_id", func(t *testing.T) {
 		// Agent callback: X-Agent-Name + user_id query param (no Bearer token)
 		resp, body := makeAuthRequest(t, map[string]string{
@@ -263,7 +240,7 @@ func TestE2EAuthProxyMode(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		userResp := parseUserResponse(t, body)
-		require.Equal(t, "owner@example.com", userResp.User)
+		require.Equal(t, "owner@example.com", userResp["sub"])
 	})
 
 	t.Run("fallback_without_agent_name_returns_401", func(t *testing.T) {

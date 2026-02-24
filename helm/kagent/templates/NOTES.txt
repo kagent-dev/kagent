@@ -55,20 +55,6 @@ TROUBLESHOOTING:
   - Check pod status: kubectl -n {{ include "kagent.namespace" . }} get pods
   - View events: kubectl -n {{ include "kagent.namespace" . }} get events --sort-by='.lastTimestamp'
   - Controller logs: kubectl -n {{ include "kagent.namespace" . }} logs -l app.kubernetes.io/component=controller -f
-{{- if eq (include "kagent.networkPolicy.enabled" .) "true" }}
-
-NETWORK POLICIES:
-  NetworkPolicies are enabled to enforce authentication via oauth2-proxy.
-  Direct access to UI and Controller pods is restricted to:
-    - oauth2-proxy pods (for authenticated external traffic)
-    - UI pods (for UI -> Controller communication)
-    - Engine pods (for A2A communication)
-    - kagent-tools pods (for tool -> Controller communication)
-
-  To disable network policies while keeping auth enabled:
-    --set networkPolicy.enabled=false
-{{- end }}
-
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 

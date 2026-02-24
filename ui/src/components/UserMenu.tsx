@@ -1,6 +1,6 @@
 "use client";
 
-import { User, LogOut, ChevronDown, Users } from "lucide-react";
+import { User, LogOut, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -8,7 +8,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuGroup,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,7 +27,10 @@ export function UserMenu({ onMobileLinkClick }: UserMenuProps) {
     return null;
   }
 
-  const displayName = user.name || user.email || user.user;
+  const name = String(user.name || user.preferred_username || "");
+  const email = String(user.email || "");
+  const sub = String(user.sub || "");
+  const displayName = name || email || sub;
 
   const handleLogout = () => {
     onMobileLinkClick?.();
@@ -51,43 +53,19 @@ export function UserMenu({ onMobileLinkClick }: UserMenuProps) {
         {/* User Info Header */}
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            {user.name && (
-              <p className="text-sm font-medium leading-none">{user.name}</p>
+            {name && (
+              <p className="text-sm font-medium leading-none">{name}</p>
             )}
-            {user.email && (
-              <p className="text-xs text-muted-foreground">{user.email}</p>
+            {email && (
+              <p className="text-xs text-muted-foreground">{email}</p>
             )}
-            {!user.name && !user.email && (
-              <p className="text-sm font-medium leading-none">{user.user}</p>
+            {!name && !email && (
+              <p className="text-sm font-medium leading-none">{sub}</p>
             )}
           </div>
         </DropdownMenuLabel>
 
         <DropdownMenuSeparator />
-
-        {/* Groups Section */}
-        {user.groups && user.groups.length > 0 && (
-          <>
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Users className="h-3 w-3" />
-                Groups
-              </DropdownMenuLabel>
-              <div className="px-2 py-1.5 max-h-32 overflow-y-auto">
-                {user.groups.map((group, index) => (
-                  <div
-                    key={index}
-                    className="text-xs text-muted-foreground py-0.5 pl-5 truncate"
-                    title={group}
-                  >
-                    {group}
-                  </div>
-                ))}
-              </div>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-          </>
-        )}
 
         {/* Logout */}
         <DropdownMenuItem

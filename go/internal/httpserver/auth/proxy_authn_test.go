@@ -24,17 +24,15 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 	tests := []struct {
 		name         string
 		claims       map[string]any
-		claimsConfig authimpl.ClaimsConfig
+		userIDClaim  string
 		wantUserID   string
-		wantEmail    string
-		wantName     string
-		wantGroups   []string
+		wantClaims   map[string]any
 		wantErr      bool
 		noToken      bool
 		invalidToken bool
 	}{
 		{
-			name: "extracts standard claims successfully",
+			name: "extracts standard claims and passes through raw claims",
 			claims: map[string]any{
 				"sub":    "user123",
 				"email":  "user@example.com",
@@ -42,73 +40,38 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 				"groups": []any{"admin", "developers"},
 			},
 			wantUserID: "user123",
-			wantEmail:  "user@example.com",
-			wantName:   "Test User",
-			wantGroups: []string{"admin", "developers"},
-			wantErr:    false,
-		},
-		{
-			name: "uses preferred_username as fallback for name",
-			claims: map[string]any{
-				"sub":                "user123",
-				"email":              "user@example.com",
-				"preferred_username": "testuser",
-			},
-			wantUserID: "user123",
-			wantEmail:  "user@example.com",
-			wantName:   "testuser",
-			wantGroups: []string{},
-			wantErr:    false,
-		},
-		{
-			name: "handles cognito:groups claim",
-			claims: map[string]any{
-				"sub":            "user123",
-				"cognito:groups": []any{"admins", "users"},
-			},
-			wantUserID: "user123",
-			wantGroups: []string{"admins", "users"},
-			wantErr:    false,
-		},
-		{
-			name: "handles roles claim",
-			claims: map[string]any{
+			wantClaims: map[string]any{
 				"sub":   "user123",
-				"roles": []any{"admin", "editor"},
+				"email": "user@example.com",
+				"name":  "Test User",
 			},
-			wantUserID: "user123",
-			wantGroups: []string{"admin", "editor"},
-			wantErr:    false,
+			wantErr: false,
 		},
 		{
-			name: "handles comma-separated groups string",
+			name: "uses custom user ID claim",
 			claims: map[string]any{
-				"sub":    "user123",
-				"groups": "admin, developers, users",
+				"user_id": "custom-user-123",
+				"email":   "custom@example.com",
+				"sub":     "fallback-sub",
 			},
-			wantUserID: "user123",
-			wantGroups: []string{"admin", "developers", "users"},
-			wantErr:    false,
+			userIDClaim: "user_id",
+			wantUserID:  "custom-user-123",
+			wantClaims: map[string]any{
+				"user_id": "custom-user-123",
+				"email":   "custom@example.com",
+				"sub":     "fallback-sub",
+			},
+			wantErr: false,
 		},
 		{
-			name: "uses custom claim names from config",
+			name: "falls back to sub when custom claim is missing",
 			claims: map[string]any{
-				"user_id":      "custom-user-123",
-				"mail":         "custom@example.com",
-				"display_name": "Custom Name",
-				"team_groups":  []any{"team-a", "team-b"},
+				"sub":   "fallback-user",
+				"email": "user@example.com",
 			},
-			claimsConfig: authimpl.ClaimsConfig{
-				UserID: "user_id",
-				Email:  "mail",
-				Name:   "display_name",
-				Groups: "team_groups",
-			},
-			wantUserID: "custom-user-123",
-			wantEmail:  "custom@example.com",
-			wantName:   "Custom Name",
-			wantGroups: []string{"team-a", "team-b"},
-			wantErr:    false,
+			userIDClaim: "user_id",
+			wantUserID:  "fallback-user",
+			wantErr:     false,
 		},
 		{
 			name:    "returns error when Authorization header missing",
@@ -121,15 +84,15 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "handles empty claims gracefully",
+			name: "handles minimal claims",
 			claims: map[string]any{
 				"sub": "user123",
 			},
 			wantUserID: "user123",
-			wantEmail:  "",
-			wantName:   "",
-			wantGroups: []string{},
-			wantErr:    false,
+			wantClaims: map[string]any{
+				"sub": "user123",
+			},
+			wantErr: false,
 		},
 		{
 			name: "returns error when JWT has empty sub claim",
@@ -138,21 +101,11 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "handles single group in array",
-			claims: map[string]any{
-				"sub":    "user123",
-				"groups": []any{"admin"},
-			},
-			wantUserID: "user123",
-			wantGroups: []string{"admin"},
-			wantErr:    false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auth := authimpl.NewProxyAuthenticator(tt.claimsConfig)
+			auth := authimpl.NewProxyAuthenticator(tt.userIDClaim)
 
 			headers := http.Header{}
 			if !tt.noToken {
@@ -182,18 +135,24 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			if principal.User.ID != tt.wantUserID {
 				t.Errorf("User.ID = %q, want %q", principal.User.ID, tt.wantUserID)
 			}
-			if principal.User.Email != tt.wantEmail {
-				t.Errorf("User.Email = %q, want %q", principal.User.Email, tt.wantEmail)
-			}
-			if principal.User.Name != tt.wantName {
-				t.Errorf("User.Name = %q, want %q", principal.User.Name, tt.wantName)
-			}
-			if len(principal.Groups) != len(tt.wantGroups) {
-				t.Errorf("Groups length = %d, want %d (got %v)", len(principal.Groups), len(tt.wantGroups), principal.Groups)
-			}
-			for i, g := range principal.Groups {
-				if i < len(tt.wantGroups) && g != tt.wantGroups[i] {
-					t.Errorf("Groups[%d] = %q, want %q", i, g, tt.wantGroups[i])
+
+			// Verify raw claims are passed through
+			if tt.wantClaims != nil {
+				if principal.Claims == nil {
+					t.Fatal("expected Claims to be non-nil")
+				}
+				for k, wantV := range tt.wantClaims {
+					gotV, ok := principal.Claims[k]
+					if !ok {
+						t.Errorf("Claims[%q] missing", k)
+						continue
+					}
+					// Compare as strings for simple values
+					if wantStr, ok := wantV.(string); ok {
+						if gotStr, ok := gotV.(string); !ok || gotStr != wantStr {
+							t.Errorf("Claims[%q] = %v, want %q", k, gotV, wantStr)
+						}
+					}
 				}
 			}
 		})
@@ -201,9 +160,6 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 }
 
 func TestProxyAuthenticator_JWTWithAgentHeader(t *testing.T) {
-	// This test verifies that X-Agent-Name header is extracted even when
-	// authenticating via JWT. This is important for agent-to-controller
-	// calls where the agent sends both a service account JWT and X-Agent-Name.
 	tests := []struct {
 		name        string
 		claims      map[string]any
@@ -245,7 +201,7 @@ func TestProxyAuthenticator_JWTWithAgentHeader(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auth := authimpl.NewProxyAuthenticator(authimpl.ClaimsConfig{})
+			auth := authimpl.NewProxyAuthenticator("")
 
 			headers := http.Header{}
 			token := createTestJWT(tt.claims)
@@ -316,7 +272,7 @@ func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auth := authimpl.NewProxyAuthenticator(authimpl.ClaimsConfig{})
+			auth := authimpl.NewProxyAuthenticator("")
 
 			headers := http.Header{}
 			for k, v := range tt.headers {
@@ -354,7 +310,7 @@ func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
 }
 
 func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
-	auth := authimpl.NewProxyAuthenticator(authimpl.ClaimsConfig{})
+	auth := authimpl.NewProxyAuthenticator("")
 
 	claims := map[string]any{
 		"sub":   "user123",
