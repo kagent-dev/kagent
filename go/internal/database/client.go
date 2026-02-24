@@ -11,6 +11,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -667,7 +668,8 @@ func (c *clientImpl) PruneExpiredMemories() error {
 			return fmt.Errorf("failed to delete expired memories: %w", result.Error)
 		}
 		if result.RowsAffected > 0 {
-			fmt.Printf("Pruned %d expired memories\n", result.RowsAffected)
+			log := ctrllog.Log.WithName("database")
+			log.Info("Pruned expired memories", "count", result.RowsAffected)
 		}
 
 		return nil

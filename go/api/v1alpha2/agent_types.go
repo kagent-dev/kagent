@@ -124,15 +124,18 @@ type DeclarativeAgentSpec struct {
 	Memory *MemorySpec `json:"memory,omitempty"`
 }
 
+// MemorySpec enables long-term memory for an agent.
 type MemorySpec struct {
-	// Enabled determines whether memory is enabled for the agent.
-	// +optional
-	Enabled bool `json:"enabled,omitempty"`
+	// ModelConfig is a reference to the ModelConfig object whose embedding
+	// provider will be used to generate memory vectors.
+	// +kubebuilder:validation:Required
+	ModelConfig corev1.LocalObjectReference `json:"modelConfig"`
 
-	// The name of the model config to use for embeddings.
-	// If not specified, it defaults to the agent's main ModelConfig.
+	// TTLDays controls how many days a stored memory entry remains valid before
+	// it is eligible for pruning. Defaults to 15 days when unset or zero.
 	// +optional
-	ModelConfig string `json:"modelConfig,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	TTLDays int `json:"ttlDays,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {

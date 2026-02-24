@@ -106,6 +106,7 @@ class KAgentApp:
                     http_client=http_client,
                     memory_enabled=True,
                     embedding_config=self.agent_config.embedding,
+                    ttl_days=self.agent_config.memory_ttl_days,
                 )
 
         def create_runner() -> Runner:

@@ -222,6 +222,7 @@ class Bedrock(BaseLLM):
 class EmbeddingConfig(BaseModel):
     model: str
     provider: str
+    base_url: str | None = None
 
 
 class AgentConfig(BaseModel):
@@ -236,9 +237,8 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory_enabled: bool = False
-    """When True, enables memory tools and prefetch. Prefetch runs once on first user message."""
-    embedding: EmbeddingConfig | None = None
-    """Embedding model config for memory tools."""
+    memory_ttl_days: int = 0  # TTL for memory entries in days. 0 means use the server default.
+    embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

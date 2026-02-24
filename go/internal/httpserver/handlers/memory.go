@@ -1,16 +1,23 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/pgvector/pgvector-go"
+)
+
+const (
+	// memoryVectorDimension is the required dimension for all embedding vectors.
+	memoryVectorDimension = 768
+	// memoryMaxBatchSize is the maximum number of items accepted in a single batch request.
+	memoryMaxBatchSize = 50
+	// defaultMemoryTTLDays is used when the caller does not supply a ttl_days value.
+	defaultMemoryTTLDays = 15
 )
 
 // MemoryHandler handles Memory requests
@@ -30,6 +37,7 @@ type AddSessionMemoryRequest struct {
 	Content   string          `json:"content"`
 	Vector    []float32       `json:"vector"`
 	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	TTLDays   int             `json:"ttl_days,omitempty"`
 }
 
 // SearchSessionMemoryRequest represents the request body for searching memory sessions
@@ -52,31 +60,21 @@ type SearchSessionMemoryResponse struct {
 
 // AddSession handles POST /api/memories/sessions
 func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
-	// Read body for debugging
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespondWithError(w, http.StatusBadRequest, "Failed to read request body")
-		return
-	}
-	// Restore body for decoding
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	// log.Printf("Received AddSession request: %s", string(bodyBytes))
-
 	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	// log.Printf("Decoded AddSession request: %+v", req)
-
 	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
 		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")
 		return
 	}
 
-	// Default TTL: 15 days
-	expiresAt := time.Now().Add(15 * 24 * time.Hour)
+	if len(req.Vector) != memoryVectorDimension {
+		RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("vector must have exactly %d dimensions, got %d", memoryVectorDimension, len(req.Vector)))
+		return
+	}
 
 	// Ensure metadata is valid JSON
 	metadata := req.Metadata
@@ -84,6 +82,11 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		metadata = json.RawMessage("{}")
 	}
 
+	ttlDays := req.TTLDays
+	if ttlDays <= 0 {
+		ttlDays = defaultMemoryTTLDays
+	}
+	expiresAt := time.Now().Add(time.Duration(ttlDays) * 24 * time.Hour)
 	memory := &database.Memory{
 		AgentName: req.AgentName,
 		UserID:    req.UserID,
@@ -122,12 +125,21 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 		return
 	}
 
+	if len(req.Items) > memoryMaxBatchSize {
+		RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("batch size %d exceeds maximum allowed size of %d", len(req.Items), memoryMaxBatchSize))
+		return
+	}
+
 	var memories []*database.Memory
-	expiresAt := time.Now().Add(15 * 24 * time.Hour)
 
 	for _, item := range req.Items {
 		if item.AgentName == "" || item.UserID == "" || len(item.Vector) == 0 {
 			RespondWithError(w, http.StatusBadRequest, "Missing required fields in batch item")
+			return
+		}
+
+		if len(item.Vector) != memoryVectorDimension {
+			RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("vector must have exactly %d dimensions, got %d", memoryVectorDimension, len(item.Vector)))
 			return
 		}
 
@@ -137,6 +149,11 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 			metadata = json.RawMessage("{}")
 		}
 
+		ttlDays := item.TTLDays
+		if ttlDays <= 0 {
+			ttlDays = defaultMemoryTTLDays
+		}
+		expiresAt := time.Now().Add(time.Duration(ttlDays) * 24 * time.Hour)
 		memories = append(memories, &database.Memory{
 			AgentName: item.AgentName,
 			UserID:    item.UserID,
@@ -167,6 +184,11 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 
 	if req.AgentName == "" || req.UserID == "" || len(req.Vector) == 0 {
 		RespondWithError(w, http.StatusBadRequest, "Missing required fields (agent_name, user_id, vector)")
+		return
+	}
+
+	if len(req.Vector) != memoryVectorDimension {
+		RespondWithError(w, http.StatusBadRequest, fmt.Sprintf("vector must have exactly %d dimensions, got %d", memoryVectorDimension, len(req.Vector)))
 		return
 	}
 

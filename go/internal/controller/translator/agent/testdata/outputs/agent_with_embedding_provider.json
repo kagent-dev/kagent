@@ -12,28 +12,23 @@
       "text"
     ],
     "description": "",
-    "name": "agent_with_memory",
+    "name": "agent_cross_provider_memory",
     "skills": null,
-    "url": "http://agent-with-memory.test:8080",
+    "url": "http://agent-cross-provider-memory.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "embedding": {
-      "model": "text-embedding-3-small",
-      "provider": "openai"
+      "model": "text-embedding-005",
+      "provider": "gemini_vertex_ai"
     },
     "http_tools": null,
-    "instruction": "You are a helpful assistant with memory. Save important findings and use past context when relevant.",
+    "instruction": "You are an assistant.",
     "memory_enabled": true,
     "model": {
       "base_url": "",
-      "headers": {
-        "User-Agent": "kagent/1.0"
-      },
-      "max_tokens": 1024,
       "model": "gpt-4o",
-      "temperature": 0.7,
       "type": "openai"
     },
     "remote_agents": null,
@@ -48,11 +43,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-memory",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-memory"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "agent-with-memory",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -60,14 +55,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-memory",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_memory\",\"description\":\"\",\"url\":\"http://agent-with-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with memory. Save important findings and use past context when relevant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory_enabled\":true,\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}"
+        "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory_enabled\":true,\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}"
       }
     },
     {
@@ -77,11 +72,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-memory",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-memory"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "agent-with-memory",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -89,7 +84,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-memory",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -102,11 +97,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-memory",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-memory"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "agent-with-memory",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -114,7 +109,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-memory",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -123,7 +118,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "agent-with-memory"
+            "kagent": "agent-cross-provider-memory"
           }
         },
         "strategy": {
@@ -136,14 +131,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2169243105903238540"
+              "kagent.dev/config-hash": "11249654220252456840"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "agent-with-memory",
+              "app.kubernetes.io/name": "agent-cross-provider-memory",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "agent-with-memory"
+              "kagent": "agent-cross-provider-memory"
             }
           },
           "spec": {
@@ -168,6 +163,22 @@
                     }
                   },
                   {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "my-project"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": "us-central1"
+                  },
+                  {
+                    "name": "GOOGLE_GENAI_USE_VERTEXAI",
+                    "value": "true"
+                  },
+                  {
+                    "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                    "value": "/creds/key.json"
+                  },
+                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -177,7 +188,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "agent-with-memory"
+                    "value": "agent-cross-provider-memory"
                   },
                   {
                     "name": "KAGENT_URL",
@@ -204,12 +215,12 @@
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "3",
-                    "memory": "2Gi"
+                    "cpu": "2",
+                    "memory": "1Gi"
                   },
                   "requests": {
-                    "cpu": "200m",
-                    "memory": "684Mi"
+                    "cpu": "100m",
+                    "memory": "384Mi"
                   }
                 },
                 "volumeMounts": [
@@ -218,18 +229,28 @@
                     "name": "config"
                   },
                   {
+                    "mountPath": "/creds",
+                    "name": "google-creds"
+                  },
+                  {
                     "mountPath": "/var/run/secrets/tokens",
                     "name": "kagent-token"
                   }
                 ]
               }
             ],
-            "serviceAccountName": "agent-with-memory",
+            "serviceAccountName": "agent-cross-provider-memory",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "agent-with-memory"
+                  "secretName": "agent-cross-provider-memory"
+                }
+              },
+              {
+                "name": "google-creds",
+                "secret": {
+                  "secretName": "gcp-creds"
                 }
               },
               {
@@ -259,11 +280,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "agent-with-memory",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "agent-with-memory"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "agent-with-memory",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -271,7 +292,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "agent-with-memory",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -286,7 +307,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "agent-with-memory"
+          "kagent": "agent-cross-provider-memory"
         },
         "type": "ClusterIP"
       },

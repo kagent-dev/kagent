@@ -34,6 +34,7 @@ class KagentMemoryService(BaseMemoryService):
         http_client: httpx.AsyncClient,
         memory_enabled: bool = False,
         embedding_config: Optional[EmbeddingConfig] = None,
+        ttl_days: int = 0,
     ):
         """Initialize KagentMemoryService.
 
@@ -42,11 +43,13 @@ class KagentMemoryService(BaseMemoryService):
             http_client: Async HTTP client configured with base_url for Kagent API
             memory_enabled: Whether memory operations are enabled
             embedding_config: Configuration for embedding model (EmbeddingConfig only).
+            ttl_days: TTL for memory entries in days. 0 means use the server default.
         """
         self.agent_name = agent_name
         self.client = http_client
         self.memory_enabled = memory_enabled
         self.embedding_config = embedding_config
+        self.ttl_days = ttl_days
 
     async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
         """Add a session's content to long-term memory.
@@ -86,8 +89,8 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("Failed to generate embeddings for session %s", session.id)
             return
 
-        if isinstance(vectors[0], float):
-            # This shouldn't happen with our new logic if list passed, but safe guard
+        if not isinstance(vectors[0], (list, np.ndarray)):
+            # vectors is a flat list of floats (single vector); wrap it
             vectors = [vectors]
 
         # Prepare batch items
@@ -98,14 +101,15 @@ class KagentMemoryService(BaseMemoryService):
             if not vector:
                 continue
 
-            batch_items.append(
-                {
-                    "agent_name": self.agent_name,
-                    "user_id": session.user_id,
-                    "content": content_item,
-                    "vector": vector,
-                }
-            )
+            item: Dict[str, Any] = {
+                "agent_name": self.agent_name,
+                "user_id": session.user_id,
+                "content": content_item,
+                "vector": vector,
+            }
+            if self.ttl_days > 0:
+                item["ttl_days"] = self.ttl_days
+            batch_items.append(item)
 
         if not batch_items:
             return
@@ -150,12 +154,14 @@ class KagentMemoryService(BaseMemoryService):
             return
 
         # Send to Kagent API
-        payload = {
+        payload: Dict[str, Any] = {
             "agent_name": self.agent_name,
             "user_id": user_id,
             "content": content,
             "vector": vector,
         }
+        if self.ttl_days > 0:
+            payload["ttl_days"] = self.ttl_days
 
         logger.info("Sending add_memory payload: %s", json.dumps(payload, default=str))
 
@@ -266,8 +272,7 @@ class KagentMemoryService(BaseMemoryService):
                             if response_data:
                                 text_content = json.dumps(response_data, default=str)
                         except Exception:
-                            # If serialization fails, ignore this part
-                            pass
+                            logger.warning("Failed to serialize function_response payload", exc_info=True)
 
                     elif hasattr(part, "code_execution_result") and part.code_execution_result:
                         try:
@@ -276,14 +281,14 @@ class KagentMemoryService(BaseMemoryService):
                             if output:
                                 text_content = output
                         except Exception:
-                            pass
+                            logger.warning("Failed to extract code_execution_result output", exc_info=True)
 
                     if text_content:
                         parts.append(f"{role}: {text_content}")
 
         return "\n".join(parts)
 
-    def _normalize_l2(x):
+    def _normalize_l2(self, x):
         x = np.array(x)
         if x.ndim == 1:
             norm = np.linalg.norm(x)
@@ -335,7 +340,8 @@ class KagentMemoryService(BaseMemoryService):
             # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
             # https://huggingface.co/blog/matryoshka
             # We must ensure that embeddings have proper dimensions for compatibility with vector storage backend
-            response = await aembedding(model=litellm_model, input=texts, dimensions=768)
+            api_base = self.embedding_config.base_url or None
+            response = await aembedding(model=litellm_model, input=texts, dimensions=768, api_base=api_base)
 
             embeddings = []
             for item in response.data:

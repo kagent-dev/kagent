@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
@@ -118,10 +119,7 @@ const (
 
 // Feedback represents user feedback on agent responses
 type Feedback struct {
-	ID           uint               `gorm:"primaryKey" json:"id"`
-	CreatedAt    time.Time          `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time          `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt    time.Time          `gorm:"index" json:"deleted_at"`
+	gorm.Model
 	UserID       string             `gorm:"not null;index" json:"user_id"`
 	MessageID    uint               `gorm:"index;constraint:OnDelete:CASCADE" json:"message_id"`
 	IsPositive   bool               `gorm:"default:false" json:"is_positive"`
@@ -131,90 +129,101 @@ type Feedback struct {
 
 // Tool represents a single tool that can be used by an agent
 type Tool struct {
-	ID          string    `gorm:"primaryKey;not null" json:"id"`
-	ServerName  string    `gorm:"primaryKey;not null" json:"server_name"`
-	GroupKind   string    `gorm:"primaryKey;not null" json:"group_kind"`
-	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt   time.Time `gorm:"index" json:"deleted_at"`
-	Description string    `json:"description"`
+	ID          string         `gorm:"primaryKey;not null" json:"id"`
+	ServerName  string         `gorm:"primaryKey;not null" json:"server_name"`
+	GroupKind   string         `gorm:"primaryKey;not null" json:"group_kind"`
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Description string         `json:"description"`
 }
 
 // ToolServer represents a tool server that provides tools
 type ToolServer struct {
-	CreatedAt     time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt     time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt     time.Time  `gorm:"index" json:"deleted_at"`
-	Name          string     `gorm:"primaryKey;not null" json:"name"`
-	GroupKind     string     `gorm:"primaryKey;not null" json:"group_kind"`
-	Description   string     `json:"description"`
-	LastConnected *time.Time `json:"last_connected,omitempty"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Name          string         `gorm:"primaryKey;not null" json:"name"`
+	GroupKind     string         `gorm:"primaryKey;not null" json:"group_kind"`
+	Description   string         `json:"description"`
+	LastConnected *time.Time     `json:"last_connected,omitempty"`
 }
 
 // LangGraphCheckpoint represents a LangGraph checkpoint
 type LangGraphCheckpoint struct {
-	UserID             string    `gorm:"primaryKey;not null" json:"user_id"`
-	ThreadID           string    `gorm:"primaryKey;not null" json:"thread_id"`
-	CheckpointNS       string    `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
-	CheckpointID       string    `gorm:"primaryKey;not null" json:"checkpoint_id"`
-	ParentCheckpointID *string   `gorm:"index" json:"parent_checkpoint_id,omitempty"`
-	CreatedAt          time.Time `gorm:"autoCreateTime;index:idx_lgcp_list" json:"created_at"`
-	UpdatedAt          time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt          time.Time `gorm:"index" json:"deleted_at"`
-	Metadata           string    `gorm:"type:text;not null" json:"metadata"`   // JSON serialized metadata
-	Checkpoint         string    `gorm:"type:text;not null" json:"checkpoint"` // JSON serialized checkpoint
-	CheckpointType     string    `gorm:"not null" json:"checkpoint_type"`
-	Version            int       `gorm:"default:1" json:"version"`
+	UserID             string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID           string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CheckpointNS       string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
+	CheckpointID       string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
+	ParentCheckpointID *string        `gorm:"index" json:"parent_checkpoint_id,omitempty"`
+	CreatedAt          time.Time      `gorm:"autoCreateTime;index:idx_lgcp_list" json:"created_at"`
+	UpdatedAt          time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	Metadata           string         `gorm:"type:text;not null" json:"metadata"`   // JSON serialized metadata
+	Checkpoint         string         `gorm:"type:text;not null" json:"checkpoint"` // JSON serialized checkpoint
+	CheckpointType     string         `gorm:"not null" json:"checkpoint_type"`
+	Version            int            `gorm:"default:1" json:"version"`
 }
 
 // LangGraphCheckpointWrite represents a write operation for a checkpoint
 type LangGraphCheckpointWrite struct {
-	UserID       string    `gorm:"primaryKey;not null" json:"user_id"`
-	ThreadID     string    `gorm:"primaryKey;not null" json:"thread_id"`
-	CheckpointNS string    `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
-	CheckpointID string    `gorm:"primaryKey;not null" json:"checkpoint_id"`
-	WriteIdx     int       `gorm:"primaryKey;not null" json:"write_idx"`
-	Value        string    `gorm:"type:text;not null" json:"value"` // JSON serialized value
-	ValueType    string    `gorm:"not null" json:"value_type"`
-	Channel      string    `gorm:"not null" json:"channel"`
-	TaskID       string    `gorm:"not null" json:"task_id"`
-	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt    time.Time `gorm:"index" json:"deleted_at"`
+	UserID       string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID     string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CheckpointNS string         `gorm:"primaryKey;not null;default:''" json:"checkpoint_ns"`
+	CheckpointID string         `gorm:"primaryKey;not null" json:"checkpoint_id"`
+	WriteIdx     int            `gorm:"primaryKey;not null" json:"write_idx"`
+	Value        string         `gorm:"type:text;not null" json:"value"` // JSON serialized value
+	ValueType    string         `gorm:"not null" json:"value_type"`
+	Channel      string         `gorm:"not null" json:"channel"`
+	TaskID       string         `gorm:"not null" json:"task_id"`
+	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
 // CrewAIAgentMemory represents long-term memory for CrewAI agents
 type CrewAIAgentMemory struct {
-	UserID     string    `gorm:"primaryKey;not null" json:"user_id"`
-	ThreadID   string    `gorm:"primaryKey;not null" json:"thread_id"`
-	CreatedAt  time.Time `gorm:"autoCreateTime;index:idx_crewai_memory_list" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt  time.Time `gorm:"index" json:"deleted_at"`
-	MemoryData string    `gorm:"type:text;not null" json:"memory_data"`
+	UserID     string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID   string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CreatedAt  time.Time      `gorm:"autoCreateTime;index:idx_crewai_memory_list" json:"created_at"`
+	UpdatedAt  time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	MemoryData string         `gorm:"type:text;not null" json:"memory_data"`
 }
 
 // CrewAIFlowState represents flow state for CrewAI flows
 type CrewAIFlowState struct {
-	UserID     string    `gorm:"primaryKey;not null" json:"user_id"`
-	ThreadID   string    `gorm:"primaryKey;not null" json:"thread_id"`
-	MethodName string    `gorm:"primaryKey;not null" json:"method_name"`
-	CreatedAt  time.Time `gorm:"autoCreateTime;index:idx_crewai_flow_state_list" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt  time.Time `gorm:"index" json:"deleted_at"`
-	StateData  string    `gorm:"type:text;not null" json:"state_data"`
+	UserID     string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID   string         `gorm:"primaryKey;not null" json:"thread_id"`
+	MethodName string         `gorm:"primaryKey;not null" json:"method_name"`
+	CreatedAt  time.Time      `gorm:"autoCreateTime;index:idx_crewai_flow_state_list" json:"created_at"`
+	UpdatedAt  time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	StateData  string         `gorm:"type:text;not null" json:"state_data"`
 }
 
 // Memory represents a memory/session embedding with TTL support
 type Memory struct {
-	ID          string          `gorm:"primaryKey;default:gen_random_uuid()" json:"id"`
-	AgentName   string          `gorm:"index" json:"agent_name"`
-	UserID      string          `gorm:"index" json:"user_id"`
+	// ID is a UUID generated by the application layer before insert, ensuring
+	// compatibility with both Postgres and SQLite/libSQL backends.
+	ID          string          `gorm:"primaryKey" json:"id"`
+	AgentName   string          `gorm:"index:idx_memory_agent_user,composite:agent_name" json:"agent_name"`
+	UserID      string          `gorm:"index:idx_memory_agent_user,composite:user_id" json:"user_id"`
 	Content     string          `gorm:"type:text" json:"content"`
 	Embedding   pgvector.Vector `gorm:"type:vector(768)" json:"embedding"`
 	Metadata    string          `gorm:"type:text" json:"metadata"`
 	CreatedAt   time.Time       `gorm:"autoCreateTime" json:"created_at"`
 	ExpiresAt   *time.Time      `gorm:"index" json:"expires_at,omitempty"`
 	AccessCount int             `gorm:"default:0" json:"access_count"`
+}
+
+// BeforeCreate generates a UUID for the Memory ID if one has not been set,
+// making ID generation database-agnostic (works for both Postgres and SQLite).
+func (m *Memory) BeforeCreate(tx *gorm.DB) error {
+	if m.ID == "" {
+		m.ID = uuid.New().String()
+	}
+	return nil
 }
 
 // AgentMemorySearchResult is the result of a vector similarity search over Memory (e.g. SELECT *, 1 - (embedding <=> ?) as score).

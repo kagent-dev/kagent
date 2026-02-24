@@ -131,6 +131,7 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	// Initialize memory table that uses vector column
 	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
 		if err := m.db.AutoMigrate(&dbpkg.Memory{}); err != nil {
 			return fmt.Errorf("failed to migrate memory table: %w", err)
@@ -144,12 +145,14 @@ func (m *Manager) Initialize() error {
 		}
 	}
 
-	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector
-	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags
+	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector.
+	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags.
+	// The id column has no DEFAULT expression: the application layer (BeforeCreate hook on
+	// Memory) generates a UUID before every insert, making it DB-agnostic.
 	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
 		createMemoryTableSQL := `
 			CREATE TABLE IF NOT EXISTS memory (
-				id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+				id TEXT PRIMARY KEY,
 				agent_name TEXT,
 				user_id TEXT,
 				content TEXT,
@@ -163,9 +166,8 @@ func (m *Manager) Initialize() error {
 		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
 			return fmt.Errorf("failed to create memory table: %w", err)
 		}
-		// Create indexes
-		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_name ON memory(agent_name)`)
-		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_user_id ON memory(user_id)`)
+		// Composite index for the most common query pattern (agent_name + user_id)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_user ON memory(agent_name, user_id)`)
 		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)
 	}
 
@@ -179,7 +181,7 @@ func (m *Manager) Reset(recreateTables bool) error {
 	}
 	defer m.initLock.Unlock()
 
-	// Drop all tables
+	// Drop all tables (including memory, which is created manually in Initialize)
 	err := m.db.Migrator().DropTable(
 		&dbpkg.Agent{},
 		&dbpkg.Session{},
@@ -193,6 +195,7 @@ func (m *Manager) Reset(recreateTables bool) error {
 		&dbpkg.LangGraphCheckpointWrite{},
 		&dbpkg.CrewAIAgentMemory{},
 		&dbpkg.CrewAIFlowState{},
+		&dbpkg.Memory{},
 	)
 
 	if err != nil {

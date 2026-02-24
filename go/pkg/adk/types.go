@@ -367,6 +367,7 @@ type AgentConfig struct {
 	ExecuteCode   bool                  `json:"execute_code,omitempty"`
 	Stream        bool                  `json:"stream"`
 	MemoryEnabled bool                  `json:"memory_enabled,omitempty"`
+	MemoryTTLDays int                   `json:"memory_ttl_days,omitempty"`
 	Embedding     *EmbeddingConfig      `json:"embedding,omitempty"`
 }
 
@@ -381,6 +382,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		ExecuteCode   bool                  `json:"execute_code,omitempty"`
 		Stream        bool                  `json:"stream"`
 		MemoryEnabled bool                  `json:"memory_enabled"`
+		MemoryTTLDays int                   `json:"memory_ttl_days"`
 		Embedding     json.RawMessage       `json:"embedding"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
@@ -408,6 +410,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.ExecuteCode = tmp.ExecuteCode
 	a.Stream = tmp.Stream
 	a.MemoryEnabled = tmp.MemoryEnabled
+	a.MemoryTTLDays = tmp.MemoryTTLDays
 	a.Embedding = embedding
 	return nil
 }

@@ -9866,15 +9866,30 @@ spec:
                   memory:
                     description: Memory configuration for the agent.
                     properties:
-                      enabled:
-                        description: Enabled determines whether memory is enabled
-                          for the agent.
-                        type: boolean
                       modelConfig:
                         description: |-
-                          The name of the model config to use for embeddings.
-                          If not specified, it defaults to the agent's main ModelConfig.
-                        type: string
+                          ModelConfig is a reference to the ModelConfig object whose embedding
+                          provider will be used to generate memory vectors.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      ttlDays:
+                        description: |-
+                          TTLDays controls how many days a stored memory entry remains valid before
+                          it is eligible for pruning. Defaults to 15 days when unset or zero.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfig
                     type: object
                   modelConfig:
                     description: |-

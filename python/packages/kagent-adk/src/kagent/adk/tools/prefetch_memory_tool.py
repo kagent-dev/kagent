@@ -83,35 +83,3 @@ class PrefetchMemoryTool(BaseTool):
             "</PAST_CONVERSATIONS>\n"
         )
         llm_request.append_instructions([instruction])
-
-    # TODO: DEPRECATED
-    async def _derive_search_query(self, tool_context: ToolContext, user_message: str) -> str | None:
-        """Use the agent's model to produce a short search query from the user message."""
-        inv = getattr(tool_context, "_invocation_context", None)
-        agent = getattr(inv, "agent", None) if inv else None
-        model = getattr(agent, "model", None) if agent else None
-        if not model:
-            return None
-        try:
-            from google.adk.models.llm_request import LlmRequest
-            from google.genai.types import Content, Part
-
-            prompt = (
-                "Given the user message below, output a single short search query (one line) "
-                "for finding relevant past context. Output only the query, no explanation.\n\n"
-                f"User message:\n{user_message[:2000]}\n\nSearch query:"
-            )
-            llm_request = LlmRequest(
-                contents=[Content(role="user", parts=[Part(text=prompt)])],
-            )
-            gen = model.generate_content_async(llm_request, stream=False)
-            text_parts = []
-            async for chunk in gen:
-                if chunk.content and chunk.content.parts:
-                    for part in chunk.content.parts:
-                        if getattr(part, "text", None):
-                            text_parts.append(part.text)
-            return " ".join(text_parts).strip() if text_parts else None
-        except Exception as e:
-            logger.debug("LLM-derived search query failed: %s", e)
-            return None

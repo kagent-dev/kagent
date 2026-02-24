@@ -574,36 +574,22 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
-	// Handle Memory Configuration
-	if agent.Spec.Declarative.Memory != nil && agent.Spec.Declarative.Memory.Enabled {
+	// Handle Memory Configuration: presence of Memory field enables it.
+	if agent.Spec.Declarative.Memory != nil {
 		cfg.MemoryEnabled = true
+		cfg.MemoryTTLDays = agent.Spec.Declarative.Memory.TTLDays
 
-		// Resolve Embedding Model Config
-		embeddingConfigName := agent.Spec.Declarative.Memory.ModelConfig
-		if embeddingConfigName == "" {
-			// Default to main model config if not specified
-			embeddingConfigName = agent.Spec.Declarative.ModelConfig
-			if embeddingConfigName == "" {
-				// If main model config is also empty/default
-				embeddingConfigName = a.defaultModelConfig.Name
-			}
-		}
-
-		// Use translateModel to resolve the embedding model config
-		embeddingCfg, embMdd, embHash, err := a.translateModel(ctx, agent.Namespace, embeddingConfigName)
+		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig.Name, mdd)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
 
-		cfg.Embedding = adk.ModelToEmbeddingConfig(embeddingCfg)
-
-		// Merge EnvVars from embedding config (e.g. API Keys)
+		// Merge embedding config and deployment data
+		cfg.Embedding = embCfg
 		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
 		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
 		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
-
-		// Merge secret hash
-		if len(embHash) > 0 {
+		if agent.Spec.Declarative.Memory.ModelConfig.Name != agent.Spec.Declarative.ModelConfig {
 			secretHashBytes = append(secretHashBytes, embHash...)
 		}
 	}
@@ -729,6 +715,52 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			ReadOnly:  true,
 		})
 	}
+}
+
+// translateEmbeddingConfig resolves the embedding ModelConfig and returns the
+// EmbeddingConfig for the Python config JSON, any deployment data (env vars,
+// volumes, volume mounts) not already present in existingMdd, and the raw
+// secret hash bytes (caller decides whether to include them).
+func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string, existingMdd *modelDeploymentData) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
+	embModel, embMdd, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Build lookup sets of names already emitted by the LLM model config so we
+	// skip duplicates (e.g. OPENAI_API_KEY, google-creds volume when both the
+	// LLM and embedding use the same provider or the same credential secret).
+	existingEnv := make(map[string]struct{}, len(existingMdd.EnvVars))
+	for _, e := range existingMdd.EnvVars {
+		existingEnv[e.Name] = struct{}{}
+	}
+	existingVol := make(map[string]struct{}, len(existingMdd.Volumes))
+	for _, v := range existingMdd.Volumes {
+		existingVol[v.Name] = struct{}{}
+	}
+	existingMount := make(map[string]struct{}, len(existingMdd.VolumeMounts))
+	for _, vm := range existingMdd.VolumeMounts {
+		existingMount[vm.MountPath] = struct{}{}
+	}
+
+	newMdd := &modelDeploymentData{}
+	for _, e := range embMdd.EnvVars {
+		if _, dup := existingEnv[e.Name]; !dup {
+			newMdd.EnvVars = append(newMdd.EnvVars, e)
+		}
+	}
+	for _, v := range embMdd.Volumes {
+		if _, dup := existingVol[v.Name]; !dup {
+			newMdd.Volumes = append(newMdd.Volumes, v)
+		}
+	}
+	for _, vm := range embMdd.VolumeMounts {
+		if _, dup := existingMount[vm.MountPath]; !dup {
+			newMdd.VolumeMounts = append(newMdd.VolumeMounts, vm)
+		}
+	}
+
+	return adk.ModelToEmbeddingConfig(embModel), newMdd, embHash, nil
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
