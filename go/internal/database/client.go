@@ -664,9 +664,12 @@ func (c *clientImpl) PruneExpiredMemories() error {
 		}
 
 		// 2. Delete unpopular expired memories (AccessCount < 10)
-		if err := tx.Where("expires_at < ? AND access_count < ?", now, 10).
-			Delete(&dbpkg.Memory{}).Error; err != nil {
-			return fmt.Errorf("failed to delete expired memories: %w", err)
+		result := tx.Where("expires_at < ? AND access_count < ?", now, 10).Delete(&dbpkg.Memory{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete expired memories: %w", result.Error)
+		}
+		if result.RowsAffected > 0 {
+			fmt.Printf("Pruned %d expired memories\n", result.RowsAffected)
 		}
 
 		return nil
@@ -687,22 +690,27 @@ func (c *clientImpl) ListAgentMemories(agentName, userID string) ([]dbpkg.Memory
 }
 
 func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
-	normalizedName := strings.ReplaceAll(agentName, "-", "_")
-
-	// Delete both original name and normalized name
-	// Sometimes frontend has naming inconsistencies with backend
-	err := delete[dbpkg.Memory](c.db,
-		Clause{Key: "agent_name", Value: agentName},
-		Clause{Key: "user_id", Value: userID})
-	if err != nil {
+	if err := c.deleteAgentMemoryByQuery(agentName, userID); err != nil {
 		return err
 	}
-
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
 	if normalizedName != agentName {
-		return delete[dbpkg.Memory](c.db,
-			Clause{Key: "agent_name", Value: normalizedName},
-			Clause{Key: "user_id", Value: userID})
+		return c.deleteAgentMemoryByQuery(normalizedName, userID)
 	}
+	return nil
+}
 
+func (c *clientImpl) deleteAgentMemoryByQuery(agentName, userID string) error {
+	var ids []string
+	if err := c.db.Table("memory").Where("agent_name = ? AND user_id = ?", agentName, userID).Pluck("id", &ids).Error; err != nil {
+		return fmt.Errorf("failed to list memory ids: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	// DELETE by primary key only to avoid Turso multi-index scan on DELETE which causes a bug
+	if err := c.db.Exec("DELETE FROM memory WHERE id IN ?", ids).Error; err != nil {
+		return fmt.Errorf("failed to delete agent memory: %w", err)
+	}
 	return nil
 }
