@@ -20,34 +20,10 @@ KUBECONFIG_PERM ?= $(shell \
   fi)
 
 
-# Optional config overrides
--include config.mk
-# Buildx proxy config: copy buildx/config.mk.example to buildx/config.mk and set
-# HTTP_PROXY/HTTPS_PROXY so the buildx builder can load base image metadata.
--include buildx/config.mk
-
-# Proxy for Docker buildx (BuildKit). Set in buildx/config.mk or env so the builder
-# can load base image metadata (e.g. gcr.io/distroless/static).
-HTTP_PROXY  ?=
-HTTPS_PROXY ?=
-NO_PROXY    ?=
-
 # Docker buildx configuration
 BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
-
-# Driver options for buildx (proxy env is passed into the BuildKit container)
-BUILDX_DRIVER_OPTS = --driver-opt network=host
-ifneq ($(HTTP_PROXY),)
-BUILDX_DRIVER_OPTS += --driver-opt env.HTTP_PROXY=$(HTTP_PROXY)
-endif
-ifneq ($(HTTPS_PROXY),)
-BUILDX_DRIVER_OPTS += --driver-opt env.HTTPS_PROXY=$(HTTPS_PROXY)
-endif
-ifneq ($(NO_PROXY),)
-BUILDX_DRIVER_OPTS += --driver-opt env.NO_PROXY=$(NO_PROXY)
-endif
 
 DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
@@ -58,19 +34,16 @@ KIND_IMAGE_VERSION ?= 1.35.0
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
-APP_GO_IMAGE_NAME ?= app-go
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
-APP_GO_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-APP_GO_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_GO_IMAGE_NAME):$(APP_GO_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 
 #take from go/go.mod
@@ -176,14 +149,10 @@ check-api-key:
 		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
-.PHONY: buildx-rm
-buildx-rm: ## Remove the buildx builder (e.g. to recreate with proxy: make buildx-rm buildx-create build-controller)
-	docker buildx rm $(BUILDX_BUILDER_NAME) -f || true
-
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use $(BUILDX_DRIVER_OPTS) || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
 	docker buildx use $(BUILDX_BUILDER_NAME) || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
@@ -242,12 +211,11 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-app-go
+build: buildx-create build-controller build-ui build-app
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
-	@echo "App Go Image: $(APP_GO_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Tools Image: $(TOOLS_IMG)"
 
@@ -269,7 +237,6 @@ build-img-versions:
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
-	@echo app-go=$(APP_GO_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 
 .PHONY: lint
@@ -300,11 +267,6 @@ build-kagent-adk: buildx-create
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
-
-.PHONY: build-app-go
-build-app-go: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_GO_IMG) -f go-adk/Dockerfile ./go-adk
-
 
 .PHONY: helm-cleanup
 helm-cleanup:

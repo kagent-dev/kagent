@@ -3565,9 +3565,6 @@ spec:
                           type: object
                         type: array
                       image:
-                        description: Image overrides the default repository (e.g.
-                          "kagent-dev/kagent/app"). When set, used with ImageRegistry
-                          and tag to form the full image.
                         minLength: 1
                         type: string
                       imagePullPolicy:
@@ -7286,11 +7283,6 @@ spec:
                           - name
                           type: object
                         type: array
-                      image:
-                        description: Image overrides the default repository (e.g.
-                          "kagent-dev/kagent/app"). When set, used with ImageRegistry
-                          and tag to form the full image.
-                        type: string
                       imagePullPolicy:
                         description: PullPolicy describes a policy for if/when to
                           pull a container image
