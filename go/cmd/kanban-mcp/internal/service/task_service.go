@@ -65,7 +65,7 @@ func (s *TaskService) ListTasks(ctx context.Context, filter TaskFilter) ([]*db.T
 	}
 
 	var tasks []*db.Task
-	if err := q.Find(&tasks).Error; err != nil {
+	if err := q.Preload("Subtasks").Find(&tasks).Error; err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
 	return tasks, nil

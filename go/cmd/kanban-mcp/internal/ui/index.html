@@ -308,58 +308,120 @@
   }
 
   /* ── Subtasks ── */
-  details {
+  .subtasks-section {
     margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
   }
 
-  summary {
-    font-size: 0.78rem;
-    cursor: pointer;
+  .subtasks-header {
+    font-size: 0.72rem;
+    font-weight: 600;
     color: var(--muted-foreground);
-    user-select: none;
-    padding: 4px 0;
-    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  summary:hover {
-    color: var(--foreground);
+  .subtasks-progress {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
   }
 
   .subtask-list {
-    margin-top: 6px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
   }
 
   .subtask-item {
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
-    padding: 4px 8px;
+    padding: 5px 8px;
     border-radius: 6px;
     background: var(--muted);
     color: var(--secondary-foreground);
+    cursor: pointer;
+    transition: background 0.1s;
+    border: 1px solid transparent;
   }
 
-  .subtask-status {
-    font-size: 0.68rem;
-    padding: 1px 7px;
-    border-radius: 9999px;
-    background: var(--background);
+  .subtask-item:hover {
+    background: #e8edf3;
+    border-color: var(--border);
+  }
+
+  .subtask-item.done {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+  }
+
+  .subtask-item.done .subtask-title {
+    text-decoration: line-through;
     color: var(--muted-foreground);
-    white-space: nowrap;
-    border: 1px solid var(--border);
-    font-weight: 500;
+    opacity: 0.7;
+  }
+
+  .subtask-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    min-width: 15px;
+    border: 1.5px solid #94a3b8;
+    border-radius: 4px;
+    background: var(--background);
+    cursor: pointer;
+    margin-top: 1px;
+    position: relative;
+    transition: background 0.1s, border-color 0.1s;
+    flex-shrink: 0;
+  }
+
+  .subtask-checkbox:checked {
+    background: #22c55e;
+    border-color: #22c55e;
+  }
+
+  .subtask-checkbox:checked::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0px;
+    width: 5px;
+    height: 9px;
+    border: 2px solid white;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
   }
 
   .subtask-title {
     flex: 1;
     min-width: 0;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .progress-bar-wrap {
+    height: 3px;
+    background: var(--border);
+    border-radius: 9999px;
+    margin-top: 8px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: #22c55e;
+    border-radius: 9999px;
+    transition: width 0.3s ease;
   }
 
   /* ── Card Actions ── */
@@ -369,42 +431,6 @@
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--border-light);
-  }
-
-  .btn-nav {
-    flex: 1;
-    background: var(--background);
-    color: var(--secondary-foreground);
-    border: 1px solid var(--input);
-    border-radius: 6px;
-    padding: 6px 4px;
-    font-size: 0.72rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
-    text-align: center;
-    font-family: inherit;
-    line-height: 1.3;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-  }
-
-  .btn-nav:hover:not(:disabled) {
-    background: var(--muted);
-    border-color: #cbd5e1;
-  }
-
-  .btn-nav:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .btn-nav .btn-label {
-    font-size: 0.68rem;
-    color: var(--muted-foreground);
-    font-weight: 400;
   }
 
   .btn-hitl {
@@ -530,9 +556,6 @@
     Done: "Done"
   };
 
-  function prevStatus(s) { var i = WORKFLOW.indexOf(s); return i > 0 ? WORKFLOW[i-1] : null; }
-  function nextStatus(s) { var i = WORKFLOW.indexOf(s); return i >= 0 && i < WORKFLOW.length-1 ? WORKFLOW[i+1] : null; }
-
   function norm(task) {
     return {
       id: task.id || task.ID,
@@ -589,8 +612,8 @@
       hasAnyMeta = true;
     }
     var subs = task.subtasks || [];
+    var doneSubs = subs.filter(function(s) { return s.status === "Done"; }).length;
     if (subs.length > 0) {
-      var doneSubs = subs.filter(function(s) { return s.status === "Done"; }).length;
       var sb = document.createElement("span");
       sb.className = "badge badge-sub";
       sb.textContent = doneSubs + "/" + subs.length + " subtasks";
@@ -600,44 +623,64 @@
     if (hasAnyMeta) div.appendChild(meta);
 
     if (subs.length > 0) {
-      var details = document.createElement("details");
-      var summary = document.createElement("summary");
-      summary.textContent = "Subtasks (" + doneSubs + "/" + subs.length + " done)";
-      details.appendChild(summary);
+      var section = document.createElement("div");
+      section.className = "subtasks-section";
+
+      var hdr = document.createElement("div");
+      hdr.className = "subtasks-header";
+      var hdrLabel = document.createElement("span");
+      hdrLabel.textContent = "Subtasks";
+      hdr.appendChild(hdrLabel);
+      var hdrProgress = document.createElement("span");
+      hdrProgress.className = "subtasks-progress";
+      hdrProgress.textContent = doneSubs + " / " + subs.length + " done";
+      hdr.appendChild(hdrProgress);
+      section.appendChild(hdr);
+
       var subList = document.createElement("div");
       subList.className = "subtask-list";
       subs.forEach(function(st) {
-        var item = document.createElement("div");
-        item.className = "subtask-item";
-        var pill = document.createElement("span");
-        pill.className = "subtask-status";
-        pill.textContent = COL_LABELS[st.status] || st.status;
-        item.appendChild(pill);
+        var isDone = st.status === "Done";
+        var item = document.createElement("label");
+        item.className = "subtask-item" + (isDone ? " done" : "");
+
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "subtask-checkbox";
+        cb.checked = isDone;
+        cb.addEventListener("change", function(e) {
+          e.stopPropagation();
+          var newStatus = cb.checked ? "Done" : "Inbox";
+          fetch("/api/tasks/" + st.id, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({status: newStatus})
+          }).catch(function(err) { console.error("subtask toggle:", err); });
+        });
+        item.appendChild(cb);
+
         var t = document.createElement("span");
         t.className = "subtask-title";
         t.textContent = st.title;
         item.appendChild(t);
+
         subList.appendChild(item);
       });
-      details.appendChild(subList);
-      div.appendChild(details);
+      section.appendChild(subList);
+
+      var barWrap = document.createElement("div");
+      barWrap.className = "progress-bar-wrap";
+      var barFill = document.createElement("div");
+      barFill.className = "progress-bar-fill";
+      barFill.style.width = (subs.length > 0 ? Math.round(doneSubs / subs.length * 100) : 0) + "%";
+      barWrap.appendChild(barFill);
+      section.appendChild(barWrap);
+
+      div.appendChild(section);
     }
 
     var actions = document.createElement("div");
     actions.className = "card-actions";
-
-    var prevSt = prevStatus(task.status);
-    var prev = document.createElement("button");
-    prev.className = "btn-nav";
-    prev.disabled = !prevSt;
-    if (prevSt) {
-      prev.innerHTML = '<span>← Back</span><span class="btn-label">' + (COL_LABELS[prevSt] || prevSt) + '</span>';
-      prev.title = "Move to " + (COL_LABELS[prevSt] || prevSt);
-      prev.addEventListener("click", function() { moveTask(task.id, prevSt); });
-    } else {
-      prev.innerHTML = '<span>← Back</span>';
-    }
-    actions.appendChild(prev);
 
     var hitlBtn = document.createElement("button");
     hitlBtn.className = "btn-hitl" + (task.user_input_needed ? " active" : "");
@@ -647,19 +690,6 @@
       : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Flag';
     hitlBtn.addEventListener("click", function() { toggleHITL(task.id, task.user_input_needed); });
     actions.appendChild(hitlBtn);
-
-    var nextSt = nextStatus(task.status);
-    var next = document.createElement("button");
-    next.className = "btn-nav";
-    next.disabled = !nextSt;
-    if (nextSt) {
-      next.innerHTML = '<span>Next →</span><span class="btn-label">' + (COL_LABELS[nextSt] || nextSt) + '</span>';
-      next.title = "Move to " + (COL_LABELS[nextSt] || nextSt);
-      next.addEventListener("click", function() { moveTask(task.id, nextSt); });
-    } else {
-      next.innerHTML = '<span>Next →</span>';
-    }
-    actions.appendChild(next);
 
     div.appendChild(actions);
     return div;
@@ -750,14 +780,6 @@
       .then(function(r) { return r.json(); })
       .then(renderBoard)
       .catch(function(e) { console.error("fetchBoard:", e); });
-  }
-
-  function moveTask(id, status) {
-    fetch("/api/tasks/" + id, {
-      method: "PUT",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({status: status})
-    }).catch(function(e) { console.error("moveTask:", e); });
   }
 
   function toggleHITL(id, current) {
