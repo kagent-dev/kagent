@@ -3,8 +3,8 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentsProvider } from "@/components/AgentsProvider";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/sidebars/AppSidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppInitializer } from "@/components/AppInitializer";
@@ -25,12 +25,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <AgentsProvider>
         <NamespaceProvider>
           <html lang="en" className="">
-            <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
+            <body className={`${geistSans.className} flex h-screen overflow-hidden`}>
               <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
                 <AppInitializer>
-                  <Header />
-                  <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-                  <Footer />
+                  <SidebarProvider>
+                    <AppSidebar />
+                    <SidebarInset className="flex-1 overflow-y-auto">
+                      {children}
+                    </SidebarInset>
+                  </SidebarProvider>
                 </AppInitializer>
                 <Toaster richColors/>
               </ThemeProvider>
