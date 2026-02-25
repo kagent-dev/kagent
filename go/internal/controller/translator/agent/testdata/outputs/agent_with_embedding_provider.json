@@ -19,13 +19,14 @@
   },
   "config": {
     "description": "",
-    "embedding": {
-      "model": "text-embedding-005",
-      "provider": "gemini_vertex_ai"
-    },
     "http_tools": null,
     "instruction": "You are an assistant.",
-    "memory_enabled": true,
+    "memory": {
+      "embedding": {
+        "model": "text-embedding-005",
+        "provider": "gemini_vertex_ai"
+      }
+    },
     "model": {
       "base_url": "",
       "model": "gpt-4o",
@@ -62,7 +63,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory_enabled\":true,\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
     {
@@ -131,7 +132,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11249654220252456840"
+              "kagent.dev/config-hash": "7626654329789297995"
             },
             "labels": {
               "app": "kagent",

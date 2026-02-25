@@ -19,13 +19,14 @@
   },
   "config": {
     "description": "",
-    "embedding": {
-      "model": "text-embedding-3-small",
-      "provider": "openai"
-    },
     "http_tools": null,
     "instruction": "You are a helpful assistant with memory. Save important findings and use past context when relevant.",
-    "memory_enabled": true,
+    "memory": {
+      "embedding": {
+        "model": "text-embedding-3-small",
+        "provider": "openai"
+      }
+    },
     "model": {
       "base_url": "",
       "headers": {
@@ -67,7 +68,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_memory\",\"description\":\"\",\"url\":\"http://agent-with-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with memory. Save important findings and use past context when relevant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory_enabled\":true,\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with memory. Save important findings and use past context when relevant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}}"
       }
     },
     {
@@ -136,7 +137,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2169243105903238540"
+              "kagent.dev/config-hash": "8571325440893358514"
             },
             "labels": {
               "app": "kagent",
