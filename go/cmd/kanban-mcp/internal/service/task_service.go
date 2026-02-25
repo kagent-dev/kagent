@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/db"
 	"gorm.io/gorm"
@@ -12,7 +13,8 @@ import (
 type TaskFilter struct {
 	Status   *db.TaskStatus
 	Assignee *string
-	ParentID *uint // nil = top-level only (WHERE parent_id IS NULL)
+	Label    *string // nil = all labels; set to filter tasks containing this label
+	ParentID *uint   // nil = top-level only (WHERE parent_id IS NULL)
 }
 
 // CreateTaskRequest holds the data for creating a new task.
@@ -20,6 +22,7 @@ type CreateTaskRequest struct {
 	Title       string
 	Description string
 	Status      db.TaskStatus // defaults to StatusInbox if empty
+	Labels      []string
 }
 
 // UpdateTaskRequest holds fields for updating an existing task.
@@ -28,7 +31,17 @@ type UpdateTaskRequest struct {
 	Description     *string
 	Status          *db.TaskStatus
 	Assignee        *string
+	Labels          *[]string // nil = no change; non-nil replaces existing labels
 	UserInputNeeded *bool
+}
+
+// CreateAttachmentRequest holds the data for adding an attachment to a task.
+type CreateAttachmentRequest struct {
+	Type     db.AttachmentType // "file" or "link"
+	Filename string            // required for type=file
+	Content  string            // required for type=file
+	URL      string            // required for type=link
+	Title    string            // optional for type=link
 }
 
 // Broadcaster is an interface for broadcasting board change events.
@@ -65,17 +78,33 @@ func (s *TaskService) ListTasks(ctx context.Context, filter TaskFilter) ([]*db.T
 	}
 
 	var tasks []*db.Task
-	if err := q.Preload("Subtasks").Find(&tasks).Error; err != nil {
+	if err := q.Preload("Subtasks").Preload("Attachments").Find(&tasks).Error; err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
+
+	// Apply label filter in-memory (JSON column not easily filterable in SQL across SQLite/Postgres)
+	if filter.Label != nil {
+		label := strings.ToLower(*filter.Label)
+		filtered := make([]*db.Task, 0)
+		for _, t := range tasks {
+			for _, l := range t.Labels {
+				if strings.ToLower(l) == label {
+					filtered = append(filtered, t)
+					break
+				}
+			}
+		}
+		tasks = filtered
+	}
+
 	return tasks, nil
 }
 
-// GetTask returns a task by ID with its subtasks preloaded.
+// GetTask returns a task by ID with its subtasks and attachments preloaded.
 // Returns a wrapped gorm.ErrRecordNotFound if the task does not exist.
 func (s *TaskService) GetTask(ctx context.Context, id uint) (*db.Task, error) {
 	var task db.Task
-	if err := s.db.WithContext(ctx).Preload("Subtasks").First(&task, id).Error; err != nil {
+	if err := s.db.WithContext(ctx).Preload("Subtasks").Preload("Attachments").First(&task, id).Error; err != nil {
 		return nil, fmt.Errorf("task %d not found: %w", id, err)
 	}
 	return &task, nil
@@ -92,6 +121,7 @@ func (s *TaskService) CreateTask(ctx context.Context, req CreateTaskRequest) (*d
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      status,
+		Labels:      deduplicateLabels(req.Labels),
 	}
 
 	if err := s.db.WithContext(ctx).Create(task).Error; err != nil {
@@ -123,6 +153,9 @@ func (s *TaskService) UpdateTask(ctx context.Context, id uint, req UpdateTaskReq
 	}
 	if req.Assignee != nil {
 		task.Assignee = *req.Assignee
+	}
+	if req.Labels != nil {
+		task.Labels = deduplicateLabels(*req.Labels)
 	}
 	if req.UserInputNeeded != nil {
 		task.UserInputNeeded = *req.UserInputNeeded
@@ -192,6 +225,7 @@ func (s *TaskService) CreateSubtask(ctx context.Context, parentID uint, req Crea
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      status,
+		Labels:      deduplicateLabels(req.Labels),
 		ParentID:    &parentID,
 	}
 
@@ -203,21 +237,109 @@ func (s *TaskService) CreateSubtask(ctx context.Context, parentID uint, req Crea
 	return task, nil
 }
 
-// DeleteTask deletes a task and all its subtasks.
+// DeleteTask deletes a task and all its subtasks and attachments.
 func (s *TaskService) DeleteTask(ctx context.Context, id uint) error {
 	if _, err := s.GetTask(ctx, id); err != nil {
 		return err
 	}
 
-	// Delete subtasks first (explicit cascade for SQLite + Postgres compatibility)
+	// Delete attachments on the task
+	if err := s.db.WithContext(ctx).Where("task_id = ?", id).Delete(&db.Attachment{}).Error; err != nil {
+		return fmt.Errorf("failed to delete attachments of task %d: %w", id, err)
+	}
+
+	// Delete attachments on subtasks
+	var subtaskIDs []uint
+	s.db.WithContext(ctx).Model(&db.Task{}).Where("parent_id = ?", id).Pluck("id", &subtaskIDs)
+	if len(subtaskIDs) > 0 {
+		if err := s.db.WithContext(ctx).Where("task_id IN ?", subtaskIDs).Delete(&db.Attachment{}).Error; err != nil {
+			return fmt.Errorf("failed to delete subtask attachments of task %d: %w", id, err)
+		}
+	}
+
+	// Delete subtasks
 	if err := s.db.WithContext(ctx).Where("parent_id = ?", id).Delete(&db.Task{}).Error; err != nil {
 		return fmt.Errorf("failed to delete subtasks of task %d: %w", id, err)
 	}
 
+	// Delete the task itself
 	if err := s.db.WithContext(ctx).Delete(&db.Task{}, id).Error; err != nil {
 		return fmt.Errorf("failed to delete task %d: %w", id, err)
 	}
 
 	s.broadcaster.Broadcast(nil)
 	return nil
+}
+
+// AddAttachment adds an attachment to a top-level task.
+// Returns an error if the task is a subtask or if validation fails.
+func (s *TaskService) AddAttachment(ctx context.Context, taskID uint, req CreateAttachmentRequest) (*db.Attachment, error) {
+	task, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.ParentID != nil {
+		return nil, fmt.Errorf("attachments can only be added to top-level tasks")
+	}
+
+	switch req.Type {
+	case db.AttachmentTypeFile:
+		if req.Filename == "" || req.Content == "" {
+			return nil, fmt.Errorf("filename and content required for file attachments")
+		}
+	case db.AttachmentTypeLink:
+		if req.URL == "" {
+			return nil, fmt.Errorf("url required for link attachments")
+		}
+	default:
+		return nil, fmt.Errorf("type must be 'file' or 'link'")
+	}
+
+	attachment := &db.Attachment{
+		TaskID:   taskID,
+		Type:     req.Type,
+		Filename: req.Filename,
+		Content:  req.Content,
+		URL:      req.URL,
+		Title:    req.Title,
+	}
+
+	if err := s.db.WithContext(ctx).Create(attachment).Error; err != nil {
+		return nil, fmt.Errorf("failed to create attachment: %w", err)
+	}
+
+	s.broadcaster.Broadcast(attachment)
+	return attachment, nil
+}
+
+// DeleteAttachment deletes an attachment by ID.
+func (s *TaskService) DeleteAttachment(ctx context.Context, id uint) error {
+	var attachment db.Attachment
+	if err := s.db.WithContext(ctx).First(&attachment, id).Error; err != nil {
+		return fmt.Errorf("attachment %d not found: %w", id, err)
+	}
+
+	if err := s.db.WithContext(ctx).Delete(&attachment).Error; err != nil {
+		return fmt.Errorf("failed to delete attachment %d: %w", id, err)
+	}
+
+	s.broadcaster.Broadcast(nil)
+	return nil
+}
+
+// deduplicateLabels removes duplicate labels while preserving order.
+func deduplicateLabels(labels []string) db.StringSlice {
+	if labels == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	result := make(db.StringSlice, 0, len(labels))
+	for _, l := range labels {
+		lower := strings.ToLower(l)
+		if _, ok := seen[lower]; !ok {
+			seen[lower] = struct{}{}
+			result = append(result, l)
+		}
+	}
+	return result
 }

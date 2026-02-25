@@ -41,9 +41,9 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 	return &Manager{db: db}, nil
 }
 
-// Initialize runs AutoMigrate for the Task model.
+// Initialize runs AutoMigrate for the Task and Attachment models.
 func (m *Manager) Initialize() error {
-	if err := m.db.AutoMigrate(&Task{}); err != nil {
+	if err := m.db.AutoMigrate(&Task{}, &Attachment{}); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 	return nil

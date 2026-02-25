@@ -49,6 +49,9 @@ func TestNewManager_Sqlite(t *testing.T) {
 	if !mgr.DB().Migrator().HasTable(&db.Task{}) {
 		t.Error("tasks table does not exist after AutoMigrate")
 	}
+	if !mgr.DB().Migrator().HasTable(&db.Attachment{}) {
+		t.Error("attachments table does not exist after AutoMigrate")
+	}
 }
 
 func TestNewManager_InvalidType(t *testing.T) {

@@ -21,7 +21,7 @@ func (m *mockBroadcaster) Broadcast(_ interface{}) {
 	m.calls++
 }
 
-// openTestDB opens a fresh in-memory SQLite DB and auto-migrates the Task model.
+// openTestDB opens a fresh SQLite DB and auto-migrates the Task and Attachment models.
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -29,7 +29,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("openTestDB: %v", err)
 	}
-	if err := gormDB.AutoMigrate(&db.Task{}); err != nil {
+	if err := gormDB.AutoMigrate(&db.Task{}, &db.Attachment{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	return gormDB
@@ -59,6 +59,33 @@ func TestCreateTask_WithStatus(t *testing.T) {
 	}
 	if task.Status != db.StatusDesign {
 		t.Errorf("Status = %q, want %q", task.Status, db.StatusDesign)
+	}
+}
+
+func TestCreateTask_WithLabels(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+
+	task, err := svc.CreateTask(context.Background(), service.CreateTaskRequest{
+		Title:  "Labeled Task",
+		Labels: []string{"priority:high", "team:platform"},
+	})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if len(task.Labels) != 2 {
+		t.Errorf("Labels count = %d, want 2", len(task.Labels))
+	}
+	if task.Labels[0] != "priority:high" || task.Labels[1] != "team:platform" {
+		t.Errorf("Labels = %v, want [priority:high, team:platform]", task.Labels)
+	}
+
+	// Verify labels persist after re-fetch
+	fetched, err := svc.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if len(fetched.Labels) != 2 {
+		t.Errorf("Fetched Labels count = %d, want 2", len(fetched.Labels))
 	}
 }
 
@@ -127,6 +154,24 @@ func TestListTasks_Filter(t *testing.T) {
 	}
 	if len(tasks) != 2 {
 		t.Errorf("ListTasks(Inbox) = %d tasks, want 2", len(tasks))
+	}
+}
+
+func TestListTasks_LabelFilter(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task A", Labels: []string{"priority:high", "team:platform"}})
+	svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task B", Labels: []string{"priority:low"}})
+	svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task C", Labels: []string{"priority:high", "team:infra"}})
+
+	label := "priority:high"
+	tasks, err := svc.ListTasks(ctx, service.TaskFilter{Label: &label})
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("ListTasks(priority:high) = %d tasks, want 2", len(tasks))
 	}
 }
 
@@ -317,5 +362,274 @@ func TestGetTask_WithSubtasks(t *testing.T) {
 	}
 	if len(fetched.Subtasks) != 2 {
 		t.Errorf("Subtasks count = %d, want 2", len(fetched.Subtasks))
+	}
+}
+
+// --- Attachment tests ---
+
+func TestAddAttachment_File(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task with file"})
+	att, err := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:     db.AttachmentTypeFile,
+		Filename: "DESIGN.md",
+		Content:  "# Design\n\nOverview",
+	})
+	if err != nil {
+		t.Fatalf("AddAttachment() error = %v", err)
+	}
+	if att.Type != db.AttachmentTypeFile {
+		t.Errorf("Type = %q, want %q", att.Type, db.AttachmentTypeFile)
+	}
+	if att.Filename != "DESIGN.md" {
+		t.Errorf("Filename = %q, want %q", att.Filename, "DESIGN.md")
+	}
+	if att.TaskID != task.ID {
+		t.Errorf("TaskID = %d, want %d", att.TaskID, task.ID)
+	}
+}
+
+func TestAddAttachment_Link(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task with link"})
+	att, err := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:  db.AttachmentTypeLink,
+		URL:   "https://example.com",
+		Title: "Reference",
+	})
+	if err != nil {
+		t.Fatalf("AddAttachment() error = %v", err)
+	}
+	if att.Type != db.AttachmentTypeLink {
+		t.Errorf("Type = %q, want %q", att.Type, db.AttachmentTypeLink)
+	}
+	if att.URL != "https://example.com" {
+		t.Errorf("URL = %q, want %q", att.URL, "https://example.com")
+	}
+}
+
+func TestAddAttachment_SubtaskRejected(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	parent, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	sub, _ := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Child"})
+
+	_, err := svc.AddAttachment(ctx, sub.ID, service.CreateAttachmentRequest{
+		Type:     db.AttachmentTypeFile,
+		Filename: "test.md",
+		Content:  "content",
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for subtask, got nil")
+	}
+	if err.Error() != "attachments can only be added to top-level tasks" {
+		t.Errorf("error = %q, want %q", err.Error(), "attachments can only be added to top-level tasks")
+	}
+}
+
+func TestAddAttachment_TaskNotFound(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+
+	_, err := svc.AddAttachment(context.Background(), 9999, service.CreateAttachmentRequest{
+		Type:     db.AttachmentTypeFile,
+		Filename: "test.md",
+		Content:  "content",
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for non-existent task, got nil")
+	}
+}
+
+func TestAddAttachment_InvalidType(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+	_, err := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentType("invalid"),
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for invalid type, got nil")
+	}
+	if err.Error() != "type must be 'file' or 'link'" {
+		t.Errorf("error = %q, want %q", err.Error(), "type must be 'file' or 'link'")
+	}
+}
+
+func TestAddAttachment_FileMissingFields(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+
+	// Missing filename
+	_, err := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:    db.AttachmentTypeFile,
+		Content: "content",
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for missing filename, got nil")
+	}
+
+	// Missing content
+	_, err = svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:     db.AttachmentTypeFile,
+		Filename: "test.md",
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for missing content, got nil")
+	}
+}
+
+func TestAddAttachment_LinkMissingURL(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+	_, err := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:  db.AttachmentTypeLink,
+		Title: "No URL",
+	})
+	if err == nil {
+		t.Fatal("AddAttachment() expected error for missing URL, got nil")
+	}
+}
+
+func TestDeleteAttachment_Valid(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+	att, _ := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type:     db.AttachmentTypeFile,
+		Filename: "test.md",
+		Content:  "content",
+	})
+
+	if err := svc.DeleteAttachment(ctx, att.ID); err != nil {
+		t.Fatalf("DeleteAttachment() error = %v", err)
+	}
+
+	// Verify attachment is gone
+	fetched, _ := svc.GetTask(ctx, task.ID)
+	if len(fetched.Attachments) != 0 {
+		t.Errorf("Attachments count = %d after delete, want 0", len(fetched.Attachments))
+	}
+}
+
+func TestDeleteAttachment_NotFound(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+
+	err := svc.DeleteAttachment(context.Background(), 9999)
+	if err == nil {
+		t.Fatal("DeleteAttachment() expected error for non-existent attachment, got nil")
+	}
+}
+
+func TestDeleteTask_CascadeWithAttachments(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+	gormDB := openTestDB(t)
+	svc = service.NewTaskService(gormDB, &mockBroadcaster{})
+
+	parent, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	svc.AddAttachment(ctx, parent.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentTypeFile, Filename: "a.md", Content: "a",
+	})
+	svc.AddAttachment(ctx, parent.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentTypeLink, URL: "https://example.com",
+	})
+	sub, _ := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Sub"})
+
+	if err := svc.DeleteTask(ctx, parent.ID); err != nil {
+		t.Fatalf("DeleteTask() error = %v", err)
+	}
+
+	// Verify parent and subtask gone
+	for _, id := range []uint{parent.ID, sub.ID} {
+		_, err := svc.GetTask(ctx, id)
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Errorf("GetTask(%d) should return not-found after cascade delete", id)
+		}
+	}
+
+	// Verify attachments gone
+	var count int64
+	gormDB.Model(&db.Attachment{}).Where("task_id = ?", parent.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("Attachments count = %d after cascade delete, want 0", count)
+	}
+}
+
+func TestGetTask_WithAttachments(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task with attachments"})
+	svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentTypeFile, Filename: "a.md", Content: "content",
+	})
+	svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentTypeLink, URL: "https://example.com", Title: "Link",
+	})
+
+	fetched, err := svc.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if len(fetched.Attachments) != 2 {
+		t.Errorf("Attachments count = %d, want 2", len(fetched.Attachments))
+	}
+}
+
+func TestBroadcast_CalledOnAttachmentMutation(t *testing.T) {
+	b := &mockBroadcaster{}
+	svc := service.NewTaskService(openTestDB(t), b)
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+	callsBefore := b.calls
+
+	att, _ := svc.AddAttachment(ctx, task.ID, service.CreateAttachmentRequest{
+		Type: db.AttachmentTypeFile, Filename: "test.md", Content: "content",
+	})
+	if b.calls != callsBefore+1 {
+		t.Errorf("after AddAttachment: Broadcast calls = %d, want %d", b.calls, callsBefore+1)
+	}
+
+	svc.DeleteAttachment(ctx, att.ID)
+	if b.calls != callsBefore+2 {
+		t.Errorf("after DeleteAttachment: Broadcast calls = %d, want %d", b.calls, callsBefore+2)
+	}
+}
+
+func TestUpdateTask_Labels(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Task"})
+
+	labels := []string{"priority:high", "group:platform"}
+	updated, err := svc.UpdateTask(ctx, task.ID, service.UpdateTaskRequest{Labels: &labels})
+	if err != nil {
+		t.Fatalf("UpdateTask() error = %v", err)
+	}
+	if len(updated.Labels) != 2 {
+		t.Errorf("Labels count = %d, want 2", len(updated.Labels))
+	}
+
+	// Verify deduplication
+	dupeLabels := []string{"a", "A", "b"}
+	updated, err = svc.UpdateTask(ctx, task.ID, service.UpdateTaskRequest{Labels: &dupeLabels})
+	if err != nil {
+		t.Fatalf("UpdateTask() error = %v", err)
+	}
+	if len(updated.Labels) != 2 {
+		t.Errorf("Labels count after dedup = %d, want 2", len(updated.Labels))
 	}
 }

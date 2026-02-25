@@ -21,7 +21,7 @@ type Column struct {
 	Tasks  []*db.Task `json:"tasks"`
 }
 
-// NewServer creates and returns an MCP server with all 10 Kanban tools registered.
+// NewServer creates and returns an MCP server with all 12 Kanban tools registered.
 func NewServer(svc *service.TaskService) *mcpsdk.Server {
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{
 		Name:    "kanban",
@@ -30,12 +30,12 @@ func NewServer(svc *service.TaskService) *mcpsdk.Server {
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "list_tasks",
-		Description: "List tasks, optionally filtered by status or assignee. Returns top-level tasks only by default.",
+		Description: "List tasks, optionally filtered by status, assignee, or label. Returns top-level tasks only by default.",
 	}, handleListTasks(svc))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "get_task",
-		Description: "Get a task by ID including its subtasks.",
+		Description: "Get a task by ID including its subtasks and attachments.",
 	}, handleGetTask(svc))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
@@ -60,7 +60,7 @@ func NewServer(svc *service.TaskService) *mcpsdk.Server {
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "update_task",
-		Description: "Update task fields (title, description, status, assignee, user_input_needed).",
+		Description: "Update task fields (title, description, status, assignee, labels, user_input_needed).",
 	}, handleUpdateTask(svc))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
@@ -70,13 +70,24 @@ func NewServer(svc *service.TaskService) *mcpsdk.Server {
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "delete_task",
-		Description: "Delete a task and all its subtasks.",
+		Description: "Delete a task and all its subtasks and attachments.",
 	}, handleDeleteTask(svc))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "get_board",
-		Description: "Get the full Kanban board grouped by status columns in workflow order.",
+		Description: "Get the full Kanban board grouped by status columns in workflow order, with subtasks and attachments inline.",
 	}, handleGetBoard(svc))
+
+	// Attachment tools
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "add_attachment",
+		Description: "Add a file or link attachment to a top-level task. For type=file: provide filename and content. For type=link: provide url and optional title.",
+	}, handleAddAttachment(svc))
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "delete_attachment",
+		Description: "Delete an attachment by ID.",
+	}, handleDeleteAttachment(svc))
 
 	return server
 }
@@ -109,6 +120,7 @@ func errorResult(msg string) *mcpsdk.CallToolResult {
 type listTasksInput struct {
 	Status   string `json:"status,omitempty"`
 	Assignee string `json:"assignee,omitempty"`
+	Label    string `json:"label,omitempty"`
 }
 
 type getTaskInput struct {
@@ -116,16 +128,18 @@ type getTaskInput struct {
 }
 
 type createTaskInput struct {
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
 }
 
 type createSubtaskInput struct {
-	ParentID    uint   `json:"parent_id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status,omitempty"`
+	ParentID    uint     `json:"parent_id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
 }
 
 type assignTaskInput struct {
@@ -139,12 +153,13 @@ type moveTaskInput struct {
 }
 
 type updateTaskInput struct {
-	ID              uint    `json:"id"`
-	Title           *string `json:"title,omitempty"`
-	Description     *string `json:"description,omitempty"`
-	Status          *string `json:"status,omitempty"`
-	Assignee        *string `json:"assignee,omitempty"`
-	UserInputNeeded *bool   `json:"user_input_needed,omitempty"`
+	ID              uint      `json:"id"`
+	Title           *string   `json:"title,omitempty"`
+	Description     *string   `json:"description,omitempty"`
+	Status          *string   `json:"status,omitempty"`
+	Assignee        *string   `json:"assignee,omitempty"`
+	Labels          *[]string `json:"labels,omitempty"`
+	UserInputNeeded *bool     `json:"user_input_needed,omitempty"`
 }
 
 type setUserInputNeededInput struct {
@@ -153,6 +168,19 @@ type setUserInputNeededInput struct {
 }
 
 type deleteTaskInput struct {
+	ID uint `json:"id"`
+}
+
+type addAttachmentInput struct {
+	TaskID   uint   `json:"task_id"`
+	Type     string `json:"type"`
+	Filename string `json:"filename,omitempty"`
+	Content  string `json:"content,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Title    string `json:"title,omitempty"`
+}
+
+type deleteAttachmentInput struct {
 	ID uint `json:"id"`
 }
 
@@ -167,6 +195,9 @@ func handleListTasks(svc *service.TaskService) func(context.Context, *mcpsdk.Cal
 		}
 		if input.Assignee != "" {
 			filter.Assignee = &input.Assignee
+		}
+		if input.Label != "" {
+			filter.Label = &input.Label
 		}
 
 		tasks, err := svc.ListTasks(ctx, filter)
@@ -193,6 +224,7 @@ func handleCreateTask(svc *service.TaskService) func(context.Context, *mcpsdk.Ca
 			Title:       input.Title,
 			Description: input.Description,
 			Status:      db.TaskStatus(input.Status),
+			Labels:      input.Labels,
 		}
 		task, err := svc.CreateTask(ctx, req)
 		if err != nil {
@@ -208,6 +240,7 @@ func handleCreateSubtask(svc *service.TaskService) func(context.Context, *mcpsdk
 			Title:       input.Title,
 			Description: input.Description,
 			Status:      db.TaskStatus(input.Status),
+			Labels:      input.Labels,
 		}
 		task, err := svc.CreateSubtask(ctx, input.ParentID, req)
 		if err != nil {
@@ -243,6 +276,7 @@ func handleUpdateTask(svc *service.TaskService) func(context.Context, *mcpsdk.Ca
 			Title:           input.Title,
 			Description:     input.Description,
 			Assignee:        input.Assignee,
+			Labels:          input.Labels,
 			UserInputNeeded: input.UserInputNeeded,
 		}
 		if input.Status != nil {
@@ -286,6 +320,32 @@ func handleGetBoard(svc *service.TaskService) func(context.Context, *mcpsdk.Call
 			return errorResult(fmt.Sprintf("get_board failed: %v", err)), nil, nil
 		}
 		return textResult(board)
+	}
+}
+
+func handleAddAttachment(svc *service.TaskService) func(context.Context, *mcpsdk.CallToolRequest, addAttachmentInput) (*mcpsdk.CallToolResult, interface{}, error) {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, input addAttachmentInput) (*mcpsdk.CallToolResult, interface{}, error) {
+		req := service.CreateAttachmentRequest{
+			Type:     db.AttachmentType(input.Type),
+			Filename: input.Filename,
+			Content:  input.Content,
+			URL:      input.URL,
+			Title:    input.Title,
+		}
+		attachment, err := svc.AddAttachment(ctx, input.TaskID, req)
+		if err != nil {
+			return errorResult(fmt.Sprintf("add_attachment failed: %v", err)), nil, nil
+		}
+		return textResult(attachment)
+	}
+}
+
+func handleDeleteAttachment(svc *service.TaskService) func(context.Context, *mcpsdk.CallToolRequest, deleteAttachmentInput) (*mcpsdk.CallToolResult, interface{}, error) {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, input deleteAttachmentInput) (*mcpsdk.CallToolResult, interface{}, error) {
+		if err := svc.DeleteAttachment(ctx, input.ID); err != nil {
+			return errorResult(fmt.Sprintf("delete_attachment failed: %v", err)), nil, nil
+		}
+		return textResult(map[string]interface{}{"deleted": true, "id": input.ID})
 	}
 }
 

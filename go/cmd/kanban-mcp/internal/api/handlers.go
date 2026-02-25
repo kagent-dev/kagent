@@ -41,7 +41,12 @@ func httpStatus(err error) int {
 		return http.StatusNotFound
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "invalid status") || strings.Contains(msg, "subtasks cannot have subtasks") {
+	if strings.Contains(msg, "invalid status") ||
+		strings.Contains(msg, "subtasks cannot have subtasks") ||
+		strings.Contains(msg, "attachments can only be added to top-level tasks") ||
+		strings.Contains(msg, "type must be") ||
+		strings.Contains(msg, "filename and content required") ||
+		strings.Contains(msg, "url required for link") {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
@@ -63,6 +68,16 @@ func parseID(path string) (uint, string, bool) {
 	return uint(id), suffix, true
 }
 
+// parseAttachmentID extracts the attachment ID from /api/attachments/42.
+func parseAttachmentID(path string) (uint, bool) {
+	trimmed := strings.TrimPrefix(path, "/api/attachments/")
+	id, err := strconv.ParseUint(trimmed, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return uint(id), true
+}
+
 // TasksHandler handles /api/tasks (GET list, POST create).
 func TasksHandler(svc *service.TaskService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +91,9 @@ func TasksHandler(svc *service.TaskService) http.HandlerFunc {
 			if a := r.URL.Query().Get("assignee"); a != "" {
 				filter.Assignee = &a
 			}
+			if l := r.URL.Query().Get("label"); l != "" {
+				filter.Label = &l
+			}
 			tasks, err := svc.ListTasks(r.Context(), filter)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -85,9 +103,10 @@ func TasksHandler(svc *service.TaskService) http.HandlerFunc {
 
 		case http.MethodPost:
 			var body struct {
-				Title       string `json:"title"`
-				Description string `json:"description"`
-				Status      string `json:"status"`
+				Title       string   `json:"title"`
+				Description string   `json:"description"`
+				Status      string   `json:"status"`
+				Labels      []string `json:"labels"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -97,6 +116,7 @@ func TasksHandler(svc *service.TaskService) http.HandlerFunc {
 				Title:       body.Title,
 				Description: body.Description,
 				Status:      db.TaskStatus(body.Status),
+				Labels:      body.Labels,
 			}
 			task, err := svc.CreateTask(r.Context(), req)
 			if err != nil {
@@ -111,7 +131,8 @@ func TasksHandler(svc *service.TaskService) http.HandlerFunc {
 	}
 }
 
-// TaskHandler handles /api/tasks/{id} (GET, PUT, DELETE) and /api/tasks/{id}/subtasks (GET, POST).
+// TaskHandler handles /api/tasks/{id} (GET, PUT, DELETE),
+// /api/tasks/{id}/subtasks (GET, POST), and /api/tasks/{id}/attachments (POST).
 func TaskHandler(svc *service.TaskService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, suffix, ok := parseID(r.URL.Path)
@@ -125,12 +146,39 @@ func TaskHandler(svc *service.TaskService) http.HandlerFunc {
 			return
 		}
 
+		if suffix == "/attachments" {
+			handleTaskAttachments(w, r, svc, id)
+			return
+		}
+
 		if suffix != "" {
 			http.NotFound(w, r)
 			return
 		}
 
 		handleTask(w, r, svc, id)
+	}
+}
+
+// AttachmentHandler handles /api/attachments/{id} (DELETE).
+func AttachmentHandler(svc *service.TaskService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := parseAttachmentID(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if err := svc.DeleteAttachment(r.Context(), id); err != nil {
+			writeError(w, httpStatus(err), err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -147,11 +195,12 @@ func handleTask(w http.ResponseWriter, r *http.Request, svc *service.TaskService
 
 	case http.MethodPut:
 		var body struct {
-			Title           *string `json:"title"`
-			Description     *string `json:"description"`
-			Status          *string `json:"status"`
-			Assignee        *string `json:"assignee"`
-			UserInputNeeded *bool   `json:"user_input_needed"`
+			Title           *string   `json:"title"`
+			Description     *string   `json:"description"`
+			Status          *string   `json:"status"`
+			Assignee        *string   `json:"assignee"`
+			Labels          *[]string `json:"labels"`
+			UserInputNeeded *bool     `json:"user_input_needed"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -161,6 +210,7 @@ func handleTask(w http.ResponseWriter, r *http.Request, svc *service.TaskService
 			Title:           body.Title,
 			Description:     body.Description,
 			Assignee:        body.Assignee,
+			Labels:          body.Labels,
 			UserInputNeeded: body.UserInputNeeded,
 		}
 		if body.Status != nil {
@@ -200,9 +250,10 @@ func handleSubtasks(w http.ResponseWriter, r *http.Request, svc *service.TaskSer
 
 	case http.MethodPost:
 		var body struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			Status      string `json:"status"`
+			Title       string   `json:"title"`
+			Description string   `json:"description"`
+			Status      string   `json:"status"`
+			Labels      []string `json:"labels"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -212,6 +263,7 @@ func handleSubtasks(w http.ResponseWriter, r *http.Request, svc *service.TaskSer
 			Title:       body.Title,
 			Description: body.Description,
 			Status:      db.TaskStatus(body.Status),
+			Labels:      body.Labels,
 		}
 		task, err := svc.CreateSubtask(r.Context(), parentID, req)
 		if err != nil {
@@ -223,6 +275,40 @@ func handleSubtasks(w http.ResponseWriter, r *http.Request, svc *service.TaskSer
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleTaskAttachments dispatches methods for /api/tasks/{id}/attachments.
+func handleTaskAttachments(w http.ResponseWriter, r *http.Request, svc *service.TaskService, taskID uint) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Type     string `json:"type"`
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+		URL      string `json:"url"`
+		Title    string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	req := service.CreateAttachmentRequest{
+		Type:     db.AttachmentType(body.Type),
+		Filename: body.Filename,
+		Content:  body.Content,
+		URL:      body.URL,
+		Title:    body.Title,
+	}
+	attachment, err := svc.AddAttachment(r.Context(), taskID, req)
+	if err != nil {
+		writeError(w, httpStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, attachment)
 }
 
 // BoardHandler handles GET /api/board.

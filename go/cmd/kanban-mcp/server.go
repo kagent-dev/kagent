@@ -24,6 +24,7 @@ func NewHTTPServer(cfg *config.Config, svc *service.TaskService, hub *sse.Hub) *
 	mux.HandleFunc("/events", hub.ServeSSE)
 	mux.HandleFunc("/api/tasks", kanbanapi.TasksHandler(svc))
 	mux.HandleFunc("/api/tasks/", kanbanapi.TaskHandler(svc))
+	mux.HandleFunc("/api/attachments/", kanbanapi.AttachmentHandler(svc))
 	mux.HandleFunc("/api/board", kanbanapi.BoardHandler(svc))
 	mux.Handle("/", ui.Handler())
 
