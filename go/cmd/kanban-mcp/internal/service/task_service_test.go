@@ -178,3 +178,144 @@ func TestBroadcast_CalledOnMutation(t *testing.T) {
 		t.Errorf("after DeleteTask: Broadcast calls = %d, want 4", b.calls)
 	}
 }
+
+func TestAssignTask(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task, err := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Assign me"})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+
+	// Assign to alice
+	assigned, err := svc.AssignTask(ctx, task.ID, "alice")
+	if err != nil {
+		t.Fatalf("AssignTask() error = %v", err)
+	}
+	if assigned.Assignee != "alice" {
+		t.Errorf("Assignee = %q, want %q", assigned.Assignee, "alice")
+	}
+
+	// Reassign to bob
+	reassigned, err := svc.AssignTask(ctx, task.ID, "bob")
+	if err != nil {
+		t.Fatalf("AssignTask() reassign error = %v", err)
+	}
+	if reassigned.Assignee != "bob" {
+		t.Errorf("Assignee = %q, want %q", reassigned.Assignee, "bob")
+	}
+
+	// Clear assignment
+	cleared, err := svc.AssignTask(ctx, task.ID, "")
+	if err != nil {
+		t.Fatalf("AssignTask() clear error = %v", err)
+	}
+	if cleared.Assignee != "" {
+		t.Errorf("Assignee = %q, want empty string", cleared.Assignee)
+	}
+}
+
+func TestListTasks_AssigneeFilter(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	task1, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Alice task 1"})
+	task2, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Alice task 2"})
+	task3, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Bob task"})
+	svc.AssignTask(ctx, task1.ID, "alice")
+	svc.AssignTask(ctx, task2.ID, "alice")
+	svc.AssignTask(ctx, task3.ID, "bob")
+
+	alice := "alice"
+	tasks, err := svc.ListTasks(ctx, service.TaskFilter{Assignee: &alice})
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("ListTasks(alice) = %d tasks, want 2", len(tasks))
+	}
+}
+
+func TestCreateSubtask_Valid(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	parent, err := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+
+	sub, err := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Child"})
+	if err != nil {
+		t.Fatalf("CreateSubtask() error = %v", err)
+	}
+	if sub.ParentID == nil || *sub.ParentID != parent.ID {
+		t.Errorf("ParentID = %v, want %d", sub.ParentID, parent.ID)
+	}
+}
+
+func TestCreateSubtask_ParentNotFound(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+
+	_, err := svc.CreateSubtask(context.Background(), 9999, service.CreateTaskRequest{Title: "Orphan"})
+	if err == nil {
+		t.Fatal("CreateSubtask() expected error for non-existent parent, got nil")
+	}
+}
+
+func TestCreateSubtask_NestedRejection(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	parent, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	child, _ := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Child"})
+
+	_, err := svc.CreateSubtask(ctx, child.ID, service.CreateTaskRequest{Title: "Grandchild"})
+	if err == nil {
+		t.Fatal("CreateSubtask() expected error for nested subtask, got nil")
+	}
+	if err.Error() != "subtasks cannot have subtasks" {
+		t.Errorf("error = %q, want %q", err.Error(), "subtasks cannot have subtasks")
+	}
+}
+
+func TestDeleteTask_Cascade(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	parent, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	sub1, _ := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Sub 1"})
+	sub2, _ := svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Sub 2"})
+
+	if err := svc.DeleteTask(ctx, parent.ID); err != nil {
+		t.Fatalf("DeleteTask() error = %v", err)
+	}
+
+	for _, id := range []uint{parent.ID, sub1.ID, sub2.ID} {
+		_, err := svc.GetTask(ctx, id)
+		if err == nil {
+			t.Errorf("GetTask(%d) expected error after cascade delete, got nil", id)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Errorf("GetTask(%d) error = %v, want wrapped gorm.ErrRecordNotFound", id, err)
+		}
+	}
+}
+
+func TestGetTask_WithSubtasks(t *testing.T) {
+	svc := service.NewTaskService(openTestDB(t), &mockBroadcaster{})
+	ctx := context.Background()
+
+	parent, _ := svc.CreateTask(ctx, service.CreateTaskRequest{Title: "Parent"})
+	svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Sub 1"})
+	svc.CreateSubtask(ctx, parent.ID, service.CreateTaskRequest{Title: "Sub 2"})
+
+	fetched, err := svc.GetTask(ctx, parent.ID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if len(fetched.Subtasks) != 2 {
+		t.Errorf("Subtasks count = %d, want 2", len(fetched.Subtasks))
+	}
+}
