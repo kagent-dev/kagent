@@ -183,12 +183,13 @@ type LangGraphCheckpointWrite struct {
 
 // CrewAIAgentMemory represents long-term memory for CrewAI agents
 type CrewAIAgentMemory struct {
-	UserID     string         `gorm:"primaryKey;not null" json:"user_id"`
-	ThreadID   string         `gorm:"primaryKey;not null" json:"thread_id"`
-	CreatedAt  time.Time      `gorm:"autoCreateTime;index:idx_crewai_memory_list" json:"created_at"`
-	UpdatedAt  time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	MemoryData string         `gorm:"type:text;not null" json:"memory_data"`
+	UserID    string         `gorm:"primaryKey;not null" json:"user_id"`
+	ThreadID  string         `gorm:"primaryKey;not null" json:"thread_id"`
+	CreatedAt time.Time      `gorm:"autoCreateTime;index:idx_crewai_memory_list" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	// MemoryData contains JSON serialized memory data including task_description, score, metadata, datetime
+	MemoryData string `gorm:"type:text;not null" json:"memory_data"`
 }
 
 // CrewAIFlowState represents flow state for CrewAI flows
@@ -199,7 +200,8 @@ type CrewAIFlowState struct {
 	CreatedAt  time.Time      `gorm:"autoCreateTime;index:idx_crewai_flow_state_list" json:"created_at"`
 	UpdatedAt  time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at"`
-	StateData  string         `gorm:"type:text;not null" json:"state_data"`
+	// StateData contains JSON serialized flow state data
+	StateData string `gorm:"type:text;not null" json:"state_data"`
 }
 
 // Memory represents a memory/session embedding with TTL support
