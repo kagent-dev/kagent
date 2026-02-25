@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -trimpath \
     -ldflags="-s -w" \
     -o /build/krane .
-    
+
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
@@ -91,10 +91,10 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
     cd opt && \
-    git clone --depth 1 --revision=771f18664f97f6606c9ed64fc65f988b3ecf2e69 https://github.com/anthropic-experimental/sandbox-runtime.git && \
+    git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
+    npm pkg set 'overrides.minimatch=>=3.1.3' && \
     npm install && \
-    npm audit fix || true && \
     npm run build && \
     npm install -g
 
