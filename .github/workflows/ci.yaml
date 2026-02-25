@@ -34,9 +34,27 @@ jobs:
   test-e2e:
     needs:
       - setup
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: kagent
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: kagent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -81,6 +99,11 @@ jobs:
         run: |
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
+          if [ "${{ matrix.database }}" = "postgres" ]; then
+            HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
+            export KAGENT_HELM_EXTRA_ARGS="$KAGENT_HELM_EXTRA_ARGS --set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@${HOST_IP}:5432/kagent"
+            echo "Postgres URL: postgres://postgres:kagent@${HOST_IP}:5432/kagent"
+          fi
           make helm-install
           make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
