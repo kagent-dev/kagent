@@ -8,7 +8,7 @@ import { mapA2AStateToStatus } from "@/lib/statusUtils";
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
-  
+
   for (const task of tasks) {
     if (task.history) {
       for (const historyItem of task.history) {
@@ -22,8 +22,64 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       }
     }
   }
-  
+
   return messages;
+}
+
+/**
+ * Check tasks for input_required state with tool_approval data
+ * and create ToolApprovalRequest messages for display.
+ * This is needed to reconstruct the approval dialog after page reload.
+ */
+export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Message[]; hasPendingApproval: boolean } {
+  const approvalMessages: Message[] = [];
+
+  for (const task of tasks) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const status = task.status as any;
+    if (status?.state !== "input-required" || !status?.message) continue;
+
+    const statusMessage = status.message as Message;
+    if (!statusMessage.parts) continue;
+
+    // Look for a DataPart with interrupt_type: "tool_approval"
+    const approvalDataPart = statusMessage.parts.find((part: Part) => {
+      if (part.kind === "data") {
+        const data = (part as DataPart).data as Record<string, unknown>;
+        return data?.interrupt_type === "tool_approval";
+      }
+      return false;
+    });
+
+    if (!approvalDataPart) continue;
+
+    const approvalData = (approvalDataPart as DataPart).data as {
+      interrupt_type: string;
+      action_requests: Array<{ name: string; args: Record<string, unknown>; id: string | null }>;
+    };
+
+    for (const actionRequest of approvalData.action_requests) {
+      const toolCallContent: ProcessedToolCallData[] = [{
+        id: actionRequest.id || `approval_${actionRequest.name}_${Date.now()}`,
+        name: actionRequest.name,
+        args: actionRequest.args || {}
+      }];
+      const approvalMessage = createMessage("", "agent", {
+        originalType: "ToolApprovalRequest",
+        contextId: task.contextId,
+        taskId: task.id,
+        additionalMetadata: {
+          toolCallData: toolCallContent,
+          hitlApprovalRequests: approvalData.action_requests,
+          hitlTaskId: task.id,
+          hitlContextId: task.contextId,
+        }
+      });
+      approvalMessages.push(approvalMessage);
+    }
+  }
+
+  return { messages: approvalMessages, hasPendingApproval: approvalMessages.length > 0 };
 }
 
 export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {

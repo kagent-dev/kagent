@@ -22,7 +22,7 @@ import { createSession, getSessionTasks, checkSessionExists } from "@/app/action
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
@@ -127,8 +127,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         else {
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
           const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+
+          // Check for pending approval (task in input_required state)
+          const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(messagesResponse.data);
+
           setStoredMessages(extractedMessages);
           setTokenStats(extractedTokenStats);
+
+          if (hasPendingApproval) {
+            // Put approval messages in streamingMessages so they render with buttons
+            setStreamingMessages(approvalMessages);
+            setChatStatus("input_required");
+          }
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -348,8 +358,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     if (!currentSessionId || !selectedAgentName || !selectedNamespace) return;
 
     setChatStatus("thinking");
-    setStoredMessages(prev => [...prev, ...streamingMessages]);
-    setStreamingMessages([]);
+    // NOTE: We intentionally do NOT move streamingMessages to storedMessages here.
+    // Moving messages causes ToolCallDisplay components to unmount/remount, and a
+    // race condition with the global toolCallCache prevents the remounted components
+    // from re-registering their tool call IDs — making the approval card disappear.
+    // By keeping messages in place, the ToolDisplay's isSubmitting state is preserved
+    // and naturally shows "Submitting decision..." feedback.
     setStreamingContent("");
 
     // Build the approval/rejection message
@@ -357,22 +371,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     const decisionData: Record<string, unknown> = { decision_type: decision };
     if (reason) decisionData.reason = reason;
 
-    const messageId = uuidv4();
-    const a2aMessage: Message = {
-      kind: "message",
-      messageId,
-      role: "user",
-      parts: [
-        { kind: "data", data: decisionData, metadata: {} } as DataPart,
-        { kind: "text", text: displayText },
-      ],
-      contextId: currentSessionId,
-      metadata: {
-        timestamp: Date.now(),
-      },
-    };
-
-    // Show the user's decision as a message
+    // Show the user's decision as a message (appended to existing streaming messages)
     const userMessage: Message = {
       kind: "message",
       messageId: uuidv4(),
@@ -380,12 +379,27 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       parts: [{ kind: "text", text: displayText }],
       metadata: { timestamp: Date.now() },
     };
-    setStreamingMessages([userMessage]);
+    setStreamingMessages(prev => [...prev, userMessage]);
 
     isFirstAssistantChunkRef.current = true;
     abortControllerRef.current = new AbortController();
 
     try {
+      const messageId = uuidv4();
+      const a2aMessage: Message = {
+        kind: "message",
+        messageId,
+        role: "user",
+        parts: [
+          { kind: "data", data: decisionData, metadata: {} } as DataPart,
+          { kind: "text", text: displayText },
+        ],
+        contextId: currentSessionId,
+        metadata: {
+          timestamp: Date.now(),
+        },
+      };
+
       const sendParams = { message: a2aMessage, metadata: {} };
       const stream = await kagentA2AClient.sendMessageStream(
         selectedNamespace,
@@ -432,7 +446,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
       } else {
-        toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        toast.error(`Approval failed: ${error instanceof Error ? error.message : "Unknown error"}`);
         setChatStatus("error");
       }
       setIsStreaming(false);
