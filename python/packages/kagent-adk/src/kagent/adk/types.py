@@ -225,6 +225,13 @@ class EmbeddingConfig(BaseModel):
     base_url: str | None = None
 
 
+class MemoryConfig(BaseModel):
+    """Memory configuration. Its presence signals that memory is enabled."""
+
+    ttl_days: int = 0  # TTL for memory entries in days. 0 means use the server default.
+    embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -236,9 +243,7 @@ class AgentConfig(BaseModel):
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
-    memory_enabled: bool = False
-    memory_ttl_days: int = 0  # TTL for memory entries in days. 0 means use the server default.
-    embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
+    memory: MemoryConfig | None = None  # Memory configuration
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -426,7 +431,7 @@ class AgentConfig(BaseModel):
         )
 
         # Configure memory if enabled
-        if self.memory_enabled:
+        if self.memory is not None:
             self._configure_memory(agent)
 
         return agent

@@ -32,7 +32,6 @@ class KagentMemoryService(BaseMemoryService):
         self,
         agent_name: str,
         http_client: httpx.AsyncClient,
-        memory_enabled: bool = False,
         embedding_config: Optional[EmbeddingConfig] = None,
         ttl_days: int = 0,
     ):
@@ -41,13 +40,11 @@ class KagentMemoryService(BaseMemoryService):
         Args:
             agent_name: Name of the agent (used as namespace in storage)
             http_client: Async HTTP client configured with base_url for Kagent API
-            memory_enabled: Whether memory operations are enabled
             embedding_config: Configuration for embedding model (EmbeddingConfig only).
             ttl_days: TTL for memory entries in days. 0 means use the server default.
         """
         self.agent_name = agent_name
         self.client = http_client
-        self.memory_enabled = memory_enabled
         self.embedding_config = embedding_config
         self.ttl_days = ttl_days
 
@@ -61,16 +58,13 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
         """
-        if not self.memory_enabled:
-            return
-
         # Extract content from session events
         raw_content = self._extract_session_content(session)
         if not raw_content:
             logger.debug("No content to add to memory from session %s", session.id)
             return
 
-        logger.info("Adding session %s to memory for user %s", session.id, session.user_id)
+        logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
 
         # Summarize content before embedding
         # Returns a list of strings (individual facts/memories)
@@ -81,7 +75,7 @@ class KagentMemoryService(BaseMemoryService):
         if not valid_contents:
             return
 
-        logger.info("Generating embeddings for %d content items", len(valid_contents))
+        logger.debug("Generating embeddings for %d content items", len(valid_contents))
 
         # Batch generate embeddings
         vectors = await self._generate_embedding_async(valid_contents)
@@ -115,9 +109,7 @@ class KagentMemoryService(BaseMemoryService):
             return
 
         try:
-            logger.info("POST /api/memories/sessions/batch (%d items, user_id=%s)", len(batch_items), session.user_id)
             response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
-            logger.info("POST /api/memories/sessions/batch -> %s", response.status_code)
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
             response.raise_for_status()
@@ -141,13 +133,10 @@ class KagentMemoryService(BaseMemoryService):
             content: The text content to save
             metadata: Optional additional metadata
         """
-        if not self.memory_enabled:
-            return
-
         if not content:
             return
 
-        logger.info("Adding specific content to memory for user %s", user_id)
+        logger.debug("Adding specific content to memory for user %s", user_id)
 
         # Generate embedding
         vector = await self._generate_embedding_async(content)
@@ -166,9 +155,7 @@ class KagentMemoryService(BaseMemoryService):
             payload["ttl_days"] = self.ttl_days
 
         try:
-            logger.info("POST /api/memories/sessions (agent_name=%s, user_id=%s)", self.agent_name, user_id)
             response = await self.client.post("/api/memories/sessions", json=payload)
-            logger.info("POST /api/memories/sessions -> %s", response.status_code)
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
             response.raise_for_status()
@@ -194,9 +181,6 @@ class KagentMemoryService(BaseMemoryService):
         Returns:
             SearchMemoryResponse containing matching MemoryEntry objects
         """
-        if not self.memory_enabled:
-            return SearchMemoryResponse(memories=[])
-
         # Generate embedding for the query
         vector = await self._generate_embedding_async(query)
         if not vector:
@@ -212,9 +196,7 @@ class KagentMemoryService(BaseMemoryService):
         }
 
         try:
-            logger.info("POST /api/memories/search (agent_name=%s, user_id=%s)", self.agent_name, user_id)
             response = await self.client.post("/api/memories/search", json=payload)
-            logger.info("POST /api/memories/search -> %s", response.status_code)
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
             response.raise_for_status()
@@ -231,7 +213,9 @@ class KagentMemoryService(BaseMemoryService):
 
             if len(memories) == 0:
                 logger.warning("No memories found for query: %s", query)
+                return SearchMemoryResponse(memories=[])
 
+            logger.info("Successfully retrieved memories for query: %s", query)
             return SearchMemoryResponse(memories=memories)
         except Exception as e:
             logger.error("Failed to search memory: %s", e)
@@ -426,7 +410,7 @@ Summary (JSON List):"""
             )
 
             # Call the model directly
-            logger.info("Summarizing session content using model %s", model.model)
+            logger.debug("Summarizing session content using model %s", model.model)
             response_generator = model.generate_content_async(llm_request, stream=False)
 
             # Consume the async generator (streaming response)
@@ -438,8 +422,6 @@ Summary (JSON List):"""
                     )
 
             summary_text = summary_text.strip()
-            logger.info("Summarization complete. Response length: %d", len(summary_text))
-            logger.info("Content: %s", summary_text)
 
             if summary_text:
                 # Clean up potential markdown formatting if model ignores instruction

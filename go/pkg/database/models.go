@@ -245,6 +245,6 @@ func (Tool) TableName() string                     { return "tool" }
 func (ToolServer) TableName() string               { return "toolserver" }
 func (LangGraphCheckpoint) TableName() string      { return "lg_checkpoint" }
 func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write" }
-func (CrewAIAgentMemory) TableName() string        { return "crewai_agentp_memory" }
+func (CrewAIAgentMemory) TableName() string        { return "crewai_agent_memory" }
 func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
 func (Memory) TableName() string                   { return "memory" }

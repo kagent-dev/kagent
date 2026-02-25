@@ -100,13 +100,12 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
-            if self.agent_config and self.agent_config.memory_enabled:
+            if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
                     http_client=http_client,
-                    memory_enabled=True,
-                    embedding_config=self.agent_config.embedding,
-                    ttl_days=self.agent_config.memory_ttl_days,
+                    embedding_config=self.agent_config.memory.embedding,
+                    ttl_days=self.agent_config.memory.ttl_days,
                 )
 
         def create_runner() -> Runner:

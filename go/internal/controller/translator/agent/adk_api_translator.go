@@ -576,16 +576,17 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 
 	// Handle Memory Configuration: presence of Memory field enables it.
 	if agent.Spec.Declarative.Memory != nil {
-		cfg.MemoryEnabled = true
-		cfg.MemoryTTLDays = agent.Spec.Declarative.Memory.TTLDays
-
 		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig, mdd)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
 
-		// Merge embedding config and deployment data
-		cfg.Embedding = embCfg
+		cfg.Memory = &adk.MemoryConfig{
+			TTLDays:   agent.Spec.Declarative.Memory.TTLDays,
+			Embedding: embCfg,
+		}
+
+		// Merge embedding deployment data (env vars, volumes, mounts)
 		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
 		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
 		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)

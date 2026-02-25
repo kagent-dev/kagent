@@ -356,34 +356,36 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	return e
 }
 
+// MemoryConfig groups all memory-related configuration.
+type MemoryConfig struct {
+	TTLDays   int              `json:"ttl_days,omitempty"`
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
-	ExecuteCode   bool                  `json:"execute_code,omitempty"`
-	Stream        bool                  `json:"stream"`
-	MemoryEnabled bool                  `json:"memory_enabled,omitempty"`
-	MemoryTTLDays int                   `json:"memory_ttl_days,omitempty"`
-	Embedding     *EmbeddingConfig      `json:"embedding,omitempty"`
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode  bool                  `json:"execute_code,omitempty"`
+	Stream       bool                  `json:"stream"`
+	Memory       *MemoryConfig         `json:"memory,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage       `json:"model"`
-		Description   string                `json:"description"`
-		Instruction   string                `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig `json:"http_tools"`
-		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
-		ExecuteCode   bool                  `json:"execute_code,omitempty"`
-		Stream        bool                  `json:"stream"`
-		MemoryEnabled bool                  `json:"memory_enabled"`
-		MemoryTTLDays int                   `json:"memory_ttl_days"`
-		Embedding     json.RawMessage       `json:"embedding"`
+		Model        json.RawMessage       `json:"model"`
+		Description  string                `json:"description"`
+		Instruction  string                `json:"instruction"`
+		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
+		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		ExecuteCode  bool                  `json:"execute_code,omitempty"`
+		Stream       bool                  `json:"stream"`
+		Memory       json.RawMessage       `json:"memory"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -392,13 +394,14 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	var embedding *EmbeddingConfig
-	if len(tmp.Embedding) > 0 && string(tmp.Embedding) != "null" {
-		var e EmbeddingConfig
-		if err := json.Unmarshal(tmp.Embedding, &e); err != nil {
+
+	var memory *MemoryConfig
+	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
+		var m MemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
 			return err
 		}
-		embedding = &e
+		memory = &m
 	}
 
 	a.Model = model
@@ -409,9 +412,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.RemoteAgents = tmp.RemoteAgents
 	a.ExecuteCode = tmp.ExecuteCode
 	a.Stream = tmp.Stream
-	a.MemoryEnabled = tmp.MemoryEnabled
-	a.MemoryTTLDays = tmp.MemoryTTLDays
-	a.Embedding = embedding
+	a.Memory = memory
 	return nil
 }
 
