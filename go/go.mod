@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/kagent-dev/kmcp v0.2.6
-	github.com/kagent-dev/mockllm v0.0.4
+	github.com/kagent-dev/mockllm v0.0.5
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/muesli/reflow v0.3.0
 	github.com/pgvector/pgvector-go v0.3.0
@@ -112,7 +112,7 @@ require (
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20250923004556-9e5a51aed1e8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
