@@ -43,19 +43,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           namespace = agentNamespace;
         }
 
-        let kind = mcpServer.kind;
-        // Special handling for kagent-querydoc - always ensure correct apiGroup
-        if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
-          mcpServer.apiGroup = "";
-          kind = "Service";
-        }
-
         return {
           type: "McpServer",
           mcpServer: {
             name,
             namespace,
-            kind,
+            kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
           },
