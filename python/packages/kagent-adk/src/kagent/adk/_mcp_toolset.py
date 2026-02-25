@@ -42,7 +42,7 @@ class KAgentMcpToolset(McpToolset):
         try:
             await super().close()
         except BaseException as e:
-            if _is_anyio_cancel_scope_error(e):
+            if is_anyio_cross_task_cancel_scope_error(e):
                 logger.warning(
                     "Non-fatal anyio cancel scope error during MCP cleanup: %s: %s",
                     type(e).__name__,
@@ -56,7 +56,7 @@ class KAgentMcpToolset(McpToolset):
             raise
 
 
-def _is_anyio_cancel_scope_error(error: BaseException) -> bool:
+def is_anyio_cross_task_cancel_scope_error(error: BaseException) -> bool:
     current: BaseException | None = error
     seen: set[int] = set()
     while current is not None and id(current) not in seen:

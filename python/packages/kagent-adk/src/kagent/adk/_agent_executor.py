@@ -42,6 +42,7 @@ from kagent.core.tracing._span_processor import (
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
+from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -291,7 +292,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 raise result
             if isinstance(result, asyncio.CancelledError):
                 raise result
-            if self._is_anyio_cross_task_cancel_scope_error(result):
+            if is_anyio_cross_task_cancel_scope_error(result):
                 logger.warning(
                     "Non-fatal anyio cancel scope error during runner cleanup: %s: %s",
                     type(result).__name__,
@@ -299,19 +300,6 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 )
                 continue
             raise result
-
-    @staticmethod
-    def _is_anyio_cross_task_cancel_scope_error(error: BaseException) -> bool:
-        current: BaseException | None = error
-        seen: set[int] = set()
-        while current is not None and id(current) not in seen:
-            seen.add(id(current))
-            if isinstance(current, (RuntimeError, asyncio.CancelledError)):
-                msg = str(current).lower()
-                if "cancel scope" in msg and "different task" in msg:
-                    return True
-            current = current.__cause__ or current.__context__
-        return False
 
     async def _publish_failed_status_event(
         self,
