@@ -121,6 +121,17 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         refs: agentFormData.skillRefs,
       };
     }
+
+    if (agentFormData.memory?.modelConfig) {
+      const memoryModel = agentFormData.memory.modelConfig;
+      const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
+        ? k8sRefUtils.fromRef(memoryModel).name
+        : memoryModel;
+      base.spec!.memory = {
+        modelConfig: memoryModelName,
+        ttlDays: agentFormData.memory.ttlDays,
+      };
+    }
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {

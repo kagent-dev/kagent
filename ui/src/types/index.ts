@@ -242,6 +242,7 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  memory?: MemorySpec;
 }
 
 export interface DeclarativeAgentSpec {
@@ -251,6 +252,11 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+}
+
+export interface MemorySpec {
+  modelConfig: string;
+  ttlDays?: number;
 }
 
 export interface BYOAgentSpec {
