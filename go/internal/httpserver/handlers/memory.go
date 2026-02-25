@@ -58,6 +58,15 @@ type SearchSessionMemoryResponse struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+// ListMemoryResponse represents a single memory item for the list endpoint
+type ListMemoryResponse struct {
+	ID          string `json:"id"`
+	Content     string `json:"content"`
+	AccessCount int    `json:"access_count"`
+	CreatedAt   string `json:"created_at"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
 // AddSession handles POST /api/memories/sessions
 func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 	var req AddSessionMemoryRequest
@@ -229,15 +238,6 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	RespondWithJSON(w, http.StatusOK, response)
-}
-
-// ListMemoryResponse represents a single memory item for the list endpoint
-type ListMemoryResponse struct {
-	ID          string `json:"id"`
-	Content     string `json:"content"`
-	AccessCount int    `json:"access_count"`
-	CreatedAt   string `json:"created_at"`
-	ExpiresAt   string `json:"expires_at,omitempty"`
 }
 
 // List handles GET /api/memories and returns all memories for an agent+user, ranked by access frequency

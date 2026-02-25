@@ -114,14 +114,16 @@ class KagentMemoryService(BaseMemoryService):
         if not batch_items:
             return
 
-        logger.info("Sending %d memory items to Kagent API (batch) for user %s", len(batch_items), session.user_id)
-
         try:
+            logger.info("POST /api/memories/sessions/batch (%d items, user_id=%s)", len(batch_items), session.user_id)
             response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
+            logger.info("POST /api/memories/sessions/batch -> %s", response.status_code)
+            if response.status_code >= 400:
+                logger.error("Response body: %s", response.text)
             response.raise_for_status()
             logger.info("Successfully saved %d memory items via batch API", len(batch_items))
         except Exception as e:
-            logger.error("Error saving session %s memory items: %s", session.id, e)
+            logger.error("Failed to save session %s memory items: %s", session.id, e)
 
     async def add_memory(
         self,
@@ -163,19 +165,17 @@ class KagentMemoryService(BaseMemoryService):
         if self.ttl_days > 0:
             payload["ttl_days"] = self.ttl_days
 
-        logger.info("Sending add_memory payload: %s", json.dumps(payload, default=str))
-
         try:
+            logger.info("POST /api/memories/sessions (agent_name=%s, user_id=%s)", self.agent_name, user_id)
             response = await self.client.post("/api/memories/sessions", json=payload)
-            logger.info("Kagent API response status: %s", response.status_code)
+            logger.info("POST /api/memories/sessions -> %s", response.status_code)
             if response.status_code >= 400:
-                logger.error("Kagent API error response: %s", response.text)
-
+                logger.error("Response body: %s", response.text)
             response.raise_for_status()
             memory_id = response.json().get("id")
             logger.info("Successfully saved memory item (id=%s)", memory_id)
         except Exception as e:
-            logger.error("Error saving memory item: %s", e)
+            logger.error("Failed to save memory: %s", e)
 
     async def search_memory(
         self,
@@ -212,26 +212,29 @@ class KagentMemoryService(BaseMemoryService):
         }
 
         try:
+            logger.info("POST /api/memories/search (agent_name=%s, user_id=%s)", self.agent_name, user_id)
             response = await self.client.post("/api/memories/search", json=payload)
+            logger.info("POST /api/memories/search -> %s", response.status_code)
+            if response.status_code >= 400:
+                logger.error("Response body: %s", response.text)
             response.raise_for_status()
             results = response.json()
 
-            # Convert to MemoryEntry objects
             memories = []
             for item in results:
-                # Build Content from stored text
                 content = types.Content(
-                    role="user",  # Historical content
+                    role="user",
                     parts=[types.Part(text=item.get("content", ""))],
                 )
-
                 memory_entry = MemoryEntry(id=item.get("id"), content=content)
                 memories.append(memory_entry)
 
-            return SearchMemoryResponse(memories=memories)
+            if len(memories) == 0:
+                logger.warning("No memories found for query: %s", query)
 
+            return SearchMemoryResponse(memories=memories)
         except Exception as e:
-            logger.error("Error searching memory: %s", e)
+            logger.error("Failed to search memory: %s", e)
             return SearchMemoryResponse(memories=[])
 
     def _extract_session_content(self, session: Session) -> str:
