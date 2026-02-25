@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,6 +49,16 @@ func main() {
 		return
 	}
 
-	// HTTP mode: will be fully wired in Step 7
-	log.Printf("HTTP mode not yet implemented; use --transport=stdio")
+	// HTTP mode
+	srv := NewHTTPServer(cfg, svc, hub)
+	log.Printf("kanban-mcp listening on %s", cfg.Addr)
+
+	go func() {
+		<-ctx.Done()
+		srv.Close() //nolint:errcheck
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("HTTP server error: %v", err)
+	}
 }
