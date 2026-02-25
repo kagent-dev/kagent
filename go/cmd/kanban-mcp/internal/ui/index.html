@@ -1,8 +1,276 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Kanban</title></head>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kanban Board</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; }
+  header { background: #1a1a2e; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; }
+  #status { font-size: 0.75rem; opacity: 0.7; margin-left: auto; }
+  #board { display: flex; flex-direction: row; gap: 10px; padding: 16px; overflow-x: auto; min-height: calc(100vh - 52px); align-items: flex-start; }
+  .column { background: #e8eaf0; border-radius: 8px; width: 220px; min-width: 220px; display: flex; flex-direction: column; max-height: calc(100vh - 84px); }
+  .col-header { padding: 10px 12px; font-weight: 600; font-size: 0.85rem; background: #d0d4e0; border-radius: 8px 8px 0 0; display: flex; align-items: center; justify-content: space-between; }
+  .col-count { background: #fff; border-radius: 10px; padding: 1px 7px; font-size: 0.75rem; font-weight: 700; color: #555; }
+  .col-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; }
+  .add-form { padding: 6px 8px 8px; display: flex; gap: 4px; }
+  .add-form input { flex: 1; border: 1px solid #bbb; border-radius: 4px; padding: 4px 6px; font-size: 0.8rem; }
+  .add-form button { background: #3b5bdb; color: #fff; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
+  .add-form button:hover { background: #2f4dbf; }
+  .card { background: #fff; border-radius: 6px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 3px solid #3b5bdb; }
+  .card-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+  .badge-assignee { background: #dbeafe; color: #1d4ed8; }
+  .badge-hitl { background: #fef3c7; color: #b45309; }
+  .badge-sub { background: #f3f0ff; color: #6d28d9; }
+  .card-nav { display: flex; gap: 4px; margin-top: 6px; }
+  .card-nav button { flex: 1; background: #f1f3f5; border: 1px solid #dee2e6; border-radius: 4px; padding: 2px 4px; font-size: 0.72rem; cursor: pointer; }
+  .card-nav button:hover { background: #e2e8f0; }
+  .card-nav button:disabled { opacity: 0.35; cursor: default; }
+  details { margin-top: 4px; }
+  summary { font-size: 0.75rem; cursor: pointer; color: #555; user-select: none; padding: 2px 0; }
+  .subtask-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; padding-left: 4px; }
+  .subtask-item { font-size: 0.75rem; display: flex; align-items: center; gap: 5px; }
+  .status-pill { font-size: 0.65rem; padding: 1px 5px; border-radius: 8px; background: #e8eaf0; color: #444; white-space: nowrap; }
+  .hitl-btn { background: none; border: none; cursor: pointer; font-size: 0.72rem; color: #b45309; padding: 2px 4px; border-radius: 4px; }
+  .hitl-btn:hover { background: #fef3c7; }
+</style>
+</head>
 <body>
-<h1>Kanban Board</h1>
-<p>Loading…</p>
+<header>
+  <h1>Kanban Board</h1>
+  <span id="status">connecting…</span>
+</header>
+<div id="board"></div>
+<script>
+(function() {
+  var WORKFLOW = ["Inbox","Design","Develop","Testing","SecurityScan","CodeReview","Documentation","Done"];
+
+  function prevStatus(s) { var i = WORKFLOW.indexOf(s); return i > 0 ? WORKFLOW[i-1] : null; }
+  function nextStatus(s) { var i = WORKFLOW.indexOf(s); return i >= 0 && i < WORKFLOW.length-1 ? WORKFLOW[i+1] : null; }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function renderCard(task) {
+    var div = document.createElement("div");
+    div.className = "card";
+    div.dataset.id = task.id;
+
+    var titleEl = document.createElement("div");
+    titleEl.className = "card-title";
+    titleEl.textContent = task.title;
+    div.appendChild(titleEl);
+
+    var badges = document.createElement("div");
+    badges.className = "badges";
+    if (task.assignee) {
+      var ab = document.createElement("span");
+      ab.className = "badge badge-assignee";
+      ab.textContent = task.assignee;
+      badges.appendChild(ab);
+    }
+    if (task.user_input_needed) {
+      var hb = document.createElement("span");
+      hb.className = "badge badge-hitl";
+      hb.textContent = "⚠ Input needed";
+      badges.appendChild(hb);
+    }
+    var subs = task.subtasks || [];
+    if (subs.length > 0) {
+      var sb = document.createElement("span");
+      sb.className = "badge badge-sub";
+      sb.textContent = subs.length + " subtask" + (subs.length > 1 ? "s" : "");
+      badges.appendChild(sb);
+    }
+    if (badges.children.length > 0) div.appendChild(badges);
+
+    // Subtasks collapsible
+    if (subs.length > 0) {
+      var details = document.createElement("details");
+      var summary = document.createElement("summary");
+      summary.textContent = "Subtasks (" + subs.length + ")";
+      details.appendChild(summary);
+      var subList = document.createElement("div");
+      subList.className = "subtask-list";
+      subs.forEach(function(st) {
+        var item = document.createElement("div");
+        item.className = "subtask-item";
+        var pill = document.createElement("span");
+        pill.className = "status-pill";
+        pill.textContent = st.status;
+        item.appendChild(pill);
+        var t = document.createElement("span");
+        t.textContent = st.title;
+        item.appendChild(t);
+        subList.appendChild(item);
+      });
+      details.appendChild(subList);
+      div.appendChild(details);
+    }
+
+    // Nav buttons
+    var nav = document.createElement("div");
+    nav.className = "card-nav";
+
+    var prev = document.createElement("button");
+    prev.textContent = "← Prev";
+    var prevSt = prevStatus(task.status);
+    prev.disabled = !prevSt;
+    if (prevSt) {
+      prev.title = prevSt;
+      prev.addEventListener("click", function() { moveTask(task.id, prevSt); });
+    }
+    nav.appendChild(prev);
+
+    var hitlBtn = document.createElement("button");
+    hitlBtn.className = "hitl-btn";
+    hitlBtn.title = task.user_input_needed ? "Clear input-needed flag" : "Mark: input needed";
+    hitlBtn.textContent = task.user_input_needed ? "✓ HIL" : "? HIL";
+    hitlBtn.addEventListener("click", function() { toggleHITL(task.id, task.user_input_needed); });
+    nav.appendChild(hitlBtn);
+
+    var next = document.createElement("button");
+    next.textContent = "Next →";
+    var nextSt = nextStatus(task.status);
+    next.disabled = !nextSt;
+    if (nextSt) {
+      next.title = nextSt;
+      next.addEventListener("click", function() { moveTask(task.id, nextSt); });
+    }
+    nav.appendChild(next);
+
+    div.appendChild(nav);
+    return div;
+  }
+
+  function renderBoard(board) {
+    var container = document.getElementById("board");
+    container.innerHTML = "";
+    var columns = board.columns || [];
+    var colMap = {};
+    columns.forEach(function(c) { colMap[c.status] = c; });
+
+    WORKFLOW.forEach(function(status) {
+      var col = colMap[status] || {status: status, tasks: []};
+      var tasks = col.tasks || [];
+
+      var colEl = document.createElement("div");
+      colEl.className = "column";
+
+      var header = document.createElement("div");
+      header.className = "col-header";
+      var nameEl = document.createElement("span");
+      nameEl.textContent = status;
+      header.appendChild(nameEl);
+      var countEl = document.createElement("span");
+      countEl.className = "col-count";
+      countEl.textContent = tasks.length;
+      header.appendChild(countEl);
+      colEl.appendChild(header);
+
+      // Add-task form only in Inbox
+      if (status === "Inbox") {
+        var form = document.createElement("div");
+        form.className = "add-form";
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.placeholder = "New task…";
+        inp.id = "inbox-input";
+        var btn = document.createElement("button");
+        btn.textContent = "+ Add";
+        btn.addEventListener("click", function() {
+          var title = inp.value.trim();
+          if (!title) return;
+          addTask(title);
+          inp.value = "";
+        });
+        inp.addEventListener("keydown", function(e) {
+          if (e.key === "Enter") { btn.click(); }
+        });
+        form.appendChild(inp);
+        form.appendChild(btn);
+        colEl.appendChild(form);
+      }
+
+      var body = document.createElement("div");
+      body.className = "col-body";
+      tasks.forEach(function(t) { body.appendChild(renderCard(t)); });
+      colEl.appendChild(body);
+
+      container.appendChild(colEl);
+    });
+  }
+
+  function fetchBoard() {
+    fetch("/api/board")
+      .then(function(r) { return r.json(); })
+      .then(renderBoard)
+      .catch(function(e) { console.error("fetchBoard:", e); });
+  }
+
+  function moveTask(id, status) {
+    fetch("/api/tasks/" + id, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({status: status})
+    }).catch(function(e) { console.error("moveTask:", e); });
+  }
+
+  function toggleHITL(id, current) {
+    fetch("/api/tasks/" + id, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({user_input_needed: !current})
+    }).catch(function(e) { console.error("toggleHITL:", e); });
+  }
+
+  function addTask(title) {
+    fetch("/api/tasks", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({title: title, status: "Inbox"})
+    }).catch(function(e) { console.error("addTask:", e); });
+  }
+
+  // SSE connection
+  function connectSSE() {
+    var es = new EventSource("/events");
+    var statusEl = document.getElementById("status");
+
+    es.addEventListener("snapshot", function(e) {
+      statusEl.textContent = "live";
+      try {
+        var ev = JSON.parse(e.data);
+        if (ev.data && ev.data.columns) renderBoard(ev.data);
+        else fetchBoard();
+      } catch(_) { fetchBoard(); }
+    });
+
+    es.onmessage = function(e) {
+      try {
+        var ev = JSON.parse(e.data);
+        if (ev.data && ev.data.columns) renderBoard(ev.data);
+        else fetchBoard();
+      } catch(_) { fetchBoard(); }
+    };
+
+    es.onerror = function() {
+      statusEl.textContent = "reconnecting…";
+    };
+
+    es.onopen = function() {
+      statusEl.textContent = "live";
+    };
+  }
+
+  fetchBoard();
+  connectSSE();
+})();
+</script>
 </body>
 </html>
