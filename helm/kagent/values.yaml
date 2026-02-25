@@ -312,7 +312,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-policy-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -321,7 +321,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-manager-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -330,7 +330,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-debug-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m

@@ -1,0 +1,61 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  creationTimestamp: "2026-02-25T21:09:30Z"
+  generation: 1
+  name: background-code-agent
+  namespace: kagent
+  resourceVersion: "321517"
+  uid: 11e8e1a0-7290-46eb-80be-317e0374ae86
+spec:
+  declarative:
+    modelConfig: default-model-config
+    stream: true
+    systemMessage: |-
+      You're a helpful agent, made by the kagent team.
+
+      # Instructions
+          - If user question is unclear, ask for clarification before running any tools
+          - Always be helpful and friendly
+          - If you don't know how to answer the question DO NOT make things up, tell the user "Sorry, I don't know how to answer that" and ask them to clarify the question further
+          - If you are unable to help, or something goes wrong, refer the user to https://kagent.dev for more information or support.
+
+      # Response format:
+          - ALWAYS format your response as Markdown
+          - Your response will include a summary of actions you took and an explanation of the result
+          - If you created any artifacts such as files or resources, you will include those in your response as well
+    tools:
+    - mcpServer:
+        apiGroup: kagent.dev
+        kind: RemoteMCPServer
+        name: kanban-mcp
+        namespace: kagent
+        toolNames:
+        - assign_task
+        - create_subtask
+        - create_task
+        - delete_task
+        - get_board
+        - get_task
+        - list_tasks
+        - move_task
+        - set_user_input_needed
+        - update_task
+      type: McpServer
+  description: You are helpful coding agent
+  type: Declarative
+status:
+  conditions:
+  - lastTransitionTime: "2026-02-25T21:09:30Z"
+    message: ""
+    observedGeneration: 1
+    reason: Reconciled
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-02-25T21:09:49Z"
+    message: Deployment is ready
+    observedGeneration: 1
+    reason: DeploymentReady
+    status: "True"
+    type: Ready
+  observedGeneration: 1

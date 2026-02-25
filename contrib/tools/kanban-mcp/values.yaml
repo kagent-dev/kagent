@@ -27,3 +27,13 @@ persistence:
   size: 1Gi
 
 resources: {}
+
+remoteMCPServer:
+  enabled: true
+  description: "Kanban MCP server"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  allowedNamespaces:
+    from: All

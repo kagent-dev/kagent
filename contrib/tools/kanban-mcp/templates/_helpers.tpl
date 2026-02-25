@@ -47,3 +47,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "kanban-mcp.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Create the kanban mcp server URL.
+*/}}
+{{- define "kanban-mcp.serverUrl" -}}
+{{- printf "http://%s.%s:%d/mcp" (include "kanban-mcp.fullname" .) .Release.Namespace (.Values.service.port | int) }}
+{{- end }}
