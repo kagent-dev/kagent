@@ -10074,12 +10074,6 @@ spec:
                           required:
                           - name
                           type: object
-                          x-kubernetes-validations:
-                          - message: each requireApproval entry must also appear in
-                              toolNames
-                            rule: '!has(self.requireApproval) || !has(self.toolNames)
-                              || self.requireApproval.all(t, self.toolNames.exists(n,
-                              n == t))'
                         type:
                           allOf:
                           - enum:

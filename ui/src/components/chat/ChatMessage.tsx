@@ -96,7 +96,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   }
 
   if (hasToolCallParts || isStreamingToolCall) {
-    return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;
+    return <ToolCallDisplay
+      currentMessage={message}
+      allMessages={allMessages}
+      onApproveAll={onApproveAll}
+      onApprove={onApprove}
+      onReject={onReject}
+    />;
   }
 
   if (originalType === "ToolCallSummaryMessage") {

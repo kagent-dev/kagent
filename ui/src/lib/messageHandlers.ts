@@ -37,7 +37,9 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
   for (const task of tasks) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const status = task.status as any;
+    console.log("[HITL] extractApprovalMessages: task", task.id, "status.state:", status?.state);
     if (status?.state !== "input-required" || !status?.message) continue;
+    console.log("[HITL] Found input-required task:", task.id, "message parts:", JSON.stringify(status.message.parts).substring(0, 500));
 
     const statusMessage = status.message as Message;
     if (!statusMessage.parts) continue;
@@ -406,6 +408,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         statusUpdate.status.message
       ) {
         const message = statusUpdate.status.message;
+        console.log("[HITL] Detected input-required status, message parts:", JSON.stringify(message.parts).substring(0, 500));
 
         // Look for a DataPart with interrupt_type: "tool_approval"
         const approvalDataPart = message.parts.find(
@@ -413,6 +416,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             isDataPart(part) &&
             (part.data as Record<string, unknown>)?.interrupt_type === "tool_approval"
         );
+
+        console.log("[HITL] approvalDataPart found:", !!approvalDataPart);
 
         if (approvalDataPart) {
           const approvalData = approvalDataPart.data as {

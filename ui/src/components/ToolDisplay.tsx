@@ -41,13 +41,21 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
   };
 
   const handleApprove = async () => {
-    if (!onApprove) return;
+    console.log("[HITL] ToolDisplay.handleApprove called, onApprove defined:", !!onApprove, "status:", status);
+    if (!onApprove) {
+      console.warn("[HITL] onApprove is undefined - button click ignored");
+      return;
+    }
     setIsSubmitting(true);
     onApprove();
   };
 
   const handleReject = async () => {
-    if (!onReject) return;
+    console.log("[HITL] ToolDisplay.handleReject called, onReject defined:", !!onReject, "status:", status);
+    if (!onReject) {
+      console.warn("[HITL] onReject is undefined - button click ignored");
+      return;
+    }
     setIsSubmitting(true);
     onReject(rejectReason || undefined);
   };

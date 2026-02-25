@@ -54,8 +54,9 @@ def make_approval_callback(
         # Check session state for a prior approval for this tool call
         approval_key = make_approval_key(tool_name, args)
         if tool_context.state.get(approval_key):
-            # Approval found — consume it (one-time use) and proceed
-            del tool_context.state[approval_key]
+            # Approval found — consume it (one-time use) and proceed.
+            # Use state_delta to clear the key; ToolContext.state doesn't support __delitem__.
+            tool_context.state[approval_key] = None
             logger.info("Consumed approval for tool %s (key=%s)", tool_name, approval_key)
             return None
 

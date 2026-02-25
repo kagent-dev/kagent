@@ -161,6 +161,10 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
 
   const isApprovalMessage = isToolApprovalRequestMessage(currentMessage);
 
+  if (isApprovalMessage) {
+    console.log("[HITL] ToolCallDisplay render: isApprovalMessage=true, onApprove defined:", !!onApprove, "onReject defined:", !!onReject);
+  }
+
   // Compute owned call IDs based on current message (memoized)
   const ownedCallIds = useMemo(() => {
     const currentOwnedIds = new Set<string>();
@@ -268,7 +272,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
 
   // Count pending approval calls for "Approve All" button
   const pendingApprovalCalls = currentDisplayableCalls.filter(call => call.status === "pending_approval");
-  const showApproveAll = isApprovalMessage && pendingApprovalCalls.length > 1 && onApproveAll;
+  const showApproveAll = pendingApprovalCalls.length > 1 && onApproveAll;
 
   return (
     <div className="space-y-2">
@@ -298,8 +302,8 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
             result={toolCall.result}
             status={toolCall.status}
             isError={toolCall.result?.is_error}
-            onApprove={isApprovalMessage && onApprove ? () => onApprove(toolCall.id) : undefined}
-            onReject={isApprovalMessage && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
+            onApprove={toolCall.status === "pending_approval" && onApprove ? () => onApprove(toolCall.id) : undefined}
+            onReject={toolCall.status === "pending_approval" && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
           />
         )
       ))}

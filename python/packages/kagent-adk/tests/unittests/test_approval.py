@@ -94,7 +94,7 @@ class TestMakeApprovalCallback:
         assert result is None
 
     def test_consumes_approval(self):
-        """Approval is removed from state after use (one-time)."""
+        """Approval is consumed (set to None) after use (one-time)."""
         callback = make_approval_callback({"delete_file"})
         tool = MockBaseTool("delete_file")
         args = {"path": "/tmp"}
@@ -104,7 +104,9 @@ class TestMakeApprovalCallback:
         # First call: approval consumed, tool proceeds
         result = callback(tool, args, ctx)
         assert result is None
-        assert approval_key not in ctx.state
+        # Approval key is set to None (consumed), not deleted,
+        # because ToolContext.state doesn't support __delitem__
+        assert ctx.state.get(approval_key) is None
 
         # Second call: no approval, tool blocked
         result = callback(tool, args, ctx)

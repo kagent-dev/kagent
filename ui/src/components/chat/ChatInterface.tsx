@@ -355,7 +355,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const sendApprovalDecision = async (decision: "approve" | "deny", reason?: string) => {
     const currentSessionId = session?.id || sessionId;
-    if (!currentSessionId || !selectedAgentName || !selectedNamespace) return;
+    console.log("[HITL] sendApprovalDecision called:", { decision, reason, currentSessionId, selectedAgentName, selectedNamespace });
+    if (!currentSessionId || !selectedAgentName || !selectedNamespace) {
+      console.error("[HITL] sendApprovalDecision: missing required params, returning early");
+      return;
+    }
 
     setChatStatus("thinking");
     // NOTE: We intentionally do NOT move streamingMessages to storedMessages here.
@@ -401,15 +405,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       };
 
       const sendParams = { message: a2aMessage, metadata: {} };
+      console.log("[HITL] Sending approval stream request...", JSON.stringify(sendParams).substring(0, 500));
       const stream = await kagentA2AClient.sendMessageStream(
         selectedNamespace,
         selectedAgentName,
         sendParams,
         abortControllerRef.current?.signal
       );
+      console.log("[HITL] Stream opened successfully");
 
       let timeoutTimer: NodeJS.Timeout | null = null;
       let streamActive = true;
+      let eventCount = 0;
       const streamTimeout = 600000;
 
       const handleTimeout = () => {
@@ -427,17 +434,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       try {
         for await (const event of stream) {
+          eventCount++;
+          console.log(`[HITL] Received stream event #${eventCount}:`, JSON.stringify(event).substring(0, 300));
           startTimeout();
           try {
             handleMessageEvent(event);
           } catch (error) {
-            console.error(`Error handling event: ${error}`);
+            console.error(`[HITL] Error handling event: ${error}`);
           }
           if (abortControllerRef.current?.signal.aborted) {
             streamActive = false;
             break;
           }
         }
+        console.log(`[HITL] Stream ended. Total events: ${eventCount}`);
       } finally {
         streamActive = false;
         if (timeoutTimer) clearTimeout(timeoutTimer);
