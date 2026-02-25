@@ -48,8 +48,7 @@ objects:
         systemMessage: You are a helpful assistant with memory. Save important findings and use past context when relevant.
         modelConfig: basic-model
         memory:
-          modelConfig:
-            name: embedding-model
+          modelConfig: embedding-model
         deployment:
           resources:
             requests:

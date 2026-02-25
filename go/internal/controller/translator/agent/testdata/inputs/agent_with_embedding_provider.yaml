@@ -50,6 +50,5 @@ objects:
         systemMessage: You are an assistant.
         modelConfig: openai-llm
         memory:
-          modelConfig:
-            name: vertex-embedding
+          modelConfig: vertex-embedding
         tools: []

@@ -995,7 +995,7 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, AgentOptions{
 		Name: "memory-test-agent",
 		Memory: &v1alpha2.MemorySpec{
-			ModelConfig: corev1.LocalObjectReference{Name: embeddingModelCfg.Name},
+			ModelConfig: embeddingModelCfg.Name,
 		},
 	})
 

@@ -579,7 +579,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		cfg.MemoryEnabled = true
 		cfg.MemoryTTLDays = agent.Spec.Declarative.Memory.TTLDays
 
-		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig.Name, mdd)
+		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig, mdd)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
@@ -589,7 +589,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
 		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
 		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
-		if agent.Spec.Declarative.Memory.ModelConfig.Name != agent.Spec.Declarative.ModelConfig {
+		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
 			secretHashBytes = append(secretHashBytes, embHash...)
 		}
 	}

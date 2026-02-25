@@ -126,10 +126,10 @@ type DeclarativeAgentSpec struct {
 
 // MemorySpec enables long-term memory for an agent.
 type MemorySpec struct {
-	// ModelConfig is a reference to the ModelConfig object whose embedding
+	// ModelConfig is the name of the ModelConfig object whose embedding
 	// provider will be used to generate memory vectors.
 	// +kubebuilder:validation:Required
-	ModelConfig corev1.LocalObjectReference `json:"modelConfig"`
+	ModelConfig string `json:"modelConfig"`
 
 	// TTLDays controls how many days a stored memory entry remains valid before
 	// it is eligible for pruning. Defaults to 15 days when unset or zero.

@@ -86,7 +86,7 @@ The controller does not provide endpoints for embedding and reranking or summari
 
 #### Translator
 
-**Embedding config in AgentConfig**: The `embedding` field is an `EmbeddingConfig` (provider, model, optional base_url). Serialized JSON uses the key `provider` (not `type`) so it matches Python’s `EmbeddingConfig` schema. The translator turns the resolved ModelConfig into `EmbeddingConfig` via `ModelToEmbeddingConfig()`. Unmarshaling accepts either `type` or `provider` in JSON.
+**Embedding config in AgentConfig**: The `embedding` field is an `EmbeddingConfig` (provider, model, optional base_url). Serialized JSON uses the key `provider` (not `type`) so it matches Python’s `EmbeddingConfig` schema. The translator turns the resolved ModelConfig into `EmbeddingConfig` via `ModelToEmbeddingConfig()`. Unmarshaling accepts either `type` or `provider` in JSON. You may use a different provider for LLM and embedding models.
 
 #### CRD
 
