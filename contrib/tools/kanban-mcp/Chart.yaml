@@ -1,0 +1,8 @@
+apiVersion: v2
+name: kanban-mcp
+description: Kanban MCP server for kagent — task management via MCP tools + REST API + embedded UI
+type: application
+version: 0.1.0
+appVersion: latest
+sources:
+  - https://github.com/kagent-dev/kagent

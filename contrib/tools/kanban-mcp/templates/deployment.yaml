@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kanban-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kanban-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kanban-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kanban-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: kanban-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: KANBAN_ADDR
+              value: {{ .Values.config.addr | quote }}
+            - name: KANBAN_TRANSPORT
+              value: {{ .Values.config.transport | quote }}
+            - name: KANBAN_DB_TYPE
+              value: {{ .Values.config.dbType | quote }}
+            - name: KANBAN_DB_PATH
+              value: {{ .Values.config.dbPath | quote }}
+            - name: KANBAN_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- if .Values.config.dbUrl }}
+            - name: KANBAN_DB_URL
+              value: {{ .Values.config.dbUrl | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "kanban-mcp.fullname" . }}
+      {{- end }}
