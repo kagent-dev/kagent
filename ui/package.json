@@ -13,7 +13,7 @@
     "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^0.3.8",
+    "@a2a-js/sdk": "^0.3.10",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
