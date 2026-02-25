@@ -27,9 +27,10 @@ jest.mock("@/components/ui/sidebar", () => {
       children,
       isActive,
       asChild,
+      "aria-current": ariaCurrent,
       ...props
-    }: React.PropsWithChildren<{ isActive?: boolean; asChild?: boolean }>) => (
-      <button data-active={isActive} data-testid="sidebar-menu-button" {...props}>
+    }: React.PropsWithChildren<{ isActive?: boolean; asChild?: boolean; "aria-current"?: string }>) => (
+      <button data-active={isActive} data-testid="sidebar-menu-button" aria-current={ariaCurrent} {...props}>
         {children}
       </button>
     ),
@@ -105,5 +106,56 @@ describe("AppSidebarNav", () => {
       "Organization",
       "Gateways",
     ]);
+  });
+
+  it("SidebarGroups have role='group' and aria-labelledby referencing section id", () => {
+    render(<AppSidebarNav />);
+    const groups = screen.getAllByTestId("sidebar-group");
+    expect(groups).toHaveLength(4);
+
+    groups.forEach((group) => {
+      expect(group).toHaveAttribute("role", "group");
+      expect(group).toHaveAttribute("aria-labelledby");
+    });
+
+    expect(groups[0]).toHaveAttribute("aria-labelledby", "nav-section-overview");
+    expect(groups[1]).toHaveAttribute("aria-labelledby", "nav-section-agents");
+    expect(groups[2]).toHaveAttribute("aria-labelledby", "nav-section-resources");
+    expect(groups[3]).toHaveAttribute("aria-labelledby", "nav-section-admin");
+  });
+
+  it("SidebarGroupLabels have matching id attributes", () => {
+    render(<AppSidebarNav />);
+    const labels = screen.getAllByTestId("sidebar-group-label");
+
+    expect(labels[0]).toHaveAttribute("id", "nav-section-overview");
+    expect(labels[1]).toHaveAttribute("id", "nav-section-agents");
+    expect(labels[2]).toHaveAttribute("id", "nav-section-resources");
+    expect(labels[3]).toHaveAttribute("id", "nav-section-admin");
+  });
+
+  it("active item has aria-current='page'", () => {
+    mockPathname.mockReturnValue("/agents");
+    render(<AppSidebarNav />);
+    const buttons = screen.getAllByTestId("sidebar-menu-button");
+    const activeButton = buttons.find(
+      (btn) => btn.getAttribute("aria-current") === "page"
+    );
+    expect(activeButton).toBeDefined();
+    expect(activeButton).toHaveTextContent("My Agents");
+  });
+
+  it("non-active items do not have aria-current", () => {
+    mockPathname.mockReturnValue("/agents");
+    render(<AppSidebarNav />);
+    const buttons = screen.getAllByTestId("sidebar-menu-button");
+    const nonActiveButtons = buttons.filter(
+      (btn) => btn.getAttribute("aria-current") !== "page"
+    );
+    // 12 total items minus 1 active = 11
+    expect(nonActiveButtons).toHaveLength(11);
+    nonActiveButtons.forEach((btn) => {
+      expect(btn).not.toHaveAttribute("aria-current");
+    });
   });
 });

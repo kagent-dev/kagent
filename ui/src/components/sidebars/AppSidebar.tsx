@@ -10,13 +10,15 @@ import {
 import KagentLogo from "@/components/kagent-logo";
 import { AppSidebarNav } from "./AppSidebarNav";
 import { NamespaceSelector } from "./NamespaceSelector";
+import { StatusIndicator } from "./StatusIndicator";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useNamespace } from "@/lib/namespace-context";
 
 export function AppSidebar() {
   const { namespace, setNamespace } = useNamespace();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" aria-label="Main navigation">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1">
           <KagentLogo className="h-6 w-6 shrink-0" />
@@ -30,7 +32,8 @@ export function AppSidebar() {
         <AppSidebarNav />
       </SidebarContent>
       <SidebarFooter>
-        <div />
+        <StatusIndicator />
+        <ThemeToggle />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

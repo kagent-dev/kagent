@@ -76,23 +76,33 @@ export function AppSidebarNav() {
 
   return (
     <>
-      {NAV_SECTIONS.map((section) => (
-        <SidebarGroup key={section.label}>
-          <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
-          <SidebarMenu>
-            {section.items.map((item) => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton asChild isActive={pathname === item.href}>
-                  <Link href={item.href}>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-      ))}
+      {NAV_SECTIONS.map((section) => {
+        const sectionId = `nav-section-${section.label.toLowerCase()}`;
+        return (
+          <SidebarGroup key={section.label} role="group" aria-labelledby={sectionId}>
+            <SidebarGroupLabel id={sectionId}>{section.label}</SidebarGroupLabel>
+            <SidebarMenu>
+              {section.items.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        );
+      })}
     </>
   );
 }
