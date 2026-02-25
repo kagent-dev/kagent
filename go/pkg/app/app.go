@@ -163,7 +163,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
-	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
+	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 600*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
 
