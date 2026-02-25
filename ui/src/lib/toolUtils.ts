@@ -5,8 +5,6 @@ import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalRefer
 // Constants for MCP server types and defaults
 const DEFAULT_API_GROUP = "kagent.dev";
 const DEFAULT_MCP_KIND = "MCPServer";
-const SERVICE_KIND = "Service";
-const QUERYDOC_SERVER_NAME = "kagent-querydoc";
 const TOOL_SERVER_NAME = "kagent-tool-server";
 const MCP_SERVER_TYPE = "McpServer" as const;
 
@@ -103,7 +101,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
       mcpServer: {
         name: serverNameRef,
         namespace: originalMcpServer?.namespace,
-        apiGroup: originalMcpServer?.apiGroup || DEFAULT_API_GROUP,
+        apiGroup: originalMcpServer?.apiGroup ?? DEFAULT_API_GROUP,
         kind: originalMcpServer?.kind || DEFAULT_MCP_KIND,
         toolNames: Array.from(toolNamesSet)
       }
@@ -136,12 +134,13 @@ export const parseGroupKind = (groupKind: string): { apiGroup: string; kind: str
   if (!groupKind || !groupKind.trim()) {
     return { apiGroup: DEFAULT_API_GROUP, kind: DEFAULT_MCP_KIND };
   }
-  
+
   const parts = groupKind.trim().split('.');
-  
+
   if (parts.length === 1) {
+    // No dot means the API group is empty (core Kubernetes resource, e.g. "Service")
     const kind = parts[0];
-    return { apiGroup: DEFAULT_API_GROUP, kind };
+    return { apiGroup: "", kind };
   }
   const kind = parts[0];
   const apiGroup = parts.slice(1).join('.');
@@ -213,7 +212,7 @@ export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null
 
 // Convert DiscoveredTool to Tool for agent creation
 export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
-  let { apiGroup, kind } = parseGroupKind(tool.group_kind);
+  const { apiGroup, kind } = parseGroupKind(tool.group_kind);
   
   // Parse namespace and name from serverRef if it's in namespace/name format
   let name = serverRef;
@@ -223,12 +222,6 @@ export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string):
     const parsed = k8sRefUtils.fromRef(serverRef);
     name = parsed.name;
     namespace = parsed.namespace;
-  }
-  
-  // Special handling for kagent-querydoc - must have empty apiGroup for Kubernetes Service
-  if (serverRef.toLocaleLowerCase().includes(QUERYDOC_SERVER_NAME)) {
-    apiGroup = "";
-    kind = SERVICE_KIND;
   }
   
   return {
