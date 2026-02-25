@@ -23,7 +23,11 @@ members = [
     "poem-flow",
     "research-crew",
 ]
-constraints = [{ name = "cryptography", specifier = ">=46.0.5" }]
+constraints = [
+    { name = "cryptography", specifier = ">=46.0.5" },
+    { name = "jaraco-context", specifier = ">=6.1.0" },
+    { name = "wheel", specifier = ">=0.46.2" },
+]
 
 [manifest.dependency-groups]
 dev = [

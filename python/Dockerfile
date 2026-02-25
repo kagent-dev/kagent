@@ -94,6 +94,7 @@ RUN --mount=type=cache,target=/root/.npm \
     git clone --depth 1 --revision=771f18664f97f6606c9ed64fc65f988b3ecf2e69 https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install && \
+    npm audit fix || true && \
     npm run build && \
     npm install -g
 
