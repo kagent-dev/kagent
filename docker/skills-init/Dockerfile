@@ -12,7 +12,6 @@ WORKDIR /build/go-containerregistry/cmd/krane
 
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /build/krane .
 
-### Stage 1: runtime
 FROM alpine:3.21
 
 RUN apk add --no-cache git

@@ -78,6 +78,7 @@ type SkillForAgent struct {
 
 	// The list of skill images to fetch.
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
 	// +optional
 	Refs []string `json:"refs,omitempty"`
 
@@ -90,6 +91,7 @@ type SkillForAgent struct {
 
 	// Git repositories to fetch skills from.
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
 }

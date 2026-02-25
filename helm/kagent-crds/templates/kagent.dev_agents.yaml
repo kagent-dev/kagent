@@ -10071,6 +10071,7 @@ spec:
                       - url
                       type: object
                     maxItems: 20
+                    minItems: 1
                     type: array
                   insecureSkipVerify:
                     description: |-
@@ -10082,6 +10083,7 @@ spec:
                     items:
                       type: string
                     maxItems: 20
+                    minItems: 1
                     type: array
                 type: object
               type:
