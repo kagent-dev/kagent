@@ -2,6 +2,8 @@ package database
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/glebarez/sqlite"
@@ -30,7 +32,8 @@ type SqliteConfig struct {
 }
 
 type PostgresConfig struct {
-	URL string
+	URL     string
+	URLFile string
 }
 
 type Config struct {
@@ -63,7 +66,15 @@ func NewManager(config *Config) (*Manager, error) {
 			TranslateError: true,
 		})
 	case DatabaseTypePostgres:
-		db, err = gorm.Open(postgres.Open(config.PostgresConfig.URL), &gorm.Config{
+		url := config.PostgresConfig.URL
+		if config.PostgresConfig.URLFile != "" {
+			resolved, resolveErr := resolveURLFile(config.PostgresConfig.URLFile)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("failed to resolve postgres URL from file: %w", resolveErr)
+			}
+			url = resolved
+		}
+		db, err = gorm.Open(postgres.Open(url), &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
 			TranslateError: true,
 		})
@@ -140,6 +151,20 @@ func (m *Manager) Reset(recreateTables bool) error {
 	}
 
 	return nil
+}
+
+// resolveURLFile reads a database connection URL from a file and returns the
+// trimmed contents. Returns an error if the file cannot be read or is empty.
+func resolveURLFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading URL file: %w", err)
+	}
+	url := strings.TrimSpace(string(content))
+	if url == "" {
+		return "", fmt.Errorf("URL file %s is empty or contains only whitespace", path)
+	}
+	return url, nil
 }
 
 // Close closes the database connection
