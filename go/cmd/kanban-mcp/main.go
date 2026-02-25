@@ -1,10 +1,18 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/config"
 	"github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/db"
+	kanbanmcp "github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/mcp"
+	"github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/service"
+	"github.com/kagent-dev/kagent/go/cmd/kanban-mcp/internal/sse"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func main() {
@@ -24,4 +32,22 @@ func main() {
 		log.Fatalf("failed to initialize database: %v", err)
 	}
 	log.Printf("database initialized")
+
+	hub := sse.NewHub()
+	svc := service.NewTaskService(mgr.DB(), hub)
+	mcpServer := kanbanmcp.NewServer(svc)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if cfg.Transport == "stdio" {
+		log.Printf("starting in stdio transport mode")
+		if err := mcpServer.Run(ctx, &mcpsdk.StdioTransport{}); err != nil {
+			log.Fatalf("MCP stdio server error: %v", err)
+		}
+		return
+	}
+
+	// HTTP mode: will be fully wired in Step 7
+	log.Printf("HTTP mode not yet implemented; use --transport=stdio")
 }
