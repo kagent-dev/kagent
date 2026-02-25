@@ -27,9 +27,10 @@ jest.mock("@/components/AgentsProvider", () => ({
   AgentsProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
 }));
 
-// Mock NamespaceProvider
+// Mock NamespaceProvider and useNamespace
 jest.mock("@/lib/namespace-context", () => ({
   NamespaceProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  useNamespace: () => ({ namespace: "default", setNamespace: jest.fn() }),
 }));
 
 // Mock TooltipProvider
@@ -42,10 +43,16 @@ jest.mock("@/components/ui/sonner", () => ({
   Toaster: () => <div data-testid="toaster" />,
 }));
 
+// Mock listNamespaces (used by NamespaceSelector inside AppSidebar)
+jest.mock("@/app/actions/namespaces", () => ({
+  listNamespaces: () => Promise.resolve({ data: [] }),
+}));
+
 // Mock sidebar primitives
 jest.mock("@/components/ui/sidebar", () => {
   const React = require("react");
   return {
+    useSidebar: () => ({ state: "expanded", open: true, setOpen: jest.fn(), openMobile: false, setOpenMobile: jest.fn(), isMobile: false, toggleSidebar: jest.fn() }),
     SidebarProvider: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
       <div data-testid="sidebar-provider" {...props}>{children}</div>
     ),

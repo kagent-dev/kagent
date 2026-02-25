@@ -9,8 +9,12 @@ import {
 } from "@/components/ui/sidebar";
 import KagentLogo from "@/components/kagent-logo";
 import { AppSidebarNav } from "./AppSidebarNav";
+import { NamespaceSelector } from "./NamespaceSelector";
+import { useNamespace } from "@/lib/namespace-context";
 
 export function AppSidebar() {
+  const { namespace, setNamespace } = useNamespace();
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -20,6 +24,7 @@ export function AppSidebar() {
             KAgent
           </span>
         </div>
+        <NamespaceSelector value={namespace} onValueChange={setNamespace} />
       </SidebarHeader>
       <SidebarContent>
         <AppSidebarNav />
