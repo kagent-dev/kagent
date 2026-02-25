@@ -48,6 +48,11 @@ jest.mock("@/app/actions/namespaces", () => ({
   listNamespaces: () => Promise.resolve({ data: [] }),
 }));
 
+// Mock MobileTopBar
+jest.mock("@/components/MobileTopBar", () => ({
+  MobileTopBar: () => <div data-testid="mobile-top-bar" />,
+}));
+
 // Mock sidebar primitives
 jest.mock("@/components/ui/sidebar", () => {
   const React = require("react");
@@ -66,6 +71,7 @@ jest.mock("@/components/ui/sidebar", () => {
     SidebarContent: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
     SidebarFooter: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
     SidebarRail: () => <div data-testid="sidebar-rail" />,
+    SidebarTrigger: () => <button data-testid="sidebar-trigger" />,
     SidebarGroup: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
     SidebarGroupLabel: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
     SidebarMenu: ({ children }: React.PropsWithChildren) => <ul>{children}</ul>,
@@ -116,6 +122,13 @@ describe("Root layout (Step 3)", () => {
     const inset = within(provider).getByTestId("sidebar-inset");
     expect(sidebar).toBeInTheDocument();
     expect(inset).toBeInTheDocument();
+  });
+
+  it("renders MobileTopBar inside SidebarInset", () => {
+    render(RootLayout({ children: <div>content</div> }) as React.ReactElement);
+
+    const inset = screen.getByTestId("sidebar-inset");
+    expect(within(inset).getByTestId("mobile-top-bar")).toBeInTheDocument();
   });
 
   it("body has correct flex layout classes", () => {

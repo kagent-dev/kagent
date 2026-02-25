@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppInitializer } from "@/components/AppInitializer";
 import { NamespaceProvider } from "@/lib/namespace-context";
+import { MobileTopBar } from "@/components/MobileTopBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <SidebarProvider>
                     <AppSidebar />
                     <SidebarInset className="flex-1 overflow-y-auto">
+                      <MobileTopBar />
                       {children}
                     </SidebarInset>
                   </SidebarProvider>
