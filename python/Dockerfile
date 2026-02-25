@@ -88,37 +88,13 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
 # Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
 # This avoids scope-related rename issues in global node_modules
 # Using BuildKit cache for npm to speed up rebuilds
-# CVE-2026-26996: Patch package-lock.json to pin minimatch to fixed versions
-# (3.1.2->3.1.3, 9.0.5->9.0.6) before npm install, so the correct tarballs
-# are fetched deterministically without requiring npm metadata resolution.
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
     cd opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
-    node -e " \
-      const fs = require('fs'); \
-      const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8')); \
-      let patched = 0; \
-      for (const [key, pkg] of Object.entries(lock.packages)) { \
-        if (!key.endsWith('/minimatch')) continue; \
-        if (pkg.version === '3.1.2') { \
-          pkg.version = '3.1.3'; \
-          pkg.resolved = 'https://registry.npmjs.org/minimatch/-/minimatch-3.1.3.tgz'; \
-          pkg.integrity = 'sha512-M2GCs7Vk83NxkUyQV1bkABc4yxgz9kILhHImZiBPAZ9ybuvCb0/H7lEl5XvIg3g+9d4eNotkZA5IWwYl0tibaA=='; \
-          patched++; \
-        } else if (pkg.version === '9.0.5') { \
-          pkg.version = '9.0.6'; \
-          pkg.resolved = 'https://registry.npmjs.org/minimatch/-/minimatch-9.0.6.tgz'; \
-          pkg.integrity = 'sha512-kQAVowdR33euIqeA0+VZTDqU+qo1IeVY+hrKYtZMio3Pg0P0vuh/kwRylLUddJhB6pf3q/botcOvRtx4IN1wqQ=='; \
-          patched++; \
-        } \
-      } \
-      if (patched === 0) { console.error('ERROR: No minimatch entries found to patch'); process.exit(1); } \
-      fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2)); \
-      console.log('Patched ' + patched + ' minimatch entries in package-lock.json'); \
-    " && \
     npm install && \
+    npm install minimatch@3.1.3 && \
     npm run build && \
     npm install -g
 
