@@ -505,7 +505,7 @@ func (a *adkApiTranslator) buildManifest(
 						Env:             env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent.json", Port: intstr.FromString("http")},
+								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
 							},
 							InitialDelaySeconds: 15,
 							TimeoutSeconds:      15,
