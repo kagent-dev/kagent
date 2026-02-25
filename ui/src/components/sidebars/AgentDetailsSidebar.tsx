@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, Edit } from "lucide-react";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
-import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
 import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
@@ -20,9 +21,11 @@ interface AgentDetailsSidebarProps {
   selectedAgentName: string;
   currentAgent: AgentResponse;
   allTools: ToolsResponse[];
+  open: boolean;
+  onClose: () => void;
 }
 
-export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools, open, onClose }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
@@ -222,11 +225,13 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   const isDeclarativeAgent = selectedTeam?.agent.spec.type === "Declarative";
   
   return (
-    <>
-      <Sidebar side={"right"} collapsible="offcanvas">
-        <SidebarHeader>Agent Details</SidebarHeader>
-        <SidebarContent>
-          <ScrollArea>
+    <Sheet open={open} onOpenChange={onClose}>
+      <SheetContent side="right" className="p-0 overflow-hidden">
+        <SheetHeader className="px-4 py-3 border-b">
+          <SheetTitle className="text-base">Agent Details</SheetTitle>
+          <SheetDescription className="sr-only">Details about the selected agent</SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="h-[calc(100vh-4rem)]">
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
@@ -314,9 +319,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               </SidebarGroup>
             )}
 
-          </ScrollArea>
-        </SidebarContent>
-      </Sidebar>
-    </>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   );
 }
