@@ -5,95 +5,604 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kanban Board</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; }
-  header { background: #1a1a2e; color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 1.2rem; font-weight: 600; }
-  #status { font-size: 0.75rem; opacity: 0.7; margin-left: auto; }
-  #board { display: flex; flex-direction: row; gap: 10px; padding: 16px; overflow-x: auto; min-height: calc(100vh - 52px); align-items: flex-start; }
-  .column { background: #e8eaf0; border-radius: 8px; width: 220px; min-width: 220px; display: flex; flex-direction: column; max-height: calc(100vh - 84px); }
-  .col-header { padding: 10px 12px; font-weight: 600; font-size: 0.85rem; background: #d0d4e0; border-radius: 8px 8px 0 0; display: flex; align-items: center; justify-content: space-between; }
-  .col-count { background: #fff; border-radius: 10px; padding: 1px 7px; font-size: 0.75rem; font-weight: 700; color: #555; }
-  .col-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; }
-  .add-form { padding: 6px 8px 8px; display: flex; gap: 4px; }
-  .add-form input { flex: 1; border: 1px solid #bbb; border-radius: 4px; padding: 4px 6px; font-size: 0.8rem; }
-  .add-form button { background: #3b5bdb; color: #fff; border: none; border-radius: 4px; padding: 4px 8px; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
-  .add-form button:hover { background: #2f4dbf; }
-  .card { background: #fff; border-radius: 6px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 3px solid #3b5bdb; }
-  .card-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; word-break: break-word; }
-  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-  .badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
-  .badge-assignee { background: #dbeafe; color: #1d4ed8; }
-  .badge-hitl { background: #fef3c7; color: #b45309; }
-  .badge-sub { background: #f3f0ff; color: #6d28d9; }
-  .card-nav { display: flex; gap: 4px; margin-top: 6px; }
-  .card-nav button { flex: 1; background: #f1f3f5; border: 1px solid #dee2e6; border-radius: 4px; padding: 2px 4px; font-size: 0.72rem; cursor: pointer; }
-  .card-nav button:hover { background: #e2e8f0; }
-  .card-nav button:disabled { opacity: 0.35; cursor: default; }
-  details { margin-top: 4px; }
-  summary { font-size: 0.75rem; cursor: pointer; color: #555; user-select: none; padding: 2px 0; }
-  .subtask-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; padding-left: 4px; }
-  .subtask-item { font-size: 0.75rem; display: flex; align-items: center; gap: 5px; }
-  .status-pill { font-size: 0.65rem; padding: 1px 5px; border-radius: 8px; background: #e8eaf0; color: #444; white-space: nowrap; }
-  .hitl-btn { background: none; border: none; cursor: pointer; font-size: 0.72rem; color: #b45309; padding: 2px 4px; border-radius: 4px; }
-  .hitl-btn:hover { background: #fef3c7; }
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #1e293b;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --border-light: #f1f5f9;
+    --input: #e2e8f0;
+    --ring: #7c3aed;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f8fafc;
+    color: var(--foreground);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 1.5rem;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  header h1 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--foreground);
+  }
+
+  .header-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    flex-shrink: 0;
+  }
+
+  .header-dot.offline {
+    background: #f59e0b;
+    animation: pulse-amber 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-amber {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  #status {
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  #board {
+    display: flex;
+    gap: 14px;
+    padding: 20px 1.5rem 1.5rem;
+    overflow-x: auto;
+    min-height: calc(100vh - 56px);
+    align-items: flex-start;
+    scroll-snap-type: x proximity;
+  }
+
+  .column {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 300px;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 96px);
+    box-shadow: var(--shadow);
+    scroll-snap-align: start;
+    overflow: hidden;
+  }
+
+  .col-header {
+    padding: 14px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card);
+    user-select: none;
+  }
+
+  .col-color-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .col-count {
+    margin-left: auto;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    border-radius: 9999px;
+    min-width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0 7px;
+  }
+
+  .col-body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 1;
+    background: #fafbfc;
+  }
+
+  .col-body:empty::after {
+    content: "No tasks";
+    display: block;
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--muted-foreground);
+    font-size: 0.82rem;
+    font-style: italic;
+    opacity: 0.6;
+  }
+
+  .add-form {
+    padding: 12px;
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    background: #fafbfc;
+  }
+
+  .add-form input {
+    flex: 1;
+    border: 1px solid var(--input);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--foreground);
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+
+  .add-form input::placeholder {
+    color: var(--muted-foreground);
+    opacity: 0.7;
+  }
+
+  .add-form input:focus {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+  }
+
+  .add-form button {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+    font-family: inherit;
+  }
+
+  .add-form button:hover {
+    background: var(--primary-hover);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card);
+    color: var(--card-foreground);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 14px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s, border-color 0.15s;
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: #cbd5e1;
+  }
+
+  .card.hitl-active {
+    border-left: 3px solid #f59e0b;
+  }
+
+  .card-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--foreground);
+    margin-bottom: 2px;
+    word-break: break-word;
+  }
+
+  .card-desc {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+    line-height: 1.45;
+    margin-top: 4px;
+    margin-bottom: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+
+  .badge-assignee {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+  }
+
+  .badge-hitl {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+  }
+
+  .badge-sub {
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+  }
+
+  .badge-id {
+    background: var(--muted);
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Subtasks ── */
+  details {
+    margin-top: 10px;
+  }
+
+  summary {
+    font-size: 0.78rem;
+    cursor: pointer;
+    color: var(--muted-foreground);
+    user-select: none;
+    padding: 4px 0;
+    font-weight: 500;
+  }
+
+  summary:hover {
+    color: var(--foreground);
+  }
+
+  .subtask-list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .subtask-item {
+    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--muted);
+    color: var(--secondary-foreground);
+  }
+
+  .subtask-status {
+    font-size: 0.68rem;
+    padding: 1px 7px;
+    border-radius: 9999px;
+    background: var(--background);
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .subtask-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Card Actions ── */
+  .card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .btn-nav {
+    flex: 1;
+    background: var(--background);
+    color: var(--secondary-foreground);
+    border: 1px solid var(--input);
+    border-radius: 6px;
+    padding: 6px 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    text-align: center;
+    font-family: inherit;
+    line-height: 1.3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+  }
+
+  .btn-nav:hover:not(:disabled) {
+    background: var(--muted);
+    border-color: #cbd5e1;
+  }
+
+  .btn-nav:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .btn-nav .btn-label {
+    font-size: 0.68rem;
+    color: var(--muted-foreground);
+    font-weight: 400;
+  }
+
+  .btn-hitl {
+    background: var(--background);
+    border: 1px solid var(--input);
+    color: var(--muted-foreground);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: inherit;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .btn-hitl:hover {
+    background: var(--muted);
+    border-color: #cbd5e1;
+  }
+
+  .btn-hitl.active {
+    background: #fef3c7;
+    border-color: #fde68a;
+    color: #92400e;
+  }
+
+  .btn-hitl.active:hover {
+    background: #fde68a;
+  }
+
+  /* ── Column color themes ── */
+  .col-inbox .col-color-dot { background: #64748b; }
+  .col-design .col-color-dot { background: #8b5cf6; }
+  .col-develop .col-color-dot { background: #3b82f6; }
+  .col-testing .col-color-dot { background: #f59e0b; }
+  .col-securityscan .col-color-dot { background: #ef4444; }
+  .col-codereview .col-color-dot { background: #ec4899; }
+  .col-documentation .col-color-dot { background: #06b6d4; }
+  .col-done .col-color-dot { background: #22c55e; }
+
+  .col-inbox .col-header { border-top: 3px solid #64748b; }
+  .col-design .col-header { border-top: 3px solid #8b5cf6; }
+  .col-develop .col-header { border-top: 3px solid #3b82f6; }
+  .col-testing .col-header { border-top: 3px solid #f59e0b; }
+  .col-securityscan .col-header { border-top: 3px solid #ef4444; }
+  .col-codereview .col-header { border-top: 3px solid #ec4899; }
+  .col-documentation .col-header { border-top: 3px solid #06b6d4; }
+  .col-done .col-header { border-top: 3px solid #22c55e; }
+
+  .col-done .card-title {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    header {
+      padding: 0 1rem;
+      height: 50px;
+    }
+
+    #board {
+      padding: 14px 1rem 1rem;
+      gap: 10px;
+    }
+
+    .column {
+      width: min(85vw, 310px);
+      min-width: min(85vw, 310px);
+    }
+  }
+
+  /* ── Scrollbar ── */
+  .col-body::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .col-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .col-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  #board::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  #board::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  #board::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 6px;
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>Kanban Board</h1>
-  <span id="status">connecting…</span>
+  <span id="status"><span class="header-dot" id="status-dot"></span> connecting…</span>
 </header>
 <div id="board"></div>
 <script>
 (function() {
   var WORKFLOW = ["Inbox","Design","Develop","Testing","SecurityScan","CodeReview","Documentation","Done"];
 
+  var COL_LABELS = {
+    Inbox: "Inbox",
+    Design: "Design",
+    Develop: "Develop",
+    Testing: "Testing",
+    SecurityScan: "Security Scan",
+    CodeReview: "Code Review",
+    Documentation: "Documentation",
+    Done: "Done"
+  };
+
   function prevStatus(s) { var i = WORKFLOW.indexOf(s); return i > 0 ? WORKFLOW[i-1] : null; }
   function nextStatus(s) { var i = WORKFLOW.indexOf(s); return i >= 0 && i < WORKFLOW.length-1 ? WORKFLOW[i+1] : null; }
 
-  function escHtml(s) {
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  function norm(task) {
+    return {
+      id: task.id || task.ID,
+      title: task.title || task.Title || "",
+      description: task.description || task.Description || "",
+      status: task.status || task.Status || "",
+      assignee: task.assignee || task.Assignee || "",
+      user_input_needed: task.user_input_needed || task.UserInputNeeded || false,
+      parent_id: task.parent_id || task.ParentID || null,
+      subtasks: (task.subtasks || task.Subtasks || []).map(norm)
+    };
   }
 
-  function renderCard(task) {
+  function renderCard(rawTask) {
+    var task = norm(rawTask);
     var div = document.createElement("div");
-    div.className = "card";
+    div.className = "card" + (task.user_input_needed ? " hitl-active" : "");
     div.dataset.id = task.id;
 
     var titleEl = document.createElement("div");
     titleEl.className = "card-title";
-    titleEl.textContent = task.title;
+    titleEl.textContent = task.title || "(untitled)";
     div.appendChild(titleEl);
 
-    var badges = document.createElement("div");
-    badges.className = "badges";
+    if (task.description) {
+      var descEl = document.createElement("div");
+      descEl.className = "card-desc";
+      descEl.textContent = task.description;
+      div.appendChild(descEl);
+    }
+
+    var meta = document.createElement("div");
+    meta.className = "card-meta";
+    var hasAnyMeta = false;
+
+    var idBadge = document.createElement("span");
+    idBadge.className = "badge badge-id";
+    idBadge.textContent = "#" + task.id;
+    meta.appendChild(idBadge);
+    hasAnyMeta = true;
+
     if (task.assignee) {
       var ab = document.createElement("span");
       ab.className = "badge badge-assignee";
       ab.textContent = task.assignee;
-      badges.appendChild(ab);
+      meta.appendChild(ab);
+      hasAnyMeta = true;
     }
     if (task.user_input_needed) {
       var hb = document.createElement("span");
       hb.className = "badge badge-hitl";
-      hb.textContent = "⚠ Input needed";
-      badges.appendChild(hb);
+      hb.textContent = "Input Needed";
+      meta.appendChild(hb);
+      hasAnyMeta = true;
     }
     var subs = task.subtasks || [];
     if (subs.length > 0) {
+      var doneSubs = subs.filter(function(s) { return s.status === "Done"; }).length;
       var sb = document.createElement("span");
       sb.className = "badge badge-sub";
-      sb.textContent = subs.length + " subtask" + (subs.length > 1 ? "s" : "");
-      badges.appendChild(sb);
+      sb.textContent = doneSubs + "/" + subs.length + " subtasks";
+      meta.appendChild(sb);
+      hasAnyMeta = true;
     }
-    if (badges.children.length > 0) div.appendChild(badges);
+    if (hasAnyMeta) div.appendChild(meta);
 
-    // Subtasks collapsible
     if (subs.length > 0) {
       var details = document.createElement("details");
       var summary = document.createElement("summary");
-      summary.textContent = "Subtasks (" + subs.length + ")";
+      summary.textContent = "Subtasks (" + doneSubs + "/" + subs.length + " done)";
       details.appendChild(summary);
       var subList = document.createElement("div");
       subList.className = "subtask-list";
@@ -101,10 +610,11 @@
         var item = document.createElement("div");
         item.className = "subtask-item";
         var pill = document.createElement("span");
-        pill.className = "status-pill";
-        pill.textContent = st.status;
+        pill.className = "subtask-status";
+        pill.textContent = COL_LABELS[st.status] || st.status;
         item.appendChild(pill);
         var t = document.createElement("span");
+        t.className = "subtask-title";
         t.textContent = st.title;
         item.appendChild(t);
         subList.appendChild(item);
@@ -113,38 +623,45 @@
       div.appendChild(details);
     }
 
-    // Nav buttons
-    var nav = document.createElement("div");
-    nav.className = "card-nav";
+    var actions = document.createElement("div");
+    actions.className = "card-actions";
 
-    var prev = document.createElement("button");
-    prev.textContent = "← Prev";
     var prevSt = prevStatus(task.status);
+    var prev = document.createElement("button");
+    prev.className = "btn-nav";
     prev.disabled = !prevSt;
     if (prevSt) {
-      prev.title = prevSt;
+      prev.innerHTML = '<span>← Back</span><span class="btn-label">' + (COL_LABELS[prevSt] || prevSt) + '</span>';
+      prev.title = "Move to " + (COL_LABELS[prevSt] || prevSt);
       prev.addEventListener("click", function() { moveTask(task.id, prevSt); });
+    } else {
+      prev.innerHTML = '<span>← Back</span>';
     }
-    nav.appendChild(prev);
+    actions.appendChild(prev);
 
     var hitlBtn = document.createElement("button");
-    hitlBtn.className = "hitl-btn";
-    hitlBtn.title = task.user_input_needed ? "Clear input-needed flag" : "Mark: input needed";
-    hitlBtn.textContent = task.user_input_needed ? "✓ HIL" : "? HIL";
+    hitlBtn.className = "btn-hitl" + (task.user_input_needed ? " active" : "");
+    hitlBtn.title = task.user_input_needed ? "Clear input-needed flag" : "Flag as needing input";
+    hitlBtn.innerHTML = task.user_input_needed
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Done'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Flag';
     hitlBtn.addEventListener("click", function() { toggleHITL(task.id, task.user_input_needed); });
-    nav.appendChild(hitlBtn);
+    actions.appendChild(hitlBtn);
 
-    var next = document.createElement("button");
-    next.textContent = "Next →";
     var nextSt = nextStatus(task.status);
+    var next = document.createElement("button");
+    next.className = "btn-nav";
     next.disabled = !nextSt;
     if (nextSt) {
-      next.title = nextSt;
+      next.innerHTML = '<span>Next →</span><span class="btn-label">' + (COL_LABELS[nextSt] || nextSt) + '</span>';
+      next.title = "Move to " + (COL_LABELS[nextSt] || nextSt);
       next.addEventListener("click", function() { moveTask(task.id, nextSt); });
+    } else {
+      next.innerHTML = '<span>Next →</span>';
     }
-    nav.appendChild(next);
+    actions.appendChild(next);
 
-    div.appendChild(nav);
+    div.appendChild(actions);
     return div;
   }
 
@@ -160,12 +677,15 @@
       var tasks = col.tasks || [];
 
       var colEl = document.createElement("div");
-      colEl.className = "column";
+      colEl.className = "column col-" + status.toLowerCase();
 
       var header = document.createElement("div");
       header.className = "col-header";
+      var dot = document.createElement("span");
+      dot.className = "col-color-dot";
+      header.appendChild(dot);
       var nameEl = document.createElement("span");
-      nameEl.textContent = status;
+      nameEl.textContent = COL_LABELS[status] || status;
       header.appendChild(nameEl);
       var countEl = document.createElement("span");
       countEl.className = "col-count";
@@ -173,16 +693,15 @@
       header.appendChild(countEl);
       colEl.appendChild(header);
 
-      // Add-task form only in Inbox
       if (status === "Inbox") {
         var form = document.createElement("div");
         form.className = "add-form";
         var inp = document.createElement("input");
         inp.type = "text";
-        inp.placeholder = "New task…";
+        inp.placeholder = "Add a task…";
         inp.id = "inbox-input";
         var btn = document.createElement("button");
-        btn.textContent = "+ Add";
+        btn.textContent = "Add";
         btn.addEventListener("click", function() {
           var title = inp.value.trim();
           if (!title) return;
@@ -204,6 +723,26 @@
 
       container.appendChild(colEl);
     });
+  }
+
+  function setLiveStatus(live) {
+    var statusEl = document.getElementById("status");
+    var dot = document.getElementById("status-dot");
+    if (live) {
+      statusEl.innerHTML = '';
+      dot = document.createElement("span");
+      dot.className = "header-dot";
+      dot.id = "status-dot";
+      statusEl.appendChild(dot);
+      statusEl.appendChild(document.createTextNode(" live"));
+    } else {
+      statusEl.innerHTML = '';
+      dot = document.createElement("span");
+      dot.className = "header-dot offline";
+      dot.id = "status-dot";
+      statusEl.appendChild(dot);
+      statusEl.appendChild(document.createTextNode(" reconnecting…"));
+    }
   }
 
   function fetchBoard() {
@@ -237,13 +776,11 @@
     }).catch(function(e) { console.error("addTask:", e); });
   }
 
-  // SSE connection
   function connectSSE() {
     var es = new EventSource("/events");
-    var statusEl = document.getElementById("status");
 
     es.addEventListener("snapshot", function(e) {
-      statusEl.textContent = "live";
+      setLiveStatus(true);
       try {
         var ev = JSON.parse(e.data);
         if (ev.data && ev.data.columns) renderBoard(ev.data);
@@ -260,11 +797,11 @@
     };
 
     es.onerror = function() {
-      statusEl.textContent = "reconnecting…";
+      setLiveStatus(false);
     };
 
     es.onopen = function() {
-      statusEl.textContent = "live";
+      setLiveStatus(true);
     };
   }
 
