@@ -409,3 +409,34 @@ export interface DiscoveredTool {
   name: string;
   description: string;
 }
+
+// AgentCronJob types
+export interface AgentCronJobSpec {
+  schedule: string;
+  prompt: string;
+  agentRef: string;
+}
+
+export interface AgentCronJobCondition {
+  type: string;
+  status: string;
+  reason?: string;
+  message?: string;
+  lastTransitionTime?: string;
+}
+
+export interface AgentCronJobStatus {
+  observedGeneration?: number;
+  conditions?: AgentCronJobCondition[];
+  lastRunTime?: string;
+  nextRunTime?: string;
+  lastRunResult?: string;
+  lastRunMessage?: string;
+  lastSessionID?: string;
+}
+
+export interface AgentCronJob {
+  metadata: ResourceMetadata;
+  spec: AgentCronJobSpec;
+  status?: AgentCronJobStatus;
+}
