@@ -19,6 +19,7 @@ interface ToolCallState {
     is_error?: boolean;
   };
   status: ToolCallStatus;
+  contextId?: string; // Child session ID from A2A delegation
 }
 
 // Create a global cache to track tool calls across components
@@ -33,13 +34,13 @@ const isToolCallRequestMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallRequestEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -50,13 +51,13 @@ const isToolCallExecutionMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallExecutionEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -67,11 +68,11 @@ const isToolCallSummaryMessage = (message: Message): boolean => {
 
 const extractToolCallRequests = (message: Message): FunctionCall[] => {
   if (!isToolCallRequestMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const functionCalls: FunctionCall[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
@@ -84,16 +85,16 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
       }
     }
   }
-  
+
   // If we found function calls in data parts, return them
   if (functionCalls.length > 0) {
     return functionCalls;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
-  
+
   try {
     // Tool call data might be stored as JSON in content or metadata
     const metadata = message.metadata as ADKMetadata;
@@ -106,11 +107,11 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
 
 const extractToolCallResults = (message: Message): ProcessedToolResultData[] => {
   if (!isToolCallExecutionMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const toolResults: ProcessedToolResultData[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
@@ -118,26 +119,31 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
         // Extract normalized content from the result (supports string/object/array)
         const textContent = normalizeToolResultToText(data);
 
+        // Extract child session ID from A2A metadata if present
+        const metadata = part.metadata as Record<string, unknown> | undefined;
+        const contextId = metadata?.["a2a:context_id"] as string | undefined;
+
         toolResults.push({
           call_id: data.id,
           name: data.name,
           content: textContent,
-          is_error: data.response?.isError || false
+          contextId: contextId || undefined,
+          is_error: data.response?.isError || false,
         });
       }
     }
   }
-  
+
   // If we found tool results in data parts, return them
   if (toolResults.length > 0) {
     return toolResults;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
-  
+
   try {
     const metadata = message.metadata as ADKMetadata;
     const resultData = metadata?.toolResultData || JSON.parse(content || "[]");
@@ -213,6 +219,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
               content: result.content,
               is_error: result.is_error
             };
+            existingCall.contextId = result.contextId;
             existingCall.status = "executing";
           }
         }
@@ -224,7 +231,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     for (const message of allMessages) {
       if (isToolCallSummaryMessage(message)) {
         summaryMessageEncountered = true;
-        break; 
+        break;
       }
     }
 
@@ -261,6 +268,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
             result={toolCall.result}
             status={toolCall.status}
             isError={toolCall.result?.is_error}
+            contextId={toolCall.contextId}
           />
         ) : (
           <ToolDisplay
