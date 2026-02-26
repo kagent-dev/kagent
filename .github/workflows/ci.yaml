@@ -111,7 +111,7 @@ jobs:
 
       - name: Run e2e tests
         if: success()
-        working-directory: go
+        working-directory: go/core
         run: |
           # Get the Kind network gateway IP that pods can reach
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
@@ -124,7 +124,7 @@ jobs:
 
           # no need to run e2e tests with race, as this will just apply to the test code.
           # all objects created in e2e tests have a generated name, so they can run in parallel safely.
-          go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast -shuffle=on
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
       - name: fail print info
         if: failure()
         run: |
@@ -148,12 +148,12 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: go/*/go.sum
 
-      - name: Run cmd/main.go tests
+      - name: Run Go unit tests
         working-directory: go
         run: |
-          go test -race -skip 'TestE2E.*' -v ./...
+          go test -race -skip 'TestE2E.*' -v ./api/... ./adk/... ./core/...
 
   helm-unit-tests:
     env:
@@ -219,6 +219,7 @@ jobs:
           - ui
           - app
           - cli
+          - golang-adk
     runs-on: ubuntu-latest
     services:
       registry:
@@ -265,12 +266,12 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: go/*/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.8.0
-          working-directory: go
+          working-directory: go/core
 
   python-test:
     env:
@@ -340,7 +341,7 @@ jobs:
         with:
           go-version: "1.25"
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: go/*/go.sum
 
       - name: Generate controller manifests
         run: make controller-manifests

@@ -1,0 +1,466 @@
+package adk
+
+import (
+	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+)
+
+type StreamableHTTPConnectionParams struct {
+	Url              string            `json:"url"`
+	Headers          map[string]string `json:"headers"`
+	Timeout          *float64          `json:"timeout,omitempty"`
+	SseReadTimeout   *float64          `json:"sse_read_timeout,omitempty"`
+	TerminateOnClose *bool             `json:"terminate_on_close,omitempty"`
+	// TLS configuration for self-signed certificates
+	TlsDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
+	TlsCaCertPath       *string `json:"tls_ca_cert_path,omitempty"`
+	TlsDisableSystemCas *bool   `json:"tls_disable_system_cas,omitempty"`
+}
+
+type HttpMcpServerConfig struct {
+	Params         StreamableHTTPConnectionParams `json:"params"`
+	Tools          []string                       `json:"tools"`
+	AllowedHeaders []string                       `json:"allowed_headers,omitempty"`
+}
+
+type SseConnectionParams struct {
+	Url            string            `json:"url"`
+	Headers        map[string]string `json:"headers"`
+	Timeout        *float64          `json:"timeout,omitempty"`
+	SseReadTimeout *float64          `json:"sse_read_timeout,omitempty"`
+	// TLS configuration for self-signed certificates
+	TlsDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
+	TlsCaCertPath       *string `json:"tls_ca_cert_path,omitempty"`
+	TlsDisableSystemCas *bool   `json:"tls_disable_system_cas,omitempty"`
+}
+
+type SseMcpServerConfig struct {
+	Params         SseConnectionParams `json:"params"`
+	Tools          []string            `json:"tools"`
+	AllowedHeaders []string            `json:"allowed_headers,omitempty"`
+}
+
+type Model interface {
+	GetType() string
+}
+
+type BaseModel struct {
+	Type    string            `json:"type"`
+	Model   string            `json:"model"`
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// TLS/SSL configuration (applies to all model types)
+	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
+	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
+
+	// APIKeyPassthrough enables forwarding the Bearer token from incoming requests
+	// as the LLM API key instead of using a static secret.
+	APIKeyPassthrough bool `json:"api_key_passthrough,omitempty"`
+}
+
+type OpenAI struct {
+	BaseModel
+	BaseUrl          string   `json:"base_url"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	N                *int     `json:"n,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	ReasoningEffort  *string  `json:"reasoning_effort,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	Timeout          *int     `json:"timeout,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
+}
+
+const (
+	ModelTypeOpenAI          = "openai"
+	ModelTypeAzureOpenAI     = "azure_openai"
+	ModelTypeAnthropic       = "anthropic"
+	ModelTypeGeminiVertexAI  = "gemini_vertex_ai"
+	ModelTypeGeminiAnthropic = "gemini_anthropic"
+	ModelTypeOllama          = "ollama"
+	ModelTypeGemini          = "gemini"
+	ModelTypeBedrock         = "bedrock"
+)
+
+func (o *OpenAI) MarshalJSON() ([]byte, error) {
+	type Alias OpenAI
+
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOpenAI,
+		Alias: (*Alias)(o),
+	})
+}
+
+func (o *OpenAI) GetType() string {
+	return ModelTypeOpenAI
+}
+
+type AzureOpenAI struct {
+	BaseModel
+}
+
+func (a *AzureOpenAI) GetType() string {
+	return ModelTypeAzureOpenAI
+}
+
+func (a *AzureOpenAI) MarshalJSON() ([]byte, error) {
+	type Alias AzureOpenAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAzureOpenAI,
+		Alias: (*Alias)(a),
+	})
+}
+
+type Anthropic struct {
+	BaseModel
+	BaseUrl     string   `json:"base_url,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	TopK        *int     `json:"top_k,omitempty"`
+	Timeout     *int     `json:"timeout,omitempty"`
+}
+
+func (a *Anthropic) MarshalJSON() ([]byte, error) {
+	type Alias Anthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeAnthropic,
+		Alias: (*Alias)(a),
+	})
+}
+
+func (a *Anthropic) GetType() string {
+	return ModelTypeAnthropic
+}
+
+type GeminiVertexAI struct {
+	BaseModel
+}
+
+func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
+	type Alias GeminiVertexAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiVertexAI,
+		Alias: (*Alias)(g),
+	})
+}
+
+func (g *GeminiVertexAI) GetType() string {
+	return ModelTypeGeminiVertexAI
+}
+
+type GeminiAnthropic struct {
+	BaseModel
+}
+
+func (g *GeminiAnthropic) MarshalJSON() ([]byte, error) {
+	type Alias GeminiAnthropic
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGeminiAnthropic,
+		Alias: (*Alias)(g),
+	})
+}
+
+func (g *GeminiAnthropic) GetType() string {
+	return ModelTypeGeminiAnthropic
+}
+
+type Ollama struct {
+	BaseModel
+	Options map[string]string `json:"options,omitempty"`
+}
+
+func (o *Ollama) MarshalJSON() ([]byte, error) {
+	type Alias Ollama
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOllama,
+		Alias: (*Alias)(o),
+	})
+}
+
+func (o *Ollama) GetType() string {
+	return ModelTypeOllama
+}
+
+type Gemini struct {
+	BaseModel
+}
+
+func (g *Gemini) MarshalJSON() ([]byte, error) {
+	type Alias Gemini
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeGemini,
+		Alias: (*Alias)(g),
+	})
+}
+
+func (g *Gemini) GetType() string {
+	return ModelTypeGemini
+}
+
+type Bedrock struct {
+	BaseModel
+	// Region is the AWS region where the model is available
+	Region string `json:"region,omitempty"`
+}
+
+func (b *Bedrock) MarshalJSON() ([]byte, error) {
+	type Alias Bedrock
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeBedrock,
+		Alias: (*Alias)(b),
+	})
+}
+
+func (b *Bedrock) GetType() string {
+	return ModelTypeBedrock
+}
+
+// GenericModel is a catch-all model type used by the Go ADK when the model
+// type doesn't match any known constant.
+type GenericModel struct {
+	BaseModel
+}
+
+func (g *GenericModel) GetType() string { return g.Type }
+
+func ParseModel(bytes []byte) (Model, error) {
+	var model BaseModel
+	if err := json.Unmarshal(bytes, &model); err != nil {
+		return nil, err
+	}
+	switch model.Type {
+	case ModelTypeGemini:
+		var gemini Gemini
+		if err := json.Unmarshal(bytes, &gemini); err != nil {
+			return nil, err
+		}
+		return &gemini, nil
+	case ModelTypeAzureOpenAI:
+		var azureOpenAI AzureOpenAI
+		if err := json.Unmarshal(bytes, &azureOpenAI); err != nil {
+			return nil, err
+		}
+		return &azureOpenAI, nil
+	case ModelTypeOpenAI:
+		var openai OpenAI
+		if err := json.Unmarshal(bytes, &openai); err != nil {
+			return nil, err
+		}
+		return &openai, nil
+	case ModelTypeAnthropic:
+		var anthropic Anthropic
+		if err := json.Unmarshal(bytes, &anthropic); err != nil {
+			return nil, err
+		}
+		return &anthropic, nil
+	case ModelTypeGeminiVertexAI:
+		var geminiVertexAI GeminiVertexAI
+		if err := json.Unmarshal(bytes, &geminiVertexAI); err != nil {
+			return nil, err
+		}
+		return &geminiVertexAI, nil
+	case ModelTypeGeminiAnthropic:
+		var geminiAnthropic GeminiAnthropic
+		if err := json.Unmarshal(bytes, &geminiAnthropic); err != nil {
+			return nil, err
+		}
+		return &geminiAnthropic, nil
+	case ModelTypeOllama:
+		var ollama Ollama
+		if err := json.Unmarshal(bytes, &ollama); err != nil {
+			return nil, err
+		}
+		return &ollama, nil
+	case ModelTypeBedrock:
+		var bedrock Bedrock
+		if err := json.Unmarshal(bytes, &bedrock); err != nil {
+			return nil, err
+		}
+		return &bedrock, nil
+	}
+	return nil, fmt.Errorf("unknown model type: %s", model.Type)
+}
+
+type RemoteAgentConfig struct {
+	Name        string            `json:"name"`
+	Url         string            `json:"url"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Description string            `json:"description,omitempty"`
+}
+
+// EmbeddingConfig is the embedding model config for memory tools.
+// JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
+type EmbeddingConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseUrl  string `json:"base_url,omitempty"`
+}
+
+func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Type     string `json:"type"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseUrl  string `json:"base_url"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	e.Model = tmp.Model
+	e.BaseUrl = tmp.BaseUrl
+	if tmp.Provider != "" {
+		e.Provider = tmp.Provider
+	} else {
+		e.Provider = tmp.Type
+	}
+	return nil
+}
+
+// ModelToEmbeddingConfig converts a Model (e.g. from translateModel) to EmbeddingConfig
+// so serialized AgentConfig has embedding.provider for Python EmbeddingConfig validation.
+func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
+	if m == nil {
+		return nil
+	}
+	e := &EmbeddingConfig{Provider: m.GetType()}
+	switch v := m.(type) {
+	case *OpenAI:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *AzureOpenAI:
+		e.Model = v.Model
+	case *Anthropic:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *GeminiVertexAI:
+		e.Model = v.Model
+	case *GeminiAnthropic:
+		e.Model = v.Model
+	case *Ollama:
+		e.Model = v.Model
+	case *Gemini:
+		e.Model = v.Model
+	case *Bedrock:
+		e.Model = v.Model
+	default:
+		e.Model = ""
+	}
+	return e
+}
+
+// MemoryConfig groups all memory-related configuration.
+type MemoryConfig struct {
+	TTLDays   int              `json:"ttl_days,omitempty"`
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+}
+
+// See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
+type AgentConfig struct {
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools,omitempty"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools,omitempty"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
+	ExecuteCode  *bool                 `json:"execute_code,omitempty"`
+	Stream       *bool                 `json:"stream,omitempty"`
+	Memory       *MemoryConfig         `json:"memory,omitempty"`
+}
+
+// GetStream returns the stream value or default if not set
+func (a *AgentConfig) GetStream() bool {
+	if a.Stream != nil {
+		return *a.Stream
+	}
+	return false
+}
+
+// GetExecuteCode returns the execute_code value or default if not set
+func (a *AgentConfig) GetExecuteCode() bool {
+	if a.ExecuteCode != nil {
+		return *a.ExecuteCode
+	}
+	return false
+}
+
+func (a *AgentConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Model        json.RawMessage       `json:"model"`
+		Description  string                `json:"description"`
+		Instruction  string                `json:"instruction"`
+		HttpTools    []HttpMcpServerConfig `json:"http_tools,omitempty"`
+		SseTools     []SseMcpServerConfig  `json:"sse_tools,omitempty"`
+		RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
+		ExecuteCode  *bool                 `json:"execute_code,omitempty"`
+		Stream       *bool                 `json:"stream,omitempty"`
+		Memory       json.RawMessage       `json:"memory"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	model, err := ParseModel(tmp.Model)
+	if err != nil {
+		return err
+	}
+
+	var memory *MemoryConfig
+	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
+		var m MemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
+			return err
+		}
+		memory = &m
+	}
+
+	a.Model = model
+	a.Description = tmp.Description
+	a.Instruction = tmp.Instruction
+	a.HttpTools = tmp.HttpTools
+	a.SseTools = tmp.SseTools
+	a.RemoteAgents = tmp.RemoteAgents
+	a.ExecuteCode = tmp.ExecuteCode
+	a.Stream = tmp.Stream
+	a.Memory = memory
+	return nil
+}
+
+var _ sql.Scanner = &AgentConfig{}
+
+func (a *AgentConfig) Scan(value any) error {
+	return json.Unmarshal(value.([]byte), a)
+}
+
+var _ driver.Valuer = &AgentConfig{}
+
+func (a AgentConfig) Value() (driver.Value, error) {
+	return json.Marshal(a)
+}

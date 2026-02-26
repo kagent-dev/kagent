@@ -1,0 +1,1155 @@
+package reconciler
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/hashicorp/go-multierror"
+	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/util/retry"
+
+	"github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/provider"
+	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+)
+
+var (
+	reconcileLog = ctrl.Log.WithName("reconciler")
+)
+
+type KagentReconciler interface {
+	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
+	RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error)
+	GetOwnedResourceTypes() []client.Object
+}
+
+type kagentReconciler struct {
+	adkTranslator agent_translator.AdkApiTranslator
+
+	kube     client.Client
+	dbClient database.Client
+
+	defaultModelConfig types.NamespacedName
+
+	// watchedNamespaces is the list of namespaces the controller watches.
+	// An empty list means watching all namespaces.
+	watchedNamespaces []string
+}
+
+func NewKagentReconciler(
+	translator agent_translator.AdkApiTranslator,
+	kube client.Client,
+	dbClient database.Client,
+	defaultModelConfig types.NamespacedName,
+	watchedNamespaces []string,
+) KagentReconciler {
+	return &kagentReconciler{
+		adkTranslator:      translator,
+		kube:               kube,
+		dbClient:           dbClient,
+		defaultModelConfig: defaultModelConfig,
+		watchedNamespaces:  watchedNamespaces,
+	}
+}
+
+func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
+	// TODO(sbx0r): missing finalizer logic
+	agent := &v1alpha2.Agent{}
+	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
+		if apierrors.IsNotFound(err) {
+			return a.handleAgentDeletion(req)
+		}
+
+		return fmt.Errorf("failed to get agent %s: %w", req.NamespacedName, err)
+	}
+
+	err := a.reconcileAgent(ctx, agent)
+	if err != nil {
+		reconcileLog.Error(err, "failed to reconcile agent", "agent", req.NamespacedName)
+	}
+
+	return a.reconcileAgentStatus(ctx, agent, err)
+}
+
+func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
+	id := utils.ConvertToPythonIdentifier(req.String())
+	if err := a.dbClient.DeleteAgent(id); err != nil {
+		return fmt.Errorf("failed to delete agent %s: %w",
+			req.String(), err)
+	}
+
+	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
+	return nil
+}
+
+func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, err error) error {
+	var (
+		status  metav1.ConditionStatus
+		message string
+		reason  string
+	)
+	if err != nil {
+		status = metav1.ConditionFalse
+		message = err.Error()
+		reason = "ReconcileFailed"
+	} else {
+		status = metav1.ConditionTrue
+		reason = "Reconciled"
+	}
+
+	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.AgentConditionTypeAccepted,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: agent.Generation,
+	})
+
+	deployedCondition := metav1.Condition{
+		Type:               v1alpha2.AgentConditionTypeReady,
+		Status:             metav1.ConditionUnknown,
+		ObservedGeneration: agent.Generation,
+	}
+
+	// Check if the deployment exists
+	deployment := &appsv1.Deployment{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+		deployedCondition.Status = metav1.ConditionUnknown
+		deployedCondition.Reason = "DeploymentNotFound"
+		deployedCondition.Message = err.Error()
+	} else {
+		replicas := int32(1)
+		if deployment.Spec.Replicas != nil {
+			replicas = *deployment.Spec.Replicas
+		}
+		if deployment.Status.AvailableReplicas >= replicas {
+			deployedCondition.Status = metav1.ConditionTrue
+			deployedCondition.Reason = "DeploymentReady"
+			deployedCondition.Message = "Deployment is ready"
+		} else {
+			deployedCondition.Status = metav1.ConditionFalse
+			deployedCondition.Reason = "DeploymentNotReady"
+			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
+		}
+	}
+
+	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, deployedCondition)
+
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
+		agent.Status.ObservedGeneration = agent.Generation
+		if err := a.kube.Status().Update(ctx, agent); err != nil {
+			return fmt.Errorf("failed to update agent status: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error {
+	service := &corev1.Service{}
+	if err := a.kube.Get(ctx, req.NamespacedName, service); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Delete from DB if the service is deleted
+			dbService := &database.ToolServer{
+				Name:      req.String(),
+				GroupKind: schema.GroupKind{Group: "", Kind: "Service"}.String(),
+			}
+			if err := a.dbClient.DeleteToolServer(dbService.Name, dbService.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", req.String())
+			}
+			reconcileLog.Info("mcp service was deleted", "service", req.String())
+			if err := a.dbClient.DeleteToolsForServer(dbService.Name, dbService.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.String())
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to get service %s: %w", req.Name, err)
+	}
+
+	dbService := &database.ToolServer{
+		Name:        utils.GetObjectRef(service),
+		Description: "N/A",
+		GroupKind:   schema.GroupKind{Group: "", Kind: "Service"}.String(),
+	}
+
+	// Convert Service to RemoteMCPServer spec
+	remoteService, err := agent_translator.ConvertServiceToRemoteMCPServer(service)
+	if err != nil {
+		// Return error - controller will handle validation vs transient error logic
+		reconcileLog.Error(err, "failed to convert service to remote mcp service", "service", utils.GetObjectRef(service))
+		return fmt.Errorf("failed to convert service %s: %w", utils.GetObjectRef(service), err)
+	}
+
+	// Upsert tool server and fetch tools
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbService, remoteService); err != nil {
+		reconcileLog.Error(err, "failed to upsert tool server for service", "service", utils.GetObjectRef(service))
+		return fmt.Errorf("failed to upsert tool server for mcp service %s: %w", utils.GetObjectRef(service), err)
+	}
+
+	return nil
+}
+
+type secretRef struct {
+	NamespacedName types.NamespacedName
+	Secret         *corev1.Secret
+}
+
+func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
+	modelConfig := &v1alpha2.ModelConfig{}
+	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("failed to get model %s: %w", req.Name, err)
+	}
+
+	var err error
+	var secrets []secretRef
+
+	// check for api key secret
+	if modelConfig.Spec.APIKeySecret != "" {
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
+		}
+	}
+
+	// check for tls cert secret
+	if modelConfig.Spec.TLS != nil && modelConfig.Spec.TLS.CACertSecretRef != "" {
+		secret := &corev1.Secret{}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.TLS.CACertSecretRef}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
+		} else {
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret:         secret,
+			})
+		}
+	}
+
+	// compute the hash for the status
+	secretHash := computeStatusSecretHash(secrets)
+
+	return a.reconcileModelConfigStatus(
+		ctx,
+		modelConfig,
+		err,
+		secretHash,
+	)
+}
+
+// computeStatusSecretHash computes a deterministic singular hash of the secrets the model config references for the status
+// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+func computeStatusSecretHash(secrets []secretRef) string {
+	// sort secret references for deterministic output
+	slices.SortStableFunc(secrets, func(a, b secretRef) int {
+		return strings.Compare(a.NamespacedName.String(), b.NamespacedName.String())
+	})
+
+	// compute a singular hash of the secrets
+	// this loses per-secret context (i.e. versioning/hash status per-secret), but simplifies the number of statuses tracked
+	hash := sha256.New()
+	for _, s := range secrets {
+		hash.Write([]byte(s.NamespacedName.String()))
+
+		keys := make([]string, 0, len(s.Secret.Data))
+		for k := range s.Secret.Data {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+
+		for _, k := range keys {
+			hash.Write([]byte(k))
+			hash.Write(s.Secret.Data[k])
+		}
+	}
+
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error, secretHash string) error {
+	var (
+		status  metav1.ConditionStatus
+		message string
+		reason  string
+	)
+	if err != nil {
+		status = metav1.ConditionFalse
+		message = err.Error()
+		reason = "ModelConfigReconcileFailed"
+		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", utils.GetObjectRef(modelConfig))
+	} else {
+		status = metav1.ConditionTrue
+		reason = "ModelConfigReconciled"
+	}
+
+	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ModelConfigConditionTypeAccepted,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	})
+
+	// check if the secret hash has changed
+	secretHashChanged := modelConfig.Status.SecretHash != secretHash
+	if secretHashChanged {
+		modelConfig.Status.SecretHash = secretHash
+	}
+
+	// update the status if it has changed or the generation has changed
+	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation || secretHashChanged {
+		modelConfig.Status.ObservedGeneration = modelConfig.Generation
+		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
+			return fmt.Errorf("failed to update model config status: %w", err)
+		}
+	}
+	return nil
+}
+
+func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {
+	mcpServer := &v1alpha1.MCPServer{}
+	if err := a.kube.Get(ctx, req.NamespacedName, mcpServer); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Delete from DB if the mcp server is deleted
+			dbServer := &database.ToolServer{
+				Name:      req.String(),
+				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
+			}
+			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", req.String())
+			}
+			reconcileLog.Info("mcp server was deleted", "mcpServer", req.String())
+			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.String())
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to get mcp server %s: %w", req.Name, err)
+	}
+
+	dbServer := &database.ToolServer{
+		Name:        utils.GetObjectRef(mcpServer),
+		Description: "N/A",
+		GroupKind:   schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
+	}
+
+	// Convert MCPServer to RemoteMCPServer spec
+	remoteSpec, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
+	if err != nil {
+		// Return error - controller will handle validation vs transient error logic
+		reconcileLog.Error(err, "failed to convert mcp server to remote mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		return fmt.Errorf("failed to convert mcp server %s: %w", utils.GetObjectRef(mcpServer), err)
+	}
+
+	// Upsert tool server and fetch tools
+	if _, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, remoteSpec); err != nil {
+		reconcileLog.Error(err, "failed to upsert tool server for mcp server", "mcpServer", utils.GetObjectRef(mcpServer))
+		return fmt.Errorf("failed to upsert tool server for remote mcp server %s: %w", utils.GetObjectRef(mcpServer), err)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error {
+	nns := req.NamespacedName
+	serverRef := nns.String()
+	l := reconcileLog.WithValues("remoteMCPServer", serverRef)
+
+	server := &v1alpha2.RemoteMCPServer{}
+	if err := a.kube.Get(ctx, nns, server); err != nil {
+		// if the remote MCP server is not found, we can ignore it
+		if apierrors.IsNotFound(err) {
+			// Delete from DB if the remote mcp server is deleted
+			dbServer := &database.ToolServer{
+				Name:      serverRef,
+				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
+			}
+
+			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				l.Error(err, "failed to delete tool server for remote mcp server")
+			}
+
+			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+				l.Error(err, "failed to delete tools for remote mcp server")
+			}
+
+			return nil
+		}
+
+		return fmt.Errorf("failed to get remote mcp server %s: %w", serverRef, err)
+	}
+
+	dbServer := &database.ToolServer{
+		Name:        serverRef,
+		Description: server.Spec.Description,
+		GroupKind:   server.GroupVersionKind().GroupKind().String(),
+	}
+
+	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, server)
+	if err != nil {
+		l.Error(err, "failed to upsert tool server for remote mcp server")
+
+		// Fetch previously discovered tools from database if possible
+		var discoveryErr error
+		tools, discoveryErr = a.getDiscoveredMCPTools(ctx, serverRef)
+		if discoveryErr != nil {
+			err = multierror.Append(err, discoveryErr)
+		}
+	}
+
+	// update the tool server status as the agents depend on it
+	if err := a.reconcileRemoteMCPServerStatus(
+		ctx,
+		server,
+		tools,
+		err,
+	); err != nil {
+		return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
+	ctx context.Context,
+	server *v1alpha2.RemoteMCPServer,
+	discoveredTools []*v1alpha2.MCPTool,
+	err error,
+) error {
+	var (
+		status  metav1.ConditionStatus
+		message string
+		reason  string
+	)
+	if err != nil {
+		status = metav1.ConditionFalse
+		message = err.Error()
+		reason = "ReconcileFailed"
+	} else {
+		status = metav1.ConditionTrue
+		reason = "Reconciled"
+	}
+	conditionChanged := meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.AgentConditionTypeAccepted,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: server.Generation,
+	})
+
+	// only update if the status has changed to prevent looping the reconciler
+	if !conditionChanged &&
+		server.Status.ObservedGeneration == server.Generation &&
+		reflect.DeepEqual(server.Status.DiscoveredTools, discoveredTools) {
+		return nil
+	}
+
+	server.Status.ObservedGeneration = server.Generation
+	server.Status.DiscoveredTools = discoveredTools
+
+	if err := a.kube.Status().Update(ctx, server); err != nil {
+		return fmt.Errorf("failed to update remote mcp server status: %w", err)
+	}
+
+	return nil
+}
+
+// validateCrossNamespaceReferences validates that any cross-namespace
+// references in the agent's tools target namespaces that are watched by the
+// controller. This prevents agents from referencing tools or agents in
+// namespaces that the controller cannot access.
+func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha2.Agent) error {
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
+		return nil
+	}
+
+	for _, tool := range agent.Spec.Declarative.Tools {
+		switch {
+		case tool.McpServer != nil:
+			if err := a.validateMcpServerReference(ctx, agent.Namespace, tool.McpServer); err != nil {
+				return err
+			}
+		case tool.Agent != nil:
+			if err := a.validateAgentToolReference(ctx, agent.Namespace, tool.Agent); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateAgentToolReference validates a reference to an Agent as a tool.
+// This includes:
+//  1. Checking that target namespaces are watched by the controller
+//  2. Checking that the target Agent allows references from the agent's namespace
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedLocalReference) error {
+	agentRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if agentRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Check if the target namespace is watched by the controller
+	if !a.isNamespaceWatched(agentRef.Namespace) {
+		return fmt.Errorf("cannot reference Agent %s: namespace %q is not watched by the controller",
+			agentRef, agentRef.Namespace)
+	}
+
+	// For cross-namespace references, check AllowedNamespaces on the target agent
+	targetAgent := &v1alpha2.Agent{}
+	if err := a.kube.Get(ctx, agentRef, targetAgent); err != nil {
+		return fmt.Errorf("failed to get agent %s: %w", agentRef, err)
+	}
+
+	allowed, err := targetAgent.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, targetAgent.Namespace)
+	if err != nil {
+		return fmt.Errorf("failed to check cross-namespace reference for agent %s: %w", agentRef, err)
+	}
+	if !allowed {
+		return fmt.Errorf("cross-namespace reference to agent %s is not allowed from namespace %s", agentRef, sourceNamespace)
+	}
+
+	return nil
+}
+
+// validateMcpServerReference validates a reference to an MCP server tool. This
+// includes:
+//  1. Enforcing same-namespace-only for MCPServer and Service (external types)
+//  2. Checking that target namespaces are watched by the controller
+//  3. Checking that the target resource allows references from the agent's namespace
+func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.McpServerTool) error {
+	gk := ref.GroupKind()
+	targetRef := ref.NamespacedName(sourceNamespace)
+
+	// Same namespace references are always allowed
+	if targetRef.Namespace == sourceNamespace {
+		return nil
+	}
+
+	// Handle based on the type of MCP server
+	switch gk {
+	case schema.GroupKind{Group: "", Kind: ""}, // TODO: This matches the translator's current fallthrough logic which defaults to MCPServer. That logic is likely a legacy of the inline KMCP support and should probably be adjusted to default to the first-class RemoteMCPServer CRD instead.
+		schema.GroupKind{Group: "", Kind: "MCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}:
+		// MCPServer type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to MCPServer %s is not allowed from namespace %s: MCPServer does not support cross-namespace references",
+			targetRef, sourceNamespace)
+
+	case schema.GroupKind{Group: "", Kind: "RemoteMCPServer"},
+		schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}:
+
+		// Check if the target namespace is watched by the controller
+		if !a.isNamespaceWatched(targetRef.Namespace) {
+			kind := ref.Kind
+			if kind == "" {
+				kind = "MCPServer"
+			}
+			return fmt.Errorf("cannot reference %s %s: namespace %q is not watched by the controller",
+				kind, targetRef, targetRef.Namespace)
+		}
+
+		// For RemoteMCPServer, check AllowedNamespaces
+		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		if err := a.kube.Get(ctx, targetRef, remoteMcpServer); err != nil {
+			return fmt.Errorf("failed to get RemoteMCPServer %s: %w", targetRef, err)
+		}
+
+		allowed, err := remoteMcpServer.Spec.AllowedNamespaces.AllowsNamespace(ctx, a.kube, sourceNamespace, remoteMcpServer.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to check cross-namespace reference for RemoteMCPServer %s: %w", targetRef, err)
+		}
+		if !allowed {
+			return fmt.Errorf("cross-namespace reference to RemoteMCPServer %s is not allowed from namespace %s", targetRef, sourceNamespace)
+		}
+
+	case schema.GroupKind{Group: "", Kind: "Service"},
+		schema.GroupKind{Group: "core", Kind: "Service"}:
+		// Service type doesn't support cross-namespace references (external type)
+		return fmt.Errorf("cross-namespace reference to Service %s is not allowed from namespace %s: Service does not support cross-namespace references",
+			targetRef, sourceNamespace)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
+	// Validate that any cross-namespace references are allowed
+	if err := a.validateCrossNamespaceReferences(ctx, agent); err != nil {
+		return err
+	}
+
+	agentOutputs, err := a.adkTranslator.TranslateAgent(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("failed to translate agent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.UID, agent.Namespace, a.adkTranslator.GetOwnedResourceTypes())
+	if err != nil {
+		return err
+	}
+
+	if err := a.reconcileDesiredObjects(ctx, agent, agentOutputs.Manifest, ownedObjects); err != nil {
+		return fmt.Errorf("failed to reconcile owned objects: %w", err)
+	}
+
+	if err := a.upsertAgent(ctx, agent, agentOutputs); err != nil {
+		return fmt.Errorf("failed to upsert agent %s/%s: %w", agent.Namespace, agent.Name, err)
+	}
+
+	return nil
+}
+
+// GetOwnedResourceTypes returns all the resource types that may be owned by
+// controllers that are reconciled herein. At present only the agents controller
+// owns resources so this simply wraps a call to the ADK translator as that is
+// responsible for creating the manifests for an agent. If in future other
+// controllers start owning resources then this method should be updated to
+// return the distinct union of all owned resource types.
+func (r *kagentReconciler) GetOwnedResourceTypes() []client.Object {
+	return r.adkTranslator.GetOwnedResourceTypes()
+}
+
+// Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192
+func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner metav1.Object, desiredObjects []client.Object, ownedObjects map[types.UID]client.Object) error {
+	var errs []error
+	for _, desired := range desiredObjects {
+		l := reconcileLog.WithValues(
+			"object_name", desired.GetName(),
+			"object_kind", desired.GetObjectKind(),
+		)
+
+		// existing is an object the controller runtime will hydrate for us
+		// we obtain the existing object by deep copying the desired object because it's the most convenient way
+		existing := desired.DeepCopyObject().(client.Object)
+		mutateFn := translator.MutateFuncFor(existing, desired)
+
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			_, createOrUpdateErr := createOrUpdate(ctx, a.kube, existing, mutateFn)
+			return createOrUpdateErr
+		}); err != nil {
+			l.Error(err, "failed to configure desired")
+			errs = append(errs, err)
+			continue
+		}
+
+		// This object is still managed by the controller, remove it from the list of objects to prune
+		delete(ownedObjects, existing.GetUID())
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to create objects for %s: %w", owner.GetName(), errors.Join(errs...))
+	}
+
+	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
+	err := a.deleteObjects(ctx, ownedObjects)
+	if err != nil {
+		return fmt.Errorf("failed to prune objects for %s: %w", owner.GetName(), err)
+	}
+
+	return nil
+}
+
+// modified version of controllerutil.CreateOrUpdate to support proto based objects like istio
+func createOrUpdate(ctx context.Context, c client.Client, obj client.Object, f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+	key := client.ObjectKeyFromObject(obj)
+	if err := c.Get(ctx, key, obj); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return controllerutil.OperationResultNone, err
+		}
+		if f != nil {
+			if err := mutate(f, key, obj); err != nil {
+				return controllerutil.OperationResultNone, err
+			}
+		}
+
+		if err := c.Create(ctx, obj); err != nil {
+			return controllerutil.OperationResultNone, err
+		}
+		return controllerutil.OperationResultCreated, nil
+	}
+
+	existing := obj.DeepCopyObject()
+	if f != nil {
+		if err := mutate(f, key, obj); err != nil {
+			return controllerutil.OperationResultNone, err
+		}
+	}
+
+	// special equality function to handle proto based crds
+	if reconcilerutils.ObjectsEqual(existing, obj) {
+		return controllerutil.OperationResultNone, nil
+	}
+
+	if err := c.Update(ctx, obj); err != nil {
+		return controllerutil.OperationResultNone, err
+	}
+
+	return controllerutil.OperationResultUpdated, nil
+}
+
+// mutate wraps a MutateFn and applies validation to its result.
+func mutate(f controllerutil.MutateFn, key client.ObjectKey, obj client.Object) error {
+	if err := f(); err != nil {
+		return err
+	}
+	if newKey := client.ObjectKeyFromObject(obj); key != newKey {
+		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
+	}
+	return nil
+}
+
+func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.UID]client.Object) error {
+	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
+	pruneErrs := []error{}
+
+	for _, obj := range objects {
+		l := reconcileLog.WithValues(
+			"object_name", obj.GetName(),
+			"object_kind", obj.GetObjectKind().GroupVersionKind(),
+		)
+
+		l.Info("pruning unmanaged resource")
+		err := a.kube.Delete(ctx, obj)
+		if err != nil {
+			l.Error(err, "failed to delete resource")
+			pruneErrs = append(pruneErrs, err)
+		}
+	}
+
+	return errors.Join(pruneErrs...)
+}
+
+func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agent, agentOutputs *agent_translator.AgentOutputs) error {
+	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+	dbAgent := &database.Agent{
+		ID:     id,
+		Type:   string(agent.Spec.Type),
+		Config: agentOutputs.Config,
+	}
+
+	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
+		return fmt.Errorf("failed to store agent %s: %w", id, err)
+	}
+
+	return nil
+}
+
+func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
+	if _, err := a.dbClient.StoreToolServer(toolServer); err != nil {
+		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
+	}
+
+	tsp, err := a.createMcpTransport(ctx, remoteMcpServer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
+	}
+
+	tools, err := a.listTools(ctx, tsp, toolServer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
+	}
+
+	// Refresh tools in database - uses transaction for atomicity
+	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, toolServer.GroupKind, tools...); err != nil {
+		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %w", toolServer.Name, err)
+	}
+
+	return tools, nil
+}
+
+func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
+	if len(a.watchedNamespaces) == 0 {
+		return true
+	}
+	return slices.Contains(a.watchedNamespaces, namespace)
+}
+
+func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServer) (mcp.Transport, error) {
+	headers, err := s.ResolveHeaders(ctx, a.kube)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := newHTTPClient(headers)
+
+	switch s.Spec.Protocol {
+	case v1alpha2.RemoteMCPServerProtocolSse:
+		return &mcp.SSEClientTransport{
+			Endpoint:   s.Spec.URL,
+			HTTPClient: httpClient,
+		}, nil
+	default:
+		return &mcp.StreamableClientTransport{
+			Endpoint:   s.Spec.URL,
+			HTTPClient: httpClient,
+		}, nil
+	}
+}
+
+// go-sdk does not have a WithHeaders option when initializing transport
+// so we need to create a custom HTTP client that adds headers to all requests.
+func newHTTPClient(headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return http.DefaultClient
+	}
+	return &http.Client{
+		Transport: &headerTransport{
+			headers: headers,
+			base:    http.DefaultTransport,
+		},
+	}
+}
+
+// headerTransport is an http.RoundTripper that adds custom headers to requests.
+type headerTransport struct {
+	headers map[string]string
+	base    http.RoundTripper
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+	return t.base.RoundTrip(req)
+}
+
+func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
+	impl := &mcp.Implementation{
+		Name:    "kagent-controller",
+		Version: version.Version,
+	}
+	client := mcp.NewClient(impl, nil)
+
+	session, err := client.Connect(ctx, tsp, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect client for toolServer %s: %w", toolServer.Name, err)
+	}
+	defer session.Close()
+
+	result, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools for toolServer %s: %w", toolServer.Name, err)
+	}
+
+	tools := make([]*v1alpha2.MCPTool, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		tools = append(tools, &v1alpha2.MCPTool{
+			Name:        tool.Name,
+			Description: tool.Description,
+		})
+	}
+
+	return tools, nil
+}
+
+func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha2.MCPTool, error) {
+	// This function is currently only used for RemoteMCPServer
+	allTools, err := a.dbClient.ListToolsForServer(serverRef, schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String())
+	if err != nil {
+		return nil, err
+	}
+
+	var discoveredTools []*v1alpha2.MCPTool
+	for _, tool := range allTools {
+		mcpTool, err := convertTool(&tool)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert tool: %w", err)
+		}
+		discoveredTools = append(discoveredTools, mcpTool)
+	}
+
+	return discoveredTools, nil
+}
+
+func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
+	return &v1alpha2.MCPTool{
+		Name:        tool.ID,
+		Description: tool.Description,
+	}, nil
+}
+
+// ReconcileKagentModelProviderConfig reconciles a ModelProviderConfig object
+func (a *kagentReconciler) ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	mpc := &v1alpha2.ModelProviderConfig{}
+	if err := a.kube.Get(ctx, req.NamespacedName, mpc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil // Deleted, cleanup done by OwnerReferences
+		}
+		return ctrl.Result{}, fmt.Errorf("failed to get model provider config %s: %w", req.NamespacedName, err)
+	}
+
+	// Validate and resolve secret, get API key in one pass
+	apiKey, secretHash, secretErr := a.resolveModelProviderConfigSecret(ctx, mpc)
+
+	// Discover models if needed
+	var models []string
+	var discoveryErr error
+	if a.shouldDiscoverModels(mpc) {
+		models, discoveryErr = a.discoverModelProviderConfigModels(ctx, mpc, apiKey)
+	} else {
+		// Keep existing cached models
+		models = mpc.Status.DiscoveredModels
+	}
+
+	// Update status with results (status subresource only, no object modification)
+	return a.updateModelProviderConfigStatus(ctx, mpc, secretErr, discoveryErr, models, secretHash)
+}
+
+// resolveModelProviderConfigSecret fetches the Secret, validates it, and returns the API key and hash.
+// For model provider configs that don't require authentication (e.g., Ollama), returns empty apiKey with no error.
+func (a *kagentReconciler) resolveModelProviderConfigSecret(ctx context.Context, mpc *v1alpha2.ModelProviderConfig) (string, string, error) {
+	// Model providers like Ollama don't require authentication
+	if !mpc.Spec.RequiresSecret() {
+		return "", "", nil
+	}
+
+	if mpc.Spec.SecretRef == nil {
+		return "", "", fmt.Errorf("model provider config %s requires a secret but none is configured", mpc.Name)
+	}
+
+	secret := &corev1.Secret{}
+	namespacedName := types.NamespacedName{
+		Namespace: mpc.Namespace,
+		Name:      mpc.Spec.SecretRef.Name,
+	}
+
+	if err := a.kube.Get(ctx, namespacedName, secret); err != nil {
+		return "", "", fmt.Errorf("failed to get secret %s: %w", mpc.Spec.SecretRef.Name, err)
+	}
+
+	// Validate secret contains exactly one key
+	if len(secret.Data) != 1 {
+		keys := make([]string, 0, len(secret.Data))
+		for k := range secret.Data {
+			keys = append(keys, k)
+		}
+		return "", "", fmt.Errorf("secret %s must contain exactly one data key, found %d: [%s]",
+			mpc.Spec.SecretRef.Name, len(secret.Data), strings.Join(keys, ", "))
+	}
+
+	// Extract the single key-value pair
+	var key string
+	for k := range secret.Data {
+		key = k
+	}
+
+	apiKey := secret.Data[key]
+	if len(apiKey) == 0 {
+		return "", "", fmt.Errorf("secret %s has empty value for key %q", mpc.Spec.SecretRef.Name, key)
+	}
+
+	secretHash := computeModelProviderSecretHash(secret)
+	return string(apiKey), secretHash, nil
+}
+
+// computeModelProviderSecretHash computes a hash of the secret's identity and data for change detection.
+// The secret must contain exactly one data key (caller is responsible for validation).
+func computeModelProviderSecretHash(secret *corev1.Secret) string {
+	hash := sha256.New()
+	hash.Write([]byte(secret.Namespace))
+	hash.Write([]byte(secret.Name))
+	for key, data := range secret.Data {
+		hash.Write([]byte(key))
+		hash.Write(data)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// shouldDiscoverModels checks if model discovery is needed
+func (a *kagentReconciler) shouldDiscoverModels(mpc *v1alpha2.ModelProviderConfig) bool {
+	// Initial discovery when ModelProviderConfig is first created or spec changed
+	if mpc.Status.LastDiscoveryTime == nil {
+		return true
+	}
+
+	// Re-discover if the generation changed (spec was updated)
+	if mpc.Status.ObservedGeneration != mpc.Generation {
+		return true
+	}
+
+	// No periodic discovery - only on-demand via HTTP API
+	return false
+}
+
+// discoverModelProviderConfigModels calls the model discoverer to fetch models
+func (a *kagentReconciler) discoverModelProviderConfigModels(ctx context.Context, mpc *v1alpha2.ModelProviderConfig, apiKey string) ([]string, error) {
+	// For model provider configs that require auth, ensure we have an API key
+	if mpc.Spec.RequiresSecret() && apiKey == "" {
+		return nil, fmt.Errorf("cannot discover models: API key not available")
+	}
+
+	// Use the provider package's ModelDiscoverer with the resolved endpoint
+	discoverer := provider.NewModelDiscoverer()
+	return discoverer.DiscoverModels(ctx, mpc.Spec.Type, mpc.Spec.GetEndpoint(), apiKey)
+}
+
+// updateModelProviderConfigStatus updates the ModelProviderConfig status based on reconciliation results.
+// Only modifies the status subresource - never modifies the ModelProviderConfig object itself.
+func (a *kagentReconciler) updateModelProviderConfigStatus(
+	ctx context.Context,
+	mpc *v1alpha2.ModelProviderConfig,
+	secretErr, discoveryErr error,
+	models []string,
+	secretHash string,
+) (ctrl.Result, error) {
+	// For model provider configs that don't require secrets, mark SecretResolved as true
+	secretRequired := mpc.Spec.RequiresSecret()
+	secretResolved := !secretRequired || secretErr == nil
+
+	// Update SecretResolved condition
+	if secretRequired {
+		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
+			Status:             conditionStatus(secretErr == nil),
+			Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
+			Message:            conditionMessage(secretErr, "Secret resolved successfully"),
+			ObservedGeneration: mpc.Generation,
+		})
+	} else {
+		// Model provider config doesn't require a secret (e.g., Ollama)
+		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "SecretNotRequired",
+			Message:            "Model provider config does not require authentication",
+			ObservedGeneration: mpc.Generation,
+		})
+	}
+
+	// Update ModelsDiscovered condition
+	modelsDiscovered := discoveryErr == nil && len(models) > 0
+	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ModelProviderConfigConditionTypeModelsDiscovered,
+		Status:             conditionStatus(modelsDiscovered),
+		Reason:             conditionReason(discoveryErr, "ModelsDiscovered", "DiscoveryFailed"),
+		Message:            fmt.Sprintf("Discovered %d models", len(models)),
+		ObservedGeneration: mpc.Generation,
+	})
+
+	// Update Ready condition (overall health)
+	ready := secretResolved && modelsDiscovered
+	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
+		Type:               v1alpha2.ModelProviderConfigConditionTypeReady,
+		Status:             conditionStatus(ready),
+		Reason:             conditionReason(nil, "Ready", "NotReady"),
+		Message:            conditionMessage(nil, "Model provider config is ready"),
+		ObservedGeneration: mpc.Generation,
+	})
+
+	// Update status fields
+	mpc.Status.ObservedGeneration = mpc.Generation
+	mpc.Status.DiscoveredModels = models
+	mpc.Status.ModelCount = len(models)
+	mpc.Status.SecretHash = secretHash
+
+	if discoveryErr == nil && len(models) > 0 {
+		now := metav1.Now()
+		mpc.Status.LastDiscoveryTime = &now
+	}
+
+	// Update status subresource only - never modify the ModelProviderConfig object itself
+	if err := a.kube.Status().Update(ctx, mpc); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update model provider config status: %w", err)
+	}
+
+	// No periodic requeue - discovery only on-demand via HTTP API
+	return ctrl.Result{}, nil
+}
+
+// Helper functions for condition status
+func conditionStatus(isTrue bool) metav1.ConditionStatus {
+	if isTrue {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
+}
+
+func conditionReason(err error, successReason, failureReason string) string {
+	if err == nil {
+		return successReason
+	}
+	return failureReason
+}
+
+func conditionMessage(err error, successMessage string) string {
+	if err != nil {
+		return err.Error()
+	}
+	return successMessage
+}
+
+// RefreshModelProviderConfigModels forces a fresh model discovery for a model provider config and updates its status.
+// This is called by the HTTP API when refresh=true is requested.
+// It reuses all existing internal reconciler methods - no code duplication.
+func (a *kagentReconciler) RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error) {
+	mpc := &v1alpha2.ModelProviderConfig{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, mpc); err != nil {
+		return nil, fmt.Errorf("failed to get model provider config %s/%s: %w", namespace, name, err)
+	}
+
+	// Reuse existing secret resolution logic
+	apiKey, secretHash, secretErr := a.resolveModelProviderConfigSecret(ctx, mpc)
+	if secretErr != nil {
+		return nil, fmt.Errorf("failed to resolve model provider config secret: %w", secretErr)
+	}
+
+	// Force discovery by calling the existing method
+	models, discoveryErr := a.discoverModelProviderConfigModels(ctx, mpc, apiKey)
+	if discoveryErr != nil {
+		return nil, fmt.Errorf("model discovery failed: %w", discoveryErr)
+	}
+
+	// Update status using existing method (persists to CR)
+	_, err := a.updateModelProviderConfigStatus(ctx, mpc, secretErr, discoveryErr, models, secretHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update model provider config status: %w", err)
+	}
+
+	return models, nil
+}

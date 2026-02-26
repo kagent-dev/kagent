@@ -48,18 +48,24 @@ This document provides essential guidance for AI agents (Claude Code and others)
 
 ```
 kagent/
-├── go/                      # Kubernetes controller, CLI, API server
-│   ├── api/                 # CRD definitions (v1alpha1, v1alpha2)
-│   ├── cmd/                 # Binary entry points
-│   ├── internal/            # Core implementation
-│   │   ├── controller/      # K8s reconciliation logic
-│   │   ├── httpserver/      # REST/gRPC API
-│   │   ├── database/        # SQLite/Postgres persistence
-│   │   ├── a2a/             # Agent-to-Agent communication
-│   │   ├── mcp/             # MCP integration
-│   │   └── adk/             # Go ADK types
-│   ├── pkg/                 # Public Go packages
-│   └── test/e2e/            # End-to-end tests
+├── go/                      # Go workspace (go.work)
+│   ├── api/                 # Shared types module: CRDs, ADK types, DB models, HTTP client
+│   │   ├── v1alpha1/        # Legacy CRD types
+│   │   ├── v1alpha2/        # Current CRD types
+│   │   ├── adk/             # ADK config/model types (shared with go/adk)
+│   │   ├── database/        # GORM model structs & Client interface
+│   │   ├── httpapi/         # HTTP API request/response types
+│   │   ├── client/          # REST HTTP client SDK
+│   │   └── utils/           # Shared utilities
+│   ├── core/                # Infrastructure module: controllers, HTTP server, CLI
+│   │   ├── cmd/             # Binary entry points
+│   │   ├── cli/             # CLI application (kagent CLI)
+│   │   ├── internal/        # Controllers, HTTP server, DB implementation
+│   │   ├── pkg/             # Auth, env vars, translator plugins
+│   │   └── test/e2e/        # End-to-end tests
+│   ├── adk/                 # Go Agent Development Kit module
+│   │   ├── cmd/             # ADK binary entry point
+│   │   └── pkg/             # Agent runtime, models, MCP, sessions
 │
 ├── python/                  # Agent runtime and ADK
 │   ├── packages/            # UV workspace packages
@@ -93,7 +99,7 @@ kagent/
 - [Makefile](Makefile) - Root build orchestration
 - [DEVELOPMENT.md](DEVELOPMENT.md) - Development setup guide
 - [go/api/v1alpha2/agent_types.go](go/api/v1alpha2/agent_types.go) - Agent CRD definition
-- [go/internal/controller/reconciler/reconciler.go](go/internal/controller/reconciler/reconciler.go) - Shared reconciler pattern
+- [go/core/internal/controller/reconciler/reconciler.go](go/core/internal/controller/reconciler/reconciler.go) - Shared reconciler pattern
 - [python/packages/kagent-adk/](python/packages/kagent-adk/) - Python ADK implementation
 - [helm/kagent/values.yaml](helm/kagent/values.yaml) - Default configuration
 
@@ -164,11 +170,10 @@ make -C go generate
 
 ### Go Guidelines
 
-**Code Organization:**
-- `internal/` - Private implementation details
-- `pkg/` - Public libraries (use sparingly)
-- `api/` - CRD type definitions only
-- `cmd/` - Binary entry points (thin, delegate to internal/)
+**Code Organization (Go workspace with 3 modules):**
+- `go/api/` - Shared types: CRD definitions, ADK types, database models, HTTP client SDK
+- `go/core/` - Infrastructure: controllers, HTTP server, CLI, database implementation
+- `go/adk/` - Go Agent Development Kit for building agents
 
 **Error Handling:**
 - Always wrap errors with context: `fmt.Errorf("context: %w", err)`
@@ -260,7 +265,7 @@ func TestSomething(t *testing.T) {
 **Mock LLMs:**
 Use `github.com/kagent-dev/mockllm` for testing LLM interactions.
 
-**E2E tests location:** [go/test/e2e/](go/test/e2e/)
+**E2E tests location:** [go/core/test/e2e/](go/core/test/e2e/)
 
 ### Python Testing
 
@@ -280,7 +285,7 @@ make -C python test
 make -C ui test
 
 # E2E tests (requires Kind cluster)
-make -C go test-e2e
+make -C go e2e
 
 # With race detection (Go)
 go test -race ./...
@@ -355,7 +360,7 @@ MCPServerController
 - No application-level locking needed
 - Controllers translate CRs to K8s manifests via translators
 
-**Implementation reference:** [go/internal/controller/reconciler/reconciler.go](go/internal/controller/reconciler/reconciler.go)
+**Implementation reference:** [go/core/internal/controller/reconciler/reconciler.go](go/core/internal/controller/reconciler/reconciler.go)
 
 **When NOT to use:**
 - Simple controllers without database persistence
@@ -398,7 +403,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 **Schema evolution:** GORM AutoMigrate is sufficient during alpha stage.
 
-**Models location:** [go/internal/database/models.go](go/internal/database/models.go)
+**Models location:** [go/api/database/models.go](go/api/database/models.go)
 
 **Common operations:**
 ```go
@@ -461,7 +466,7 @@ return ctrl.Result{}, nil
 - KMCP repository for K8s-native tools (Prometheus, Helm, etc.)
 - Each MCP server is independently deployable
 
-**MCP protocol implementation:** MCP-related HTTP handlers live under [go/internal/httpserver/handlers/](go/internal/httpserver/handlers/).
+**MCP protocol implementation:** MCP-related HTTP handlers live under [go/core/internal/httpserver/handlers/](go/core/internal/httpserver/handlers/).
 
 **Tool discovery:**
 - Tools are fetched from MCP servers at runtime
@@ -510,25 +515,25 @@ chore: update trivy action and exit on failures
 1. Edit type definition in `go/api/v1alpha2/*_types.go`
 2. Add validation markers and JSON tags
 3. Run `make -C go generate` to update generated code
-4. Update translator in `go/internal/controller/translator/` if needed
-5. Add E2E test in `go/test/e2e/`
+4. Update translator in `go/core/internal/controller/translator/` if needed
+5. Add E2E test in `go/core/test/e2e/`
 6. Update Helm chart values/templates if exposed to users
 
 ### Creating a New Controller
 
-1. Create controller file in `go/internal/controller/`
+1. Create controller file in `go/core/internal/controller/`
 2. Implement `Reconcile()` method
 3. Decide: use shared reconciler or custom logic
 4. Add predicates for event filtering if needed
-5. Register in `cmd/controller/main.go`
+5. Register in `go/core/cmd/controller/main.go`
 6. Add RBAC markers
 7. Run `make -C go generate` to update RBAC manifests
 8. Add unit and E2E tests
 
 ### Adding a New API Endpoint
 
-1. Add handler in `go/internal/httpserver/handlers/`
-2. Register route in `go/internal/httpserver/server.go`
+1. Add handler in `go/core/internal/httpserver/handlers/`
+2. Register route in `go/core/internal/httpserver/server.go`
 3. Add auth middleware if needed
 4. Update database models if storing data
 5. Add unit tests for handler logic
@@ -637,7 +642,7 @@ make create-kind-cluster
 | Build all | `make build` |
 | Run all tests | `make test` |
 | Run E2E tests | `make -C go e2e` |
-| Lint code | `make lint` |
+| Lint code | `make -C go lint` |
 | Generate CRD code | `make -C go generate` |
 | Run controller locally | `make -C go run` |
 | Access UI | `kubectl port-forward -n kagent svc/kagent-ui 3000:80` |

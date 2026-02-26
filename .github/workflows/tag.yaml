@@ -1,4 +1,4 @@
-name: Tag and Push 
+name: Tag and Push
 
 on:
   push:
@@ -20,6 +20,7 @@ jobs:
           - controller
           - ui
           - app
+          - golang-adk
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -121,7 +122,7 @@ jobs:
         uv version $VERSION --package agentsts-core
         uv build --package agentsts-core
         uv publish --token ${{ secrets.PYPI_TOKEN }}
-      
+
   release:
     # Only run release after images and helm chart are pushed
     # In the future we can take the chart from the helm action,
@@ -151,5 +152,5 @@ jobs:
       with:
         generate_release_notes: true
         files: |
-          go/bin/kagent-*
+          go/core/bin/kagent-*
           kagent-*.tgz
