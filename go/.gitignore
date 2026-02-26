@@ -4,7 +4,9 @@
 *.dll
 *.so
 *.dylib
-bin/*
+**/bin/
+# Compiled binaries (Go builds without extension)
+/adk/oneshot
 Dockerfile.cross
 
 # Test binary, built with `go test -c`
