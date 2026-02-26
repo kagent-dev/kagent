@@ -116,7 +116,7 @@ spec:
 
 ### 4. UI
 
-The user can view memories for an agent and clear it manually.
+The user can view memories for an agent and clear it manually. UI section to configure agent with memory.
 
 ## Memory Mechanism
 
@@ -129,6 +129,7 @@ Memory is saved in two ways:
 1. **Auto-Save (Periodic)**: Every **5 user turns**, the `auto_save_session_to_memory_callback` is triggered.
    - The current session content is sent to the LLM to "extract and summarize key information".
    - The summary is embedded and stored in the database.
+   - This happens async as a background process since the agent interaction does not rely on memory being immediately available.
 2. **Explicit Save (Tool)**: The agent can decide to call `SaveMemoryTool(content="...")`.
    - This saves the specific content immediately without summarization.
 
@@ -141,7 +142,7 @@ Memory is saved in two ways:
   2. The database performs a vector similarity search (Cosine Similarity).
   3. Results are filtered by a `min_score` (currently ~0.3) to ensure relevance.
 - **Popularity Tracking**: When a memory is successfully returned in a search, its `access_count` is incremented in the background. This signals that the memory is "useful".
-- **Prefetch**: Memory is prefetched only on the first user message in a session; top results are injected into that turn’s LLM request. Prefetch does not run on every LLM call (that would be too expensive).
+- **Prefetch**: Memory is prefetched only on the first user message in a session; top results are injected into that turn’s LLM request. Prefetch does not run on every LLM call (that would be too expensive). User prompt is split into setences before searching so that entries matching only part of the query will still hit in order to provide better context (additionally, most embedding models traditionally work best with sentences).
 
 ### Pruning and Deletion
 
@@ -151,6 +152,8 @@ A pruning process (`PruneExpiredMemories`) manages the lifecycle of memories:
 2. **Check Popularity**:
    - **Keep Popular**: If `access_count >= 10`, the memory is deemed valuable. Its `expires_at` is extended by **15 days**, and `access_count` is reset to 0.
    - **Delete Unpopular**: If `access_count < 10`, the memory is permanently deleted from the database.
+
+This is run like a cron job every 24 hours.
 
 The user can also choose to delete all memories for a specific agent from the UI.
 

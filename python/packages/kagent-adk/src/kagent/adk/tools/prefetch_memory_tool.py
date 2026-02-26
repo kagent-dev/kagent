@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from google.adk.tools._memory_entry_utils import extract_text
@@ -15,6 +17,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
+# Minimum sentence length to be worth embedding on its own.
+_MIN_SENTENCE_CHARS = 30
+
+# Session state key used to mark that the prefetch already ran this invocation.
+_PREFETCH_DONE_KEY = "__prefetch_memory_done__"
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences using punctuation boundaries.
+
+    Falls back to the full text as a single query if no sentence boundaries
+    are found or if the message is short enough to search as-is.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    return [s.strip() for s in sentences if len(s.strip()) >= _MIN_SENTENCE_CHARS]
+
 
 class PrefetchMemoryTool(BaseTool):
     """Prefetches relevant memory once when the first user message is sent in a session.
@@ -23,7 +41,9 @@ class PrefetchMemoryTool(BaseTool):
     Runs only on the first turn (exactly one user message in the session).
     Injects past context into the LLM request so the agent has prior context without an extra tool call.
 
-    Query strategy: use the entire first user message as the search query. Simple and good for short messages.
+    Query strategy: split the user message into sentences and search memory for each sentence
+    in parallel, then deduplicate results by memory ID. This surfaces relevant memories that
+    may only match a specific part of a multi-sentence message.
     """
 
     def __init__(self):
@@ -48,29 +68,49 @@ class PrefetchMemoryTool(BaseTool):
             return
 
         session = tool_context.session
+
+        # Guard 1: only run on the first user message in the session.
         events = session.events or []
         user_message_count = sum(1 for e in events if getattr(e, "author", None) == "user")
         if user_message_count != 1:
             return
 
-        query: str
-        query = first_text.strip()
-
-        try:
-            # TODO: Maybe we can split it into sentences and search for each sentence?
-            # TODO: Maybe we can use the agent's model to generate a short search query from the user message before searching memory?
-            response = await tool_context.search_memory(query)
-        except Exception:
-            logger.warning("Failed to prefetch memory for query: %s", query[:100])
+        # Guard 2: only run once per invocation — the agent may call process_llm_request
+        # multiple times within a single user turn (once per LLM round-trip when taking
+        # sequential tool actions), but the prefetch only needs to happen once.
+        if tool_context.state.get(_PREFETCH_DONE_KEY):
             return
+        tool_context.state[_PREFETCH_DONE_KEY] = True
 
-        if not response.memories:
-            return
+        # Split into sentences; fall back to full text if too short to split.
+        queries = _split_sentences(first_text.strip())
+        if not queries:
+            queries = [first_text.strip()]
 
-        memory_text_lines = []
-        for memory in response.memories:
-            if memory_text := extract_text(memory):
-                memory_text_lines.append(memory_text)
+        async def _search(q: str):
+            try:
+                return await tool_context.search_memory(q)
+            except Exception:
+                logger.warning("Failed to prefetch memory for query: %s", q[:100])
+                return None
+
+        # Search all sentences in parallel.
+        results = await asyncio.gather(*[_search(q) for q in queries])
+
+        # Deduplicate memories by ID, preserving first-seen order.
+        seen_ids: set[str] = set()
+        memory_text_lines: list[str] = []
+        for response in results:
+            if not response or not response.memories:
+                continue
+            for memory in response.memories:
+                memory_id = str(getattr(memory, "id", None) or id(memory))
+                if memory_id in seen_ids:
+                    continue
+                seen_ids.add(memory_id)
+                if memory_text := extract_text(memory):
+                    memory_text_lines.append(memory_text)
+
         if not memory_text_lines:
             return
 

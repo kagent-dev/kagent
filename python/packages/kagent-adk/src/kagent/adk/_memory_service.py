@@ -1,5 +1,6 @@
 """Kagent Memory Service implementation conforming to ADK BaseMemoryService interface."""
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, Union
@@ -49,7 +50,20 @@ class KagentMemoryService(BaseMemoryService):
         self.ttl_days = ttl_days
 
     async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
-        """Add a session's content to long-term memory.
+        """Add a session's content to long-term memory (non-blocking).
+
+        Schedules the actual work as a background task so the caller returns
+        immediately. Memory saving (summarization, embedding, storage) happens
+        asynchronously and does not block the agent from handling the next request.
+
+        Args:
+            session: The session to add to memory
+            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+        """
+        asyncio.create_task(self._add_session_to_memory_background(session, model))
+
+    async def _add_session_to_memory_background(self, session: Session, model: Optional[Any] = None) -> None:
+        """Background implementation of add_session_to_memory.
 
         Extracts text from session events, summarizes it using LLM, generates
         an embedding, and stores it in the Kagent backend with TTL support.
@@ -58,64 +72,64 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
         """
-        # Extract content from session events
-        raw_content = self._extract_session_content(session)
-        if not raw_content:
-            logger.debug("No content to add to memory from session %s", session.id)
-            return
-
-        logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
-
-        # Summarize content before embedding
-        # Returns a list of strings (individual facts/memories)
-        contents = await self._summarize_session_content_async(raw_content, model=model)
-
-        # Filter out empty content items
-        valid_contents = [c for c in contents if c]
-        if not valid_contents:
-            return
-
-        logger.debug("Generating embeddings for %d content items", len(valid_contents))
-
-        # Batch generate embeddings
-        vectors = await self._generate_embedding_async(valid_contents)
-        if not vectors:
-            logger.warning("Failed to generate embeddings for session %s", session.id)
-            return
-
-        if not isinstance(vectors[0], (list, np.ndarray)):
-            # vectors is a flat list of floats (single vector); wrap it
-            vectors = [vectors]
-
-        # Prepare batch items
-        batch_items = []
-
-        # Iterate over synced content and vectors
-        for content_item, vector in zip(valid_contents, vectors, strict=True):
-            if not vector:
-                continue
-
-            item: Dict[str, Any] = {
-                "agent_name": self.agent_name,
-                "user_id": session.user_id,
-                "content": content_item,
-                "vector": vector,
-            }
-            if self.ttl_days > 0:
-                item["ttl_days"] = self.ttl_days
-            batch_items.append(item)
-
-        if not batch_items:
-            return
-
         try:
+            # Extract content from session events
+            raw_content = self._extract_session_content(session)
+            if not raw_content:
+                logger.debug("No content to add to memory from session %s", session.id)
+                return
+
+            logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
+
+            # Summarize content before embedding
+            # Returns a list of strings (individual facts/memories)
+            contents = await self._summarize_session_content_async(raw_content, model=model)
+
+            # Filter out empty content items
+            valid_contents = [c for c in contents if c]
+            if not valid_contents:
+                return
+
+            logger.debug("Generating embeddings for %d content items", len(valid_contents))
+
+            # Batch generate embeddings
+            vectors = await self._generate_embedding_async(valid_contents)
+            if not vectors:
+                logger.warning("Failed to generate embeddings for session %s", session.id)
+                return
+
+            if not isinstance(vectors[0], (list, np.ndarray)):
+                # vectors is a flat list of floats (single vector); wrap it
+                vectors = [vectors]
+
+            # Prepare batch items
+            batch_items = []
+
+            # Iterate over synced content and vectors
+            for content_item, vector in zip(valid_contents, vectors, strict=True):
+                if not vector:
+                    continue
+
+                item: Dict[str, Any] = {
+                    "agent_name": self.agent_name,
+                    "user_id": session.user_id,
+                    "content": content_item,
+                    "vector": vector,
+                }
+                if self.ttl_days > 0:
+                    item["ttl_days"] = self.ttl_days
+                batch_items.append(item)
+
+            if not batch_items:
+                return
+
             response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
             if response.status_code >= 400:
                 logger.error("Response body: %s", response.text)
             response.raise_for_status()
             logger.info("Successfully saved %d memory items via batch API", len(batch_items))
         except Exception as e:
-            logger.error("Failed to save session %s memory items: %s", session.id, e)
+            logger.error("Failed to save session %s to memory in background: %s", session.id, e)
 
     async def add_memory(
         self,
@@ -380,7 +394,6 @@ class KagentMemoryService(BaseMemoryService):
 Focus on:
 - User preferences, decisions, and explicit requests
 - Important facts mentioned (names, dates, project names, etc.)
-- Action items or commitments made
 - Contextual information that provides background
 - Lessons learned from the conversation
 
