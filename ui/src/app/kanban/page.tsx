@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { CheckCircle2, FlaskConical, GitPullRequest, Inbox, Lightbulb, Rocket, Wrench } from "lucide-react";
+import { CheckCircle2, FlaskConical, GitPullRequest, Inbox, Lightbulb, Paperclip, Rocket, Wrench } from "lucide-react";
 
 const KANBAN_BASE_URL = "/kanban-mcp/";
 const kanbanUrl = (path: string) =>
@@ -36,8 +36,15 @@ interface RawTask {
   UserInputNeeded?: boolean;
   parent_id?: number | null;
   ParentID?: number | null;
+  attachments?: RawAttachment[];
+  Attachments?: RawAttachment[];
   subtasks?: RawTask[];
   Subtasks?: RawTask[];
+}
+
+interface RawAttachment {
+  id?: number;
+  ID?: number;
 }
 
 interface Task {
@@ -48,7 +55,12 @@ interface Task {
   assignee: string;
   user_input_needed: boolean;
   parent_id: number | null;
+  attachments: Attachment[];
   subtasks: Task[];
+}
+
+interface Attachment {
+  id: number;
 }
 
 interface BoardColumn {
@@ -81,6 +93,9 @@ function normalizeTask(task: RawTask): Task {
     assignee: task.assignee ?? task.Assignee ?? "",
     user_input_needed: Boolean(task.user_input_needed ?? task.UserInputNeeded),
     parent_id: task.parent_id ?? task.ParentID ?? null,
+    attachments: (task.attachments ?? task.Attachments ?? []).map((attachment) => ({
+      id: Number(attachment.id ?? attachment.ID ?? 0),
+    })),
     subtasks: (task.subtasks ?? task.Subtasks ?? []).map(normalizeTask),
   };
 }
@@ -298,43 +313,13 @@ export default function KanbanPage() {
                               {doneSubtasks}/{task.subtasks.length} subtasks
                             </span>
                           )}
+                          {task.attachments.length > 0 && (
+                            <span className="inline-flex items-center gap-1 rounded-full border bg-violet-100 px-2 py-0.5 text-violet-800">
+                              <Paperclip className="h-3 w-3" />
+                              {task.attachments.length}
+                            </span>
+                          )}
                         </div>
-
-                        {task.subtasks.length > 0 && (
-                          <div className="mt-3 border-t pt-3">
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                              Subtasks {doneSubtasks}/{task.subtasks.length}
-                            </p>
-                            <div className="flex flex-col gap-1">
-                              {task.subtasks.map((subtask) => {
-                                const done = subtask.status === "Done";
-                                return (
-                                  <label
-                                    key={subtask.id}
-                                    className={`flex cursor-pointer items-start gap-2 rounded-md border px-2 py-1.5 text-xs ${
-                                      done ? "border-green-200 bg-green-50" : "bg-muted/40"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={done}
-                                      onChange={(event) => {
-                                        const nextStatus = event.target.checked ? "Done" : "Inbox";
-                                        void updateTask(subtask.id, { status: nextStatus });
-                                      }}
-                                    />
-                                    <span className={done ? "line-through opacity-70" : ""}>{subtask.title || "(untitled)"}</span>
-                                    <span className="ml-auto rounded-full border bg-background px-1.5 py-0.5 text-[10px]">
-                                      {WORKFLOW.includes(subtask.status as TaskStatus)
-                                        ? STAGE_META[subtask.status as TaskStatus].label
-                                        : subtask.status}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
 
                         <div className="mt-3 border-t pt-3">
                           <button
