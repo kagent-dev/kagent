@@ -162,7 +162,8 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 			modelName = "llama3.2"
 		}
 		return models.NewOpenAICompatibleModelWithLogger(baseURL, modelName, extractHeaders(m.Headers), "", log)
-
+	case *config.Bedrock:
+		return nil, fmt.Errorf("Bedrock not yet supported with golang ADK")
 	case *config.GeminiAnthropic:
 		baseURL := os.Getenv("LITELLM_BASE_URL")
 		if baseURL == "" {

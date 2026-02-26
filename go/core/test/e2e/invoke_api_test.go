@@ -121,12 +121,13 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
-	Name          string
-	SystemMessage string
-	Stream        bool
-	Env           []corev1.EnvVar
-	Skills        *v1alpha2.SkillForAgent
-	ExecuteCode   *bool
+	Name            string
+	SystemMessage   string
+	Stream          bool
+	Env             []corev1.EnvVar
+	Skills          *v1alpha2.SkillForAgent
+	ExecuteCode     *bool
+	ImageRepository *string
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -395,6 +396,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	// Apply optional configurations
 	agent.Spec.Declarative.Stream = opts.Stream
+
+	if opts.ImageRepository != nil {
+		agent.Spec.Declarative.Deployment.ImageRepository = opts.ImageRepository
+	}
 
 	if len(opts.Env) > 0 {
 		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
@@ -958,6 +963,39 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	// If passthrough is broken, mockllm returns 404 and the test fails.
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough", nil)
+	})
+}
+
+func TestE2EInvokeGolangADKAgent(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_golang_adk_agent.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup model config pointing at mock server
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	// Create a declarative agent that uses the Go ADK image instead of the
+	// default Python ADK image by overriding ImageRepository.
+	golangADKRepo := "kagent-dev/kagent/golang-adk"
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		Name:          "golang-adk-test",
+		SystemMessage: "You are a helpful test agent. Answer concisely.",
+		ImageRepository: &golangADKRepo,
+	})
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// Run tests
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "What is 2+2?", "4", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "What is 2+2?", "4")
 	})
 }
 
