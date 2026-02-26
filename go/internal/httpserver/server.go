@@ -42,6 +42,7 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
+	APIPathCronJobs             = "/api/cronjobs"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -231,6 +232,13 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleResetMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
+
+	// AgentCronJobs
+	s.router.HandleFunc(APIPathCronJobs, adaptHandler(s.handlers.AgentCronJobs.HandleListCronJobs)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathCronJobs, adaptHandler(s.handlers.AgentCronJobs.HandleCreateCronJob)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleGetCronJob)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleUpdateCronJob)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleDeleteCronJob)).Methods(http.MethodDelete)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
