@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -156,25 +157,43 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		return models.NewAnthropicModelWithLogger(cfg, log)
 
 	case *config.Ollama:
-		baseURL := "http://localhost:11434/v1"
+		baseURL := os.Getenv("OLLAMA_API_BASE")
+		if baseURL == "" {
+			baseURL = "http://localhost:11434"
+		}
+		baseURL = strings.TrimSuffix(baseURL, "/")
+		if !strings.HasSuffix(baseURL, "/v1") {
+			baseURL += "/v1"
+		}
 		modelName := m.Model
 		if modelName == "" {
 			modelName = "llama3.2"
 		}
 		return models.NewOpenAICompatibleModelWithLogger(baseURL, modelName, extractHeaders(m.Headers), "", log)
+
 	case *config.Bedrock:
-		return nil, fmt.Errorf("Bedrock not yet supported with golang ADK")
+		return nil, fmt.Errorf("bedrock is not yet supported with the Go ADK")
+
 	case *config.GeminiAnthropic:
-		baseURL := os.Getenv("LITELLM_BASE_URL")
-		if baseURL == "" {
-			return nil, fmt.Errorf("GeminiAnthropic (Claude) model requires LITELLM_BASE_URL or configure base_url (e.g. LiteLLM server URL)")
+		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
+		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
+		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
+		region := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		if region == "" {
+			region = os.Getenv("GOOGLE_CLOUD_REGION")
+		}
+		if project == "" || region == "" {
+			return nil, fmt.Errorf("GeminiAnthropic (Anthropic on Vertex AI) requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION environment variables")
 		}
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "claude-3-5-sonnet-20241022"
+			modelName = "claude-sonnet-4-20250514"
 		}
-		liteLlmModel := "anthropic/" + modelName
-		return models.NewOpenAICompatibleModelWithLogger(baseURL, liteLlmModel, extractHeaders(m.Headers), "", log)
+		cfg := &models.AnthropicConfig{
+			Model:   modelName,
+			Headers: extractHeaders(m.Headers),
+		}
+		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
 
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())

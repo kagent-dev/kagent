@@ -10,10 +10,10 @@ import (
 	"github.com/glebarez/sqlite"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	_ "turso.tech/database/tursogo"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	_ "turso.tech/database/tursogo"
 )
 
 // Manager handles database connection and initialization

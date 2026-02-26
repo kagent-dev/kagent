@@ -219,6 +219,7 @@ jobs:
           - ui
           - app
           - cli
+          - golang-adk
     runs-on: ubuntu-latest
     services:
       registry:

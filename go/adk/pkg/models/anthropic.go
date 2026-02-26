@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/vertex"
 	"github.com/go-logr/logr"
 )
 
@@ -72,6 +74,37 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	if logger.GetSink() != nil {
 		logger.Info("Initialized Anthropic model", "model", config.Model, "baseUrl", config.BaseUrl)
 	}
+
+	return &AnthropicModel{
+		Config: config,
+		Client: client,
+		Logger: logger,
+	}, nil
+}
+
+// NewAnthropicVertexAIModelWithLogger creates an Anthropic model that authenticates
+// via Google Cloud Vertex AI using Application Default Credentials (ADC).
+// This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
+func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
+	opts := []option.RequestOption{
+		vertex.WithGoogleAuth(ctx, region, projectID),
+	}
+
+	timeout := defaultTimeout
+	if config.Timeout != nil {
+		timeout = time.Duration(*config.Timeout) * time.Second
+	}
+	httpClient := &http.Client{Timeout: timeout}
+	if len(config.Headers) > 0 {
+		httpClient.Transport = &headerTransport{
+			base:    http.DefaultTransport,
+			headers: config.Headers,
+		}
+	}
+	opts = append(opts, option.WithHTTPClient(httpClient))
+
+	client := anthropic.NewClient(opts...)
+	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
 
 	return &AnthropicModel{
 		Config: config,
