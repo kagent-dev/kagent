@@ -15,7 +15,6 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
-from .skill_fetcher import fetch_skill
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -101,20 +100,6 @@ def static(
         reload=reload,
         log_level=uvicorn_log_level,
     )
-
-
-@app.command()
-def pull_skills(
-    skills: Annotated[list[str], typer.Argument()],
-    insecure: Annotated[
-        bool,
-        typer.Option("--insecure", help="Allow insecure connections to registries"),
-    ] = False,
-):
-    skill_dir = os.environ.get("KAGENT_SKILLS_FOLDER", ".")
-    logger.info("Pulling skills")
-    for skill in skills:
-        fetch_skill(skill, skill_dir, insecure)
 
 
 def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):

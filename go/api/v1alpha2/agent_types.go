@@ -69,6 +69,7 @@ type AgentSpec struct {
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
+// +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
 	// Meant for development and testing purposes only.
@@ -76,9 +77,43 @@ type SkillForAgent struct {
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 
 	// The list of skill images to fetch.
-	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
 	Refs []string `json:"refs,omitempty"`
+
+	// Reference to a Secret containing git credentials.
+	// Applied to all gitRefs entries.
+	// The secret should contain a `token` key for HTTPS auth,
+	// or `ssh-privatekey` for SSH auth.
+	// +optional
+	GitAuthSecretRef *corev1.LocalObjectReference `json:"gitAuthSecretRef,omitempty"`
+
+	// Git repositories to fetch skills from.
+	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+}
+
+// GitRepo specifies a single Git repository to fetch skills from.
+type GitRepo struct {
+	// URL of the git repository (HTTPS or SSH).
+	// +kubebuilder:validation:Required
+	URL string `json:"url"`
+
+	// Git reference: branch name, tag, or commit SHA.
+	// +optional
+	// +kubebuilder:default="main"
+	Ref string `json:"ref,omitempty"`
+
+	// Subdirectory within the repo to use as the skill root.
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// Name for the skill directory under /skills. Defaults to the repo name.
+	// +optional
+	Name string `json:"name,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"

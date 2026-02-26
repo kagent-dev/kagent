@@ -10044,6 +10044,52 @@ spec:
                   Skills to load into the agent. They will be pulled from the specified container images.
                   and made available to the agent under the `/skills` folder.
                 properties:
+                  gitAuthSecretRef:
+                    description: |-
+                      Reference to a Secret containing git credentials.
+                      Applied to all gitRefs entries.
+                      The secret should contain a `token` key for HTTPS auth,
+                      or `ssh-privatekey` for SSH auth.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  gitRefs:
+                    description: Git repositories to fetch skills from.
+                    items:
+                      description: GitRepo specifies a single Git repository to fetch
+                        skills from.
+                      properties:
+                        name:
+                          description: Name for the skill directory under /skills.
+                            Defaults to the repo name.
+                          type: string
+                        path:
+                          description: Subdirectory within the repo to use as the
+                            skill root.
+                          type: string
+                        ref:
+                          default: main
+                          description: 'Git reference: branch name, tag, or commit
+                            SHA.'
+                          type: string
+                        url:
+                          description: URL of the git repository (HTTPS or SSH).
+                          type: string
+                      required:
+                      - url
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
                   insecureSkipVerify:
                     description: |-
                       Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
