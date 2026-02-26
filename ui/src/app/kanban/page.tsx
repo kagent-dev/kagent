@@ -7,14 +7,16 @@ import { CheckCircle2, FlaskConical, GitPullRequest, Inbox, Lightbulb, Paperclip
 const KANBAN_BASE_URL = "/kanban-mcp/";
 const kanbanUrl = (path: string) =>
   `${KANBAN_BASE_URL.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
-const WORKFLOW = ["Inbox", "Plan", "Develop", "Testing", "CodeReview", "Release", "Done"] as const;
+const WORKFLOW = ["Inbox", "Design", "Develop", "Testing", "SecurityScan", "CodeReview", "Documentation", "Release", "Done"] as const;
 
 const STAGE_META: Record<TaskStatus, { label: string; icon: LucideIcon }> = {
   Inbox: { label: "Inbox", icon: Inbox },
-  Plan: { label: "Plan", icon: Lightbulb },
+  Design: { label: "Design", icon: Lightbulb },
   Develop: { label: "Develop", icon: Wrench },
   Testing: { label: "Testing", icon: FlaskConical },
+  SecurityScan: { label: "Security Scan", icon: FlaskConical },
   CodeReview: { label: "Code Review", icon: GitPullRequest },
+  Documentation: { label: "Documentation", icon: Paperclip },
   Release: { label: "Release", icon: Rocket },
   Done: { label: "Done", icon: CheckCircle2 },
 };
@@ -220,16 +222,16 @@ export default function KanbanPage() {
   }, [board]);
 
   return (
-    <div className="flex h-full min-h-[70vh] flex-col">
-      <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-background px-4">
-        <h1 className="text-base font-semibold">Kanban Board</h1>
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden">
+      <div className="sticky top-0 z-10 flex h-12 items-center gap-3 border-b bg-background px-3">
+        <h1 className="text-sm font-semibold">Kanban Board</h1>
         <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           <span className={`h-2 w-2 rounded-full ${isLive ? "bg-green-500" : "bg-amber-500"}`} />
           <span>{isLive ? "live" : "reconnecting..."}</span>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
+      <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto overflow-y-hidden px-3 py-2">
         {columns.map((column) => {
           const isInbox = column.status === "Inbox";
           const ColumnIcon = column.icon;
@@ -237,20 +239,20 @@ export default function KanbanPage() {
           return (
             <section
               key={column.status}
-              className="flex min-h-[560px] w-[320px] min-w-[320px] flex-col overflow-hidden rounded-lg border bg-card"
+              className="flex min-h-[420px] w-[248px] min-w-[248px] flex-col overflow-hidden rounded-md border bg-card"
             >
-              <header className="flex items-center gap-2 border-b px-4 py-3">
-                <ColumnIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" aria-label={column.label}>
+              <header className="flex items-center gap-1.5 border-b px-3 py-2">
+                <ColumnIcon className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" aria-label={column.label}>
                   {column.label}
                 </span>
-                <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
+                <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold">
                   {column.tasks.length}
                 </span>
               </header>
 
               {isInbox && (
-                <div className="flex gap-2 border-b bg-muted/30 p-3">
+                <div className="flex gap-1.5 border-b bg-muted/30 p-2">
                   <input
                     value={inboxTitle}
                     onChange={(event) => setInboxTitle(event.target.value)}
@@ -263,11 +265,11 @@ export default function KanbanPage() {
                       }
                     }}
                     placeholder="Add a task..."
-                    className="h-9 flex-1 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    className="h-8 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   <button
                     type="button"
-                    className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    className="h-8 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:opacity-90"
                     onClick={() => {
                       const trimmed = inboxTitle.trim();
                       if (!trimmed) return;
@@ -280,9 +282,9 @@ export default function KanbanPage() {
                 </div>
               )}
 
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-muted/20 p-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto bg-muted/20 p-2">
                 {column.tasks.length === 0 ? (
-                  <p className="py-8 text-center text-sm italic text-muted-foreground">No tasks</p>
+                  <p className="py-6 text-center text-xs italic text-muted-foreground">No tasks</p>
                 ) : (
                   column.tasks.map((task) => {
                     const doneSubtasks = task.subtasks.filter((item) => item.status === "Done").length;
@@ -291,40 +293,40 @@ export default function KanbanPage() {
                     return (
                       <article
                         key={task.id}
-                        className={`rounded-md border bg-background p-3 shadow-sm ${task.user_input_needed ? "border-l-4 border-l-amber-400" : ""}`}
+                        className={`rounded-md border bg-background p-2 shadow-sm ${task.user_input_needed ? "border-l-4 border-l-amber-400" : ""}`}
                       >
-                        <p className="text-sm font-semibold">{task.title || "(untitled)"}</p>
-                        {task.description && <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>}
+                        <p className="text-xs font-semibold leading-tight">{task.title || "(untitled)"}</p>
+                        {task.description && <p className="mt-1 text-[11px] text-muted-foreground">{task.description}</p>}
 
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                          <span className="rounded-full border bg-muted px-2 py-0.5">#{task.id}</span>
-                          <span className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5">
-                            <TaskStatusIcon className="h-3 w-3" />
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
+                          <span className="rounded-full border bg-muted px-1.5 py-0.5">#{task.id}</span>
+                          <span className="inline-flex items-center gap-1 rounded-full border bg-muted px-1.5 py-0.5">
+                            <TaskStatusIcon className="h-2.5 w-2.5" />
                             {STAGE_META[taskStatus].label}
                           </span>
                           {task.assignee && (
-                            <span className="rounded-full border bg-blue-100 px-2 py-0.5 text-blue-700">{task.assignee}</span>
+                            <span className="rounded-full border bg-blue-100 px-1.5 py-0.5 text-blue-700">{task.assignee}</span>
                           )}
                           {task.user_input_needed && (
-                            <span className="rounded-full border bg-amber-100 px-2 py-0.5 text-amber-800">Input Needed</span>
+                            <span className="rounded-full border bg-amber-100 px-1.5 py-0.5 text-amber-800">Input Needed</span>
                           )}
                           {task.subtasks.length > 0 && (
-                            <span className="rounded-full border bg-green-100 px-2 py-0.5 text-green-800">
+                            <span className="rounded-full border bg-green-100 px-1.5 py-0.5 text-green-800">
                               {doneSubtasks}/{task.subtasks.length} subtasks
                             </span>
                           )}
                           {task.attachments.length > 0 && (
-                            <span className="inline-flex items-center gap-1 rounded-full border bg-violet-100 px-2 py-0.5 text-violet-800">
-                              <Paperclip className="h-3 w-3" />
+                            <span className="inline-flex items-center gap-1 rounded-full border bg-violet-100 px-1.5 py-0.5 text-violet-800">
+                              <Paperclip className="h-2.5 w-2.5" />
                               {task.attachments.length}
                             </span>
                           )}
                         </div>
 
-                        <div className="mt-3 border-t pt-3">
+                        <div className="mt-2 border-t pt-2">
                           <button
                             type="button"
-                            className={`rounded-md border px-2 py-1 text-xs ${
+                            className={`rounded-md border px-2 py-0.5 text-[10px] ${
                               task.user_input_needed ? "border-amber-300 bg-amber-100 text-amber-900" : "bg-background text-muted-foreground"
                             }`}
                             onClick={() => {

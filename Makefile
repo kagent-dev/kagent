@@ -35,16 +35,19 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -264,6 +267,10 @@ build-ui: buildx-create
 build-kagent-adk: buildx-create
 		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 
+.PHONY: build-kanban-mcp
+build-kanban-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KANBAN_MCP_IMG) -f go/cmd/kanban-mcp/Dockerfile .
+
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
@@ -360,6 +367,19 @@ helm-install-provider: helm-version check-api-key
 .PHONY: helm-install
 helm-install: build
 helm-install: helm-install-provider
+
+.PHONY: helm-install-kanban-mcp
+helm-install-kanban-mcp: build-kanban-mcp ## Build and deploy kanban-mcp chart.
+	helm $(HELM_ACTION) kanban-mcp ./contrib/tools/kanban-mcp \
+		--namespace kagent \
+		--create-namespace \
+		--history-max 2 \
+		--timeout 5m \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--wait \
+		--set image.repository=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME) \
+		--set image.tag=$(KANBAN_MCP_IMAGE_TAG) \
+		--set image.pullPolicy=Always
 
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"
