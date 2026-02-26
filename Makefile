@@ -442,11 +442,20 @@ kind-debug:
 build-app-no-deps: buildx-create ## Build app image without rebuilding kagent-adk (for CI pre-build)
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 
-.PHONY: build-test-agents
-build-test-agents: buildx-create ## Build test agent images without rebuilding kagent-adk (for CI)
+.PHONY: build-test-agent-kebab
+build-test-agent-kebab: buildx-create ## Build kebab test agent image
 	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+
+.PHONY: build-test-agent-poem-flow
+build-test-agent-poem-flow: buildx-create ## Build poem-flow test agent image
 	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+
+.PHONY: build-test-agent-basic-openai
+build-test-agent-basic-openai: buildx-create ## Build basic-openai test agent image
 	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+
+.PHONY: build-test-agents
+build-test-agents: build-test-agent-kebab build-test-agent-poem-flow build-test-agent-basic-openai ## Build all test agent images (serial)
 
 .PHONY: apply-test-agents
 apply-test-agents: ## Apply test agent manifests to the cluster
