@@ -444,6 +444,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.AgentCronJobController{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		A2ABaseURL: cfg.A2ABaseUrl,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AgentCronJob")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
