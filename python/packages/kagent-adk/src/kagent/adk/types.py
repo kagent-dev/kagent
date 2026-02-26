@@ -359,7 +359,7 @@ class AgentConfig(BaseModel):
                     )
 
                 with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", message=r".*\[EXPERIMENTAL\] RemoteA2aAgent.*")
+                    warnings.filterwarnings("ignore", message=r"^\[EXPERIMENTAL\] RemoteA2aAgent:")
                     remote_a2a_agent = RemoteA2aAgent(
                         name=remote_agent.name,
                         agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
