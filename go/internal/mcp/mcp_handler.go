@@ -187,13 +187,13 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	agentRef := agentNS + "/" + agentName
 	agentNns := types.NamespacedName{Namespace: agentNS, Name: agentName}
 
-	// Get context ID from client request (stateless mode)
-	// If not provided, contextIDPtr will be nil and a new conversation will start
-	var contextIDPtr *string
-	if input.ContextID != "" {
-		contextIDPtr = &input.ContextID
-		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
+	// Always ensure a context_id is set so the child session ID is deterministic
+	// and can be stored in the parent's event data for immediate UI linkability.
+	if input.ContextID == "" {
+		input.ContextID = protocol.GenerateContextID()
 	}
+	contextIDPtr := &input.ContextID
+	log.V(1).Info("Using context_id", "context_id", input.ContextID)
 
 	// Get or create cached A2A client for this agent
 	a2aURL := fmt.Sprintf("%s/%s/", h.a2aBaseURL, agentRef)

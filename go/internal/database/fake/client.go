@@ -21,7 +21,7 @@ type InMemoryFakeClient struct {
 	mu                sync.RWMutex
 	feedback          map[string]*database.Feedback
 	tasks             map[string]*database.Task    // changed from runs, key: taskID
-	sessions          map[string]*database.Session // key: sessionID_userID
+	sessions          map[string]*database.Session // key: sessionID
 	agents            map[string]*database.Agent   // changed from teams
 	toolServers       map[string]*database.ToolServer
 	tools             map[string]*database.Tool
@@ -57,9 +57,6 @@ func NewClient() database.Client {
 	}
 }
 
-func (c *InMemoryFakeClient) sessionKey(sessionID, userID string) string {
-	return fmt.Sprintf("%s_%s", sessionID, userID)
-}
 
 func (c *InMemoryFakeClient) DeletePushNotification(taskID string) error {
 	c.mu.Lock()
@@ -133,8 +130,7 @@ func (c *InMemoryFakeClient) StoreSession(session *database.Session) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key := c.sessionKey(session.ID, session.UserID)
-	c.sessions[key] = session
+	c.sessions[session.ID] = session
 	return nil
 }
 
@@ -195,8 +191,7 @@ func (c *InMemoryFakeClient) DeleteSession(sessionID string, userID string) erro
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key := c.sessionKey(sessionID, userID)
-	delete(c.sessions, key)
+	delete(c.sessions, sessionID)
 	return nil
 }
 
@@ -243,8 +238,7 @@ func (c *InMemoryFakeClient) GetSession(sessionID string, userID string) (*datab
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	key := c.sessionKey(sessionID, userID)
-	session, exists := c.sessions[key]
+	session, exists := c.sessions[sessionID]
 	if !exists {
 		return nil, gorm.ErrRecordNotFound
 	}
@@ -486,8 +480,7 @@ func (c *InMemoryFakeClient) UpdateSession(session *database.Session) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	key := c.sessionKey(session.ID, session.UserID)
-	c.sessions[key] = session
+	c.sessions[session.ID] = session
 	return nil
 }
 

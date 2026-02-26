@@ -8,7 +8,7 @@ import { mapA2AStateToStatus } from "@/lib/statusUtils";
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
-  
+
   for (const task of tasks) {
     if (task.history) {
       for (const historyItem of task.history) {
@@ -22,7 +22,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       }
     }
   }
-  
+
   return messages;
 }
 
@@ -30,11 +30,11 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   let maxTotal = 0;
   let maxInput = 0;
   let maxOutput = 0;
-  
+
   for (const task of tasks) {
     if (task.metadata) {
       const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(task.metadata as Record<string, unknown>, "usage_metadata");
-      
+
       if (usage) {
         maxTotal = Math.max(maxTotal, usage.totalTokenCount || 0);
         maxInput = Math.max(maxInput, usage.promptTokenCount || 0);
@@ -42,7 +42,7 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
       }
     }
   }
-  
+
   return {
     total: maxTotal,
     input: maxInput,
@@ -50,9 +50,9 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   };
 }
 
-export type OriginalMessageType = 
+export type OriginalMessageType =
   | "TextMessage"
-  | "ToolCallRequestEvent" 
+  | "ToolCallRequestEvent"
   | "ToolCallExecutionEvent"
   | "ToolCallSummaryMessage";
 
@@ -118,6 +118,7 @@ export interface ProcessedToolResultData {
   call_id: string;
   name: string;
   content: string;
+  contextId?: string; // Child session ID from A2A context_id
   is_error: boolean;
 }
 
@@ -333,7 +334,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const isUserMessage = (message: Message): boolean => message.role === "user";
 
   // Simple fallback source when metadata is not available
-  const defaultAgentSource = handlers.agentContext 
+  const defaultAgentSource = handlers.agentContext
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
@@ -485,7 +486,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (convertedMessages.length > 0) {
         handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
       }
-      
+
       // Add a tool call summary message to mark any pending tool calls as completed
       const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       const toolSummaryMessage = createMessage(
@@ -557,4 +558,4 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   return {
     handleMessageEvent
   };
-}; 
+};
