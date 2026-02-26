@@ -123,10 +123,11 @@ type Config struct {
 	WatchNamespaces    string
 	A2ABaseUrl         string
 	Database           struct {
-		Type    string
-		Path    string
-		Url     string
-		UrlFile string
+		Type          string
+		Path          string
+		Url           string
+		UrlFile       string
+		VectorEnabled bool
 	}
 }
 
@@ -158,6 +159,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
+	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable vector database features (requires pgvector extension).")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -172,6 +174,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -348,12 +354,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	// Initialize database
 	dbManager, err := database.NewManager(&database.Config{
 		DatabaseType: database.DatabaseType(cfg.Database.Type),
-		SqliteConfig: &database.SqliteConfig{
-			DatabasePath: cfg.Database.Path,
-		},
 		PostgresConfig: &database.PostgresConfig{
-			URL:     cfg.Database.Url,
-			URLFile: cfg.Database.UrlFile,
+			URL:           cfg.Database.Url,
+			URLFile:       cfg.Database.UrlFile,
+			VectorEnabled: cfg.Database.VectorEnabled,
+		},
+		SqliteConfig: &database.SqliteConfig{
+			DatabasePath:  cfg.Database.Path,
+			VectorEnabled: cfg.Database.VectorEnabled,
 		},
 	})
 	if err != nil {
@@ -527,6 +535,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
+		os.Exit(1)
+	}
+
+	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
+	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
+		setupLog.Error(err, "unable to set up memory cleanup runnable")
 		os.Exit(1)
 	}
 
