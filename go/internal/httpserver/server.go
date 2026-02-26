@@ -127,6 +127,45 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	return nil
 }
 
+// MemoryCleanupRunnable is a controller-runtime Runnable that periodically
+// prunes expired memory entries. It implements NeedLeaderElection so that
+// the sweep only runs on the elected leader, preventing duplicate deletes
+// when multiple replicas are deployed.
+type MemoryCleanupRunnable struct {
+	DbClient dbpkg.Client
+	Interval time.Duration
+}
+
+func (m *MemoryCleanupRunnable) NeedLeaderElection() bool { return true }
+
+// NewMemoryCleanupRunnable returns a MemoryCleanupRunnable with the given
+// database client. interval controls how often the cleanup runs; pass 0 to
+// use the default of 24 hours.
+func NewMemoryCleanupRunnable(dbClient dbpkg.Client, interval time.Duration) *MemoryCleanupRunnable {
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	return &MemoryCleanupRunnable{DbClient: dbClient, Interval: interval}
+}
+
+// Start runs the periodic cleanup loop until ctx is cancelled.
+func (m *MemoryCleanupRunnable) Start(ctx context.Context) error {
+	log := ctrllog.FromContext(ctx).WithName("memory-cleanup")
+	log.Info("Starting memory TTL cleanup loop", "interval", m.Interval)
+	ticker := time.NewTicker(m.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if err := m.DbClient.PruneExpiredMemories(); err != nil {
+				log.Error(err, "Failed to prune expired memories")
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
 // Stop stops the HTTP server
 func (s *HTTPServer) Stop(ctx context.Context) error {
 	if s.httpServer != nil {
@@ -206,11 +245,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
 
 	// Memories
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/sessions/batch", adaptHandler(s.handlers.Memory.AddSessionBatch)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.List)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.Delete)).Methods(http.MethodDelete)
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)

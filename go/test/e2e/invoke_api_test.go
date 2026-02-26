@@ -92,12 +92,25 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 	return cli
 }
 
-// setupModelConfig creates and returns a model config resource
+// setupModelConfig creates and returns a model config resource for chat (LLM) use.
 func setupModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
-	modelCfg := generateModelCfg(baseURL + "/v1")
+	modelCfg := generateModelCfg(baseURL+"/v1", "gpt-4.1-mini")
 	err := cli.Create(t.Context(), modelCfg)
 	if err != nil {
 		t.Fatalf("failed to create model config: %v", err)
+	}
+	cleanup(t, cli, modelCfg)
+	return modelCfg
+}
+
+// setupEmbeddingModelConfig creates a ModelConfig for embedding (memory) use.
+// text-embedding-3-small is NOT actually used since we have MockLLM, but LiteLLM complains if it's not a proper
+func setupEmbeddingModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
+	modelCfg := generateModelCfg(baseURL+"/v1", "text-embedding-3-small")
+	modelCfg.GenerateName = "test-embedding-model-config-"
+	err := cli.Create(t.Context(), modelCfg)
+	if err != nil {
+		t.Fatalf("failed to create embedding model config: %v", err)
 	}
 	cleanup(t, cli, modelCfg)
 	return modelCfg
@@ -127,6 +140,7 @@ type AgentOptions struct {
 	Env           []corev1.EnvVar
 	Skills        *v1alpha2.SkillForAgent
 	ExecuteCode   *bool
+	Memory        *v1alpha2.MemorySpec
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -338,14 +352,15 @@ func waitForEndpoint(t *testing.T, namespace, name string) {
 	require.NoError(t, pollErr, "timed out waiting for endpoint %s", url)
 }
 
-func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
+// generateModelCfg creates a ModelConfig with the given base URL and model name.
+func generateModelCfg(baseURL, model string) *v1alpha2.ModelConfig {
 	return &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "test-model-config-",
 			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.ModelConfigSpec{
-			Model:           "gpt-4.1-mini",
+			Model:           model,
 			APIKeySecret:    "kagent-openai",
 			APIKeySecretKey: "OPENAI_API_KEY",
 			Provider:        v1alpha2.ModelProviderOpenAI,
@@ -398,6 +413,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if len(opts.Env) > 0 {
 		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
+	}
+
+	if opts.Memory != nil {
+		agent.Spec.Declarative.Memory = opts.Memory
 	}
 
 	return agent
@@ -958,6 +977,46 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	// If passthrough is broken, mockllm returns 404 and the test fails.
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough", nil)
+	})
+}
+
+// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
+// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
+// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+func TestE2EMemoryWithAgent(t *testing.T) {
+	llmURL, stopLLM := setupMockServer(t, "mocks/invoke_memory_agent.json")
+	defer stopLLM()
+
+	cli := setupK8sClient(t, false)
+
+	llmModelCfg := setupModelConfig(t, cli, llmURL)
+	embeddingModelCfg := setupEmbeddingModelConfig(t, cli, llmURL)
+
+	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, AgentOptions{
+		Name: "memory-test-agent",
+		Memory: &v1alpha2.MemorySpec{
+			ModelConfig: embeddingModelCfg.Name,
+		},
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	var saveResult *protocol.Task
+	t.Run("save_memory", func(t *testing.T) {
+		saveResult = runSyncTest(t, a2aClient,
+			"Remember that I prefer dark mode and Go over Python",
+			"saved your preferences to memory",
+			nil,
+		)
+	})
+
+	t.Run("load_memory", func(t *testing.T) {
+		runSyncTest(t, a2aClient,
+			"What are my preferences?",
+			"dark mode",
+			nil,
+			saveResult.ContextID,
+		)
 	})
 }
 

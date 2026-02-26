@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -569,4 +573,144 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIF
 	}
 
 	return &state, nil
+}
+
+// AgentMemory methods
+
+func (c *clientImpl) StoreAgentMemory(memory *dbpkg.Memory) error {
+	return save(c.db, memory)
+}
+
+func (c *clientImpl) StoreAgentMemories(memories []*dbpkg.Memory) error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		for _, memory := range memories {
+			if err := save(tx, memory); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+	var results []dbpkg.AgentMemorySearchResult
+
+	if c.db.Name() == "sqlite" {
+		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
+		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
+		// and parameter binding with ? fails with "unexpected token" errors (GORM limitation)
+		embeddingJSON, err := json.Marshal(embedding.Slice())
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
+		}
+
+		// Safe formatting because we control the JSON string generation from float slice
+		query := fmt.Sprintf(`
+			SELECT id, agent_name, user_id, content, metadata, created_at, expires_at, access_count,
+			       1 - vector_distance_cos(embedding, vector32('%s')) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY vector_distance_cos(embedding, vector32('%s')) ASC
+			LIMIT ?
+		`, string(embeddingJSON), string(embeddingJSON))
+
+		if err := c.db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
+		}
+	} else {
+		// Postgres pgvector syntax: uses <=> operator for cosine distance
+		// pgvector.Vector implements sql.Scanner and driver.Valuer
+		query := `
+			SELECT *, 1 - (embedding <=> ?) as score
+			FROM memory
+			WHERE agent_name = ? AND user_id = ?
+			ORDER BY embedding <=> ? ASC
+			LIMIT ?
+		`
+		if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+			return nil, fmt.Errorf("failed to search agent memory (postgres): %w", err)
+		}
+	}
+
+	// Increment access count for found memories synchronously.
+	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, m := range results {
+			ids[i] = m.ID
+		}
+		if err := c.db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+			return nil, fmt.Errorf("failed to increment access count: %w", err)
+		}
+	}
+
+	return results, nil
+}
+
+// PruneExpiredMemories deletes expired memories if they haven't been accessed enough,
+// otherwise extends their TTL.
+func (c *clientImpl) PruneExpiredMemories() error {
+	return c.db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+
+		// 1. Extend TTL for popular memories (AccessCount >= 10)
+		if err := tx.Model(&dbpkg.Memory{}).
+			Where("expires_at < ? AND access_count >= ?", now, 10).
+			Updates(map[string]any{
+				"expires_at":   now.Add(15 * 24 * time.Hour),
+				"access_count": 0, // Reset count to ensure it's still relevant next time
+			}).Error; err != nil {
+			return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
+		}
+
+		// 2. Delete unpopular expired memories (AccessCount < 10)
+		result := tx.Where("expires_at < ? AND access_count < ?", now, 10).Delete(&dbpkg.Memory{})
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete expired memories: %w", result.Error)
+		}
+		if result.RowsAffected > 0 {
+			log := ctrllog.Log.WithName("database")
+			log.Info("Pruned expired memories", "count", result.RowsAffected)
+		}
+
+		return nil
+	})
+}
+
+func (c *clientImpl) ListAgentMemories(agentName, userID string) ([]dbpkg.Memory, error) {
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
+
+	var memories []dbpkg.Memory
+	query := c.db.Where("(agent_name = ? OR agent_name = ?) AND user_id = ?", agentName, normalizedName, userID).
+		Order("access_count DESC")
+
+	if err := query.Find(&memories).Error; err != nil {
+		return nil, fmt.Errorf("failed to list agent memories: %w", err)
+	}
+	return memories, nil
+}
+
+func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
+	if err := c.deleteAgentMemoryByQuery(agentName, userID); err != nil {
+		return err
+	}
+	normalizedName := strings.ReplaceAll(agentName, "-", "_")
+	if normalizedName != agentName {
+		return c.deleteAgentMemoryByQuery(normalizedName, userID)
+	}
+	return nil
+}
+
+func (c *clientImpl) deleteAgentMemoryByQuery(agentName, userID string) error {
+	var ids []string
+	if err := c.db.Table("memory").Where("agent_name = ? AND user_id = ?", agentName, userID).Pluck("id", &ids).Error; err != nil {
+		return fmt.Errorf("failed to list memory ids: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	// DELETE by primary key only to avoid Turso multi-index scan on DELETE which causes a bug
+	if err := c.db.Exec("DELETE FROM memory WHERE id IN ?", ids).Error; err != nil {
+		return fmt.Errorf("failed to delete agent memory: %w", err)
+	}
+	return nil
 }
