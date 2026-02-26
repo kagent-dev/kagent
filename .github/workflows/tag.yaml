@@ -44,9 +44,14 @@ jobs:
         platforms: linux/amd64,linux/arm64
         version: v0.23.0
         use: 'true'
+        driver-opts: network=host
     - name: 'Build Images'
       env:
-        DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
+        DOCKER_BUILD_ARGS: >-
+          --cache-from=type=gha,scope=kagent-v2-main-${{ matrix.image }}
+          --cache-to=type=gha,scope=kagent-v2-main-${{ matrix.image }},mode=max
+          --push
+          --platform linux/amd64,linux/arm64
         DOCKER_BUILDER: "docker buildx"
         DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |
@@ -94,6 +99,9 @@ jobs:
       uses: actions/checkout@main
     - name: Install uv
       uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+        cache-dependency-glob: "python/uv.lock"
     - name: 'Release Python Packages'
       working-directory: python
       run: |
