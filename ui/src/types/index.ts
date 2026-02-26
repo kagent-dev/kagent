@@ -242,6 +242,7 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  memory?: MemorySpec;
 }
 
 export interface DeclarativeAgentSpec {
@@ -251,6 +252,11 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+}
+
+export interface MemorySpec {
+  modelConfig: string;
+  ttlDays?: number;
 }
 
 export interface BYOAgentSpec {
@@ -408,4 +414,12 @@ export interface ToolServerCreateRequest {
 export interface DiscoveredTool {
   name: string;
   description: string;
+}
+
+export interface AgentMemory {
+  id: string;
+  content: string;
+  access_count: number;
+  created_at: string;
+  expires_at?: string;
 }

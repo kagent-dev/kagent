@@ -122,7 +122,7 @@ def _convert_content_to_openai_messages(
                     elif func_response.response and "content" in func_response.response:
                         content_list = func_response.response["content"]
                         if len(content_list) > 0:
-                            content = content_list[0]["text"]
+                            content = "\n".join(item["text"] for item in content_list if "text" in item)
                     elif func_response.response and "result" in func_response.response:
                         content = func_response.response["result"]
 

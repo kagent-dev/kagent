@@ -20,6 +20,7 @@ require (
 	github.com/kagent-dev/mockllm v0.0.4
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/muesli/reflow v0.3.0
+	github.com/pgvector/pgvector-go v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.10
@@ -39,6 +40,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.0
 	sigs.k8s.io/yaml v1.6.0
 	trpc.group/trpc-go/trpc-a2a-go v0.2.5
+	turso.tech/database/tursogo v0.5.0-pre.13
 )
 
 require (
@@ -60,6 +62,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
@@ -87,7 +90,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.6.0 // indirect
+	github.com/jackc/pgx/v5 v5.7.2 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -130,6 +133,7 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/tursodatabase/turso-go-platform-libs v0.5.0-pre.13 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

@@ -3,12 +3,15 @@ package fake
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -29,6 +32,7 @@ type InMemoryFakeClient struct {
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
 	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id
+	memories          map[string]*database.Memory                     // key: user_id:thread_id:agent_id
 	nextFeedbackID    int
 }
 
@@ -48,6 +52,7 @@ func NewClient() database.Client {
 		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
 		crewaiMemory:      make(map[string][]*database.CrewAIAgentMemory),
 		crewaiFlowStates:  make(map[string]*database.CrewAIFlowState),
+		memories:          make(map[string]*database.Memory),
 		nextFeedbackID:    1,
 	}
 }
@@ -102,10 +107,10 @@ func (c *InMemoryFakeClient) StoreFeedback(feedback *database.Feedback) error {
 
 	// Copy the feedback and assign an ID
 	newFeedback := *feedback
-	newFeedback.ID = uint(c.nextFeedbackID)
+	newFeedback.MessageID = uint(c.nextFeedbackID)
 	c.nextFeedbackID++
 
-	key := fmt.Sprintf("%d", newFeedback.ID)
+	key := fmt.Sprintf("%d", newFeedback.MessageID)
 	c.feedback[key] = &newFeedback
 	return nil
 }
@@ -545,6 +550,7 @@ func (c *InMemoryFakeClient) Clear() {
 	c.pushNotifications = make(map[string]*protocol.TaskPushNotificationConfig)
 	c.checkpoints = make(map[string]*database.LangGraphCheckpoint)
 	c.checkpointWrites = make(map[string][]*database.LangGraphCheckpointWrite)
+	c.memories = make(map[string]*database.Memory)
 	c.nextFeedbackID = 1
 }
 
@@ -889,4 +895,150 @@ func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*datab
 	state := c.crewaiFlowStates[key]
 
 	return state, nil
+}
+
+// memoryKey creates a unique key for a memory record
+func (c *InMemoryFakeClient) memoryKey(agentName, userID, id string) string {
+	return fmt.Sprintf("%s:%s:%s", agentName, userID, id)
+}
+
+// StoreAgentMemory stores agent memory
+func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if memory.ID == "" {
+		memory.ID = fmt.Sprintf("%d", len(c.memories)+1)
+	}
+	key := c.memoryKey(memory.AgentName, memory.UserID, memory.ID)
+	c.memories[key] = memory
+	return nil
+}
+
+// StoreAgentMemories stores multiple agent memories
+func (c *InMemoryFakeClient) StoreAgentMemories(memories []*database.Memory) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, memory := range memories {
+		if memory.ID == "" {
+			memory.ID = fmt.Sprintf("%d", len(c.memories)+1)
+		}
+		key := c.memoryKey(memory.AgentName, memory.UserID, memory.ID)
+		c.memories[key] = memory
+	}
+	return nil
+}
+
+// cosineSimilarity computes the cosine similarity between two float32 slices.
+// Returns 0 if either vector has zero magnitude.
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		ai := float64(a[i])
+		bi := float64(b[i])
+		dot += ai * bi
+		normA += ai * ai
+		normB += bi * bi
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// SearchAgentMemory searches agent memory by vector similarity
+func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	queryVec := embedding.Slice()
+	now := time.Now()
+
+	var results []database.AgentMemorySearchResult
+	for _, memory := range c.memories {
+		if memory.AgentName != agentName || memory.UserID != userID {
+			continue
+		}
+		// Skip expired memories
+		if memory.ExpiresAt != nil && memory.ExpiresAt.Before(now) {
+			continue
+		}
+		score := cosineSimilarity(queryVec, memory.Embedding.Slice())
+		results = append(results, database.AgentMemorySearchResult{
+			Memory: *memory,
+			Score:  score,
+		})
+	}
+
+	// Sort by score descending
+	slices.SortStableFunc(results, func(i, j database.AgentMemorySearchResult) int {
+		if i.Score > j.Score {
+			return -1
+		} else if i.Score < j.Score {
+			return 1
+		}
+		return 0
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+// ListAgentMemories lists agent memories ordered by access count descending
+func (c *InMemoryFakeClient) ListAgentMemories(agentName, userID string) ([]database.Memory, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Memory
+	for _, memory := range c.memories {
+		if memory.AgentName == agentName && memory.UserID == userID {
+			result = append(result, *memory)
+		}
+	}
+
+	// Sort by access_count DESC
+	slices.SortStableFunc(result, func(i, j database.Memory) int {
+		if i.AccessCount > j.AccessCount {
+			return -1
+		} else if i.AccessCount < j.AccessCount {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+// DeleteAgentMemory deletes all agent memory for a given agent and user
+func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for key, memory := range c.memories {
+		if memory.AgentName == agentName && memory.UserID == userID {
+			delete(c.memories, key)
+		}
+	}
+	return nil
+}
+
+// PruneExpiredMemories removes all memories whose ExpiresAt is in the past
+func (c *InMemoryFakeClient) PruneExpiredMemories() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for key, memory := range c.memories {
+		if memory.ExpiresAt != nil && memory.ExpiresAt.Before(now) {
+			delete(c.memories, key)
+		}
+	}
+	return nil
 }

@@ -1,0 +1,54 @@
+operation: translateAgent
+targetObject: agent-cross-provider-memory
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: gcp-creds
+      namespace: test
+    data:
+      key.json: e30= # base64 "{}"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: openai-llm
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: vertex-embedding
+      namespace: test
+    spec:
+      provider: GeminiVertexAI
+      model: text-embedding-005
+      apiKeySecret: gcp-creds
+      apiKeySecretKey: key.json
+      geminiVertexAI:
+        projectID: my-project
+        location: us-central1
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-cross-provider-memory
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        systemMessage: You are an assistant.
+        modelConfig: openai-llm
+        memory:
+          modelConfig: vertex-embedding
+        tools: []

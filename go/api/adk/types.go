@@ -317,6 +317,72 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// EmbeddingConfig is the embedding model config for memory tools.
+// JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
+type EmbeddingConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseUrl  string `json:"base_url,omitempty"`
+}
+
+func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Type     string `json:"type"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseUrl  string `json:"base_url"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	e.Model = tmp.Model
+	e.BaseUrl = tmp.BaseUrl
+	if tmp.Provider != "" {
+		e.Provider = tmp.Provider
+	} else {
+		e.Provider = tmp.Type
+	}
+	return nil
+}
+
+// ModelToEmbeddingConfig converts a Model (e.g. from translateModel) to EmbeddingConfig
+// so serialized AgentConfig has embedding.provider for Python EmbeddingConfig validation.
+func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
+	if m == nil {
+		return nil
+	}
+	e := &EmbeddingConfig{Provider: m.GetType()}
+	switch v := m.(type) {
+	case *OpenAI:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *AzureOpenAI:
+		e.Model = v.Model
+	case *Anthropic:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *GeminiVertexAI:
+		e.Model = v.Model
+	case *GeminiAnthropic:
+		e.Model = v.Model
+	case *Ollama:
+		e.Model = v.Model
+	case *Gemini:
+		e.Model = v.Model
+	case *Bedrock:
+		e.Model = v.Model
+	default:
+		e.Model = ""
+	}
+	return e
+}
+
+// MemoryConfig groups all memory-related configuration.
+type MemoryConfig struct {
+	TTLDays   int              `json:"ttl_days,omitempty"`
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model        Model                 `json:"model"`
@@ -327,6 +393,7 @@ type AgentConfig struct {
 	RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
 	ExecuteCode  *bool                 `json:"execute_code,omitempty"`
 	Stream       *bool                 `json:"stream,omitempty"`
+	Memory       *MemoryConfig         `json:"memory,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -355,6 +422,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
 		ExecuteCode  *bool                 `json:"execute_code,omitempty"`
 		Stream       *bool                 `json:"stream,omitempty"`
+		Memory       json.RawMessage       `json:"memory"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -363,6 +431,16 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	var memory *MemoryConfig
+	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
+		var m MemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
+			return err
+		}
+		memory = &m
+	}
+
 	a.Model = model
 	a.Description = tmp.Description
 	a.Instruction = tmp.Instruction
@@ -371,6 +449,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.RemoteAgents = tmp.RemoteAgents
 	a.ExecuteCode = tmp.ExecuteCode
 	a.Stream = tmp.Stream
+	a.Memory = memory
 	return nil
 }
 

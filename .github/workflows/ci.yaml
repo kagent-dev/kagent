@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   pull_request:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   workflow_dispatch:
 
 env:
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: pgvector/pgvector:pg18-trixie
         env:
           POSTGRES_DB: kagent
           POSTGRES_USER: postgres
@@ -70,7 +70,7 @@ jobs:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
-          use: 'true'
+          use: "true"
           driver-opts: network=host
 
       - name: Set up Helm
@@ -189,14 +189,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: ui/package-lock.json
 
       - name: Install dependencies
         working-directory: ./ui
         env:
-          CYPRESS_INSTALL_BINARY: 0  # Skip Cypress binary - not needed for lint/unit tests
+          CYPRESS_INSTALL_BINARY: 0 # Skip Cypress binary - not needed for lint/unit tests
         run: npm ci
 
       - name: Run lint
@@ -238,7 +238,7 @@ jobs:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           platforms: linux/amd64,linux/arm64
           version: ${{ env.BUILDX_VERSION }}
-          use: 'true'
+          use: "true"
           driver-opts: network=host
       - name: Run make build
         env:

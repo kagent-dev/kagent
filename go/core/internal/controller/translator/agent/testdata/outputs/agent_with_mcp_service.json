@@ -167,10 +167,6 @@
                     }
                   },
                   {
-                    "name": "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
-                    "value": "delta"
-                  },
-                  {
                     "name": "KAGENT_NAMESPACE",
                     "valueFrom": {
                       "fieldRef": {
@@ -198,7 +194,7 @@
                 ],
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/.well-known/agent.json",
+                    "path": "/.well-known/agent-card.json",
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,

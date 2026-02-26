@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/glebarez/sqlite"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	_ "turso.tech/database/tursogo"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -17,6 +19,7 @@ import (
 // Manager handles database connection and initialization
 type Manager struct {
 	db       *gorm.DB
+	config   *Config
 	initLock sync.Mutex
 }
 
@@ -28,12 +31,14 @@ const (
 )
 
 type SqliteConfig struct {
-	DatabasePath string
+	DatabasePath  string
+	VectorEnabled bool
 }
 
 type PostgresConfig struct {
-	URL     string
-	URLFile string
+	URL           string
+	URLFile       string
+	VectorEnabled bool
 }
 
 type Config struct {
@@ -61,7 +66,14 @@ func NewManager(config *Config) (*Manager, error) {
 
 	switch config.DatabaseType {
 	case DatabaseTypeSqlite:
-		db, err = gorm.Open(sqlite.Open(config.SqliteConfig.DatabasePath), &gorm.Config{
+		// GORM uses glebarez/sqlite as dialector over the connection
+		// The actual driver is Turso's tursogo driver
+		sqlDB, sqlErr := sql.Open("turso", config.SqliteConfig.DatabasePath)
+		if sqlErr != nil {
+			return nil, fmt.Errorf("failed to open turso connection: %w", sqlErr)
+		}
+		sqlDB.SetMaxOpenConns(1)
+		db, err = gorm.Open(sqlite.Dialector{Conn: sqlDB}, &gorm.Config{
 			Logger:         logger.Default.LogMode(logLevel),
 			TranslateError: true,
 		})
@@ -86,15 +98,17 @@ func NewManager(config *Config) (*Manager, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &Manager{db: db}, nil
+	return &Manager{db: db, config: config}, nil
 }
 
 // Initialize sets up the database tables
 func (m *Manager) Initialize() error {
-	if !m.initLock.TryLock() {
-		return fmt.Errorf("database initialization already in progress")
+	// Create extensions if using Postgres and Vector is enabled
+	if m.db.Name() == "postgres" && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.Exec("CREATE EXTENSION IF NOT EXISTS vector").Error; err != nil {
+			return fmt.Errorf("failed to create vector extension: %w", err)
+		}
 	}
-	defer m.initLock.Unlock()
 
 	// AutoMigrate all models
 	err := m.db.AutoMigrate(
@@ -116,6 +130,46 @@ func (m *Manager) Initialize() error {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
 
+	// Initialize memory table that uses vector column
+	if m.config.DatabaseType == DatabaseTypePostgres && m.config.PostgresConfig.VectorEnabled {
+		if err := m.db.AutoMigrate(&dbpkg.Memory{}); err != nil {
+			return fmt.Errorf("failed to migrate memory table: %w", err)
+		}
+
+		// Manually create the HNSW index with the correct operator class
+		// GORM doesn't support adding "op class" in struct tags easily for Postgres vectors
+		indexQuery := `CREATE INDEX IF NOT EXISTS idx_memory_embedding_hnsw ON memory USING hnsw (embedding vector_cosine_ops)`
+		if err := m.db.Exec(indexQuery).Error; err != nil {
+			return fmt.Errorf("failed to create hnsw index: %w", err)
+		}
+	}
+
+	// libSQL uses F32_BLOB(N) for vector columns, not vector(N) like pgvector.
+	// AutoMigrate doesn't work because GORM tries to use the pgvector type from struct tags.
+	// The id column has no DEFAULT expression: the application layer (BeforeCreate hook on
+	// Memory) generates a UUID before every insert, making it DB-agnostic.
+	if m.config.DatabaseType == DatabaseTypeSqlite && m.config.SqliteConfig.VectorEnabled {
+		createMemoryTableSQL := `
+			CREATE TABLE IF NOT EXISTS memory (
+				id TEXT PRIMARY KEY,
+				agent_name TEXT,
+				user_id TEXT,
+				content TEXT,
+				embedding F32_BLOB(768),
+				metadata TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				expires_at DATETIME,
+				access_count INTEGER DEFAULT 0
+			)
+		`
+		if err := m.db.Exec(createMemoryTableSQL).Error; err != nil {
+			return fmt.Errorf("failed to create memory table: %w", err)
+		}
+		// Composite index for the most common query pattern (agent_name + user_id)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_agent_user ON memory(agent_name, user_id)`)
+		_ = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at)`)
+	}
+
 	return nil
 }
 
@@ -126,7 +180,7 @@ func (m *Manager) Reset(recreateTables bool) error {
 	}
 	defer m.initLock.Unlock()
 
-	// Drop all tables
+	// Drop all tables (including memory, which is created manually in Initialize)
 	err := m.db.Migrator().DropTable(
 		&dbpkg.Agent{},
 		&dbpkg.Session{},
@@ -140,6 +194,7 @@ func (m *Manager) Reset(recreateTables bool) error {
 		&dbpkg.LangGraphCheckpointWrite{},
 		&dbpkg.CrewAIAgentMemory{},
 		&dbpkg.CrewAIFlowState{},
+		&dbpkg.Memory{},
 	)
 
 	if err != nil {
