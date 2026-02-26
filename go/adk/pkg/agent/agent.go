@@ -172,7 +172,22 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		return models.NewOpenAICompatibleModelWithLogger(baseURL, modelName, extractHeaders(m.Headers), "", log)
 
 	case *config.Bedrock:
-		return nil, fmt.Errorf("bedrock is not yet supported with the Go ADK")
+		region := m.Region
+		if region == "" {
+			region = os.Getenv("AWS_REGION")
+		}
+		if region == "" {
+			return nil, fmt.Errorf("bedrock requires AWS_REGION environment variable or region in model config")
+		}
+		modelName := m.Model
+		if modelName == "" {
+			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
+		}
+		cfg := &models.AnthropicConfig{
+			Model:   modelName,
+			Headers: extractHeaders(m.Headers),
+		}
+		return models.NewAnthropicBedrockModelWithLogger(ctx, cfg, region, log)
 
 	case *config.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.

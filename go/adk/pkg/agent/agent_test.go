@@ -239,4 +239,46 @@ func TestModelName_ReturnsModelNotProvider(t *testing.T) {
 			t.Error("Name() returns provider name 'anthropic' instead of model name — this causes 404 from Anthropic API")
 		}
 	})
+
+	t.Run("Bedrock (via Anthropic)", func(t *testing.T) {
+		// Bedrock uses AnthropicModel under the hood — verify the model name
+		// is the Bedrock model ID, not "bedrock" or "anthropic"
+		m := &models.AnthropicModel{
+			Config: &models.AnthropicConfig{Model: "anthropic.claude-3-sonnet-20240229-v1:0"},
+		}
+		if m.Name() != "anthropic.claude-3-sonnet-20240229-v1:0" {
+			t.Errorf("Name() = %q, want %q", m.Name(), "anthropic.claude-3-sonnet-20240229-v1:0")
+		}
+	})
+}
+
+// TestConfigDeserialization_Bedrock verifies that a Bedrock config deserializes
+// correctly with the model name and region preserved.
+func TestConfigDeserialization_Bedrock(t *testing.T) {
+	configJSON := `{
+		"model": {
+			"type": "bedrock",
+			"model": "anthropic.claude-3-sonnet-20240229-v1:0",
+			"region": "us-east-1"
+		},
+		"description": "test agent",
+		"instruction": "you are helpful"
+	}`
+
+	var cfg config.AgentConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	br, ok := cfg.Model.(*config.Bedrock)
+	if !ok {
+		t.Fatalf("model is %T, want *config.Bedrock", cfg.Model)
+	}
+
+	if br.Model != "anthropic.claude-3-sonnet-20240229-v1:0" {
+		t.Errorf("model = %q, want %q", br.Model, "anthropic.claude-3-sonnet-20240229-v1:0")
+	}
+	if br.Region != "us-east-1" {
+		t.Errorf("region = %q, want %q", br.Region, "us-east-1")
+	}
 }

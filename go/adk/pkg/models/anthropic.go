@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-logr/logr"
 )
 
@@ -105,6 +107,43 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 
 	client := anthropic.NewClient(opts...)
 	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
+
+	return &AnthropicModel{
+		Config: config,
+		Client: client,
+		Logger: logger,
+	}, nil
+}
+
+// NewAnthropicBedrockModelWithLogger creates an Anthropic model that uses
+// AWS Bedrock as the backend. Authentication is handled by the AWS SDK:
+//   - If AWS_BEARER_TOKEN_BEDROCK is set, bearer token auth is used.
+//   - Otherwise, standard AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+//     AWS_SESSION_TOKEN) or IAM roles are used via SigV4 signing.
+//
+// The region must be provided (e.g. "us-east-1") and determines the Bedrock endpoint.
+func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicConfig, region string, logger logr.Logger) (*AnthropicModel, error) {
+	opts := []option.RequestOption{
+		bedrock.WithLoadDefaultConfig(ctx,
+			awsconfig.WithRegion(region),
+		),
+	}
+
+	timeout := defaultTimeout
+	if config.Timeout != nil {
+		timeout = time.Duration(*config.Timeout) * time.Second
+	}
+	httpClient := &http.Client{Timeout: timeout}
+	if len(config.Headers) > 0 {
+		httpClient.Transport = &headerTransport{
+			base:    http.DefaultTransport,
+			headers: config.Headers,
+		}
+	}
+	opts = append(opts, option.WithHTTPClient(httpClient))
+
+	client := anthropic.NewClient(opts...)
+	logger.Info("Initialized Anthropic Bedrock model", "model", config.Model, "region", region)
 
 	return &AnthropicModel{
 		Config: config,
