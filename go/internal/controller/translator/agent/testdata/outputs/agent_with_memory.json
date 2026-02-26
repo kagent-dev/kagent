@@ -12,19 +12,30 @@
       "text"
     ],
     "description": "",
-    "name": "bedrock_agent",
+    "name": "agent_with_memory",
     "skills": null,
-    "url": "http://bedrock-agent.test:8080",
+    "url": "http://agent-with-memory.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "You are a helpful AI assistant running on AWS Bedrock.",
+    "instruction": "You are a helpful assistant with memory. Save important findings and use past context when relevant.",
+    "memory": {
+      "embedding": {
+        "model": "text-embedding-3-small",
+        "provider": "openai"
+      }
+    },
     "model": {
-      "model": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-      "region": "us-east-1",
-      "type": "bedrock"
+      "base_url": "",
+      "headers": {
+        "User-Agent": "kagent/1.0"
+      },
+      "max_tokens": 1024,
+      "model": "gpt-4o",
+      "temperature": 0.7,
+      "type": "openai"
     },
     "remote_agents": null,
     "sse_tools": null,
@@ -38,11 +49,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-with-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-with-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-with-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -50,14 +61,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-with-memory",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"agent_with_memory\",\"description\":\"\",\"url\":\"http://agent-with-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with memory. Save important findings and use past context when relevant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}}"
       }
     },
     {
@@ -67,11 +78,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-with-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-with-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-with-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -79,7 +90,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-with-memory",
             "uid": ""
           }
         ]
@@ -92,11 +103,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-with-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-with-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-with-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -104,7 +115,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-with-memory",
             "uid": ""
           }
         ]
@@ -113,7 +124,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "bedrock-agent"
+            "kagent": "agent-with-memory"
           }
         },
         "strategy": {
@@ -126,14 +137,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11588653464466157453"
+              "kagent.dev/config-hash": "8571325440893358514"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "bedrock-agent",
+              "app.kubernetes.io/name": "agent-with-memory",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "bedrock-agent"
+              "kagent": "agent-with-memory"
             }
           },
           "spec": {
@@ -149,24 +160,11 @@
                 ],
                 "env": [
                   {
-                    "name": "AWS_REGION",
-                    "value": "us-east-1"
-                  },
-                  {
-                    "name": "AWS_ACCESS_KEY_ID",
+                    "name": "OPENAI_API_KEY",
                     "valueFrom": {
                       "secretKeyRef": {
-                        "key": "AWS_ACCESS_KEY_ID",
-                        "name": "bedrock-credentials"
-                      }
-                    }
-                  },
-                  {
-                    "name": "AWS_SECRET_ACCESS_KEY",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "key": "AWS_SECRET_ACCESS_KEY",
-                        "name": "bedrock-credentials"
+                        "key": "api-key",
+                        "name": "openai-secret"
                       }
                     }
                   },
@@ -180,7 +178,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "bedrock-agent"
+                    "value": "agent-with-memory"
                   },
                   {
                     "name": "KAGENT_URL",
@@ -207,12 +205,12 @@
                 },
                 "resources": {
                   "limits": {
-                    "cpu": "2",
-                    "memory": "1Gi"
+                    "cpu": "3",
+                    "memory": "2Gi"
                   },
                   "requests": {
-                    "cpu": "100m",
-                    "memory": "384Mi"
+                    "cpu": "200m",
+                    "memory": "684Mi"
                   }
                 },
                 "volumeMounts": [
@@ -227,12 +225,12 @@
                 ]
               }
             ],
-            "serviceAccountName": "bedrock-agent",
+            "serviceAccountName": "agent-with-memory",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "bedrock-agent"
+                  "secretName": "agent-with-memory"
                 }
               },
               {
@@ -262,11 +260,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-with-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-with-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-with-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -274,7 +272,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-with-memory",
             "uid": ""
           }
         ]
@@ -289,7 +287,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-with-memory"
         },
         "type": "ClusterIP"
       },

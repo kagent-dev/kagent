@@ -48,12 +48,14 @@ data:
   {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}
   {{- else if eq .Values.database.type "postgres" }}
   {{- if not (eq .Values.database.postgres.urlFile "") }}
   POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
   {{- else if not (eq .Values.database.postgres.url "") }}
   POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
   {{- end }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | default true | quote }}
   {{- end }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}

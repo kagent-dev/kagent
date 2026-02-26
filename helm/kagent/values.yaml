@@ -7,7 +7,6 @@
 tag: ""
 registry: "cr.kagent.dev"
 
-
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
 
@@ -53,8 +52,10 @@ nodeSelector: {}
 database:
   type: sqlite
   sqlite:
+    vectorEnabled: true
     databaseName: kagent.db
   postgres:
+    vectorEnabled: true
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
     # Path to a file containing the database URL.
     # Takes precedence over url when set.

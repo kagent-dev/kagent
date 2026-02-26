@@ -505,7 +505,7 @@ func (a *adkApiTranslator) buildManifest(
 						Env:             env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent.json", Port: intstr.FromString("http")},
+								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
 							},
 							InitialDelaySeconds: 15,
 							TimeoutSeconds:      15,
@@ -572,6 +572,27 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Model:       model,
 		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 		Stream:      agent.Spec.Declarative.Stream,
+	}
+
+	// Handle Memory Configuration: presence of Memory field enables it.
+	if agent.Spec.Declarative.Memory != nil {
+		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig, mdd)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+		}
+
+		cfg.Memory = &adk.MemoryConfig{
+			TTLDays:   agent.Spec.Declarative.Memory.TTLDays,
+			Embedding: embCfg,
+		}
+
+		// Merge embedding deployment data (env vars, volumes, mounts)
+		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
+		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
+		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
+		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
+			secretHashBytes = append(secretHashBytes, embHash...)
+		}
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
@@ -695,6 +716,52 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			ReadOnly:  true,
 		})
 	}
+}
+
+// translateEmbeddingConfig resolves the embedding ModelConfig and returns the
+// EmbeddingConfig for the Python config JSON, any deployment data (env vars,
+// volumes, volume mounts) not already present in existingMdd, and the raw
+// secret hash bytes (caller decides whether to include them).
+func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string, existingMdd *modelDeploymentData) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
+	embModel, embMdd, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Build lookup sets of names already emitted by the LLM model config so we
+	// skip duplicates (e.g. OPENAI_API_KEY, google-creds volume when both the
+	// LLM and embedding use the same provider or the same credential secret).
+	existingEnv := make(map[string]struct{}, len(existingMdd.EnvVars))
+	for _, e := range existingMdd.EnvVars {
+		existingEnv[e.Name] = struct{}{}
+	}
+	existingVol := make(map[string]struct{}, len(existingMdd.Volumes))
+	for _, v := range existingMdd.Volumes {
+		existingVol[v.Name] = struct{}{}
+	}
+	existingMount := make(map[string]struct{}, len(existingMdd.VolumeMounts))
+	for _, vm := range existingMdd.VolumeMounts {
+		existingMount[vm.MountPath] = struct{}{}
+	}
+
+	newMdd := &modelDeploymentData{}
+	for _, e := range embMdd.EnvVars {
+		if _, dup := existingEnv[e.Name]; !dup {
+			newMdd.EnvVars = append(newMdd.EnvVars, e)
+		}
+	}
+	for _, v := range embMdd.Volumes {
+		if _, dup := existingVol[v.Name]; !dup {
+			newMdd.Volumes = append(newMdd.Volumes, v)
+		}
+	}
+	for _, vm := range embMdd.VolumeMounts {
+		if _, dup := existingMount[vm.MountPath]; !dup {
+			newMdd.VolumeMounts = append(newMdd.VolumeMounts, vm)
+		}
+	}
+
+	return adk.ModelToEmbeddingConfig(embModel), newMdd, embHash, nil
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
@@ -1065,9 +1132,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
-
-	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {

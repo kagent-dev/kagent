@@ -12,19 +12,25 @@
       "text"
     ],
     "description": "",
-    "name": "bedrock_agent",
+    "name": "agent_cross_provider_memory",
     "skills": null,
-    "url": "http://bedrock-agent.test:8080",
+    "url": "http://agent-cross-provider-memory.test:8080",
     "version": ""
   },
   "config": {
     "description": "",
     "http_tools": null,
-    "instruction": "You are a helpful AI assistant running on AWS Bedrock.",
+    "instruction": "You are an assistant.",
+    "memory": {
+      "embedding": {
+        "model": "text-embedding-005",
+        "provider": "gemini_vertex_ai"
+      }
+    },
     "model": {
-      "model": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-      "region": "us-east-1",
-      "type": "bedrock"
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
     },
     "remote_agents": null,
     "sse_tools": null,
@@ -38,11 +44,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -50,14 +56,14 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false}"
+        "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
     {
@@ -67,11 +73,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -79,7 +85,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -92,11 +98,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -104,7 +110,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -113,7 +119,7 @@
         "selector": {
           "matchLabels": {
             "app": "kagent",
-            "kagent": "bedrock-agent"
+            "kagent": "agent-cross-provider-memory"
           }
         },
         "strategy": {
@@ -126,14 +132,14 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11588653464466157453"
+              "kagent.dev/config-hash": "7626654329789297995"
             },
             "labels": {
               "app": "kagent",
               "app.kubernetes.io/managed-by": "kagent",
-              "app.kubernetes.io/name": "bedrock-agent",
+              "app.kubernetes.io/name": "agent-cross-provider-memory",
               "app.kubernetes.io/part-of": "kagent",
-              "kagent": "bedrock-agent"
+              "kagent": "agent-cross-provider-memory"
             }
           },
           "spec": {
@@ -149,26 +155,29 @@
                 ],
                 "env": [
                   {
-                    "name": "AWS_REGION",
-                    "value": "us-east-1"
-                  },
-                  {
-                    "name": "AWS_ACCESS_KEY_ID",
+                    "name": "OPENAI_API_KEY",
                     "valueFrom": {
                       "secretKeyRef": {
-                        "key": "AWS_ACCESS_KEY_ID",
-                        "name": "bedrock-credentials"
+                        "key": "api-key",
+                        "name": "openai-secret"
                       }
                     }
                   },
                   {
-                    "name": "AWS_SECRET_ACCESS_KEY",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "key": "AWS_SECRET_ACCESS_KEY",
-                        "name": "bedrock-credentials"
-                      }
-                    }
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "my-project"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": "us-central1"
+                  },
+                  {
+                    "name": "GOOGLE_GENAI_USE_VERTEXAI",
+                    "value": "true"
+                  },
+                  {
+                    "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                    "value": "/creds/key.json"
                   },
                   {
                     "name": "KAGENT_NAMESPACE",
@@ -180,7 +189,7 @@
                   },
                   {
                     "name": "KAGENT_NAME",
-                    "value": "bedrock-agent"
+                    "value": "agent-cross-provider-memory"
                   },
                   {
                     "name": "KAGENT_URL",
@@ -221,18 +230,28 @@
                     "name": "config"
                   },
                   {
+                    "mountPath": "/creds",
+                    "name": "google-creds"
+                  },
+                  {
                     "mountPath": "/var/run/secrets/tokens",
                     "name": "kagent-token"
                   }
                 ]
               }
             ],
-            "serviceAccountName": "bedrock-agent",
+            "serviceAccountName": "agent-cross-provider-memory",
             "volumes": [
               {
                 "name": "config",
                 "secret": {
-                  "secretName": "bedrock-agent"
+                  "secretName": "agent-cross-provider-memory"
+                }
+              },
+              {
+                "name": "google-creds",
+                "secret": {
+                  "secretName": "gcp-creds"
                 }
               },
               {
@@ -262,11 +281,11 @@
         "labels": {
           "app": "kagent",
           "app.kubernetes.io/managed-by": "kagent",
-          "app.kubernetes.io/name": "bedrock-agent",
+          "app.kubernetes.io/name": "agent-cross-provider-memory",
           "app.kubernetes.io/part-of": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-cross-provider-memory"
         },
-        "name": "bedrock-agent",
+        "name": "agent-cross-provider-memory",
         "namespace": "test",
         "ownerReferences": [
           {
@@ -274,7 +293,7 @@
             "blockOwnerDeletion": true,
             "controller": true,
             "kind": "Agent",
-            "name": "bedrock-agent",
+            "name": "agent-cross-provider-memory",
             "uid": ""
           }
         ]
@@ -289,7 +308,7 @@
         ],
         "selector": {
           "app": "kagent",
-          "kagent": "bedrock-agent"
+          "kagent": "agent-cross-provider-memory"
         },
         "type": "ClusterIP"
       },

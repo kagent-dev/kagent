@@ -118,6 +118,24 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
+
+	// Memory configuration for the agent.
+	// +optional
+	Memory *MemorySpec `json:"memory,omitempty"`
+}
+
+// MemorySpec enables long-term memory for an agent.
+type MemorySpec struct {
+	// ModelConfig is the name of the ModelConfig object whose embedding
+	// provider will be used to generate memory vectors.
+	// +kubebuilder:validation:Required
+	ModelConfig string `json:"modelConfig"`
+
+	// TTLDays controls how many days a stored memory entry remains valid before
+	// it is eligible for pruning. Defaults to 15 days when unset or zero.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	TTLDays int `json:"ttlDays,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {

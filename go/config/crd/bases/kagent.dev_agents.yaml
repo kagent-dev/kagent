@@ -9863,6 +9863,23 @@ spec:
                       Code will be executed in a sandboxed environment.
                       due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configuration for the agent.
+                    properties:
+                      modelConfig:
+                        description: |-
+                          ModelConfig is the name of the ModelConfig object whose embedding
+                          provider will be used to generate memory vectors.
+                        type: string
+                      ttlDays:
+                        description: |-
+                          TTLDays controls how many days a stored memory entry remains valid before
+                          it is eligible for pruning. Defaults to 15 days when unset or zero.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfig
+                    type: object
                   modelConfig:
                     description: |-
                       The name of the model config to use.
