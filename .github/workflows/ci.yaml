@@ -31,16 +31,103 @@ jobs:
           BRANCH_KEY="${CACHE_KEY_PREFIX}-${BRANCH_CACHE_KEY}"
           echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
           echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
+
+  # Pre-build amd64 images as artifacts for E2E
+  build-images:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [controller, ui, kagent-adk, skills-init]
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          use: "true"
+          driver-opts: network=host
+      - name: Build and export ${{ matrix.image }}
+        env:
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
+            --platform=linux/amd64
+            --output type=docker,dest=/tmp/${{ matrix.image }}.tar
+        run: make build-${{ matrix.image }}
+      - name: Upload ${{ matrix.image }} image
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.image }}
+          path: /tmp/${{ matrix.image }}.tar
+          retention-days: 1
+
+  # Build app image (depends on kagent-adk base image)
+  build-app-image:
+    needs: [setup, build-images]
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5001:5000
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          use: "true"
+          driver-opts: network=host
+      - name: Download kagent-adk image
+        uses: actions/download-artifact@v4
+        with:
+          name: image-kagent-adk
+          path: /tmp/
+      - name: Load kagent-adk into local registry
+        run: |
+          docker load < /tmp/kagent-adk.tar
+          docker push localhost:5001/kagent-dev/kagent/kagent-adk:$VERSION
+      - name: Build and export app
+        env:
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-app
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-app,mode=max
+            --platform=linux/amd64
+            --output type=docker,dest=/tmp/app.tar
+        run: make build-app-no-deps
+      - name: Upload app image
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-app
+          path: /tmp/app.tar
+          retention-days: 1
+
   test-e2e:
     needs:
       - setup
+      - build-images
+      - build-app-image
     strategy:
       fail-fast: false
       matrix:
         database: [sqlite, postgres]
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     services:
       postgres:
         image: pgvector/pgvector:pg18-trixie
@@ -60,16 +147,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
-          platforms: linux/amd64,linux/arm64
           use: "true"
           driver-opts: network=host
 
@@ -84,28 +166,48 @@ jobs:
         with:
           install_only: true
 
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: /tmp/images/
+
       - name: Install Kagent
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
-          DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
-            --platform=linux/amd64
-            --push
         run: |
+          # Create Kind cluster (includes local registry at localhost:5001)
           make create-kind-cluster
-          echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
+
+          # Load pre-built images into Kind registry
+          for dir in /tmp/images/image-*/; do
+            for tar in "$dir"*.tar; do
+              echo "Loading $tar..."
+              docker load < "$tar"
+            done
+          done
+          docker push localhost:5001/kagent-dev/kagent/controller:$VERSION
+          docker push localhost:5001/kagent-dev/kagent/ui:$VERSION
+          docker push localhost:5001/kagent-dev/kagent/kagent-adk:$VERSION
+          docker push localhost:5001/kagent-dev/kagent/skills-init:$VERSION
+          docker push localhost:5001/kagent-dev/kagent/app:$VERSION
+
+          # Build and push test agent/skill images (small, built locally)
+          make build-test-agents push-test-skill
+
+          # Deploy
           if [ "${{ matrix.database }}" = "postgres" ]; then
             HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
             export KAGENT_HELM_EXTRA_ARGS="$KAGENT_HELM_EXTRA_ARGS --set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@${HOST_IP}:5432/kagent"
             echo "Postgres URL: postgres://postgres:kagent@${HOST_IP}:5432/kagent"
           fi
-          make helm-install
-          make push-test-agent push-test-skill
+          make helm-install-provider
+
+          # Apply test agent manifests and wait for readiness
+          make apply-test-agents
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
@@ -219,7 +321,7 @@ jobs:
           - ui
           - app
           - cli
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.image == 'app' && 'ubuntu-latest-4-cores' || 'ubuntu-latest' }}
     services:
       registry:
         image: registry:2
@@ -285,6 +387,9 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/uv.lock"
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -309,6 +414,9 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/uv.lock"
 
       - name: Install python
         run: uv python install 3.10

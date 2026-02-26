@@ -436,6 +436,22 @@ kind-debug:
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
+##@ CI Helpers
+
+.PHONY: build-app-no-deps
+build-app-no-deps: buildx-create ## Build app image without rebuilding kagent-adk (for CI pre-build)
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+
+.PHONY: build-test-agents
+build-test-agents: buildx-create ## Build test agent images without rebuilding kagent-adk (for CI)
+	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+
+.PHONY: apply-test-agents
+apply-test-agents: ## Apply test agent manifests to the cluster
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
+
 .PHONY: audit
 audit:
 	echo "Running CVE audit GO"
