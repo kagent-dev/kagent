@@ -5,29 +5,18 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 )
 
 const (
-	// Version is the current version of the kagent CLI
 	DefaultModelProvider   = v1alpha2.ModelProviderOpenAI
 	DefaultHelmOciRegistry = "oci://ghcr.io/kagent-dev/kagent/helm/"
-
-	// Provider specific env variables
-	OPENAI_API_KEY      = "OPENAI_API_KEY"
-	ANTHROPIC_API_KEY   = "ANTHROPIC_API_KEY"
-	AZUREOPENAI_API_KEY = "AZUREOPENAI_API_KEY"
-
-	// kagent env variables
-	KAGENT_DEFAULT_MODEL_PROVIDER = "KAGENT_DEFAULT_MODEL_PROVIDER"
-	KAGENT_HELM_REPO              = "KAGENT_HELM_REPO"
-	KAGENT_HELM_VERSION           = "KAGENT_HELM_VERSION"
-	KAGENT_HELM_EXTRA_ARGS        = "KAGENT_HELM_EXTRA_ARGS"
 )
 
 // GetModelProvider returns the model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable
 func GetModelProvider() v1alpha2.ModelProvider {
-	modelProvider := os.Getenv(KAGENT_DEFAULT_MODEL_PROVIDER)
-	if modelProvider == "" {
+	modelProvider := env.KagentDefaultModelProvider.Get()
+	if modelProvider == "" || modelProvider == env.KagentDefaultModelProvider.DefaultValue() {
 		return DefaultModelProvider
 	}
 	switch modelProvider {
@@ -57,11 +46,11 @@ func GetModelProviderHelmValuesKey(provider v1alpha2.ModelProvider) string {
 func GetProviderAPIKey(provider v1alpha2.ModelProvider) string {
 	switch provider {
 	case v1alpha2.ModelProviderOpenAI:
-		return OPENAI_API_KEY
+		return env.OpenAIAPIKey.Name()
 	case v1alpha2.ModelProviderAnthropic:
-		return ANTHROPIC_API_KEY
+		return env.AnthropicAPIKey.Name()
 	case v1alpha2.ModelProviderAzureOpenAI:
-		return AZUREOPENAI_API_KEY
+		return env.AzureOpenAIAPIKey.Name()
 	default:
 		return ""
 	}

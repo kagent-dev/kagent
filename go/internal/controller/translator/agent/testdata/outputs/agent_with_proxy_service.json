@@ -197,7 +197,7 @@
                 ],
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/health",
+                    "path": "/.well-known/agent-card.json",
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,

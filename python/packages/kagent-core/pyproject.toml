@@ -10,14 +10,14 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "a2a-sdk[http-server]>=0.3.23",
-  "opentelemetry-api>=1.36.0",
-  "opentelemetry-sdk>=1.36.0",
-  "opentelemetry-exporter-otlp-proto-grpc>=1.36.0",
-  "opentelemetry-instrumentation-openai>= 0.44.3",
-  "opentelemetry-instrumentation-anthropic>=0.44.0",
+  "opentelemetry-api>=1.38.0,<1.39.0",
+  "opentelemetry-sdk>=1.38.0,<1.39.0",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.38.0,<1.39.0",
+  "opentelemetry-instrumentation-openai>=0.52.5",
+  "opentelemetry-instrumentation-anthropic>=0.52.5",
   "opentelemetry-instrumentation-httpx >= 0.52.0",
   "opentelemetry-instrumentation-fastapi>=0.52.0",
-  "opentelemetry-instrumentation-google-generativeai>=0.47.3",
+  "opentelemetry-instrumentation-google-generativeai>=0.52.5",
   "typing-extensions>=4.0.0",
 ]
 

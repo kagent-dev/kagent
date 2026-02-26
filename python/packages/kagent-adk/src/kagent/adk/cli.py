@@ -15,7 +15,6 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
-from .skill_fetcher import fetch_skill
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -87,6 +86,7 @@ def static(
         app_cfg.app_name,
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
+        agent_config=agent_config,
     )
 
     server = kagent_app.build()
@@ -100,20 +100,6 @@ def static(
         reload=reload,
         log_level=uvicorn_log_level,
     )
-
-
-@app.command()
-def pull_skills(
-    skills: Annotated[list[str], typer.Argument()],
-    insecure: Annotated[
-        bool,
-        typer.Option("--insecure", help="Allow insecure connections to registries"),
-    ] = False,
-):
-    skill_dir = os.environ.get("KAGENT_SKILLS_FOLDER", ".")
-    logger.info("Pulling skills")
-    for skill in skills:
-        fetch_skill(skill, skill_dir, insecure)
 
 
 def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
@@ -198,6 +184,7 @@ def run(
         lifespan=lifespan,
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
+        agent_config=agent_config,
     )
 
     if local:
@@ -229,7 +216,9 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         maybe_add_skills(root_agent)
         return root_agent
 
-    app = KAgentApp(root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins)
+    app = KAgentApp(
+        root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
+    )
     await app.test(task)
 
 

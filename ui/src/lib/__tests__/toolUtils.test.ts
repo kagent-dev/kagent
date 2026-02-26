@@ -699,9 +699,9 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should parse groupKind with only kind', () => {
+    it('should parse groupKind with only kind (core resource, empty apiGroup)', () => {
       expect(parseGroupKind('MCPServer')).toEqual({
-        apiGroup: 'kagent.dev',
+        apiGroup: '',
         kind: 'MCPServer'
       });
     });
@@ -713,9 +713,9 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should handle Service without apiGroup', () => {
+    it('should handle Service without apiGroup (core K8s resource)', () => {
       expect(parseGroupKind('Service')).toEqual({
-        apiGroup: 'kagent.dev',
+        apiGroup: '',
         kind: 'Service'
       });
     });
@@ -761,7 +761,7 @@ describe('Tool Utility Functions', () => {
       });
     });
 
-    it('should handle special case for kagent-querydoc with empty apiGroup and extract namespace', () => {
+    it('should handle Service groupKind with empty apiGroup and extract namespace', () => {
       const tool: ToolsResponse = {
         id: "query_documentation",
         server_name: "kagent/kagent-querydoc",
@@ -829,7 +829,7 @@ describe('Tool Utility Functions', () => {
         mcpServer: {
           name: "some-server",
           namespace: "default",
-          apiGroup: "kagent.dev",
+          apiGroup: "",
           kind: "MCPServer",
           toolNames: ["some_tool"]
         }
@@ -854,7 +854,7 @@ describe('Tool Utility Functions', () => {
         mcpServer: {
           name: "some-server",
           namespace: undefined,
-          apiGroup: "kagent.dev",
+          apiGroup: "",
           kind: "MCPServer",
           toolNames: ["some_tool"]
         }

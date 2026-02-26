@@ -26,6 +26,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
   try {
     const response = await fetch(urlWithUser, {
       ...options,
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
