@@ -61,10 +61,6 @@ objects:
             summarizer:
               modelConfig: summarizer-model
               promptTemplate: "Summarize the following conversation events concisely."
-          cache:
-            cacheIntervals: 15
-            ttlSeconds: 3600
-            minTokens: 100
         deployment:
           resources:
             requests:

@@ -4,16 +4,14 @@ from typing import Any, Callable, Literal, Optional, Union
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
-from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
-from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from google.adk.tools.mcp_tool.mcp_toolset import ReadonlyContext
 from pydantic import BaseModel, Field
 
 from kagent.adk._mcp_toolset import KAgentMcpToolset
@@ -231,19 +229,10 @@ class ContextCompressionSettings(BaseModel):
     event_retention_size: int | None = None
 
 
-class ContextCacheSettings(BaseModel):
-    """Settings for prefix context caching."""
-
-    cache_intervals: int | None = None
-    ttl_seconds: int | None = None
-    min_tokens: int | None = None
-
-
 class ContextConfig(BaseModel):
-    """Context management configuration containing compaction and cache settings."""
+    """Context management configuration containing compaction settings."""
 
     compaction: ContextCompressionSettings | None = None
-    cache: ContextCacheSettings | None = None
 
 
 class EmbeddingConfig(BaseModel):
@@ -518,15 +507,11 @@ def build_adk_context_configs(
     """Build ADK-native context configuration objects from kagent ContextConfig.
 
     Returns:
-        Tuple of (EventsCompactionConfig | None, AdkContextCacheConfig | None).
+        Tuple of (EventsCompactionConfig | None, None).
     """
-    from google.adk.agents.context_cache_config import (
-        ContextCacheConfig as AdkContextCacheConfig,
-    )
     from google.adk.apps.app import EventsCompactionConfig
 
     events_compaction_config = None
-    context_cache_config = None
 
     if context_config.compaction is not None:
         comp = context_config.compaction
@@ -550,13 +535,4 @@ def build_adk_context_configs(
         if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
             events_compaction_config.event_retention_size = comp.event_retention_size
 
-    if context_config.cache is not None:
-        context_cache_config = AdkContextCacheConfig(
-            cache_intervals=(
-                context_config.cache.cache_intervals if context_config.cache.cache_intervals is not None else 10
-            ),
-            ttl_seconds=(context_config.cache.ttl_seconds if context_config.cache.ttl_seconds is not None else 1800),
-            min_tokens=(context_config.cache.min_tokens if context_config.cache.min_tokens is not None else 0),
-        )
-
-    return events_compaction_config, context_cache_config
+    return events_compaction_config, None

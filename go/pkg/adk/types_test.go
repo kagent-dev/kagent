@@ -444,11 +444,6 @@ func TestAgentConfig_UnmarshalJSON_WithContextConfig(t *testing.T) {
 				"prompt_template": "Summarize this",
 				"token_threshold": 50000,
 				"event_retention_size": 10
-			},
-			"cache": {
-				"cache_intervals": 15,
-				"ttl_seconds": 3600,
-				"min_tokens": 100
 			}
 		}
 	}`)
@@ -463,7 +458,6 @@ func TestAgentConfig_UnmarshalJSON_WithContextConfig(t *testing.T) {
 		t.Fatal("ContextConfig should not be nil")
 	}
 
-	// Compaction
 	comp := cfg.ContextConfig.Compaction
 	if comp == nil {
 		t.Fatal("Compaction should not be nil")
@@ -488,21 +482,6 @@ func TestAgentConfig_UnmarshalJSON_WithContextConfig(t *testing.T) {
 	}
 	if *comp.EventRetentionSize != 10 {
 		t.Errorf("EventRetentionSize = %d, want 10", *comp.EventRetentionSize)
-	}
-
-	// Cache
-	cache := cfg.ContextConfig.Cache
-	if cache == nil {
-		t.Fatal("Cache should not be nil")
-	}
-	if *cache.CacheIntervals != 15 {
-		t.Errorf("CacheIntervals = %d, want 15", *cache.CacheIntervals)
-	}
-	if *cache.TTLSeconds != 3600 {
-		t.Errorf("TTLSeconds = %d, want 3600", *cache.TTLSeconds)
-	}
-	if *cache.MinTokens != 100 {
-		t.Errorf("MinTokens = %d, want 100", *cache.MinTokens)
 	}
 }
 
@@ -541,46 +520,6 @@ func TestAgentConfig_UnmarshalJSON_ContextConfig_CompactionOnly(t *testing.T) {
 	if cfg.ContextConfig.Compaction.TokenThreshold != nil {
 		t.Error("TokenThreshold should be nil when not provided")
 	}
-	if cfg.ContextConfig.Cache != nil {
-		t.Error("Cache should be nil when not provided")
-	}
-}
-
-func TestAgentConfig_UnmarshalJSON_ContextConfig_CacheOnly(t *testing.T) {
-	data := []byte(`{
-		"model": {"type":"openai","model":"gpt-4o"},
-		"description": "d",
-		"instruction": "i",
-		"stream": false,
-		"context_config": {
-			"cache": {
-				"cache_intervals": 20,
-				"ttl_seconds": 1800
-			}
-		}
-	}`)
-	var cfg AgentConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("UnmarshalJSON() error = %v", err)
-	}
-	if cfg.ContextConfig == nil {
-		t.Fatal("ContextConfig should not be nil")
-	}
-	if cfg.ContextConfig.Compaction != nil {
-		t.Error("Compaction should be nil when not provided")
-	}
-	if cfg.ContextConfig.Cache == nil {
-		t.Fatal("Cache should not be nil")
-	}
-	if *cfg.ContextConfig.Cache.CacheIntervals != 20 {
-		t.Errorf("CacheIntervals = %d, want 20", *cfg.ContextConfig.Cache.CacheIntervals)
-	}
-	if *cfg.ContextConfig.Cache.TTLSeconds != 1800 {
-		t.Errorf("TTLSeconds = %d, want 1800", *cfg.ContextConfig.Cache.TTLSeconds)
-	}
-	if cfg.ContextConfig.Cache.MinTokens != nil {
-		t.Error("MinTokens should be nil when not provided")
-	}
 }
 
 func TestAgentConfig_Roundtrip(t *testing.T) {
@@ -611,11 +550,6 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 				PromptTemplate:     "Summarize",
 				TokenThreshold:     intPtr(50000),
 				EventRetentionSize: intPtr(10),
-			},
-			Cache: &AgentCacheConfig{
-				CacheIntervals: intPtr(15),
-				TTLSeconds:     intPtr(3600),
-				MinTokens:      intPtr(100),
 			},
 		},
 	}
@@ -698,18 +632,6 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 	}
 	if *parsed.ContextConfig.Compaction.EventRetentionSize != 10 {
 		t.Errorf("EventRetentionSize = %d, want 10", *parsed.ContextConfig.Compaction.EventRetentionSize)
-	}
-	if parsed.ContextConfig.Cache == nil {
-		t.Fatal("Cache should not be nil")
-	}
-	if *parsed.ContextConfig.Cache.CacheIntervals != 15 {
-		t.Errorf("CacheIntervals = %d, want 15", *parsed.ContextConfig.Cache.CacheIntervals)
-	}
-	if *parsed.ContextConfig.Cache.TTLSeconds != 3600 {
-		t.Errorf("TTLSeconds = %d, want 3600", *parsed.ContextConfig.Cache.TTLSeconds)
-	}
-	if *parsed.ContextConfig.Cache.MinTokens != 100 {
-		t.Errorf("MinTokens = %d, want 100", *parsed.ContextConfig.Cache.MinTokens)
 	}
 
 	// Re-marshal and compare JSON

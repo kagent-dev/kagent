@@ -15,243 +15,132 @@ export function ContextSection({
   isSubmitting,
 }: ContextSectionProps) {
   const compactionEnabled = !!context?.compaction;
-  const cacheEnabled = !!context?.cache;
 
   const toggleCompaction = (enabled: boolean) => {
     if (enabled) {
       onChange({
-        ...context,
         compaction: {
           compactionInterval: 5,
           overlapSize: 2,
         },
       });
     } else {
-      const updated = { ...context };
-      delete updated.compaction;
-      onChange(updated.cache ? updated : undefined);
-    }
-  };
-
-  const toggleCache = (enabled: boolean) => {
-    if (enabled) {
-      onChange({
-        ...context,
-        cache: {
-          cacheIntervals: 10,
-          ttlSeconds: 1800,
-          minTokens: 0,
-        },
-      });
-    } else {
-      const updated = { ...context };
-      delete updated.cache;
-      onChange(updated.compaction ? updated : undefined);
+      onChange(undefined);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Compaction Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm">Event Compaction</Label>
-            <p className="text-xs text-muted-foreground mt-1">
-              Compress older conversation events to reduce context size while preserving key information.
-            </p>
-          </div>
-          <Switch
-            checked={compactionEnabled}
-            onCheckedChange={toggleCompaction}
-            disabled={isSubmitting}
-          />
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <Label className="text-sm">Event Compaction</Label>
+          <p className="text-xs text-muted-foreground mt-1">
+            Compress older conversation events to reduce context size while preserving key information.
+          </p>
         </div>
-
-        {compactionEnabled && context?.compaction && (
-          <div className="space-y-3 pl-4 border-l-2 border-muted">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs mb-1 block">Compaction Interval</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={context.compaction.compactionInterval ?? 5}
-                  onChange={(e) =>
-                    onChange({
-                      ...context,
-                      compaction: {
-                        ...context.compaction!,
-                        compactionInterval: parseInt(e.target.value) || 1,
-                      },
-                    })
-                  }
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Number of invocations before triggering compaction.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">Overlap Size</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={context.compaction.overlapSize ?? 2}
-                  onChange={(e) =>
-                    onChange({
-                      ...context,
-                      compaction: {
-                        ...context.compaction!,
-                        overlapSize: parseInt(e.target.value) || 0,
-                      },
-                    })
-                  }
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Number of preceding invocations to overlap for context.
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs mb-1 block">Token Threshold</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={context.compaction.tokenThreshold ?? ""}
-                  onChange={(e) => {
-                    const val = e.target.value ? parseInt(e.target.value) : undefined;
-                    onChange({
-                      ...context,
-                      compaction: {
-                        ...context.compaction!,
-                        tokenThreshold: val,
-                      },
-                    });
-                  }}
-                  placeholder="Optional"
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Trigger compaction when prompt tokens exceed this threshold.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">Event Retention Size</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={context.compaction.eventRetentionSize ?? ""}
-                  onChange={(e) => {
-                    const val = e.target.value ? parseInt(e.target.value) : undefined;
-                    onChange({
-                      ...context,
-                      compaction: {
-                        ...context.compaction!,
-                        eventRetentionSize: val,
-                      },
-                    });
-                  }}
-                  placeholder="Optional"
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Number of most recent events to always retain.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        <Switch
+          checked={compactionEnabled}
+          onCheckedChange={toggleCompaction}
+          disabled={isSubmitting}
+        />
       </div>
 
-      {/* Cache Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm">Context Caching</Label>
-            <p className="text-xs text-muted-foreground mt-1">
-              Cache prefix context at the provider level to reduce redundant processing.
-            </p>
-          </div>
-          <Switch
-            checked={cacheEnabled}
-            onCheckedChange={toggleCache}
-            disabled={isSubmitting}
-          />
-        </div>
-
-        {cacheEnabled && context?.cache && (
-          <div className="space-y-3 pl-4 border-l-2 border-muted">
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label className="text-xs mb-1 block">Cache Intervals</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={context.cache.cacheIntervals ?? 10}
-                  onChange={(e) =>
-                    onChange({
-                      ...context,
-                      cache: {
-                        ...context.cache!,
-                        cacheIntervals: parseInt(e.target.value) || 1,
-                      },
-                    })
-                  }
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Update frequency in events.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">TTL (seconds)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={context.cache.ttlSeconds ?? 1800}
-                  onChange={(e) =>
-                    onChange({
-                      ...context,
-                      cache: {
-                        ...context.cache!,
-                        ttlSeconds: parseInt(e.target.value) || 0,
-                      },
-                    })
-                  }
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Cache time-to-live.
-                </p>
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">Min Tokens</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={context.cache.minTokens ?? 0}
-                  onChange={(e) =>
-                    onChange({
-                      ...context,
-                      cache: {
-                        ...context.cache!,
-                        minTokens: parseInt(e.target.value) || 0,
-                      },
-                    })
-                  }
-                  disabled={isSubmitting}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Minimum tokens before caching activates.
-                </p>
-              </div>
+      {compactionEnabled && context?.compaction && (
+        <div className="space-y-3 pl-4 border-l-2 border-muted">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs mb-1 block">Compaction Interval</Label>
+              <Input
+                type="number"
+                min={1}
+                value={context.compaction.compactionInterval ?? 5}
+                onChange={(e) =>
+                  onChange({
+                    ...context,
+                    compaction: {
+                      ...context.compaction!,
+                      compactionInterval: parseInt(e.target.value) || 1,
+                    },
+                  })
+                }
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Number of invocations before triggering compaction.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Overlap Size</Label>
+              <Input
+                type="number"
+                min={0}
+                value={context.compaction.overlapSize ?? 2}
+                onChange={(e) =>
+                  onChange({
+                    ...context,
+                    compaction: {
+                      ...context.compaction!,
+                      overlapSize: parseInt(e.target.value) || 0,
+                    },
+                  })
+                }
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Number of preceding invocations to overlap for context.
+              </p>
             </div>
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs mb-1 block">Token Threshold</Label>
+              <Input
+                type="number"
+                min={0}
+                value={context.compaction.tokenThreshold ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? parseInt(e.target.value) : undefined;
+                  onChange({
+                    ...context,
+                    compaction: {
+                      ...context.compaction!,
+                      tokenThreshold: val,
+                    },
+                  });
+                }}
+                placeholder="Optional"
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Trigger compaction when prompt tokens exceed this threshold.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Event Retention Size</Label>
+              <Input
+                type="number"
+                min={0}
+                value={context.compaction.eventRetentionSize ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? parseInt(e.target.value) : undefined;
+                  onChange({
+                    ...context,
+                    compaction: {
+                      ...context.compaction!,
+                      eventRetentionSize: val,
+                    },
+                  });
+                }}
+                placeholder="Optional"
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Number of most recent events to always retain.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

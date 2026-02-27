@@ -365,7 +365,6 @@ type MemoryConfig struct {
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
-	Cache      *AgentCacheConfig       `json:"cache,omitempty"`
 }
 
 // AgentCompressionConfig maps to Python's ContextCompressionSettings.
@@ -403,13 +402,6 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 		c.SummarizerModel = model
 	}
 	return nil
-}
-
-// AgentCacheConfig maps to Python's ContextCacheSettings.
-type AgentCacheConfig struct {
-	CacheIntervals *int `json:"cache_intervals,omitempty"`
-	TTLSeconds     *int `json:"ttl_seconds,omitempty"`
-	MinTokens      *int `json:"min_tokens,omitempty"`
 }
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this

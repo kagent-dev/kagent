@@ -114,20 +114,16 @@ class KAgentApp:
 
             # Build ADK context config objects from agent config
             events_compaction_config: EventsCompactionConfig | None = None
-            context_cache_config = None
             if self.agent_config and self.agent_config.context_config is not None:
                 from .types import build_adk_context_configs
 
-                events_compaction_config, context_cache_config = build_adk_context_configs(
-                    self.agent_config.context_config
-                )
+                events_compaction_config, _ = build_adk_context_configs(self.agent_config.context_config)
 
             adk_app = App(
                 name=self.app_name,
                 root_agent=root_agent,
                 plugins=self.plugins,
                 events_compaction_config=events_compaction_config,
-                context_cache_config=context_cache_config,
             )
 
             return Runner(

@@ -628,14 +628,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			contextCfg.Compaction = compCfg
 		}
 
-		if agent.Spec.Declarative.Context.Cache != nil {
-			contextCfg.Cache = &adk.AgentCacheConfig{
-				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
-				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
-				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
-			}
-		}
-
 		cfg.ContextConfig = contextCfg
 	}
 

@@ -257,7 +257,6 @@ export interface DeclarativeAgentSpec {
 
 export interface ContextConfig {
   compaction?: ContextCompressionConfig;
-  cache?: ContextCacheConfig;
 }
 
 export interface ContextCompressionConfig {
@@ -271,12 +270,6 @@ export interface ContextCompressionConfig {
 export interface ContextSummarizerConfig {
   modelConfig?: string;
   promptTemplate?: string;
-}
-
-export interface ContextCacheConfig {
-  cacheIntervals?: number;
-  ttlSeconds?: number;
-  minTokens?: number;
 }
 
 export interface MemorySpec {

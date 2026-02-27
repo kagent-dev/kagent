@@ -165,18 +165,12 @@ type DeclarativeAgentSpec struct {
 }
 
 // ContextConfig configures context management for an agent.
-// Context management includes event compaction (compression/summarization) and context caching.
 type ContextConfig struct {
 	// Compaction configures event history compaction.
 	// When enabled, older events in the conversation are compacted (compressed/summarized)
 	// to reduce context size while preserving key information.
 	// +optional
 	Compaction *ContextCompressionConfig `json:"compaction,omitempty"`
-	// Cache configures context caching.
-	// When enabled, prefix context is cached at the provider level to reduce
-	// redundant processing of repeated context.
-	// +optional
-	Cache *ContextCacheConfig `json:"cache,omitempty"`
 }
 
 // ContextCompressionConfig configures event history compaction/compression.
@@ -216,28 +210,6 @@ type ContextSummarizerConfig struct {
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
 	PromptTemplate *string `json:"promptTemplate,omitempty"`
-}
-
-// ContextCacheConfig configures prefix context caching at the LLM provider level.
-type ContextCacheConfig struct {
-	// CacheIntervals specifies how often (in number of events) to update the cache.
-	// Default: 10
-	// +optional
-	// +kubebuilder:default=10
-	// +kubebuilder:validation:Minimum=1
-	CacheIntervals *int `json:"cacheIntervals,omitempty"`
-	// TTLSeconds specifies the time-to-live for cached context in seconds.
-	// Default: 1800 (30 minutes)
-	// +optional
-	// +kubebuilder:default=1800
-	// +kubebuilder:validation:Minimum=0
-	TTLSeconds *int `json:"ttlSeconds,omitempty"`
-	// MinTokens is the minimum number of tokens before caching is activated.
-	// Default: 0
-	// +optional
-	// +kubebuilder:default=0
-	// +kubebuilder:validation:Minimum=0
-	MinTokens *int `json:"minTokens,omitempty"`
 }
 
 // MemorySpec enables long-term memory for an agent.

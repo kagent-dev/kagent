@@ -1196,38 +1196,16 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.CompactionInterval)
 				assert.Equal(t, ptr.To(2), cfg.ContextConfig.Compaction.OverlapSize)
 				assert.Nil(t, cfg.ContextConfig.Compaction.SummarizerModel)
-				assert.Nil(t, cfg.ContextConfig.Cache)
 			},
 		},
 		{
-			name: "cache only",
-			agent: makeAgent(&v1alpha2.ContextConfig{
-				Cache: &v1alpha2.ContextCacheConfig{
-					CacheIntervals: ptr.To(20),
-					TTLSeconds:     ptr.To(3600),
-					MinTokens:      ptr.To(100),
-				},
-			}),
-			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
-				require.NotNil(t, cfg.ContextConfig)
-				assert.Nil(t, cfg.ContextConfig.Compaction)
-				require.NotNil(t, cfg.ContextConfig.Cache)
-				assert.Equal(t, ptr.To(20), cfg.ContextConfig.Cache.CacheIntervals)
-				assert.Equal(t, ptr.To(3600), cfg.ContextConfig.Cache.TTLSeconds)
-				assert.Equal(t, ptr.To(100), cfg.ContextConfig.Cache.MinTokens)
-			},
-		},
-		{
-			name: "both compaction and cache",
+			name: "compaction with all optional fields",
 			agent: makeAgent(&v1alpha2.ContextConfig{
 				Compaction: &v1alpha2.ContextCompressionConfig{
 					CompactionInterval: ptr.To(10),
 					OverlapSize:        ptr.To(3),
 					TokenThreshold:     ptr.To(1000),
 					EventRetentionSize: ptr.To(5),
-				},
-				Cache: &v1alpha2.ContextCacheConfig{
-					CacheIntervals: ptr.To(15),
 				},
 			}),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
@@ -1237,8 +1215,6 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 				assert.Equal(t, ptr.To(3), cfg.ContextConfig.Compaction.OverlapSize)
 				assert.Equal(t, ptr.To(1000), cfg.ContextConfig.Compaction.TokenThreshold)
 				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.EventRetentionSize)
-				require.NotNil(t, cfg.ContextConfig.Cache)
-				assert.Equal(t, ptr.To(15), cfg.ContextConfig.Cache.CacheIntervals)
 			},
 		},
 		{
