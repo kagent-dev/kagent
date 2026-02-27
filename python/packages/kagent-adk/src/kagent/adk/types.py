@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
@@ -24,6 +25,11 @@ from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
+
+# Suppress repeated experimental mode warnings from google-adk's RemoteA2aAgent.
+# The warning is useful on first occurrence but floods logs when creating
+# multiple remote agent instances.  See: https://github.com/kagent-dev/kagent/issues/1379
+warnings.filterwarnings("once", message=r"\[EXPERIMENTAL\].*A2A support", category=UserWarning)
 
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
