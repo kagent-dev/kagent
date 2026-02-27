@@ -1,8 +1,8 @@
-# Uses Node.js + npm instead of Bun because:
-# - Bun crashes with SIGILL on certain Docker build platforms (see #1331)
-# - Upgrading Bun versions (#1330) did not resolve the SIGILL issue
-# - The CI ui-tests job already uses npm, so this aligns Docker with CI
-# - Node.js standalone output (next build) works identically with node runtime
+# Using npm instead of bun due to SIGILL crashes when building under Docker
+# with qemu cross-compilation (known bun issue: https://github.com/oven-sh/bun/issues/4890).
+# This was the root cause of kagent-dev/kagent#1331.
+# Upgrading bun (#1330) did not resolve the crash — it affects all bun versions on qemu.
+# npm aligns the Docker build with CI (ui-tests already uses npm).
 
 ### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
