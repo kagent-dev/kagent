@@ -587,9 +587,61 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Stream:      agent.Spec.Declarative.Stream,
 	}
 
+	// Translate context management configuration
+	if agent.Spec.Declarative.Context != nil {
+		contextCfg := &adk.AgentContextConfig{}
+
+		if agent.Spec.Declarative.Context.Compaction != nil {
+			comp := agent.Spec.Declarative.Context.Compaction
+			compCfg := &adk.AgentCompressionConfig{
+				CompactionInterval: comp.CompactionInterval,
+				OverlapSize:        comp.OverlapSize,
+				TokenThreshold:     comp.TokenThreshold,
+				EventRetentionSize: comp.EventRetentionSize,
+			}
+
+			if comp.Summarizer != nil {
+				if comp.Summarizer.PromptTemplate != nil {
+					compCfg.PromptTemplate = *comp.Summarizer.PromptTemplate
+				}
+
+				summarizerModelName := ""
+				if comp.Summarizer.ModelConfig != nil {
+					summarizerModelName = *comp.Summarizer.ModelConfig
+				}
+
+				if summarizerModelName == "" || summarizerModelName == agent.Spec.Declarative.ModelConfig {
+					compCfg.SummarizerModel = model
+				} else {
+					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, summarizerModelName)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
+					}
+					compCfg.SummarizerModel = summarizerModel
+					mergeDeploymentData(mdd, summarizerMdd)
+					if len(summarizerSecretHash) > 0 {
+						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
+					}
+				}
+			}
+
+			contextCfg.Compaction = compCfg
+		}
+
+		if agent.Spec.Declarative.Context.Cache != nil {
+			contextCfg.Cache = &adk.AgentCacheConfig{
+				CacheIntervals: agent.Spec.Declarative.Context.Cache.CacheIntervals,
+				TTLSeconds:     agent.Spec.Declarative.Context.Cache.TTLSeconds,
+				MinTokens:      agent.Spec.Declarative.Context.Cache.MinTokens,
+			}
+		}
+
+		cfg.ContextConfig = contextCfg
+	}
+
 	// Handle Memory Configuration: presence of Memory field enables it.
 	if agent.Spec.Declarative.Memory != nil {
-		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig, mdd)
+		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
@@ -599,10 +651,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			Embedding: embCfg,
 		}
 
-		// Merge embedding deployment data (env vars, volumes, mounts)
-		mdd.EnvVars = append(mdd.EnvVars, embMdd.EnvVars...)
-		mdd.Volumes = append(mdd.Volumes, embMdd.Volumes...)
-		mdd.VolumeMounts = append(mdd.VolumeMounts, embMdd.VolumeMounts...)
+		mergeDeploymentData(mdd, embMdd)
 		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
 			secretHashBytes = append(secretHashBytes, embHash...)
 		}
@@ -732,49 +781,17 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 }
 
 // translateEmbeddingConfig resolves the embedding ModelConfig and returns the
-// EmbeddingConfig for the Python config JSON, any deployment data (env vars,
-// volumes, volume mounts) not already present in existingMdd, and the raw
-// secret hash bytes (caller decides whether to include them).
-func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string, existingMdd *modelDeploymentData) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
+// EmbeddingConfig for the Python config JSON, the deployment data for the
+// embedding model, and the raw secret hash bytes (caller decides whether to
+// include them). The caller should use mergeDeploymentData to combine the
+// returned deployment data with the existing deployment data.
+func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
 	embModel, embMdd, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Build lookup sets of names already emitted by the LLM model config so we
-	// skip duplicates (e.g. OPENAI_API_KEY, google-creds volume when both the
-	// LLM and embedding use the same provider or the same credential secret).
-	existingEnv := make(map[string]struct{}, len(existingMdd.EnvVars))
-	for _, e := range existingMdd.EnvVars {
-		existingEnv[e.Name] = struct{}{}
-	}
-	existingVol := make(map[string]struct{}, len(existingMdd.Volumes))
-	for _, v := range existingMdd.Volumes {
-		existingVol[v.Name] = struct{}{}
-	}
-	existingMount := make(map[string]struct{}, len(existingMdd.VolumeMounts))
-	for _, vm := range existingMdd.VolumeMounts {
-		existingMount[vm.MountPath] = struct{}{}
-	}
-
-	newMdd := &modelDeploymentData{}
-	for _, e := range embMdd.EnvVars {
-		if _, dup := existingEnv[e.Name]; !dup {
-			newMdd.EnvVars = append(newMdd.EnvVars, e)
-		}
-	}
-	for _, v := range embMdd.Volumes {
-		if _, dup := existingVol[v.Name]; !dup {
-			newMdd.Volumes = append(newMdd.Volumes, v)
-		}
-	}
-	for _, vm := range embMdd.VolumeMounts {
-		if _, dup := existingMount[vm.MountPath]; !dup {
-			newMdd.VolumeMounts = append(newMdd.VolumeMounts, vm)
-		}
-	}
-
-	return adk.ModelToEmbeddingConfig(embModel), newMdd, embHash, nil
+	return adk.ModelToEmbeddingConfig(embModel), embMdd, embHash, nil
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
@@ -1398,6 +1415,47 @@ func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	hasher.Write(secretData)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
+}
+
+// mergeDeploymentData adds env vars, volumes, and volume mounts from src into dst,
+// skipping any that already exist in dst (by name for env/volumes, by mount path for mounts).
+func mergeDeploymentData(dst, src *modelDeploymentData) {
+	for _, se := range src.EnvVars {
+		found := false
+		for _, e := range dst.EnvVars {
+			if e.Name == se.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.EnvVars = append(dst.EnvVars, se)
+		}
+	}
+	for _, sv := range src.Volumes {
+		found := false
+		for _, v := range dst.Volumes {
+			if v.Name == sv.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.Volumes = append(dst.Volumes, sv)
+		}
+	}
+	for _, sm := range src.VolumeMounts {
+		found := false
+		for _, m := range dst.VolumeMounts {
+			if m.MountPath == sm.MountPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.VolumeMounts = append(dst.VolumeMounts, sm)
+		}
+	}
 }
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {

@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -912,4 +913,401 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		_, err := trans.TranslateAgent(context.Background(), agentA)
 		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
 	})
+}
+
+func Test_AdkApiTranslator_MergeDeploymentData(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	openAIModel := func(name, secretName string) *v1alpha2.ModelConfig {
+		return &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "gpt-4",
+				Provider:        v1alpha2.ModelProviderOpenAI,
+				APIKeySecret:    secretName,
+				APIKeySecretKey: "api-key",
+			},
+		}
+	}
+
+	anthropicModel := func(name, secretName string) *v1alpha2.ModelConfig {
+		return &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "claude-3",
+				Provider:        v1alpha2.ModelProviderAnthropic,
+				APIKeySecret:    secretName,
+				APIKeySecretKey: "api-key",
+			},
+		}
+	}
+
+	vertexAIModel := func(name, secretName string) *v1alpha2.ModelConfig {
+		return &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "gemini-1.5-pro",
+				Provider:        v1alpha2.ModelProviderGeminiVertexAI,
+				APIKeySecret:    secretName,
+				APIKeySecretKey: "service-account.json",
+				GeminiVertexAI: &v1alpha2.GeminiVertexAIConfig{
+					BaseVertexAIConfig: v1alpha2.BaseVertexAIConfig{
+						ProjectID: "my-project",
+						Location:  "us-central1",
+					},
+				},
+			},
+		}
+	}
+
+	anthropicVertexModel := func(name, secretName string) *v1alpha2.ModelConfig {
+		return &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "claude-3-sonnet",
+				Provider:        v1alpha2.ModelProviderAnthropicVertexAI,
+				APIKeySecret:    secretName,
+				APIKeySecretKey: "service-account.json",
+				AnthropicVertexAI: &v1alpha2.AnthropicVertexAIConfig{
+					BaseVertexAIConfig: v1alpha2.BaseVertexAIConfig{
+						ProjectID: "my-project",
+						Location:  "us-central1",
+					},
+				},
+			},
+		}
+	}
+
+	makeAgent := func(agentModel, summarizerModel string) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a test agent",
+					ModelConfig:   agentModel,
+					Context: &v1alpha2.ContextConfig{
+						Compaction: &v1alpha2.ContextCompressionConfig{
+							CompactionInterval: ptr.To(5),
+							OverlapSize:        ptr.To(2),
+							Summarizer: &v1alpha2.ContextSummarizerConfig{
+								ModelConfig: &summarizerModel,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	findDeployment := func(t *testing.T, outputs *translator.AgentOutputs) *appsv1.Deployment {
+		t.Helper()
+		for _, obj := range outputs.Manifest {
+			if d, ok := obj.(*appsv1.Deployment); ok {
+				return d
+			}
+		}
+		t.Fatal("Deployment not found in manifest")
+		return nil
+	}
+
+	envNames := func(envs []corev1.EnvVar) []string {
+		names := make([]string, len(envs))
+		for i, e := range envs {
+			names[i] = e.Name
+		}
+		return names
+	}
+
+	volumeNames := func(vols []corev1.Volume) []string {
+		names := make([]string, len(vols))
+		for i, v := range vols {
+			names[i] = v.Name
+		}
+		return names
+	}
+
+	mountPaths := func(mounts []corev1.VolumeMount) []string {
+		paths := make([]string, len(mounts))
+		for i, m := range mounts {
+			paths[i] = m.MountPath
+		}
+		return paths
+	}
+
+	countByName := func(envs []corev1.EnvVar, name string) int {
+		count := 0
+		for _, e := range envs {
+			if e.Name == name {
+				count++
+			}
+		}
+		return count
+	}
+
+	tests := []struct {
+		name         string
+		agentModel   *v1alpha2.ModelConfig
+		summModel    *v1alpha2.ModelConfig
+		assertDeploy func(t *testing.T, dep *appsv1.Deployment)
+	}{
+		{
+			name:       "different secrets add new env vars from summarizer",
+			agentModel: openAIModel("agent-model", "openai-secret"),
+			summModel:  anthropicModel("summarizer-model", "anthropic-secret"),
+			assertDeploy: func(t *testing.T, dep *appsv1.Deployment) {
+				env := dep.Spec.Template.Spec.Containers[0].Env
+				names := envNames(env)
+				assert.Contains(t, names, "OPENAI_API_KEY")
+				assert.Contains(t, names, "ANTHROPIC_API_KEY")
+			},
+		},
+		{
+			name:       "same env var name is not duplicated",
+			agentModel: openAIModel("agent-model", "shared-secret"),
+			summModel:  openAIModel("summarizer-model", "other-secret"),
+			assertDeploy: func(t *testing.T, dep *appsv1.Deployment) {
+				env := dep.Spec.Template.Spec.Containers[0].Env
+				assert.Equal(t, 1, countByName(env, "OPENAI_API_KEY"))
+			},
+		},
+		{
+			name:       "summarizer volumes and mounts are merged",
+			agentModel: openAIModel("agent-model", "openai-secret"),
+			summModel:  vertexAIModel("summarizer-model", "gcp-secret"),
+			assertDeploy: func(t *testing.T, dep *appsv1.Deployment) {
+				vols := volumeNames(dep.Spec.Template.Spec.Volumes)
+				assert.Contains(t, vols, "google-creds")
+				mounts := mountPaths(dep.Spec.Template.Spec.Containers[0].VolumeMounts)
+				assert.Contains(t, mounts, "/creds")
+			},
+		},
+		{
+			name:       "duplicate volumes and mounts are not added",
+			agentModel: vertexAIModel("agent-model", "gcp-secret-a"),
+			summModel:  anthropicVertexModel("summarizer-model", "gcp-secret-b"),
+			assertDeploy: func(t *testing.T, dep *appsv1.Deployment) {
+				volCount := 0
+				for _, v := range dep.Spec.Template.Spec.Volumes {
+					if v.Name == "google-creds" {
+						volCount++
+					}
+				}
+				assert.Equal(t, 1, volCount)
+				mountCount := 0
+				for _, m := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+					if m.MountPath == "/creds" {
+						mountCount++
+					}
+				}
+				assert.Equal(t, 1, mountCount)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(tt.agentModel, tt.summModel).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: tt.agentModel.Name}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), makeAgent(tt.agentModel.Name, tt.summModel.Name))
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			dep := findDeployment(t, outputs)
+			tt.assertDeploy(t, dep)
+		})
+	}
+}
+
+func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	summarizerModelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "summarizer-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4o-mini",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	makeAgent := func(contextCfg *v1alpha2.ContextConfig) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a test agent",
+					ModelConfig:   "test-model",
+					Context:       contextCfg,
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		agent        *v1alpha2.Agent
+		extraObjects []client.Object
+		wantErr      bool
+		errContains  string
+		assertConfig func(t *testing.T, cfg *adk.AgentConfig)
+	}{
+		{
+			name:  "no context config",
+			agent: makeAgent(nil),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				assert.Nil(t, cfg.ContextConfig)
+			},
+		},
+		{
+			name: "compaction only",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: ptr.To(5),
+					OverlapSize:        ptr.To(2),
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, ptr.To(2), cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Nil(t, cfg.ContextConfig.Compaction.SummarizerModel)
+				assert.Nil(t, cfg.ContextConfig.Cache)
+			},
+		},
+		{
+			name: "cache only",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Cache: &v1alpha2.ContextCacheConfig{
+					CacheIntervals: ptr.To(20),
+					TTLSeconds:     ptr.To(3600),
+					MinTokens:      ptr.To(100),
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				assert.Nil(t, cfg.ContextConfig.Compaction)
+				require.NotNil(t, cfg.ContextConfig.Cache)
+				assert.Equal(t, ptr.To(20), cfg.ContextConfig.Cache.CacheIntervals)
+				assert.Equal(t, ptr.To(3600), cfg.ContextConfig.Cache.TTLSeconds)
+				assert.Equal(t, ptr.To(100), cfg.ContextConfig.Cache.MinTokens)
+			},
+		},
+		{
+			name: "both compaction and cache",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: ptr.To(10),
+					OverlapSize:        ptr.To(3),
+					TokenThreshold:     ptr.To(1000),
+					EventRetentionSize: ptr.To(5),
+				},
+				Cache: &v1alpha2.ContextCacheConfig{
+					CacheIntervals: ptr.To(15),
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				assert.Equal(t, ptr.To(10), cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, ptr.To(3), cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Equal(t, ptr.To(1000), cfg.ContextConfig.Compaction.TokenThreshold)
+				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.EventRetentionSize)
+				require.NotNil(t, cfg.ContextConfig.Cache)
+				assert.Equal(t, ptr.To(15), cfg.ContextConfig.Cache.CacheIntervals)
+			},
+		},
+		{
+			name: "compaction with summarizer using agent model",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: ptr.To(5),
+					OverlapSize:        ptr.To(2),
+					Summarizer: &v1alpha2.ContextSummarizerConfig{
+						PromptTemplate: ptr.To("Summarize: {{events}}"),
+					},
+				},
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				require.NotNil(t, cfg.ContextConfig.Compaction.SummarizerModel)
+				assert.Equal(t, adk.ModelTypeOpenAI, cfg.ContextConfig.Compaction.SummarizerModel.GetType())
+				assert.Equal(t, "Summarize: {{events}}", cfg.ContextConfig.Compaction.PromptTemplate)
+			},
+		},
+		{
+			name: "compaction with summarizer using separate model",
+			agent: makeAgent(&v1alpha2.ContextConfig{
+				Compaction: &v1alpha2.ContextCompressionConfig{
+					CompactionInterval: ptr.To(5),
+					OverlapSize:        ptr.To(2),
+					Summarizer: &v1alpha2.ContextSummarizerConfig{
+						ModelConfig: ptr.To("summarizer-model"),
+					},
+				},
+			}),
+			extraObjects: []client.Object{summarizerModelConfig.DeepCopy()},
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.ContextConfig)
+				require.NotNil(t, cfg.ContextConfig.Compaction)
+				require.NotNil(t, cfg.ContextConfig.Compaction.SummarizerModel)
+				assert.Equal(t, adk.ModelTypeOpenAI, cfg.ContextConfig.Compaction.SummarizerModel.GetType())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := []client.Object{modelConfig.DeepCopy()}
+			objects = append(objects, tt.extraObjects...)
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objects...).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+			if tt.assertConfig != nil {
+				tt.assertConfig(t, outputs.Config)
+			}
+		})
+	}
 }

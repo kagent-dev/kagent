@@ -1,0 +1,76 @@
+operation: translateAgent
+targetObject: agent-with-context
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: anthropic-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: summarizer-model
+      namespace: test
+    spec:
+      provider: Anthropic
+      model: claude-3-haiku
+      apiKeySecret: anthropic-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-context
+      namespace: test
+    spec:
+      type: Declarative
+      description: Agent with context management
+      declarative:
+        systemMessage: You are a helpful assistant with context management enabled.
+        modelConfig: basic-model
+        context:
+          compaction:
+            compactionInterval: 5
+            overlapSize: 2
+            tokenThreshold: 50000
+            eventRetentionSize: 10
+            summarizer:
+              modelConfig: summarizer-model
+              promptTemplate: "Summarize the following conversation events concisely."
+          cache:
+            cacheIntervals: 15
+            ttlSeconds: 3600
+            minTokens: 100
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []
