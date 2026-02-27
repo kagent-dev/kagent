@@ -7,9 +7,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/config"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -74,6 +76,16 @@ func initStorage() (*storage.Manager, error) {
 	return mgr, nil
 }
 
+func initRepoManager() (*repo.Manager, error) {
+	dbMgr, err := initStorage()
+	if err != nil {
+		return nil, err
+	}
+	repoStore := storage.NewRepoStore(dbMgr.DB())
+	reposDir := filepath.Join(cfgDataDir, "repos")
+	return repo.NewManager(repoStore, reposDir), nil
+}
+
 func newServeCmd() *cobra.Command {
 	var addr, transport string
 
@@ -114,10 +126,20 @@ func newAddCmd() *cobra.Command {
 		Short: "Register and clone a git repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: implement in Step 2 (repo management)
+			mgr, err := initRepoManager()
+			if err != nil {
+				return fmt.Errorf("failed to initialize: %w", err)
+			}
+
 			name := args[0]
-			log.Printf("add: name=%s url=%s branch=%s (not yet implemented)", name, url, branch)
-			return nil
+			r, err := mgr.Add(name, url, branch)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(r)
 		},
 	}
 
@@ -133,13 +155,12 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List registered repositories",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr, err := initStorage()
+			mgr, err := initRepoManager()
 			if err != nil {
-				return fmt.Errorf("failed to initialize storage: %w", err)
+				return fmt.Errorf("failed to initialize: %w", err)
 			}
 
-			store := storage.NewRepoStore(mgr.DB())
-			repos, err := store.List()
+			repos, err := mgr.List()
 			if err != nil {
 				return fmt.Errorf("failed to list repos: %w", err)
 			}
@@ -157,9 +178,17 @@ func newRemoveCmd() *cobra.Command {
 		Short: "Remove a repository and its embeddings",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: implement in Step 2 (repo management)
+			mgr, err := initRepoManager()
+			if err != nil {
+				return fmt.Errorf("failed to initialize: %w", err)
+			}
+
 			name := args[0]
-			log.Printf("remove: name=%s (not yet implemented)", name)
+			if err := mgr.Remove(name); err != nil {
+				return err
+			}
+
+			log.Printf("removed repo %s", name)
 			return nil
 		},
 	}
@@ -171,10 +200,20 @@ func newSyncCmd() *cobra.Command {
 		Short: "Pull latest changes for a repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: implement in Step 13 (sync + re-index)
+			mgr, err := initRepoManager()
+			if err != nil {
+				return fmt.Errorf("failed to initialize: %w", err)
+			}
+
 			name := args[0]
-			log.Printf("sync: name=%s (not yet implemented)", name)
-			return nil
+			r, err := mgr.Sync(name)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(r)
 		},
 	}
 }
