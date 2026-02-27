@@ -3,7 +3,7 @@ name = "kagent-openai"
 version = "0.1.0"
 description = "OpenAI integration for KAgent with A2A server support"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
   "openai>=1.72.0",
   "openai-agents>=0.4.0",
@@ -14,7 +14,8 @@ dependencies = [
   "fastapi>=0.100.0",
   "uvicorn>=0.20.0",
   "pydantic>=2.0.0",
-  "opentelemetry-instrumentation-openai-agents>=0.48.0"
+  "typing-extensions>=4.0.0",
+  "opentelemetry-instrumentation-openai-agents>=0.50.0"
 ]
 
 [project.optional-dependencies]
@@ -30,18 +31,18 @@ kagent-core = {workspace = true}
 kagent-skills = {workspace = true}
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel>=0.46.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/traceloop"]
+packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120
-target-version = ['py313']
+target-version = ['py310']
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py310"
 lint.select = ["E", "F", "I", "N", "W", "UP"]
 lint.ignore = ["E501", "N803", "N806"]

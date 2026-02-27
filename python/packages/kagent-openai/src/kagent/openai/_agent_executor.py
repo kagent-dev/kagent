@@ -11,8 +11,19 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import override
+from datetime import datetime
+
+try:
+    from datetime import UTC  # Python 3.11+
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
+
+try:
+    from typing import override  # Python 3.12+
+except ImportError:
+    from typing_extensions import override
 
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext

@@ -10,7 +10,11 @@ dev = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["cryptography>=46.0.5"]
+constraint-dependencies = [
+    "cryptography>=46.0.5",
+    "jaraco-context>=6.1.0",
+    "wheel>=0.46.2",
+]
 
 [tool.uv.sources]
 kagent-adk = { workspace = true }
@@ -24,7 +28,7 @@ exclude = [
   "notebooks/",
 ]
 
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -5,6 +5,7 @@ import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.base_agent import BaseAgent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
@@ -218,6 +219,19 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
+class EmbeddingConfig(BaseModel):
+    model: str
+    provider: str
+    base_url: str | None = None
+
+
+class MemoryConfig(BaseModel):
+    """Memory configuration. Its presence signals that memory is enabled."""
+
+    ttl_days: int = 0  # TTL for memory entries in days. 0 means use the server default.
+    embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
+
+
 class AgentConfig(BaseModel):
     model: Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock] = Field(
         discriminator="type"
@@ -228,8 +242,8 @@ class AgentConfig(BaseModel):
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
     execute_code: bool | None = None
-    # This stream option refers to LLM response streaming, not A2A streaming
-    stream: bool | None = None
+    stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
+    memory: MemoryConfig | None = None  # Memory configuration
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -406,7 +420,8 @@ class AgentConfig(BaseModel):
             )
         else:
             raise ValueError(f"Invalid model type: {self.model.type}")
-        return Agent(
+
+        agent = Agent(
             name=name,
             model=model,
             description=self.description,
@@ -414,3 +429,61 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
         )
+
+        # Configure memory if enabled
+        if self.memory is not None:
+            self._configure_memory(agent)
+
+        return agent
+
+    def _configure_memory(self, agent: Agent) -> None:
+        """Configures the agent to properly use memory.
+
+        1. Adds memory tools to the agent
+        2. Adds a callback to auto-save the session to memory
+        3. Adds instructions to the agent to use memory
+        """
+        try:
+            from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
+            from kagent.adk.tools.prefetch_memory_tool import PrefetchMemoryTool
+
+            agent.tools.append(PrefetchMemoryTool())
+            agent.tools.append(LoadMemoryTool())
+            agent.tools.append(SaveMemoryTool())
+
+            agent.instruction = (
+                f"{agent.instruction}\n\n"
+                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+                "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
+            )
+
+            # Define auto-save callback
+            async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
+                try:
+                    session = callback_context._invocation_context.session
+                    # Count user messages from events list
+                    user_msg_count = sum(1 for e in session.events if e.author == "user")
+
+                    # Save every 5 turns (skip 0)
+                    if user_msg_count > 0 and user_msg_count % 5 == 0:
+                        logger.info("Auto-saving session %s to memory (turn %d)", session.id, user_msg_count)
+
+                        # Pass the agent's model directly for summarization
+                        await callback_context._invocation_context.memory_service.add_session_to_memory(
+                            session,
+                            model=agent.model,
+                        )
+                    else:
+                        logger.debug("Skipping auto-save for session %s (turn %d)", session.id, user_msg_count)
+                except Exception as e:
+                    logger.error("Failed to auto-save session to memory: %s", e)
+
+            # Append to after agent callback list
+            if not hasattr(agent, "after_agent_callback") or agent.after_agent_callback is None:
+                agent.after_agent_callback = []
+            agent.after_agent_callback.append(auto_save_session_to_memory_callback)
+
+        except ImportError as e:
+            logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
+        except Exception as e:
+            logger.error("Failed to inject memory configuration: %s", e)

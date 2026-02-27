@@ -11,6 +11,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
@@ -161,9 +162,9 @@ func setupHelmConfig(modelProvider v1alpha2.ModelProvider, apiKeyValue string) h
 	}
 
 	// allow user to set the helm registry and version
-	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
-	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, version.Version)
-	helmExtraArgs := GetEnvVarWithDefault(KAGENT_HELM_EXTRA_ARGS, "")
+	helmRegistry := GetEnvVarWithDefault(env.KagentHelmRepo.Name(), DefaultHelmOciRegistry)
+	helmVersion := GetEnvVarWithDefault(env.KagentHelmVersion.Name(), version.Version)
+	helmExtraArgs := GetEnvVarWithDefault(env.KagentHelmExtraArgs.Name(), "")
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")
