@@ -1,6 +1,8 @@
 import ChatInterface from "@/components/chat/ChatInterface";
 import { use } from 'react';
 
+export const dynamic = "force-dynamic";
+
 // This page component receives props (like params) from the Layout
 export default function ChatAgentPage({ params }: { params: Promise<{ name: string, namespace: string }> }) {
   const { name, namespace } = use(params);
