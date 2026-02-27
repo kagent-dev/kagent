@@ -553,20 +553,10 @@ def build_adk_context_configs(
     if context_config.cache is not None:
         context_cache_config = AdkContextCacheConfig(
             cache_intervals=(
-                context_config.cache.cache_intervals
-                if context_config.cache.cache_intervals is not None
-                else 10
+                context_config.cache.cache_intervals if context_config.cache.cache_intervals is not None else 10
             ),
-            ttl_seconds=(
-                context_config.cache.ttl_seconds
-                if context_config.cache.ttl_seconds is not None
-                else 1800
-            ),
-            min_tokens=(
-                context_config.cache.min_tokens
-                if context_config.cache.min_tokens is not None
-                else 0
-            ),
+            ttl_seconds=(context_config.cache.ttl_seconds if context_config.cache.ttl_seconds is not None else 1800),
+            min_tokens=(context_config.cache.min_tokens if context_config.cache.min_tokens is not None else 0),
         )
 
     return events_compaction_config, context_cache_config
