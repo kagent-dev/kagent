@@ -127,19 +127,18 @@ tests:
       ui:
         volumeMounts:
         - mountPath: /tmp
-          name: tmp
+          name: custom-volume
         volumes:
-        - name: tmp
+        - name: custom-volume
           emptyDir: {}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             mountPath: /tmp
-            name: tmp
+            name: custom-volume
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tmp
+            name: custom-volume
             emptyDir: {}
-           
