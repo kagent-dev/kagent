@@ -73,7 +73,7 @@ controller:
   a2aBaseUrl: ""
   agentImage:
     registry: ""
-    repository: kagent-dev/kagent/app
+    repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
