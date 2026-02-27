@@ -418,7 +418,7 @@ class AgentConfig(BaseModel):
             )
             if agent.static_instruction:
                 agent.static_instruction += memory_suffix
-            else if agent.instruction:
+            else:
                 agent.instruction += memory_suffix
 
             # Define auto-save callback
