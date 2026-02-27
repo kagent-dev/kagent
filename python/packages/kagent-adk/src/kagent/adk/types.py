@@ -369,11 +369,17 @@ class AgentConfig(BaseModel):
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
+        # Use static_instruction to bypass ADK's session state injection
+        # (inject_session_state). ADK treats curly braces like {repo} as
+        # context variable references and raises KeyError when they aren't
+        # found in session state. static_instruction is sent directly to
+        # the model without any placeholder processing.
+        # See: https://github.com/kagent-dev/kagent/issues/1382
         agent = Agent(
             name=name,
             model=model,
             description=self.description,
-            instruction=self.instruction,
+            static_instruction=self.instruction,
             tools=tools,
             code_executor=code_executor,
         )
@@ -399,11 +405,18 @@ class AgentConfig(BaseModel):
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
 
-            agent.instruction = (
-                f"{agent.instruction}\n\n"
-                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+            memory_suffix = (
+                "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
                 "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
             )
+            # Append memory instructions to static_instruction so they stay
+            # in the system prompt (same as the main instruction) instead of
+            # being injected as a separate user message, which would confuse
+            # the LLM conversation flow and break mock-based e2e tests.
+            if agent.static_instruction:
+                agent.static_instruction += memory_suffix
+            else:
+                agent.instruction += memory_suffix
 
             # Define auto-save callback
             async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
