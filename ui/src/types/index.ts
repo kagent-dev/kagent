@@ -440,3 +440,27 @@ export interface AgentCronJob {
   spec: AgentCronJobSpec;
   status?: AgentCronJobStatus;
 }
+
+// GitRepo types (gitrepo-mcp service, NOT a K8s CRD)
+export type GitRepoStatus = "cloning" | "cloned" | "indexing" | "indexed" | "error";
+
+export interface GitRepo {
+  name: string;
+  url: string;
+  branch: string;
+  status: GitRepoStatus;
+  localPath: string;
+  lastSynced?: string;
+  lastIndexed?: string;
+  fileCount: number;
+  chunkCount: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AddGitRepoRequest {
+  name: string;
+  url: string;
+  branch?: string;
+}

@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import FeedPage from "../feed/page";
 import WorkflowsPage from "../workflows/page";
 import CronJobsPage from "../cronjobs/page";
-import GitReposPage from "../git/page";
 import OrganizationPage from "../admin/org/page";
 import GatewaysPage from "../admin/gateways/page";
 
@@ -11,7 +10,6 @@ const STUB_PAGES = [
   { name: "FeedPage", Component: FeedPage, title: "Live Feed" },
   { name: "WorkflowsPage", Component: WorkflowsPage, title: "Workflows" },
   { name: "CronJobsPage", Component: CronJobsPage, title: "Cron Jobs" },
-  { name: "GitReposPage", Component: GitReposPage, title: "GIT Repos" },
   { name: "OrganizationPage", Component: OrganizationPage, title: "Organization" },
   { name: "GatewaysPage", Component: GatewaysPage, title: "Gateways" },
 ];
