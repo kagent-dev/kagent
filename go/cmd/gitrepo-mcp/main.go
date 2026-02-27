@@ -42,6 +42,7 @@ func main() {
 		newSyncCmd(),
 		newIndexCmd(),
 		newSearchCmd(),
+		newAstSearchCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -302,6 +303,42 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 10, "maximum number of results")
 	cmd.Flags().IntVar(&contextLines, "context", 0, "number of context lines before and after each result")
 	_ = cmd.MarkFlagRequired("query")
+
+	return cmd
+}
+
+func newAstSearchCmd() *cobra.Command {
+	var pattern, lang string
+
+	cmd := &cobra.Command{
+		Use:   "ast-search <name>",
+		Short: "Structural code search using ast-grep",
+		Long:  "Search for code patterns using ast-grep structural matching (e.g., 'func $NAME($$$) error').",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dbMgr, err := initStorage()
+			if err != nil {
+				return fmt.Errorf("failed to initialize storage: %w", err)
+			}
+
+			repoStore := storage.NewRepoStore(dbMgr.DB())
+			s := search.NewAstSearcher(repoStore)
+
+			name := args[0]
+			results, err := s.Search(pattern, name, lang)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(results)
+		},
+	}
+
+	cmd.Flags().StringVar(&pattern, "pattern", "", "ast-grep pattern (e.g., 'func $NAME($$$) error')")
+	cmd.Flags().StringVar(&lang, "lang", "", "language filter (e.g., go, python, javascript)")
+	_ = cmd.MarkFlagRequired("pattern")
 
 	return cmd
 }
