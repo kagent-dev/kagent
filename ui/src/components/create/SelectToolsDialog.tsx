@@ -409,7 +409,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                 >
                                   <div className="flex-1 overflow-hidden pr-2">
                                     <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
-                                    {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
+                                    {description && <p className="text-xs text-muted-foreground line-clamp-2">{highlightMatch(description, searchTerm)}</p>}
                                     {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
                                   </div>
                                   {!isSelected && !isDisabled && (
@@ -516,7 +516,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             <FunctionSquare className="h-4 w-4 flex-shrink-0 text-blue-400" />
                             <div className="flex-1 overflow-hidden">
                               <p className="text-sm font-medium truncate">{displayName}</p>
-                              <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
+                              <p className="text-xs text-muted-foreground line-clamp-2">{specificDescription}</p>
                             </div>
                           </div>
                           <Button
@@ -576,7 +576,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
                             <div className="flex-1 overflow-hidden">
                               <p className="text-sm font-medium truncate">{displayName}</p>
-                              {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
+                              {description && <p className="text-xs text-muted-foreground line-clamp-2">{description}</p>}
                             </div>
                           </div>
                           <Button
