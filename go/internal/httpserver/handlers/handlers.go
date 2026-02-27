@@ -27,6 +27,7 @@ type Handlers struct {
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
 	AgentCronJobs       *AgentCronJobsHandler
+	GitRepos            *GitReposHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -39,7 +40,7 @@ type Base struct {
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, gitRepoMCPURL string) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -65,5 +66,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),
 		AgentCronJobs:       NewAgentCronJobsHandler(base),
+		GitRepos:            NewGitReposHandler(base, gitRepoMCPURL),
 	}
 }

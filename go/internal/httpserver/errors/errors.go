@@ -89,3 +89,19 @@ func NewForbiddenError(message string, err error) *APIError {
 		Err:     err,
 	}
 }
+
+func NewBadGatewayError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusBadGateway,
+		Message: message,
+		Err:     err,
+	}
+}
+
+func NewServiceUnavailableError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusServiceUnavailable,
+		Message: message,
+		Err:     err,
+	}
+}
