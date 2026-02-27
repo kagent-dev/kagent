@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/server"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -102,16 +104,35 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("failed to initialize storage: %w", err)
 			}
 
+			repoStore := storage.NewRepoStore(mgr.DB())
+			embStore := storage.NewEmbeddingStore(mgr.DB())
+			emb := embedder.NewHashEmbedder(768)
+
+			reposDir := filepath.Join(cfgDataDir, "repos")
+			idx := indexer.NewIndexer(repoStore, embStore, emb)
+			s := search.NewSearcher(repoStore, embStore, emb)
+			astS := search.NewAstSearcher(repoStore)
+
+			srv := server.NewServer(repoStore, idx, s, astS, reposDir)
+
+			httpSrv := &http.Server{
+				Addr:    addr,
+				Handler: srv.Handler(),
+			}
+
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			log.Printf("gitrepo-mcp serve: addr=%s transport=%s data-dir=%s", addr, transport, cfgDataDir)
+			go func() {
+				<-ctx.Done()
+				log.Printf("shutting down server...")
+				_ = httpSrv.Close()
+			}()
 
-			_ = mgr
-			_ = ctx
-			// TODO: wire REST API + MCP server (Steps 7 & 8)
-			log.Printf("serve command not yet fully implemented")
-			<-ctx.Done()
+			log.Printf("gitrepo-mcp serve: addr=%s transport=%s data-dir=%s", addr, transport, cfgDataDir)
+			if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+				return fmt.Errorf("server error: %w", err)
+			}
 			return nil
 		},
 	}
