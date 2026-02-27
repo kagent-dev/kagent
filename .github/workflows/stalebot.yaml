@@ -3,7 +3,7 @@ name: Stalebot
 on:
   workflow_dispatch: {}
   schedule:
-    # Everyday 6am EST
+    # Everyday at 10:00 UTC (05:00 EST / 06:00 EDT)
     - cron: "0 10 * * *"
 
 env:
