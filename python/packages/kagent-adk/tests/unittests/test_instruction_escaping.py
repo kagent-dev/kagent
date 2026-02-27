@@ -51,9 +51,7 @@ class TestInstructionEscaping:
 
     def test_instruction_with_curly_braces_creates_agent(self):
         """Agent with {repo} in instruction should not raise KeyError."""
-        config = _make_agent_config(
-            "Clone the repo {repo} and run tests on branch {branch}."
-        )
+        config = _make_agent_config("Clone the repo {repo} and run tests on branch {branch}.")
         agent = config.to_agent("test_agent")
         assert agent is not None
         assert agent.name == "test_agent"

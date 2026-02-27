@@ -418,8 +418,10 @@ class AgentConfig(BaseModel):
             # appended at call time without breaking the bypass.
             prev_instruction = agent.instruction
             if callable(prev_instruction):
+
                 def _with_memory(ctx: ReadonlyContext) -> str:
                     return prev_instruction(ctx) + memory_suffix
+
                 agent.instruction = _with_memory
             else:
                 agent.instruction = prev_instruction + memory_suffix
