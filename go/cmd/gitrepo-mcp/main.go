@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/config"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/embedder"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	"github.com/spf13/cobra"
@@ -219,17 +221,47 @@ func newSyncCmd() *cobra.Command {
 }
 
 func newIndexCmd() *cobra.Command {
-	return &cobra.Command{
+	var batchSize int
+
+	cmd := &cobra.Command{
 		Use:   "index <name>",
 		Short: "Index a repository for semantic search",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: implement in Step 4 (embedding pipeline)
+			dbMgr, err := initStorage()
+			if err != nil {
+				return fmt.Errorf("failed to initialize storage: %w", err)
+			}
+
+			repoStore := storage.NewRepoStore(dbMgr.DB())
+			embStore := storage.NewEmbeddingStore(dbMgr.DB())
+			emb := embedder.NewHashEmbedder(768)
+
+			idx := indexer.NewIndexer(repoStore, embStore, emb)
+			if batchSize > 0 {
+				idx.SetBatchSize(batchSize)
+			}
+
 			name := args[0]
-			log.Printf("index: name=%s (not yet implemented)", name)
-			return nil
+			log.Printf("indexing repo %s ...", name)
+			if err := idx.Index(name); err != nil {
+				return err
+			}
+
+			r, err := repoStore.Get(name)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(r)
 		},
 	}
+
+	cmd.Flags().IntVar(&batchSize, "batch-size", 32, "embedding batch size")
+
+	return cmd
 }
 
 func newSearchCmd() *cobra.Command {
