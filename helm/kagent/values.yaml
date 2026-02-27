@@ -45,6 +45,9 @@ tolerations: []
 # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
 nodeSelector: {}
 
+# Affinities for `Pod` https://kubernetes.io/docs/tasks/configure-pod-container/assign-pods-nodes-using-node-affinity/
+affinity: {}
+
 # ==============================================================================
 # DATABASE CONFIGURATION
 # ==============================================================================
@@ -98,6 +101,9 @@ controller:
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+  
+  # Affintities for `Pod` https://kubernetes.io/docs/tasks/configure-pod-container/assign-pods-nodes-using-node-affinity/
+  affinity: {}
 
   image:
     registry: ""
@@ -162,6 +168,9 @@ ui:
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+
+  # Affintities for `Pod` https://kubernetes.io/docs/tasks/configure-pod-container/assign-pods-nodes-using-node-affinity/
+  affinity: {}
 
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
@@ -235,6 +244,15 @@ kagent-tools:
       memory: 1Gi
   tools:
     loglevel: "debug"
+  
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
+  
+  # Affintities for `Pod` https://kubernetes.io/docs/tasks/configure-pod-container/assign-pods-nodes-using-node-affinity/
+  affinity: {}
 
 # ==============================================================================
 # PROXY CONFIGURATION
