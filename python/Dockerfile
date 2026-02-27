@@ -94,8 +94,10 @@ RUN --mount=type=cache,target=/root/.npm \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install && \
-    npm install minimatch@3.1.3 && \
     npm run build && \
+    # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
+    # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.
+    npm prune --omit=dev && \
     npm install -g
 
 # Ensure the sandbox runtime binaries are on PATH
@@ -137,6 +139,11 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && uv lock && uv sync --package kagent-adk                                \
     && uv cache prune                                                         \
     && echo "Installation complete."
+
+# Fix CVE-2026-23949 (jaraco.context) and CVE-2026-24049 (wheel):
+# Upgrade setuptools in managed Python installations to update vendored packages
+# Pin to 82.0.0 which vendors jaraco.context 6.1.0 and wheel 0.46.3
+RUN find /python -name 'pip3' -path '*/bin/pip3' -exec {} install "setuptools==82.0.0" \;
 
 # Create a separate venv for bash tool commands (sandbox environment)
 # This venv does not have pip installed
