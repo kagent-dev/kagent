@@ -43,19 +43,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           namespace = agentNamespace;
         }
 
-        let kind = mcpServer.kind;
-        // Special handling for kagent-querydoc - always ensure correct apiGroup
-        if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
-          mcpServer.apiGroup = "";
-          kind = "Service";
-        }
-
         return {
           type: "McpServer",
           mcpServer: {
             name,
             namespace,
-            kind,
+            kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
           },
@@ -119,6 +112,17 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
       base.spec!.skills = {
         refs: agentFormData.skillRefs,
+      };
+    }
+
+    if (agentFormData.memory?.modelConfig) {
+      const memoryModel = agentFormData.memory.modelConfig;
+      const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
+        ? k8sRefUtils.fromRef(memoryModel).name
+        : memoryModel;
+      base.spec!.memory = {
+        modelConfig: memoryModelName,
+        ttlDays: agentFormData.memory.ttlDays,
       };
     }
   } else if (type === "BYO") {
@@ -206,6 +210,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
       response.data!.metadata.name,
     )
 
+    revalidatePath("/agents");
     revalidatePath(`/agents/${agentRef}/chat`);
     return { message: "Successfully created agent", data: response.data };
   } catch (error) {

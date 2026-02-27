@@ -2,419 +2,237 @@ package handlers_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
-	"github.com/kagent-dev/kagent/go/pkg/client/api"
 )
 
+// makeVector returns a float32 slice of length n filled with the given value.
+// Used to produce valid 768-dimensional test vectors.
+func makeVector(n int, val float32) []float32 {
+	v := make([]float32, n)
+	for i := range v {
+		v[i] = val
+	}
+	return v
+}
+
 func TestMemoryHandler(t *testing.T) {
-	scheme := runtime.NewScheme()
-
-	err := v1alpha1.AddToScheme(scheme)
-	require.NoError(t, err)
-	err = corev1.AddToScheme(scheme)
-	require.NoError(t, err)
-
-	setupHandler := func() (*handlers.MemoryHandler, ctrl_client.Client, *mockErrorResponseWriter) {
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	setupHandler := func() (*handlers.MemoryHandler, *mockErrorResponseWriter) {
 		base := &handlers.Base{
-			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 			DatabaseService:    database_fake.NewClient(),
 			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewMemoryHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
-		return handler, kubeClient, responseRecorder
+		return handler, responseRecorder
 	}
 
-	t.Run("HandleListMemories", func(t *testing.T) {
+	t.Run("AddSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, kubeClient, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler()
 
-			// Create test memories
-			memory1 := &v1alpha1.Memory{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-memory-1",
-					Namespace: "default",
-				},
-				Spec: v1alpha1.MemorySpec{
-					Provider:        v1alpha1.Pinecone,
-					APIKeySecretRef: "test-secret",
-					APIKeySecretKey: "PINECONE_API_KEY",
-					Pinecone: &v1alpha1.PineconeConfig{
-						IndexHost:      "test-index.pinecone.io",
-						TopK:           10,
-						Namespace:      "test-ns",
-						RecordFields:   []string{"field1", "field2"},
-						ScoreThreshold: "0.8",
-					},
-				},
-			}
-
-			err := kubeClient.Create(context.Background(), memory1)
-			require.NoError(t, err)
-
-			req := httptest.NewRequest("GET", "/api/memories/", nil)
-			req = setUser(req, "test-user")
-			handler.HandleListMemories(responseRecorder, req)
-
-			assert.Equal(t, http.StatusOK, responseRecorder.Code)
-
-			memories := api.StandardResponse[[]api.MemoryResponse]{}
-			err = json.Unmarshal(responseRecorder.Body.Bytes(), &memories)
-			require.NoError(t, err)
-			assert.Len(t, memories.Data, 1)
-
-			// Verify memory response
-			memory := memories.Data[0]
-			assert.Equal(t, "default/test-memory-1", memory.Ref)
-			assert.Equal(t, "Pinecone", memory.ProviderName)
-			assert.Equal(t, "test-secret", memory.APIKeySecretRef)
-			assert.Equal(t, "PINECONE_API_KEY", memory.APIKeySecretKey)
-		})
-
-		t.Run("EmptyList", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
-
-			req := httptest.NewRequest("GET", "/api/memories/", nil)
-			req = setUser(req, "test-user")
-			handler.HandleListMemories(responseRecorder, req)
-
-			assert.Equal(t, http.StatusOK, responseRecorder.Code)
-
-			memories := api.StandardResponse[[]api.MemoryResponse]{}
-			err := json.Unmarshal(responseRecorder.Body.Bytes(), &memories)
-			require.NoError(t, err)
-			assert.Len(t, memories.Data, 0)
-		})
-	})
-
-	t.Run("HandleCreateMemory", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
-
-			reqBody := api.CreateMemoryRequest{
-				Ref:      "default/test-memory",
-				Provider: api.Provider{Type: "Pinecone"},
-				APIKey:   "dGVzdC1hcGkta2V5Cg==",
-				PineconeParams: &v1alpha1.PineconeConfig{
-					IndexHost:      "test-index.pinecone.io",
-					TopK:           10,
-					Namespace:      "test-ns",
-					RecordFields:   []string{"field1", "field2"},
-					ScoreThreshold: "0.8",
-				},
+			reqBody := handlers.AddSessionMemoryRequest{
+				AgentName: "test-agent",
+				UserID:    "user123",
+				Content:   "This is a test conversation",
+				Vector:    makeVector(768, 0.1),
+				Metadata:  json.RawMessage(`{"session_id": "session-abc"}`),
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("POST", "/api/memories/sessions", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
 			req.Header.Set("Content-Type", "application/json")
 
-			handler.HandleCreateMemory(responseRecorder, req)
+			handler.AddSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
-
-			memory := api.StandardResponse[v1alpha1.Memory]{}
-			err := json.Unmarshal(responseRecorder.Body.Bytes(), &memory)
-			require.NoError(t, err)
-			assert.Equal(t, "test-memory", memory.Data.Name)
-			assert.Equal(t, "default", memory.Data.Namespace)
-			assert.Equal(t, v1alpha1.Pinecone, memory.Data.Spec.Provider)
+			var response map[string]string
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Contains(t, response, "id")
 		})
 
-		t.Run("InvalidJSON", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+		t.Run("MissingFields", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
 
-			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBufferString("invalid json"))
+			reqBody := handlers.AddSessionMemoryRequest{UserID: "user123", Vector: makeVector(768, 0.1)}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/memories/sessions", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
 
-			handler.HandleCreateMemory(responseRecorder, req)
+			handler.AddSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 
-		t.Run("InvalidRef", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+		t.Run("WrongVectorDimension", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
 
-			reqBody := api.CreateMemoryRequest{
-				Ref:      "invalid/ref/with/too/many/slashes",
-				Provider: api.Provider{Type: "Pinecone"},
-				APIKey:   "test-api-key",
+			reqBody := handlers.AddSessionMemoryRequest{
+				AgentName: "test-agent",
+				UserID:    "user123",
+				Vector:    makeVector(16, 0.1), // not 768
 			}
-
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("POST", "/api/memories/sessions", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
 
-			handler.HandleCreateMemory(responseRecorder, req)
+			handler.AddSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
-		})
-
-		t.Run("MemoryAlreadyExists", func(t *testing.T) {
-			handler, kubeClient, responseRecorder := setupHandler()
-
-			// Create existing memory
-			existingMemory := &v1alpha1.Memory{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-memory",
-					Namespace: "default",
-				},
-				Spec: v1alpha1.MemorySpec{
-					Provider: v1alpha1.Pinecone,
-				},
-			}
-			err := kubeClient.Create(context.Background(), existingMemory)
-			require.NoError(t, err)
-
-			reqBody := api.CreateMemoryRequest{
-				Ref:      "default/test-memory",
-				Provider: api.Provider{Type: "Pinecone"},
-				APIKey:   "test-api-key",
-			}
-
-			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("POST", "/api/memories/", bytes.NewBuffer(jsonBody))
-			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
-
-			handler.HandleCreateMemory(responseRecorder, req)
-
-			assert.Equal(t, http.StatusConflict, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 	})
 
-	t.Run("HandleGetMemory", func(t *testing.T) {
+	t.Run("AddSessionBatch", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, kubeClient, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler()
 
-			// Create test memory
-			memory := &v1alpha1.Memory{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-memory",
-					Namespace: "default",
-				},
-				Spec: v1alpha1.MemorySpec{
-					Provider:        v1alpha1.Pinecone,
-					APIKeySecretRef: "test-secret",
-					APIKeySecretKey: "PINECONE_API_KEY",
-					Pinecone: &v1alpha1.PineconeConfig{
-						IndexHost: "test-index.pinecone.io",
-						TopK:      10,
-					},
-				},
-			}
-
-			err := kubeClient.Create(context.Background(), memory)
-			require.NoError(t, err)
-
-			req := httptest.NewRequest("GET", "/api/memories/default/test-memory", nil)
-			req = setUser(req, "test-user")
-
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleGetMemory(responseRecorder, r)
-			}).Methods("GET")
-
-			router.ServeHTTP(responseRecorder, req)
-
-			assert.Equal(t, http.StatusOK, responseRecorder.Code)
-
-			memoryResponse := api.StandardResponse[api.MemoryResponse]{}
-			err = json.Unmarshal(responseRecorder.Body.Bytes(), &memoryResponse)
-			require.NoError(t, err)
-			assert.Equal(t, "default/test-memory", memoryResponse.Data.Ref)
-			assert.Equal(t, "Pinecone", memoryResponse.Data.ProviderName)
-		})
-
-		t.Run("NotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
-
-			req := httptest.NewRequest("GET", "/api/memories/default/nonexistent", nil)
-			req = setUser(req, "test-user")
-
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleGetMemory(responseRecorder, r)
-			}).Methods("GET")
-
-			router.ServeHTTP(responseRecorder, req)
-
-			assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
-		})
-	})
-
-	t.Run("HandleUpdateMemory", func(t *testing.T) {
-		t.Run("Success", func(t *testing.T) {
-			handler, kubeClient, responseRecorder := setupHandler()
-
-			// Create existing memory
-			memory := &v1alpha1.Memory{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-memory",
-					Namespace: "default",
-				},
-				Spec: v1alpha1.MemorySpec{
-					Provider: v1alpha1.Pinecone,
-					Pinecone: &v1alpha1.PineconeConfig{
-						IndexHost: "old-index.pinecone.io",
-						TopK:      5,
-					},
-				},
-			}
-
-			err := kubeClient.Create(context.Background(), memory)
-			require.NoError(t, err)
-
-			reqBody := api.UpdateMemoryRequest{
-				PineconeParams: &v1alpha1.PineconeConfig{
-					IndexHost: "new-index.pinecone.io",
-					TopK:      15,
+			reqBody := handlers.AddSessionMemoryBatchRequest{
+				Items: []handlers.AddSessionMemoryRequest{
+					{AgentName: "test-agent", UserID: "user123", Content: "First item", Vector: makeVector(768, 0.1)},
+					{AgentName: "test-agent", UserID: "user123", Content: "Second item", Vector: makeVector(768, 0.2)},
 				},
 			}
 
 			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/memories/default/test-memory", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("POST", "/api/memories/sessions/batch", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleUpdateMemory(responseRecorder, r)
-			}).Methods("PUT")
+			handler.AddSessionBatch(responseRecorder, req)
 
-			router.ServeHTTP(responseRecorder, req)
-
-			assert.Equal(t, http.StatusOK, responseRecorder.Code)
-
-			updatedMemory := api.StandardResponse[v1alpha1.Memory]{}
-			err = json.Unmarshal(responseRecorder.Body.Bytes(), &updatedMemory)
-			require.NoError(t, err)
-			assert.Equal(t, "new-index.pinecone.io", updatedMemory.Data.Spec.Pinecone.IndexHost)
-			assert.Equal(t, 15, updatedMemory.Data.Spec.Pinecone.TopK)
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
+			var response map[string]int
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Equal(t, 2, response["count"])
 		})
 
-		t.Run("InvalidJSON", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+		t.Run("EmptyBatch", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
 
-			req := httptest.NewRequest("PUT", "/api/memories/default/test-memory", bytes.NewBufferString("invalid json"))
+			reqBody := handlers.AddSessionMemoryBatchRequest{Items: []handlers.AddSessionMemoryRequest{}}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/memories/sessions/batch", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleUpdateMemory(responseRecorder, r)
-			}).Methods("PUT")
-
-			router.ServeHTTP(responseRecorder, req)
+			handler.AddSessionBatch(responseRecorder, req)
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 
-		t.Run("MemoryNotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+		t.Run("BatchTooLarge", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
 
-			reqBody := api.UpdateMemoryRequest{
-				PineconeParams: &v1alpha1.PineconeConfig{
-					IndexHost: "new-index.pinecone.io",
-				},
+			items := make([]handlers.AddSessionMemoryRequest, 51)
+			for i := range items {
+				items[i] = handlers.AddSessionMemoryRequest{AgentName: "test-agent", UserID: "user123", Vector: makeVector(768, 0.1)}
 			}
-
-			jsonBody, _ := json.Marshal(reqBody)
-			req := httptest.NewRequest("PUT", "/api/memories/default/nonexistent", bytes.NewBuffer(jsonBody))
+			jsonBody, _ := json.Marshal(handlers.AddSessionMemoryBatchRequest{Items: items})
+			req := httptest.NewRequest("POST", "/api/memories/sessions/batch", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
-			req.Header.Set("Content-Type", "application/json")
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleUpdateMemory(responseRecorder, r)
-			}).Methods("PUT")
+			handler.AddSessionBatch(responseRecorder, req)
 
-			router.ServeHTTP(responseRecorder, req)
-
-			assert.Equal(t, http.StatusInternalServerError, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 		})
 	})
 
-	t.Run("HandleDeleteMemory", func(t *testing.T) {
+	t.Run("Search", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, kubeClient, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler()
 
-			// Create memory to delete
-			memory := &v1alpha1.Memory{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-memory",
-					Namespace: "default",
-				},
-				Spec: v1alpha1.MemorySpec{
-					Provider: v1alpha1.Pinecone,
-				},
+			reqBody := handlers.SearchSessionMemoryRequest{
+				AgentName: "test-agent",
+				UserID:    "user123",
+				Vector:    makeVector(768, 0.1),
+				Limit:     5,
 			}
 
-			err := kubeClient.Create(context.Background(), memory)
-			require.NoError(t, err)
-
-			req := httptest.NewRequest("DELETE", "/api/memories/default/test-memory", nil)
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/memories/search", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleDeleteMemory(responseRecorder, r)
-			}).Methods("DELETE")
-
-			router.ServeHTTP(responseRecorder, req)
+			handler.Search(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
-
-			response := api.StandardResponse[struct{}]{}
-			err = json.Unmarshal(responseRecorder.Body.Bytes(), &response)
-			require.NoError(t, err)
-			assert.Equal(t, "Memory deleted successfully", response.Message)
+			var response []handlers.SearchSessionMemoryResponse
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
 		})
 
-		t.Run("NotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+		t.Run("MissingFields", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
 
-			req := httptest.NewRequest("DELETE", "/api/memories/default/nonexistent", nil)
+			reqBody := handlers.SearchSessionMemoryRequest{AgentName: "test-agent", Vector: makeVector(768, 0.1)}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/memories/search", bytes.NewBuffer(jsonBody))
 			req = setUser(req, "test-user")
 
-			router := mux.NewRouter()
-			router.HandleFunc("/api/memories/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-				handler.HandleDeleteMemory(responseRecorder, r)
-			}).Methods("DELETE")
+			handler.Search(responseRecorder, req)
 
-			router.ServeHTTP(responseRecorder, req)
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+		})
+	})
 
-			assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
+	t.Run("List", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/memories?agent_name=test-agent&user_id=user123", nil)
+			req = setUser(req, "test-user")
+
+			handler.List(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response []handlers.ListMemoryResponse
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+		})
+
+		t.Run("MissingFields", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/memories?agent_name=test-agent", nil)
+			req = setUser(req, "test-user")
+
+			handler.List(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+		})
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("DELETE", "/api/memories?agent_name=test-agent&user_id=user123", nil)
+			req = setUser(req, "test-user")
+
+			handler.Delete(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response map[string]string
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Equal(t, "deleted", response["status"])
+		})
+
+		t.Run("MissingFields", func(t *testing.T) {
+			handler, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("DELETE", "/api/memories?agent_name=test-agent", nil)
+			req = setUser(req, "test-user")
+
+			handler.Delete(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 		})
 	})
 }

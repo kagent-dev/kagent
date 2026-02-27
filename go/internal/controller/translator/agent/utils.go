@@ -26,7 +26,7 @@ func GetA2AAgentCard(agent *v1alpha2.Agent) *server.AgentCard {
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
 	}
-	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative.A2AConfig != nil {
+	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative != nil && agent.Spec.Declarative.A2AConfig != nil {
 		card.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
 			return server.AgentSkill(skill)
 		}))

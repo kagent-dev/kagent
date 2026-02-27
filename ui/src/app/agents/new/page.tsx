@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
+import { Brain, Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
 import { ModelConfig, AgentType } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
+import { MemorySection } from "@/components/create/MemorySection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -32,6 +33,8 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   skills?: string;
+  memoryModel?: string;
+  memoryTtl?: string;
 }
 
 interface AgentPageContentProps {
@@ -67,6 +70,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     agentType: AgentType;
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
+    selectedMemoryModel: SelectedModelType | null;
+    memoryTtlDays: string;
     selectedTools: Tool[];
     skillRefs: string[];
     byoImage: string;
@@ -89,6 +94,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     agentType: "Declarative",
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
+    selectedMemoryModel: null,
+    memoryTtlDays: "",
     selectedTools: [],
     skillRefs: [""],
     byoImage: "",
@@ -129,6 +136,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               };
               // v1alpha2: read type and split specs
               if (agent.spec.type === "Declarative") {
+                const memorySpec = agent.spec?.memory;
+                const memoryModelConfig = memorySpec?.modelConfig
+                  ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
+                  : "";
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
@@ -137,6 +148,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
                   stream: agent.spec?.declarative?.stream ?? false,
+                  selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
+                  memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -148,6 +161,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   systemPrompt: "",
                   selectedModel: null,
                   selectedTools: [],
+                  selectedMemoryModel: null,
+                  memoryTtlDays: "",
                   byoImage: agent.spec?.byo?.deployment?.image || "",
                   byoCmd: agent.spec?.byo?.deployment?.cmd || "",
                   byoArgs: (agent.spec?.byo?.deployment?.args || []).join(" "),
@@ -189,6 +204,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   };
 
   const validateForm = () => {
+    const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
     const formData = {
       name: state.name,
       namespace: state.namespace,
@@ -198,6 +214,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       modelName: state.selectedModel?.ref || "",
       tools: state.selectedTools,
       byoImage: state.byoImage,
+      memory: memoryEnabled
+        ? {
+          modelConfig: state.selectedMemoryModel?.ref || "",
+          ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
+        }
+        : undefined,
     };
 
     const newErrors = validateAgentData(formData);
@@ -235,6 +257,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const validateField = (fieldName: keyof ValidationErrors, value: any) => {
     const formData: Partial<AgentFormData> = {};
 
+    const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
+
     // Set only the field being validated
     switch (fieldName) {
       case 'name': formData.name = value; break;
@@ -244,6 +268,22 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       case 'systemPrompt': formData.systemPrompt = value; break;
       case 'model': formData.modelName = value; break;
       case 'tools': formData.tools = value; break;
+      case 'memoryModel':
+        if (memoryEnabled || value) {
+          formData.memory = {
+            modelConfig: value,
+            ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
+          };
+        }
+        break;
+      case 'memoryTtl':
+        if (memoryEnabled || value) {
+          formData.memory = {
+            modelConfig: state.selectedMemoryModel?.ref || "",
+            ttlDays: value ? parseInt(value, 10) : undefined,
+          };
+        }
+        break;
     }
 
     const fieldErrors = validateAgentData(formData);
@@ -270,6 +310,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         throw new Error("Model is required to create a declarative agent.");
       }
 
+      const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
+
       const agentData = {
         name: state.name,
         namespace: state.namespace,
@@ -280,6 +322,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         stream: state.stream,
         tools: state.selectedTools,
         skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
+        memory: state.agentType === "Declarative" && memoryEnabled
+          ? {
+            modelConfig: state.selectedMemoryModel?.ref || "",
+            ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
+          }
+          : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -462,6 +510,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                         <p className="text-xs text-muted-foreground">Stream responses from the model in real-time (experimental)</p>
                       </div>
                     </div>
+
                   </>
                 )}
                 {state.agentType === "BYO" && (
@@ -627,6 +676,32 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onBlur={() => validateField('tools', state.selectedTools)}
                       currentAgentName={state.name}
                       currentAgentNamespace={state.namespace}
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Brain className="h-5 w-5 text-emerald-500" />
+                      Memory
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <MemorySection
+                      allModels={models}
+                      selectedModel={state.selectedMemoryModel}
+                      setSelectedModel={(model) => {
+                        setState(prev => ({ ...prev, selectedMemoryModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
+                        validateField("memoryModel", (model as Pick<ModelConfig, 'ref' | 'model'> | null)?.ref || "");
+                      }}
+                      agentNamespace={state.namespace}
+                      ttlDays={state.memoryTtlDays}
+                      onTtlChange={(value) => setState(prev => ({ ...prev, memoryTtlDays: value }))}
+                      onTtlBlur={() => validateField("memoryTtl", state.memoryTtlDays)}
+                      modelError={state.errors.memoryModel}
+                      ttlError={state.errors.memoryTtl}
+                      isSubmitting={state.isSubmitting || state.isLoading}
                     />
                   </CardContent>
                 </Card>

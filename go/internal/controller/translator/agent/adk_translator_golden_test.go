@@ -37,6 +37,16 @@ type TestInput struct {
 
 // TestGoldenAdkTranslator runs golden tests for the ADK API translator
 func TestGoldenAdkTranslator(t *testing.T) {
+	// Clear all OTEL_ env vars so host environment doesn't leak into
+	// golden outputs via collectOtelEnvFromProcess().
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "OTEL_") {
+			key, _, _ := strings.Cut(env, "=")
+			t.Setenv(key, "")
+			os.Unsetenv(key)
+		}
+	}
+
 	// Skip if running in CI without update flag
 	updateGolden := os.Getenv("UPDATE_GOLDEN") == "true"
 

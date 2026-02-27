@@ -15,7 +15,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "pydantic>=2.0.0",
   "typing-extensions>=4.0.0",
-  "opentelemetry-instrumentation-openai-agents>=0.48.0"
+  "opentelemetry-instrumentation-openai-agents>=0.50.0"
 ]
 
 [project.optional-dependencies]
@@ -31,11 +31,11 @@ kagent-core = {workspace = true}
 kagent-skills = {workspace = true}
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel>=0.46.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/kagent", "src/traceloop"]
+packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120
