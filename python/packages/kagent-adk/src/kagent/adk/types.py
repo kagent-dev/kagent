@@ -368,22 +368,18 @@ class AgentConfig(BaseModel):
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
-        # Wrap instruction in a callable to bypass ADK's session state
-        # injection (inject_session_state). ADK treats curly braces like
-        # {repo} as context variable references and raises KeyError when
-        # they aren't found in session state. kagent doesn't use ADK context
-        # variables, so we return the instruction string as-is.
+
+        # Use static_instruction to bypass ADK's session state injection
+        # (inject_session_state). ADK treats curly braces like {repo} as
+        # context variable references and raises KeyError when they aren't
+        # found in session state. static_instruction is sent directly to
+        # the model without any placeholder processing.
         # See: https://github.com/kagent-dev/kagent/issues/1382
-        raw_instruction = self.instruction
-
-        def instruction_provider(_: ReadonlyContext) -> str:
-            return raw_instruction
-
         agent = Agent(
             name=name,
             model=model,
             description=self.description,
-            instruction=instruction_provider,
+            static_instruction=self.instruction,
             tools=tools,
             code_executor=code_executor,
         )
@@ -409,22 +405,10 @@ class AgentConfig(BaseModel):
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
 
-            memory_suffix = (
-                "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+            agent.instruction = (
+                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
                 "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
             )
-            # agent.instruction may be a callable (InstructionProvider) to
-            # bypass ADK state injection.  Wrap it so the memory suffix is
-            # appended at call time without breaking the bypass.
-            prev_instruction = agent.instruction
-            if callable(prev_instruction):
-
-                def _with_memory(ctx: ReadonlyContext) -> str:
-                    return prev_instruction(ctx) + memory_suffix
-
-                agent.instruction = _with_memory
-            else:
-                agent.instruction = prev_instruction + memory_suffix
 
             # Define auto-save callback
             async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
