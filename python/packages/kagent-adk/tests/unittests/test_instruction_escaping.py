@@ -5,7 +5,7 @@ KeyError from ADK's session state injection. See:
 https://github.com/kagent-dev/kagent/issues/1382
 """
 
-import importlib
+import asyncio
 import sys
 from unittest.mock import MagicMock
 
@@ -36,7 +36,8 @@ def _isolate_types_import(monkeypatch):
 
 def _make_agent_config(instruction: str):
     """Create a minimal AgentConfig with the given instruction."""
-    # Import types directly (not via kagent.adk) to avoid __init__ side effects
+    # Import types via kagent.adk; __init__ side effects are neutralized by
+    # the _isolate_types_import fixture stubbing heavy dependencies.
     import kagent.adk.types as types_mod
 
     return types_mod.AgentConfig(
@@ -109,3 +110,57 @@ class TestInstructionEscaping:
         mock_ctx = MagicMock()
         result = agent.instruction(mock_ctx)
         assert result == ""
+
+
+class TestCanonicalInstructionBypass:
+    """Tests that the callable instruction triggers bypass_state_injection in ADK.
+
+    ADK's LlmAgent.canonical_instruction() returns (text, bypass_state_injection).
+    When bypass_state_injection is True, inject_session_state is skipped —
+    this is the mechanism that prevents KeyError on {repo}-style placeholders.
+    """
+
+    def test_callable_instruction_sets_bypass_true(self):
+        """canonical_instruction should return bypass_state_injection=True for callable."""
+        config = _make_agent_config("Clone {repo} and run tests")
+        agent = config.to_agent("test_agent")
+        mock_ctx = MagicMock()
+        text, bypass = asyncio.get_event_loop().run_until_complete(
+            agent.canonical_instruction(mock_ctx)
+        )
+        assert bypass is True, "callable instruction must set bypass_state_injection=True"
+        assert text == "Clone {repo} and run tests"
+
+    def test_raw_string_would_not_bypass(self):
+        """A raw string instruction would set bypass_state_injection=False.
+
+        This proves the fix is necessary: without wrapping instructions in a
+        callable, ADK would attempt state injection and raise KeyError on
+        unresolved {variables}.
+        """
+        config = _make_agent_config("Safe instruction without braces")
+        agent = config.to_agent("test_agent")
+        # Temporarily replace instruction with a raw string to verify ADK behavior
+        agent.instruction = "Raw string with {repo}"
+        mock_ctx = MagicMock()
+        text, bypass = asyncio.get_event_loop().run_until_complete(
+            agent.canonical_instruction(mock_ctx)
+        )
+        assert bypass is False, "raw string must set bypass_state_injection=False"
+        assert text == "Raw string with {repo}"
+
+    def test_inject_session_state_raises_on_unresolved_variable(self):
+        """inject_session_state raises KeyError for {repo} when state is empty.
+
+        This is the original bug: ADK's state injection treats {repo} as a
+        context variable reference and raises KeyError when it's not in session
+        state.  The callable wrapper prevents this path from executing.
+        """
+        from google.adk.utils.instructions_utils import inject_session_state
+
+        mock_ctx = MagicMock()
+        mock_ctx._invocation_context.session.state = {}
+        with pytest.raises(KeyError, match="repo"):
+            asyncio.get_event_loop().run_until_complete(
+                inject_session_state("Clone {repo}", mock_ctx)
+            )
