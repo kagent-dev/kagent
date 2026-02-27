@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { BaseResponse, GitRepo, AddGitRepoRequest } from "@/types";
+import { BaseResponse, GitRepo, AddGitRepoRequest, GitRepoSearchResult, GitRepoSearchRequest } from "@/types";
 
 // The gitrepo-mcp service returns repos wrapped in { repos: [...] }
 interface ListReposResponse {
@@ -119,5 +119,30 @@ export async function indexGitRepo(name: string): Promise<BaseResponse<GitRepo>>
     };
   } catch (error) {
     return createErrorResponse<GitRepo>(error, "Error indexing git repo");
+  }
+}
+
+// The gitrepo-mcp service returns search results wrapped in { results: [...] }
+interface SearchResultsResponse {
+  results: GitRepoSearchResult[];
+}
+
+export async function searchGitRepos(req: GitRepoSearchRequest): Promise<BaseResponse<GitRepoSearchResult[]>> {
+  try {
+    const response = await fetchApi<SearchResultsResponse>("/gitrepos/search", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+
+    if (!response) {
+      throw new Error("Failed to search git repos");
+    }
+
+    return {
+      message: "Search completed successfully",
+      data: response.results || [],
+    };
+  } catch (error) {
+    return createErrorResponse<GitRepoSearchResult[]>(error, "Error searching git repos");
   }
 }

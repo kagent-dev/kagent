@@ -1,12 +1,14 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronDown, ChevronRight, Trash2, RefreshCw, Database, GitFork } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Plus, ChevronDown, ChevronRight, Trash2, RefreshCw, Database, GitFork, Search, X, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { GitRepo } from "@/types";
-import { getGitRepos, deleteGitRepo, syncGitRepo, indexGitRepo } from "@/app/actions/gitrepos";
+import { GitRepo, GitRepoSearchResult } from "@/types";
+import { getGitRepos, deleteGitRepo, syncGitRepo, indexGitRepo, searchGitRepos } from "@/app/actions/gitrepos";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
+import { GitRepoSearchResults } from "@/components/GitRepoSearchResults";
 import { toast } from "sonner";
 import {
     Dialog,
@@ -50,6 +52,31 @@ export default function GitReposPage() {
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
     const [repoToDelete, setRepoToDelete] = useState<GitRepo | null>(null);
     const [busyRepos, setBusyRepos] = useState<Set<string>>(new Set());
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState<GitRepoSearchResult[] | null>(null);
+    const [searching, setSearching] = useState(false);
+
+    const handleSearch = async () => {
+        const query = searchQuery.trim();
+        if (!query) return;
+        setSearching(true);
+        try {
+            const response = await searchGitRepos({ query, limit: 20, contextLines: 3 });
+            if (response.error || !response.data) {
+                throw new Error(response.error || "Search failed");
+            }
+            setSearchResults(response.data);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Search failed");
+        } finally {
+            setSearching(false);
+        }
+    };
+
+    const clearSearch = () => {
+        setSearchQuery("");
+        setSearchResults(null);
+    };
 
     const fetchRepos = useCallback(async () => {
         try {
@@ -160,6 +187,35 @@ export default function GitReposPage() {
                         Add Repo
                     </Button>
                 </div>
+
+                <div className="flex gap-2 mb-6">
+                    <div className="relative flex-1">
+                        <Input
+                            placeholder="Search across all indexed repos..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                            className="pr-8"
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={clearSearch}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        )}
+                    </div>
+                    <Button onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+                        {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                </div>
+
+                {searchResults !== null && (
+                    <div className="mb-6">
+                        {searching ? <LoadingState /> : <GitRepoSearchResults results={searchResults} />}
+                    </div>
+                )}
 
                 {loading ? (
                     <LoadingState />

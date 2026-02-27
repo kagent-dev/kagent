@@ -464,3 +464,26 @@ export interface AddGitRepoRequest {
   url: string;
   branch?: string;
 }
+
+export interface GitRepoSearchContext {
+  before?: string[];
+  after?: string[];
+}
+
+export interface GitRepoSearchResult {
+  repo: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  score: number;
+  chunkType: string;
+  chunkName?: string;
+  content: string;
+  context?: GitRepoSearchContext;
+}
+
+export interface GitRepoSearchRequest {
+  query: string;
+  limit?: number;
+  contextLines?: number;
+}
