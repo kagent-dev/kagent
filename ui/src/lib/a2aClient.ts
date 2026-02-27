@@ -83,6 +83,12 @@ export class KagentA2AClient {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // Note: MAX_BUFFER_SIZE and CHUNK_SIZE are measured in UTF-16 code units (JS string length),
+    // which approximates bytes for ASCII/JSON SSE data but may undercount for multi-byte characters.
+    const MAX_BUFFER_SIZE = 1024 * 1024;       // ~1 MB in characters
+    const CHUNK_SIZE = 16 * 1024;              // ~16 KB in characters
+    const MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes (from Uint8Array.length)
+    let processedSize = 0;
 
     try {
       while (true) {
@@ -94,7 +100,12 @@ export class KagentA2AClient {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete SSE events (delimited by \n\n)
+        processedSize += value.length;
+        if (processedSize > MAX_MESSAGE_SIZE) {
+          throw new Error('Message size exceeds maximum allowed limit of 10MB');
+        }
+
+        // Process complete SSE events (delimited by \n\n) before checking buffer size
         let eventEndIndex;
         while ((eventEndIndex = buffer.indexOf('\n\n')) >= 0) {
           const eventText = buffer.substring(0, eventEndIndex);
@@ -120,8 +131,15 @@ export class KagentA2AClient {
             }
           }
         }
+
+        // Truncate remaining buffer if it exceeds the limit (only incomplete data remains)
+        if (buffer.length > MAX_BUFFER_SIZE) {
+          buffer = buffer.slice(-CHUNK_SIZE);
+          console.warn('SSE buffer truncated due to size limit');
+        }
       }
     } finally {
+      await reader.cancel();
       reader.releaseLock();
     }
   }
