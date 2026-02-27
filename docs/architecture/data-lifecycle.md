@@ -1,19 +1,23 @@
-# Task, Session, and Event Data Lifecycle
+# Data Lifecycle
 
-This document describes how kagent currently stores task, session, and event data.
+This document describes the current state of data storage in kagent: what data is created, where it lives, and what happens when resources are deleted.
 
-## Data Model
+## Where Data Lives
 
-kagent persists data in a relational database managed by [GORM](https://gorm.io/). The schema is defined in Go structs and tables are created via GORM's `AutoMigrate` at startup (no versioned migrations).
+kagent stores data in two places:
 
-### Tables
+1. **Kubernetes (etcd)** — Agent, ToolServer, RemoteMCPServer, ModelConfig, ModelProviderConfig, and Memory custom resources are stored as CRDs managed by the Kubernetes API server. These follow standard Kubernetes lifecycle: they persist until explicitly deleted via `kubectl delete` or the API, and are subject to the cluster's etcd storage.
+
+2. **Relational database** — Runtime data (sessions, tasks, events, checkpoints, feedback) is stored in a relational database managed by [GORM](https://gorm.io/). Tables are created via `AutoMigrate` at startup (no versioned migrations).
+
+## Database Tables
 
 | Table | Primary Key | Description |
 |-------|-------------|-------------|
-| `agent` | `id` | Agent configuration. Stores agent type and an optional JSON `config` blob. |
+| `agent` | `id` | Agent configuration synced from CRDs. Stores agent type and an optional JSON `config` blob. |
 | `session` | `(id, user_id)` | A conversation context. Optionally linked to an agent via `agent_id`. |
 | `task` | `id` | An A2A task within a session. The full `protocol.Task` is JSON-serialized in the `data` column. |
-| `event` | `(id, user_id)` | A message or event within a session. The `data` column stores a JSON-serialized `protocol.Message`. Indexed on `session_id`. |
+| `event` | `(id, user_id)` | A message or event within a session. Stores a JSON-serialized `protocol.Message`. Indexed on `session_id`. |
 | `push_notification` | `id` | Push notification configuration for a task. Indexed on `task_id`. |
 | `feedback` | `(id, user_id)` | User feedback on agent responses. Has an `OnDelete:CASCADE` constraint on `message_id`. |
 | `tool` | `(id, server_name, group_kind)` | Tool metadata discovered from MCP servers. |
@@ -33,11 +37,26 @@ Agent (1) ──── (*) Session (1) ──── (*) Task
                     └──── (*) Event       └──── (*) PushNotification
 ```
 
-There are no foreign key cascade constraints between sessions, tasks, and events. Deleting a session does not automatically delete its tasks or events. The only cascade constraint is `Feedback.MessageID` (`OnDelete:CASCADE`).
+There are no foreign key cascade constraints between sessions, tasks, and events. The only cascade constraint is `Feedback.MessageID` (`OnDelete:CASCADE`).
 
 ### Write Semantics
 
 All `Store*` methods use GORM's `OnConflict{UpdateAll: true}` clause, giving upsert behavior — a record is created if it does not exist, or updated in place if it does.
+
+## Deletion Behavior
+
+- **Deleting a session** (`DELETE /api/sessions/{id}`): Sets `deleted_at` on the session row. Associated tasks and events are **not** deleted or modified.
+- **Deleting a task** (`DELETE /api/tasks/{id}`): Sets `deleted_at` on the task row. Push notifications for the task are **not** deleted.
+- **Deleting a message**: Sets `deleted_at` on the event row. Feedback referencing the message **is** cascade-deleted (the only cascade in the schema).
+- **Deleting a Kubernetes CRD** (e.g., `kubectl delete agent my-agent`): Removes the resource from etcd. The corresponding database `agent` row and its sessions/events are **not** automatically cleaned up.
+
+Soft-deleted rows remain in the database. They are excluded from queries by GORM's default scoping but are not physically removed.
+
+## Conversation History
+
+Conversation history is stored as `event` rows linked to a session via `session_id`. Each event contains a JSON-serialized `protocol.Message` (user messages, agent responses, tool calls). Events grow with each interaction and are never automatically pruned or rotated.
+
+LangGraph checkpoints (`lg_checkpoint`, `lg_checkpoint_write`) store intermediate agent state during task execution. These also accumulate over time with no automatic cleanup.
 
 ## Default Storage Configuration
 
@@ -61,13 +80,9 @@ volumes:
     emptyDir:
       sizeLimit: 500Mi
       medium: Memory
-
-volumeMounts:
-  - name: sqlite-volume
-    mountPath: /sqlite-volume
 ```
 
-The database file is `/sqlite-volume/kagent.db`. Because `medium: Memory` maps to tmpfs, **all data is lost when the pod restarts or is rescheduled.**
+The database file is `/sqlite-volume/kagent.db`. Because `medium: Memory` maps to tmpfs, all data is lost when the pod restarts or is rescheduled.
 
 ### PostgreSQL
 
@@ -77,7 +92,7 @@ Setting `database.type: postgres` switches to an external PostgreSQL instance. T
 postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
 ```
 
-### Configuration
+### Configuration Reference
 
 | Source | Variable / Flag | Default |
 |--------|----------------|---------|
@@ -90,16 +105,7 @@ postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgr
 
 ## Data Retention
 
-kagent has no built-in data retention, cleanup, or garbage collection. All rows grow indefinitely.
-
-The API exposes soft-delete endpoints:
-
-| Endpoint | Effect |
-|----------|--------|
-| `DELETE /api/sessions/{id}` | Sets `deleted_at` on the session row (does not cascade) |
-| `DELETE /api/tasks/{id}` | Sets `deleted_at` on the task row |
-
-Soft-deleted rows remain on disk; they are excluded from queries but not removed.
+kagent has no built-in data retention, cleanup, or garbage collection. All rows grow indefinitely until manually deleted through the API or direct database access.
 
 ## Related Files
 
