@@ -24,6 +24,8 @@ help: ## list makefile targets
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	@# controller-gen emits format: int32/int64 — these are valid OpenAPI values.
+	@# K8s warnings about them were a bug, fixed in v1.34.1+ (kubernetes/kubernetes#133896).
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
