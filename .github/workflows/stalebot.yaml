@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: write
+      issues: write
     steps:
       - uses: actions/stale@v9 # https://github.com/actions/stale
         with:
