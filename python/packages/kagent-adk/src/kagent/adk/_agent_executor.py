@@ -48,10 +48,6 @@ from kagent.core.tracing._span_processor import (
     set_kagent_span_attributes,
 )
 
-<<<<<<< HEAD
-from ._approval import APPROVAL_REQUIRED_STATUS, HITL_PENDING_TOOLS_KEY, make_approval_key
-=======
->>>>>>> b99d3f7a (use adk native approach)
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
@@ -387,65 +383,15 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
         decision = extract_decision_from_message(context.message)
-<<<<<<< HEAD
-        pending_tools_from_state = session.state.get(HITL_PENDING_TOOLS_KEY)
-
-        if decision and pending_tools_from_state:
-            logger.info(
-                "HITL continuation detected: decision=%s, pending_tools=%d", decision, len(pending_tools_from_state)
-            )
-
-            if decision == KAGENT_HITL_DECISION_TYPE_APPROVE:
-                # Store approval keys in session state for each pending tool call
-                state_delta: dict[str, Any] = {HITL_PENDING_TOOLS_KEY: None}
-                for tool_info in pending_tools_from_state:
-                    approval_key = make_approval_key(tool_info["name"], tool_info.get("args", {}))
-                    state_delta[approval_key] = True
-
-                approval_event = Event(
-                    invocation_id="hitl_approval",
-                    author="system",
-                    actions=EventActions(state_delta=state_delta),
-=======
         if decision:
             pending_fc_ids = self._find_pending_confirmations(session)
             if pending_fc_ids:
                 logger.info(
                     "HITL continuation detected: decision=%s, pending_confirmations=%d", decision, len(pending_fc_ids)
->>>>>>> b99d3f7a (use adk native approach)
                 )
                 confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
                 confirmation = ToolConfirmation(confirmed=confirmed)
                 run_args["new_message"] = genai_types.Content(
-<<<<<<< HEAD
-                    parts=[
-                        genai_types.Part(
-                            text=f"The user approved the pending tool calls ({tool_names}). Please proceed with executing them."
-                        )
-                    ],
-                    role="user",
-                )
-            else:
-                # Rejected — extract reason from the user's message
-                reason = self._extract_rejection_reason(context.message)
-                reason_text = f" because: {reason}" if reason else ""
-
-                clear_event = Event(
-                    invocation_id="hitl_rejection",
-                    author="system",
-                    actions=EventActions(state_delta={HITL_PENDING_TOOLS_KEY: None}),
-                )
-                await runner.session_service.append_event(session, clear_event)
-
-                tool_names = ", ".join(t["name"] for t in pending_tools_from_state)
-                run_args["new_message"] = genai_types.Content(
-                    parts=[
-                        genai_types.Part(
-                            text=f"The user rejected the pending tool calls ({tool_names}){reason_text}. Please try a different approach."
-                        )
-                    ],
-=======
->>>>>>> b99d3f7a (use adk native approach)
                     role="user",
                     parts=[
                         genai_types.Part(
