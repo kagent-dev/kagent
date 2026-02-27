@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
@@ -357,12 +358,14 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
-                remote_a2a_agent = RemoteA2aAgent(
-                    name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
-                    description=remote_agent.description,
-                    httpx_client=client,
-                )
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=r"^\[EXPERIMENTAL\] RemoteA2aAgent:")
+                    remote_a2a_agent = RemoteA2aAgent(
+                        name=remote_agent.name,
+                        agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
+                        description=remote_agent.description,
+                        httpx_client=client,
+                    )
 
                 tools.append(AgentTool(agent=remote_a2a_agent))
 
