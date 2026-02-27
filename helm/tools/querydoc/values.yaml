@@ -14,8 +14,10 @@ serviceAccount:
   annotations: {}
   name: ""
 
+podSecurityContext: {}
+
 securityContext: {}
-  
+
 tolerations: []
 
 nodeSelector: {}
@@ -24,7 +26,13 @@ service:
   type: ClusterIP
   port: 8080
 
-resources: {}
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
 
 logLevel: info
 

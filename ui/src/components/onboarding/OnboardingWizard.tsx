@@ -29,7 +29,7 @@ interface OnboardingStateData {
 
 export const K8S_AGENT_DEFAULTS = {
     name: "my-first-k8s-agent",
-    namespace: "default",
+    namespace: "kagent",
     description: "This agent can interact with the Kubernetes API to get information about the cluster.",
     instructions: `You're a friendly and helpful agent that uses Kubernetes tools to answer users questions about the cluster.
 

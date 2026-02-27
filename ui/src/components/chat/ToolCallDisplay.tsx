@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData } from "@/lib/messageHandlers";
+import AgentCallDisplay from "@/components/chat/AgentCallDisplay";
+import { isAgentToolName } from "@/lib/utils";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -24,11 +26,10 @@ const toolCallCache = new Map<string, boolean>();
 
 // Helper functions to work with A2A SDK Messages
 const isToolCallRequestMessage = (message: Message): boolean => {
-  // Check data parts for adk_type first
+  // Check data parts for type metadata first
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.adk_type === "function_call";
+      return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call";
     }
     return false;
   }) || false;
@@ -45,8 +46,7 @@ const isToolCallRequestMessage = (message: Message): boolean => {
 const isToolCallExecutionMessage = (message: Message): boolean => {
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      return partMetadata?.adk_type === "function_response";
+      return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response";
     }
     return false;
   }) || false;
@@ -70,18 +70,24 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const functionCalls: FunctionCall[] = [];
+  
   for (const part of dataParts) {
     if (part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.adk_type === "function_call") {
+      if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
         const data = part.data as unknown as FunctionCall;
-        return [{
+        functionCalls.push({
           id: data.id,
           name: data.name,
           args: data.args
-        }];
+        });
       }
     }
+  }
+  
+  // If we found function calls in data parts, return them
+  if (functionCalls.length > 0) {
+    return functionCalls;
   }
   
   // Try streaming format (metadata or text content)
@@ -103,32 +109,33 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const toolResults: ProcessedToolResultData[] = [];
+  
   for (const part of dataParts) {
     if (part.metadata) {
-      const partMetadata = part.metadata as ADKMetadata;
-      if (partMetadata?.adk_type === "function_response") {
+      if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
         const data = part.data as unknown as ToolResponseData;
-        // Extract content from the result
-        const content = data.response?.result?.content || [];
-        const textContent = content.map((c: unknown) => {
-          if (typeof c === 'object' && c !== null && 'text' in c) {
-            return c.text || '';
-          }
-          return String(c);
-        }).join("");
-        
-        return [{
+        // Extract normalized content from the result (supports string/object/array)
+        const textContent = normalizeToolResultToText(data);
+
+        toolResults.push({
           call_id: data.id,
           name: data.name,
           content: textContent,
           is_error: data.response?.isError || false
-        }];
+        });
       }
     }
   }
   
+  // If we found tool results in data parts, return them
+  if (toolResults.length > 0) {
+    return toolResults;
+  }
+  
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
   
   try {
@@ -141,12 +148,11 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
 };
 
 const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) => {
-  // Track tool calls with their status
-  const [toolCalls, setToolCalls] = useState<Map<string, ToolCallState>>(new Map());
-  // Track which call IDs this component instance is responsible for
-  const [ownedCallIds, setOwnedCallIds] = useState<Set<string>>(new Set());
+  // Track which call IDs this component instance registered in the cache
+  const registeredIdsRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
+  // Compute owned call IDs based on current message (memoized)
+  const ownedCallIds = useMemo(() => {
     const currentOwnedIds = new Set<string>();
     if (isToolCallRequestMessage(currentMessage)) {
       const requests = extractToolCallRequests(currentMessage);
@@ -157,22 +163,25 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         }
       }
     }
-    setOwnedCallIds(currentOwnedIds);
+    return currentOwnedIds;
+  }, [currentMessage]);
+
+  // Update ref and handle cleanup
+  useEffect(() => {
+    // Store current owned IDs for cleanup
+    registeredIdsRef.current = ownedCallIds;
 
     return () => {
-      currentOwnedIds.forEach(id => {
+      registeredIdsRef.current.forEach(id => {
         toolCallCache.delete(id);
       });
     };
-  }, [currentMessage]);
+  }, [ownedCallIds]);
 
-  useEffect(() => {
+  // Compute tool calls based on all messages and owned IDs (memoized)
+  const toolCalls = useMemo(() => {
     if (ownedCallIds.size === 0) {
-      // If the component doesn't own any call IDs, ensure toolCalls is empty and return.
-      if (toolCalls.size > 0) {
-        setToolCalls(new Map());
-      }
-      return;
+      return new Map<string, ToolCallState>();
     }
 
     const newToolCalls = new Map<string, ToolCallState>();
@@ -234,25 +243,9 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         }
       });
     }
-    
-    // Only update state if there's a change, to prevent unnecessary re-renders.
-    // This is a shallow comparison, but sufficient for this case.
-    let changed = newToolCalls.size !== toolCalls.size;
-    if (!changed) {
-      for (const [key, value] of newToolCalls) {
-        const oldVal = toolCalls.get(key);
-        if (!oldVal || oldVal.status !== value.status || oldVal.result?.content !== value.result?.content) {
-          changed = true;
-          break;
-        }
-      }
-    }
 
-    if (changed) {
-        setToolCalls(newToolCalls);
-    }
-
-  }, [allMessages, ownedCallIds, toolCalls]);
+    return newToolCalls;
+  }, [allMessages, ownedCallIds]);
 
   // If no tool calls to display for this message, return null
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
@@ -261,13 +254,23 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
   return (
     <div className="space-y-2">
       {currentDisplayableCalls.map(toolCall => (
-        <ToolDisplay
-          key={toolCall.id}
-          call={toolCall.call}
-          result={toolCall.result}
-          status={toolCall.status}
-          isError={toolCall.result?.is_error}
-        />
+        isAgentToolName(toolCall.call.name) ? (
+          <AgentCallDisplay
+            key={toolCall.id}
+            call={toolCall.call}
+            result={toolCall.result}
+            status={toolCall.status}
+            isError={toolCall.result?.is_error}
+          />
+        ) : (
+          <ToolDisplay
+            key={toolCall.id}
+            call={toolCall.call}
+            result={toolCall.result}
+            status={toolCall.status}
+            isError={toolCall.result?.is_error}
+          />
+        )
       ))}
     </div>
   );

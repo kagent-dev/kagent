@@ -34,6 +34,8 @@ export interface Provider {
   type: string;
   requiredParams: string[];
   optionalParams: string[];
+  source?: 'stock' | 'configured'; // Distinguishes between stock and configured providers
+  endpoint?: string; // Only present for configured providers
 }
 
 export type ProviderModel = {
@@ -43,6 +45,19 @@ export type ProviderModel = {
 
 // Define the type for the expected API response structure
 export type ProviderModelsResponse = Record<string, ProviderModel[]>;
+
+// ConfiguredModelProvider is the response from /api/modelproviderconfigs/configured
+export interface ConfiguredModelProvider {
+  name: string;
+  type: string;
+  endpoint: string;
+}
+
+// ConfiguredModelProviderModelsResponse is the response from /api/modelproviderconfigs/configured/{name}/models
+export interface ConfiguredModelProviderModelsResponse {
+  provider: string;
+  models: string[];
+}
 
 // Export OpenAIConfigPayload
 export interface OpenAIConfigPayload {
@@ -56,6 +71,7 @@ export interface OpenAIConfigPayload {
   seed?: number;
   n?: number;
   timeout?: number;
+  reasoningEffort?: string;
 }
 
 export interface AnthropicConfigPayload {
@@ -107,7 +123,7 @@ export interface AnthropicVertexAIConfigPayload {
   topK?: number;
 }
 
-export interface CreateModelConfigPayload {
+export interface CreateModelConfigRequest {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
   model: string;
@@ -132,35 +148,6 @@ export interface UpdateModelConfigPayload {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
-}
-
-export interface MemoryResponse {
-  ref: string;
-  providerName: string;
-  apiKeySecretRef: string;
-  apiKeySecretKey: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  memoryParams?: Record<string, any>;
-}
-
-export interface PineconeConfigPayload {
-  indexHost: string;
-  topK?: number;
-  namespace?: string;
-  recordFields?: string[];
-  scoreThreshold?: string;
-}
-
-export interface CreateMemoryRequest {
-  ref: string;
-  provider: Pick<Provider, "type">;
-  apiKey: string;
-  pinecone?: PineconeConfigPayload;
-}
-
-export interface UpdateMemoryRequest {
-  ref: string;
-  pinecone?: PineconeConfigPayload;
 }
 
 /**
@@ -214,6 +201,7 @@ export interface ToolsResponse {
   updated_at: string;
   deleted_at: string;
   description: string;
+  group_kind: string;
 }
 
 
@@ -227,32 +215,88 @@ export type ToolProviderType = "McpServer" | "Agent"
 export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
-  agent?: AgentTool;
+  agent?: TypedLocalReference;
 }
 
-export interface AgentTool {
-  ref: string;
-}
-
-export interface McpServerTool {
+export interface TypedLocalReference {
+  kind?: string;
+  apiGroup?: string;
   name: string;
-  apiGroup: string;
-  kind: string
+  namespace?: string;
+}
+
+export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
 }
 
-export interface AgentResourceSpec {
+export type AgentType = "Declarative" | "BYO";
+
+export interface SkillForAgent {
+  insecureSkipVerify?: boolean;
+  refs?: string[];
+}
+
+export interface AgentSpec {
+  type: AgentType;
+  declarative?: DeclarativeAgentSpec;
+  byo?: BYOAgentSpec;
   description: string;
+  skills?: SkillForAgent;
+  memory?: MemorySpec;
+}
+
+export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource
   modelConfig: string;
-  memory?: string[];
   stream?: boolean;
+  a2aConfig?: A2AConfig;
 }
+
+export interface MemorySpec {
+  modelConfig: string;
+  ttlDays?: number;
+}
+
+export interface BYOAgentSpec {
+  deployment: BYODeploymentSpec;
+}
+
+export interface BYODeploymentSpec {
+  image: string;
+  cmd?: string;
+  args?: string[];
+
+  // Items from the SharedDeploymentSpec
+  replicas?: number;
+  imagePullSecrets?: Array<{ name: string }>;
+  volumes?: unknown[];
+  volumeMounts?: unknown[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  env?: EnvVar[];
+  imagePullPolicy?: string;
+}
+
+export interface A2AConfig {
+  skills: AgentSkill[];
+}
+
+export interface AgentSkill {
+  id: string
+  name: string;
+  description?: string;
+  tags: string[];
+  examples: string[];
+  inputModes: string[];
+  outputModes: string[];
+}
+
+
 export interface Agent {
   metadata: ResourceMetadata;
-  spec: AgentResourceSpec;
+  spec: AgentSpec;
 }
 
 export interface AgentResponse {
@@ -261,13 +305,30 @@ export interface AgentResponse {
   model: string;
   modelProvider: string;
   modelConfigRef: string;
-  memoryRefs: string[];
   tools: Tool[];
+  deploymentReady: boolean;
+  accepted: boolean;
 }
 
 export interface RemoteMCPServer {
   metadata: ResourceMetadata;
   spec: RemoteMCPServerSpec;
+}
+
+export interface SecretKeySelector {
+  name: string;
+  key: string;
+  optional?: boolean;
+}
+
+export interface EnvVarSource {
+  secretKeyRef?: SecretKeySelector;
+}
+
+export interface EnvVar {
+  name: string;
+  value?: string;
+  valueFrom?: EnvVarSource;
 }
 
 export interface ValueSource {
@@ -353,4 +414,12 @@ export interface ToolServerCreateRequest {
 export interface DiscoveredTool {
   name: string;
   description: string;
+}
+
+export interface AgentMemory {
+  id: string;
+  content: string;
+  access_count: number;
+  created_at: string;
+  expires_at?: string;
 }

@@ -18,9 +18,10 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
      go mod download
 
 # Copy the go source
+COPY api api
+COPY cmd cmd
 COPY pkg pkg
 COPY internal internal
-COPY controller controller
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
@@ -30,12 +31,13 @@ ARG LDFLAGS
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     --mount=type=cache,target=/root/.cache/go-build,rw        \
     echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager controller/cmd/main.go
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager cmd/controller/main.go
 
 ### STAGE 2: final image
-# Use distroless as minimal base image to package the manager binary
+# Use distroless/cc-debian12 which includes C/C++ runtime libraries
+# This is required for turso-go's purego library loading
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot
 ARG TARGETPLATFORM
 
 WORKDIR /

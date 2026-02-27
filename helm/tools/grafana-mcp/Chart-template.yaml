@@ -1,0 +1,5 @@
+apiVersion: v2
+name: grafana-mcp
+description: MCP server for grafana
+type: application
+version: ${VERSION}

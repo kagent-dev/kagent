@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,7 +24,7 @@ type ErrorResponseWriter interface {
 	Flush()
 }
 
-func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+func RespondWithJSON(w http.ResponseWriter, code int, payload any) {
 	log := ctrllog.Log.WithName("http-helpers")
 
 	response, err := json.Marshal(payload)
@@ -34,7 +36,7 @@ func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write(response)
+	w.Write(response) //nolint:errcheck
 
 	log.V(2).Info("Sent JSON response", "statusCode", code, "responseSize", len(response))
 }
@@ -47,16 +49,46 @@ func RespondWithError(w http.ResponseWriter, code int, message string) {
 }
 
 func GetUserID(r *http.Request) (string, error) {
-	log := ctrllog.Log.WithName("http-helpers")
+	p, err := GetPrincipal(r)
+	return p.User.ID, err
+}
 
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		log.Info("Missing user_id parameter in request")
-		return "", fmt.Errorf("user_id is required")
+func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *errors.APIError {
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return errors.NewBadRequestError("Failed to get user ID", err)
+	}
+	var verb auth.Verb
+	switch r.Method {
+	case http.MethodGet:
+		verb = auth.VerbGet
+	case http.MethodPost:
+		verb = auth.VerbCreate
+	case http.MethodPut:
+		verb = auth.VerbUpdate
+	case http.MethodDelete:
+		verb = auth.VerbDelete
+	default:
+		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
 	}
 
-	log.V(2).Info("Retrieved user_id from request", "userID", userID)
-	return userID, nil
+	err = authorizer.Check(r.Context(), principal, verb, res)
+	if err != nil {
+		return errors.NewForbiddenError("Not authorized", err)
+	}
+	return nil
+}
+
+func GetPrincipal(r *http.Request) (auth.Principal, error) {
+	log := ctrllog.Log.WithName("http-helpers")
+
+	s, ok := auth.AuthSessionFrom(r.Context())
+	if !ok || s == nil {
+		log.Info("No session found in request context")
+		return auth.Principal{}, fmt.Errorf("no session found")
+	}
+	log.V(2).Info("Retrieved session from request", "userID", s.Principal().User)
+	return s.Principal(), nil
 }
 
 // GetPathParam gets a path parameter from the request
@@ -94,7 +126,7 @@ func GetIntPathParam(r *http.Request, name string) (int, error) {
 }
 
 // DecodeJSONBody decodes a JSON request body into the provided struct
-func DecodeJSONBody(r *http.Request, target interface{}) error {
+func DecodeJSONBody(r *http.Request, target any) error {
 	log := ctrllog.Log.WithName("http-helpers")
 
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
@@ -109,7 +141,7 @@ func DecodeJSONBody(r *http.Request, target interface{}) error {
 
 // flattenStructToMap uses reflection to add fields of a struct to a map,
 // using json tags as keys.
-func FlattenStructToMap(data interface{}, targetMap map[string]interface{}) {
+func FlattenStructToMap(data any, targetMap map[string]any) {
 	val := reflect.ValueOf(data)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()

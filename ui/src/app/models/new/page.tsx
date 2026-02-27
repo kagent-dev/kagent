@@ -6,20 +6,24 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { getModelConfig, createModelConfig, updateModelConfig } from "@/app/actions/modelConfigs";
+import { useAgents } from "@/components/AgentsProvider";
 import type {
-    CreateModelConfigPayload,
+    CreateModelConfigRequest,
     UpdateModelConfigPayload,
     Provider,
     OpenAIConfigPayload,
     AzureOpenAIConfigPayload,
     AnthropicConfigPayload,
     OllamaConfigPayload,
-    ProviderModelsResponse
+    ProviderModelsResponse,
+    GeminiConfigPayload,
+    GeminiVertexAIConfigPayload,
+    AnthropicVertexAIConfigPayload
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
 import { OLLAMA_DEFAULT_TAG } from "@/lib/constants"
-import { getSupportedModelProviders } from "@/app/actions/providers";
+import { getSupportedModelProviders, getConfiguredProviders, getConfiguredProviderModels } from "@/app/actions/providers";
 import { getModels } from "@/app/actions/models";
 import { isValidProviderInfoKey, getProviderFormKey, ModelProviderKey, BackendModelProviderType } from "@/lib/providers";
 import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
@@ -41,8 +45,6 @@ interface ModelParam {
   key: string;
   value: string;
 }
-
-// Helper function to process parameters before submission
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
@@ -100,6 +102,7 @@ const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelP
 function ModelPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refreshModels } = useAgents();
 
   const isEditMode = searchParams.get("edit") === "true";
   const modelConfigName = searchParams.get("name");
@@ -125,6 +128,7 @@ function ModelPageContent() {
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -133,17 +137,35 @@ function ModelPageContent() {
       setLoadingError(null);
       setIsLoading(true);
       try {
-        const [providersResponse, modelsResponse] = await Promise.all([
+        const [stockProvidersResponse, configuredProvidersResponse, modelsResponse] = await Promise.all([
           getSupportedModelProviders(),
+          getConfiguredProviders(),
           getModels()
         ]);
 
         if (!isMounted) return;
-        if (!providersResponse.error && providersResponse.data) {
-          setProviders(providersResponse.data);
-        } else {
-          throw new Error(providersResponse.error || "Failed to fetch supported providers");
-        }
+
+        // Merge stock and configured providers
+        const stockProviders: Provider[] = (stockProvidersResponse.data || []).map(p => ({
+          ...p,
+          source: 'stock' as const
+        }));
+
+        const configuredProviders: Provider[] = (configuredProvidersResponse.data || []).map(cp => {
+          // Find the stock provider with the same type to get its params
+          const stockProvider = stockProviders.find(sp => sp.type === cp.type);
+          return {
+            name: cp.name,
+            type: cp.type,
+            requiredParams: stockProvider?.requiredParams || [],
+            optionalParams: stockProvider?.optionalParams || [],
+            source: 'configured' as const,
+            endpoint: cp.endpoint
+          };
+        });
+
+        const allProviders = [...stockProviders, ...configuredProviders];
+        setProviders(allProviders);
 
         if (!modelsResponse.error && modelsResponse.data) {
           setProviderModelsData(modelsResponse.data);
@@ -167,14 +189,14 @@ function ModelPageContent() {
     };
     fetchData();
     return () => { isMounted = false; };
-  }, []);
+  }, [isEditMode]);
 
   useEffect(() => {
     let isMounted = true;
     const fetchModelData = async () => {
       if (isEditMode && modelConfigName && providers.length > 0 && providerModelsData) {
         try {
-          if (!isLoading) setIsLoading(true);
+          setIsLoading(true);
           const response = await getModelConfig(
             k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName)
           );
@@ -251,12 +273,74 @@ function ModelPageContent() {
     };
     fetchModelData();
     return () => { isMounted = false; };
-  }, [isEditMode, modelConfigName, providers, providerModelsData]);
+  }, [isEditMode, modelConfigName, providers, providerModelsData, modelConfigNamespace]);
+
+  // Auto-fetch models when provider is selected and models are not available
+  useEffect(() => {
+    let isMounted = true;
+    const fetchProviderModels = async () => {
+      if (!selectedProvider || isEditMode) return;
+
+      const providerKey = getProviderFormKey(selectedProvider.type as BackendModelProviderType);
+      if (!providerKey) return;
+
+      // Check if models are already available for this provider
+      const hasModels = providerModelsData?.[providerKey] && providerModelsData[providerKey].length > 0;
+      if (hasModels) return;
+
+      try {
+        if (selectedProvider.source === 'configured') {
+          // Fetch models for configured provider
+          const response = await getConfiguredProviderModels(selectedProvider.name, false);
+
+          if (!isMounted) return;
+
+          if (response.error || !response.data) {
+            console.error(`Failed to fetch models for ${selectedProvider.name}:`, response.error);
+            return;
+          }
+
+          const models = response.data.models.map(modelName => ({
+            name: modelName,
+            function_calling: true
+          }));
+
+          setProviderModelsData(prev => ({
+            ...prev,
+            [providerKey]: models
+          }));
+        } else {
+          // Fetch all stock models if stock provider is selected and models are missing
+          const response = await getModels();
+
+          if (!isMounted) return;
+
+          if (response.error || !response.data) {
+            console.error('Failed to fetch stock models:', response.error);
+            return;
+          }
+
+          setProviderModelsData(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching provider models:', error);
+      }
+    };
+
+    fetchProviderModels();
+    return () => { isMounted = false; };
+  }, [selectedProvider, isEditMode, providerModelsData]);
 
   useEffect(() => {
     if (selectedProvider) {
       const requiredKeys = selectedProvider.requiredParams || [];
-      const optionalKeys = selectedProvider.optionalParams || [];
+      let optionalKeys = [...(selectedProvider.optionalParams || [])];
+
+      // Add baseUrl to optional params for providers that support it
+      const providersWithBaseUrl = ['OpenAI', 'Anthropic', 'Gemini'];
+      if (providersWithBaseUrl.includes(selectedProvider.type) && !optionalKeys.includes('baseUrl')) {
+        optionalKeys = ['baseUrl', ...optionalKeys];
+      }
 
       const currentModelRequiresReset = !isEditMode;
 
@@ -302,7 +386,7 @@ function ModelPageContent() {
         }
       }
     }
-  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag]);
+  }, [selectedCombinedModel, isEditMode, isEditingName, modelTag, selectedProvider]);
 
   useEffect(() => {
     if (!isApiKeyNeeded) {
@@ -311,7 +395,19 @@ function ModelPageContent() {
         setErrors(prev => ({ ...prev, apiKey: undefined }));
       }
     }
-  }, [isApiKeyNeeded]);
+  }, [isApiKeyNeeded, errors.apiKey]);
+
+  // Auto-select provider on page load (create mode only)
+  // Default: select stock OpenAI provider
+  useEffect(() => {
+    if (!isEditMode && providers.length > 0 && !selectedProvider) {
+      const openAIProvider = providers.find(p => p.type === 'OpenAI' && p.source === 'stock');
+      if (openAIProvider) {
+        setSelectedProvider(openAIProvider);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode]); // Only run when isEditMode changes (initial mount)
 
   const validateForm = () => {
     const newErrors: ValidationErrors = { requiredParams: {} };
@@ -382,6 +478,51 @@ function ModelPageContent() {
     }
   };
 
+  const handleFetchModels = async () => {
+    setIsFetchingModels(true);
+    try {
+      // If a configured provider is selected, fetch its models specifically
+      if (selectedProvider?.source === 'configured') {
+        const response = await getConfiguredProviderModels(selectedProvider.name, true);
+
+        if (response.error || !response.data) {
+          throw new Error(response.error || `Failed to fetch models for ${selectedProvider.name}`);
+        }
+
+        // Convert configured provider models to the expected format
+        const providerKey = getProviderFormKey(selectedProvider.type as BackendModelProviderType);
+        if (providerKey) {
+          const models = response.data.models.map(modelName => ({
+            name: modelName,
+            function_calling: true // Assume function calling for configured providers
+          }));
+
+          setProviderModelsData(prev => ({
+            ...prev,
+            [providerKey]: models
+          }));
+        }
+
+        toast.success(`Models fetched for ${selectedProvider.name}`);
+      } else {
+        // Fetch stock models
+        const response = await getModels();
+
+        if (response.error || !response.data) {
+          throw new Error(response.error || "Failed to fetch models");
+        }
+
+        setProviderModelsData(response.data);
+        toast.success("Models refreshed successfully");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to fetch models";
+      toast.error(errorMessage);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedCombinedModel) {
       setErrors(prev => ({...prev, selectedCombinedModel: "Provider and Model selection is required"}));
@@ -416,7 +557,7 @@ function ModelPageContent() {
       }
     }
 
-    const payload: CreateModelConfigPayload = {
+    const payload: CreateModelConfigRequest = {
       ref: k8sRefUtils.toRef(namespace, name),
       provider: {
         name: finalSelectedProvider.name,
@@ -441,6 +582,15 @@ function ModelPageContent() {
         break;
       case 'Ollama':
         payload.ollama = providerParams as OllamaConfigPayload;
+        break;
+      case 'Gemini':
+        payload.gemini = providerParams as GeminiConfigPayload;
+        break;
+      case 'GeminiVertexAI':
+        payload.geminiVertexAI = providerParams as GeminiVertexAIConfigPayload;
+        break;
+      case 'AnthropicVertexAI':
+        payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
         break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
@@ -469,6 +619,7 @@ function ModelPageContent() {
 
       if (!response.error) {
         toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
+        await refreshModels();
         router.push("/models");
       } else {
         throw new Error(response.error || "Failed to save model configuration");
@@ -520,11 +671,25 @@ function ModelPageContent() {
             selectedCombinedModel={selectedCombinedModel}
             onModelChange={(comboboxValue, providerKey, modelName, functionCalling) => {
               setSelectedCombinedModel(comboboxValue);
-              const prov = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
-              setSelectedProvider(prov || null);
               setSelectedModelSupportsFunctionCalling(functionCalling);
               if (errors.selectedCombinedModel) {
                 setErrors(prev => ({ ...prev, selectedCombinedModel: undefined }));
+              }
+            }}
+            onProviderChange={(provider) => {
+              setSelectedProvider(provider);
+
+              // Clear models for this provider type when switching providers
+              // This prevents showing wrong models when switching between providers with the same type
+              // (e.g., stock OpenAI vs configured ai-gateway-openai)
+              const providerKey = getProviderFormKey(provider.type as BackendModelProviderType);
+              if (providerKey && providerModelsData?.[providerKey]) {
+                setProviderModelsData(prev => {
+                  if (!prev) return prev;
+                  const newData = { ...prev };
+                  delete newData[providerKey];
+                  return newData;
+                });
               }
             }}
             selectedProvider={selectedProvider}
@@ -533,6 +698,8 @@ function ModelPageContent() {
             isEditMode={isEditMode}
             modelTag={modelTag}
             onModelTagChange={setModelTag}
+            onFetchModels={handleFetchModels}
+            isFetchingModels={isFetchingModels}
           />
 
           <AuthSection

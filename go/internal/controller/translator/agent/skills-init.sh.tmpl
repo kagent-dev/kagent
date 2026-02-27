@@ -1,0 +1,62 @@
+set -e
+{{- if .AuthMountPath }}
+_auth_mount="$(cat <<'ENDVAL'
+{{ .AuthMountPath }}
+ENDVAL
+)"
+if [ -f "${_auth_mount}/ssh-privatekey" ]; then
+  mkdir -p ~/.ssh
+  cp "${_auth_mount}/ssh-privatekey" ~/.ssh/id_rsa
+  chmod 600 ~/.ssh/id_rsa
+  ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts
+elif [ -f "${_auth_mount}/token" ]; then
+  git config --global credential.helper "!f() { echo username=x-access-token; echo password=\$(cat ${_auth_mount}/token); }; f"
+fi
+{{- end }}
+{{- range .GitRefs }}
+_url="$(cat <<'ENDVAL'
+{{ .URL }}
+ENDVAL
+)"
+_ref="$(cat <<'ENDVAL'
+{{ .Ref }}
+ENDVAL
+)"
+_dest="$(cat <<'ENDVAL'
+{{ .Dest }}
+ENDVAL
+)"
+{{- if .IsCommit }}
+echo "Cloning ${_url} (commit ${_ref}) into ${_dest}"
+git clone -- "$_url" "$_dest"
+cd "$_dest" && git checkout "$_ref"
+{{- else }}
+echo "Cloning ${_url} (ref ${_ref}) into ${_dest}"
+git clone --depth 1 --branch "$_ref" -- "$_url" "$_dest"
+{{- end }}
+{{- if .SubPath }}
+_subpath="$(cat <<'ENDVAL'
+{{ .SubPath }}
+ENDVAL
+)"
+_tmp="$(mktemp -d)"
+cp -a "${_dest}/${_subpath}/." "$_tmp/"
+rm -rf "$_dest"
+mv "$_tmp" "$_dest"
+{{- end }}
+{{- end }}
+{{- range .OCIRefs }}
+_image="$(cat <<'ENDVAL'
+{{ .Image }}
+ENDVAL
+)"
+_dest="$(cat <<'ENDVAL'
+{{ .Dest }}
+ENDVAL
+)"
+echo "Exporting OCI image ${_image} into ${_dest}"
+krane export{{ if $.InsecureOCI }} --insecure{{ end }} "$_image" '/tmp/oci-skill.tar'
+mkdir -p "$_dest"
+tar xf '/tmp/oci-skill.tar' -C "$_dest"
+rm -f '/tmp/oci-skill.tar'
+{{- end }}

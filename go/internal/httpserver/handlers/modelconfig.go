@@ -7,12 +7,14 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -31,6 +33,10 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("modelconfig-handler").WithValues("operation", "list")
 	log.Info("Listing ModelConfigs")
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	modelConfigs := &v1alpha2.ModelConfigList{}
 	if err := h.KubeClient.List(r.Context(), modelConfigs); err != nil {
@@ -40,7 +46,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 
 	configs := make([]api.ModelConfigResponse, 0)
 	for _, config := range modelConfigs.Items {
-		modelParams := make(map[string]interface{})
+		modelParams := make(map[string]any)
 
 		if config.Spec.OpenAI != nil {
 			FlattenStructToMap(config.Spec.OpenAI, modelParams)
@@ -62,6 +68,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			APIKeySecret:    config.Spec.APIKeySecret,
 			APIKeySecretKey: config.Spec.APIKeySecretKey,
 			ModelParams:     modelParams,
+			TLS:             config.Spec.TLS,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -95,6 +102,11 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		"configName", configName,
 	)
 
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
 	log.V(1).Info("Checking if ModelConfig exists")
 	modelConfig := &v1alpha2.ModelConfig{}
 
@@ -107,7 +119,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		modelConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return
@@ -118,7 +130,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	log.V(1).Info("Constructing response object")
-	modelParams := make(map[string]interface{})
+	modelParams := make(map[string]any)
 	if modelConfig.Spec.OpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.OpenAI, modelParams)
 	}
@@ -139,6 +151,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		ModelParams:     modelParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.Info("Successfully retrieved and formatted ModelConfig")
@@ -197,22 +210,23 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		"provider", req.Provider.Type,
 		"model", req.Model,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: modelConfigRef.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig already exists")
 	existingConfig := &v1alpha2.ModelConfig{}
 	err = h.KubeClient.Get(
 		r.Context(),
-		client.ObjectKey{
-			Namespace: modelConfigRef.Namespace,
-			Name:      modelConfigRef.Name,
-		},
+		modelConfigRef,
 		existingConfig,
 	)
 	if err == nil {
 		log.Info("ModelConfig already exists")
 		w.RespondWithError(errors.NewConflictError("ModelConfig already exists", nil))
 		return
-	} else if !k8serrors.IsNotFound(err) {
+	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "Failed to check if ModelConfig exists")
 		w.RespondWithError(errors.NewInternalServerError("Failed to check if ModelConfig exists", err))
 		return
@@ -275,6 +289,28 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 			log.V(1).Info("Assigned Ollama params to spec")
 		} else {
 			log.V(1).Info("No Ollama params provided in create.")
+		}
+
+	case v1alpha2.ModelProviderGemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in create.")
+		}
+	case v1alpha2.ModelProviderGeminiVertexAI:
+		if req.GeminiVertexAIParams != nil {
+			modelConfig.Spec.GeminiVertexAI = req.GeminiVertexAIParams
+			log.V(1).Info("Assigned GeminiVertexAI params to spec")
+		} else {
+			log.V(1).Info("No GeminiVertexAI params provided in create.")
+		}
+	case v1alpha2.ModelProviderAnthropicVertexAI:
+		if req.AnthropicVertexAIParams != nil {
+			modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexAIParams
+			log.V(1).Info("Assigned AnthropicVertexAI params to spec")
+		} else {
+			log.V(1).Info("No AnthropicVertexAI params provided in create.")
 		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
@@ -358,6 +394,10 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		"provider", req.Provider.Type,
 		"model", req.Model,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Getting existing ModelConfig")
 	modelConfig := &v1alpha2.ModelConfig{}
@@ -370,7 +410,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		modelConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return
@@ -381,14 +421,17 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	modelConfig.Spec = v1alpha2.ModelConfigSpec{
-		Model:           req.Model,
-		Provider:        v1alpha2.ModelProvider(req.Provider.Type),
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
-		OpenAI:          nil,
-		Anthropic:       nil,
-		AzureOpenAI:     nil,
-		Ollama:          nil,
+		Model:             req.Model,
+		Provider:          v1alpha2.ModelProvider(req.Provider.Type),
+		APIKeySecret:      modelConfig.Spec.APIKeySecret,
+		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
+		OpenAI:            nil,
+		Anthropic:         nil,
+		AzureOpenAI:       nil,
+		Ollama:            nil,
+		Gemini:            nil,
+		GeminiVertexAI:    nil,
+		AnthropicVertexAI: nil,
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
@@ -447,6 +490,27 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in update.")
 		}
+	case v1alpha2.ModelProviderGemini:
+		if req.GeminiParams != nil {
+			modelConfig.Spec.Gemini = req.GeminiParams
+			log.V(1).Info("Assigned updated Gemini params to spec")
+		} else {
+			log.V(1).Info("No Gemini params provided in update.")
+		}
+	case v1alpha2.ModelProviderGeminiVertexAI:
+		if req.GeminiVertexAIParams != nil {
+			modelConfig.Spec.GeminiVertexAI = req.GeminiVertexAIParams
+			log.V(1).Info("Assigned updated GeminiVertexAI params to spec")
+		} else {
+			log.V(1).Info("No GeminiVertexAI params provided in update.")
+		}
+	case v1alpha2.ModelProviderAnthropicVertexAI:
+		if req.AnthropicVertexAIParams != nil {
+			modelConfig.Spec.AnthropicVertexAI = req.AnthropicVertexAIParams
+			log.V(1).Info("Assigned updated AnthropicVertexAI params to spec")
+		} else {
+			log.V(1).Info("No AnthropicVertexAI params provided in update.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -463,7 +527,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	updatedParams := make(map[string]interface{})
+	updatedParams := make(map[string]any)
 	if modelConfig.Spec.OpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
 	} else if modelConfig.Spec.Anthropic != nil {
@@ -481,6 +545,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.V(1).Info("Successfully updated ModelConfig")
@@ -511,6 +576,10 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		"configNamespace", namespace,
 		"configName", configName,
 	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ModelConfig", Name: types.NamespacedName{Namespace: namespace, Name: configName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig exists")
 	existingConfig := &v1alpha2.ModelConfig{}
@@ -523,7 +592,7 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		existingConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return

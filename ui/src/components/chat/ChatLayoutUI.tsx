@@ -38,34 +38,35 @@ export default function ChatLayoutUI({
           description: tool.description,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          deleted_at: ""
+          deleted_at: "",
+          group_kind: server.groupKind
         });
       });
     });
     return tools;
   }, [allTools]);
 
-  const refreshSessions = async () => {
-    setIsLoadingSessions(true);
-    try {
-      const sessionsResponse = await getSessionsForAgent(namespace, agentName);
-      if (!sessionsResponse.error && sessionsResponse.data) {
-        setSessions(sessionsResponse.data);
-      } else {
-        console.log(`No sessions found for agent ${agentName}`);
-        setSessions([]);
-      }
-    } catch (error) {
-      toast.error(`Failed to load sessions: ${error}`);
-      setSessions([]);
-    } finally {
-      setIsLoadingSessions(false);
-    }
-  };
-
+  
   useEffect(() => {
+    const refreshSessions = async () => {
+      setIsLoadingSessions(true);
+      try {
+        const sessionsResponse = await getSessionsForAgent(namespace, agentName);
+        if (!sessionsResponse.error && sessionsResponse.data) {
+          setSessions(sessionsResponse.data);
+        } else {
+          console.log(`No sessions found for agent ${agentName}`);
+          setSessions([]);
+        }
+      } catch (error) {
+        toast.error(`Failed to load sessions: ${error}`);
+        setSessions([]);
+      } finally {
+        setIsLoadingSessions(false);
+      }
+    };
     refreshSessions();
-  }, [agentName]);
+  }, [agentName, namespace]);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,7 +89,7 @@ export default function ChatLayoutUI({
     return () => {
       window.removeEventListener('new-session-created', handleNewSession);
     };
-  }, [agentName]);
+  }, [agentName, namespace]);
 
   return (
     <>

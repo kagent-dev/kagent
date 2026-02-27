@@ -3,13 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName, serverNamesMatch } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import type { Tool, AgentResponse, ToolsResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import KagentLogo from "../kagent-logo";
-import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface ToolsSectionProps {
   selectedTools: Tool[];
@@ -17,9 +16,10 @@ interface ToolsSectionProps {
   isSubmitting: boolean;
   onBlur?: () => void;
   currentAgentName: string;
+  currentAgentNamespace: string;
 }
 
-export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName }: ToolsSectionProps) => {
+export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, onBlur, currentAgentName, currentAgentNamespace }: ToolsSectionProps) => {
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
@@ -100,16 +100,22 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           const mcpTool = agentTool as Tool;
           return mcpTool.mcpServer?.toolNames.map((mcpToolName: string) => {
             const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
-            const displayName = mcpToolName;
+            
+            // Show server name with namespace for consistency
+            const serverName = mcpTool.mcpServer?.name || "";
+            const serverNamespace = mcpTool.mcpServer?.namespace || currentAgentNamespace;
+            const serverDisplayName = `${serverNamespace}/${serverName}`;
+            const displayName = `${mcpToolName} (${serverDisplayName})`;
 
             // The tools on agent resource don't have descriptions, so we need to 
             // get the descriptions from the db
             let displayDescription = "Description not available.";
             const toolFromDB = availableTools.find(server => {
-              // The server_name is the full ref, so we need to get the name part of it
-              // as the name from the mcpServer is just a name (no namespace)
-              const { name } = k8sRefUtils.fromRef(server.server_name);
-              return name === mcpTool.mcpServer?.name && server.id === mcpToolName;
+              // Compare server names
+              const serverMatch = serverNamesMatch(server.server_name, mcpTool.mcpServer?.name || "");
+              // also check if the tool ID matches
+              const toolIdMatch = server.id === mcpToolName;
+              return serverMatch && toolIdMatch;
             });
 
             if (toolFromDB) {
@@ -143,7 +149,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
             );
           });
         } else {
-          const displayName = getToolDisplayName(agentTool);
+          const displayName = getToolDisplayName(agentTool, currentAgentNamespace);
           const displayDescription = getToolDescription(agentTool, availableTools);
 
           let CurrentIcon: React.ElementType;
@@ -236,6 +242,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         selectedTools={selectedTools}
         onToolsSelected={handleToolSelect}
         loadingAgents={loadingAgents}
+        currentAgentNamespace={currentAgentNamespace}
       />
     </div>
   );

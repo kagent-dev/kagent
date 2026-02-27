@@ -10,6 +10,7 @@ rules:
   resources:
   - agents
   - modelconfigs
+  - modelproviderconfigs
   - toolservers
   - memories
   - remotemcpservers
@@ -21,8 +22,21 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agents/finalizers
+  - modelconfigs/finalizers
+  - modelproviderconfigs/finalizers
+  - toolservers/finalizers
+  - memories/finalizers
+  - remotemcpservers/finalizers
+  - mcpservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kagent.dev
+  resources:
   - agents/status
   - modelconfigs/status
+  - modelproviderconfigs/status
   - toolservers/status
   - memories/status
   - remotemcpservers/status
@@ -93,6 +107,7 @@ rules:
   resources:
   - agents
   - modelconfigs
+  - modelproviderconfigs
   - toolservers
   - memories
   - remotemcpservers
@@ -102,6 +117,18 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - kagent.dev
+  resources:
+  - agents/finalizers
+  - modelconfigs/finalizers
+  - modelproviderconfigs/finalizers
+  - toolservers/finalizers
+  - memories/finalizers
+  - remotemcpservers/finalizers
+  - mcpservers/finalizers
+  verbs:
+  - update
 - apiGroups:
   - ""
   resources:

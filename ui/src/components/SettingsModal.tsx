@@ -28,20 +28,20 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px] bg-[#2A2A2A] text-white border-[#3A3A3A]">
+      <DialogContent className="sm:max-w-[425px] bg-card text-card-foreground border-border">
         <DialogHeader>
-          <DialogTitle className="text-white">Settings</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="userId" className="text-right text-white/70">
+            <Label htmlFor="userId" className="text-right text-muted-foreground">
               User ID
             </Label>
-            <Input id="userId" value={inputValue} onChange={(e) => setInputValue(e.target.value)} className="col-span-3 bg-[#1A1A1A] border-[#3A3A3A] text-white" placeholder="Enter user ID" />
+            <Input id="userId" value={inputValue} onChange={(e) => setInputValue(e.target.value)} className="col-span-3" placeholder="Enter user ID" />
           </div>
         </div>
         <DialogFooter>
-          <Button type="submit" onClick={handleSave} className="bg-white hover:bg-white/90 text-black">
+          <Button type="submit" onClick={handleSave}>
             Save changes
           </Button>
         </DialogFooter>

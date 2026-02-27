@@ -22,7 +22,7 @@ import (
 
     "github.com/kagent-dev/kagent/go/pkg/client"
     "github.com/kagent-dev/kagent/go/pkg/client/api"
-    "github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+    "github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
     metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -115,7 +115,7 @@ request := &client.CreateModelConfigRequest{
     Provider: client.Provider{Type: "OpenAI"},
     Model:    "gpt-4",
     APIKey:   "your-api-key",
-    OpenAIParams: &v1alpha1.OpenAIConfig{
+    OpenAIParams: &v1alpha2.OpenAIConfig{
         Temperature: "0.7",
         MaxTokens:   1000,
     },
@@ -126,7 +126,7 @@ config, err := c.ModelConfig.CreateModelConfig(ctx, request)
 updateReq := &client.UpdateModelConfigRequest{
     Provider: client.Provider{Type: "OpenAI"},
     Model:    "gpt-4-turbo",
-    OpenAIParams: &v1alpha1.OpenAIConfig{
+    OpenAIParams: &v1alpha2.OpenAIConfig{
         Temperature: "0.8",
     },
 }
@@ -171,12 +171,12 @@ runs, err := c.Session.ListSessionRuns(ctx, "session-name", "user123")
 agents, err := c.Agent.ListAgents(ctx, "user123")
 
 // Create a new agent
-agent := &v1alpha1.Agent{
+agent := &v1alpha2.Agent{
     ObjectMeta: metav1.ObjectMeta{
         Name:      "my-agent",
         Namespace: "default",
     },
-    Spec: v1alpha1.AgentSpec{
+    Spec: v1alpha2.AgentSpec{
         Description:   "My agent description",
         SystemMessage: "You are a helpful assistant",
         ModelConfig:   "default/gpt-4-config",
@@ -193,75 +193,6 @@ updatedAgent, err := c.Agent.UpdateAgent(ctx, agent)
 
 // Delete an agent
 err := c.Agent.DeleteAgent(ctx, "default/my-agent")
-```
-
-### Tools
-
-```go
-// List tools for a user
-tools, err := c.Tool.ListTools(ctx, "user123")
-```
-
-### Tool Servers
-
-```go
-// List all tool servers
-toolServers, err := c.ToolServer.ListToolServers(ctx)
-
-// Create a new tool server
-toolServer := &v1alpha1.ToolServer{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "my-tool-server",
-        Namespace: "default",
-    },
-    Spec: v1alpha1.ToolServerSpec{
-        Description: "My tool server",
-        Config: v1alpha1.ToolServerConfig{
-            Stdio: &v1alpha1.StdioMcpServerConfig{
-                Command: "python",
-                Args:    []string{"-m", "my_tool"},
-            },
-        },
-    },
-}
-created, err := c.ToolServer.CreateToolServer(ctx, toolServer)
-
-// Delete a tool server
-err := c.ToolServer.DeleteToolServer(ctx, "namespace", "tool-server-name")
-```
-
-### Memories
-
-```go
-// List all memories
-memories, err := c.Memory.ListMemories(ctx)
-
-// Create a new memory
-memoryReq := &client.CreateMemoryRequest{
-    Ref:      "default/my-memory",
-    Provider: client.Provider{Type: "Pinecone"},
-    APIKey:   "your-pinecone-api-key",
-    PineconeParams: &v1alpha1.PineconeConfig{
-        IndexHost: "my-index.pinecone.io",
-        TopK:      10,
-    },
-}
-memory, err := c.Memory.CreateMemory(ctx, memoryReq)
-
-// Get a specific memory
-memory, err := c.Memory.GetMemory(ctx, "namespace", "memory-name")
-
-// Update a memory
-updateReq := &client.UpdateMemoryRequest{
-    PineconeParams: &v1alpha1.PineconeConfig{
-        IndexHost: "new-index.pinecone.io",
-        TopK:      20,
-    },
-}
-memory, err := c.Memory.UpdateMemory(ctx, "namespace", "memory-name", updateReq)
-
-// Delete a memory
-err := c.Memory.DeleteMemory(ctx, "namespace", "memory-name")
 ```
 
 ### Providers

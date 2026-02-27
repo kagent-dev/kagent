@@ -1,0 +1,39 @@
+operation: translateAgent
+targetObject: anthropic-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: anthropic-secret
+      namespace: test
+    data:
+      api-key: YW50aHJvcGljLWFwaS1rZXk=  # base64 encoded "anthropic-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: anthropic-model
+      namespace: test
+    spec:
+      provider: Anthropic
+      model: claude-3-sonnet-20240229
+      apiKeySecret: anthropic-secret
+      apiKeySecretKey: api-key
+      anthropic:
+        baseURL: "https://api.anthropic.com"
+        temperature: "0.3"
+        maxTokens: 4096
+        topP: "0.9"
+        topK: 40
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: anthropic-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent using Anthropic Claude
+        systemMessage: You are Claude, an AI assistant created by Anthropic.
+        modelConfig: anthropic-model
+        tools: [] 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -72,24 +71,19 @@ func (c *BaseClient) buildURL(path string) string {
 	return c.BaseURL + path
 }
 
-func (c *BaseClient) addUserIDParam(urlStr string, userID string) (string, error) {
+func (c *BaseClient) addUserID(req *http.Request, userID string) {
 	if userID == "" {
-		return urlStr, nil
+		return
 	}
 
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return "", err
-	}
-
+	u := req.URL
 	q := u.Query()
 	q.Set("user_id", userID)
 	u.RawQuery = q.Encode()
-
-	return u.String(), nil
+	req.Header.Set("X-User-ID", userID)
 }
 
-func (c *BaseClient) doRequest(ctx context.Context, method, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) doRequest(ctx context.Context, method, path string, body any, userID string) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -100,17 +94,12 @@ func (c *BaseClient) doRequest(ctx context.Context, method, path string, body in
 	}
 
 	urlStr := c.buildURL(path)
-	if userID != "" {
-		var err error
-		urlStr, err = c.addUserIDParam(urlStr, userID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, reqBody)
 	if err != nil {
 		return nil, err
+	}
+	if userID != "" {
+		c.addUserID(req, userID)
 	}
 
 	if body != nil {
@@ -149,11 +138,11 @@ func (c *BaseClient) Get(ctx context.Context, path string, userID string) (*http
 	return c.doRequest(ctx, http.MethodGet, path, nil, userID)
 }
 
-func (c *BaseClient) Post(ctx context.Context, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) Post(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
 	return c.doRequest(ctx, http.MethodPost, path, body, userID)
 }
 
-func (c *BaseClient) Put(ctx context.Context, path string, body interface{}, userID string) (*http.Response, error) {
+func (c *BaseClient) Put(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
 	return c.doRequest(ctx, http.MethodPut, path, body, userID)
 }
 
@@ -161,7 +150,7 @@ func (c *BaseClient) Delete(ctx context.Context, path string, userID string) (*h
 	return c.doRequest(ctx, http.MethodDelete, path, nil, userID)
 }
 
-func DecodeResponse(resp *http.Response, target interface{}) error {
+func DecodeResponse(resp *http.Response, target any) error {
 	defer resp.Body.Close()
 	return json.NewDecoder(resp.Body).Decode(target)
 }

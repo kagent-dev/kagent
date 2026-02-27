@@ -48,6 +48,7 @@ jobs:
       env:
         DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
         DOCKER_BUILDER: "docker buildx"
+        DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |
         # if workflow_dispatch is used, use the version input
         if [ -n "${{ github.event.inputs.version }}" ]; then
@@ -103,8 +104,22 @@ jobs:
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
         uv sync --all-extras
+        uv version $VERSION --package kagent-core
+        uv build --package kagent-core
         uv version $VERSION --package kagent-adk
         uv build --package kagent-adk
+        uv version $VERSION --package kagent-langgraph
+        uv build --package kagent-langgraph
+        uv version $VERSION --package kagent-crewai
+        uv build --package kagent-crewai
+        uv version $VERSION --package kagent-skills
+        uv build --package kagent-skills
+        uv version $VERSION --package kagent-openai
+        uv build --package kagent-openai
+        uv version $VERSION --package agentsts-adk
+        uv build --package agentsts-adk
+        uv version $VERSION --package agentsts-core
+        uv build --package agentsts-core
         uv publish --token ${{ secrets.PYPI_TOKEN }}
       
   release:
@@ -134,6 +149,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
       with:
+        generate_release_notes: true
         files: |
           go/bin/kagent-*
           kagent-*.tgz

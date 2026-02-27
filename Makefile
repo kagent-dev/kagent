@@ -1,5 +1,5 @@
 # Image configuration
-DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REGISTRY ?= localhost:5001
 BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 HELM_REPO ?= oci://ghcr.io/kagent-dev
@@ -12,32 +12,42 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 
+KUBECONFIG_PERM ?= $(shell \
+  if [ "$$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then \
+    stat -f "%Lp" ~/.kube/config; \
+  else \
+    stat -c "%a" ~/.kube/config; \
+  fi)
+
+
 # Docker buildx configuration
 BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --builder $(BUILDX_BUILDER_NAME) --pull --load --platform linux/$(LOCALARCH)
+DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+
 KIND_CLUSTER_NAME ?= kagent
+KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
+KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+SKILLS_INIT_IMAGE_NAME ?= skills-init
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-
-# Retagged image variables for kind loading; the Helm chart uses these
-RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
-RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
-RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -45,26 +55,56 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
-LDFLAGS := "-X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)      \
-            -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
-            -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)"
+LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/internal/version.Version=$(VERSION)      \
+            -X github.com/$(DOCKER_REPO)/go/internal/version.GitCommit=$(GIT_COMMIT) \
+            -X github.com/$(DOCKER_REPO)/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.8.4
-TOOLS_BUN_VERSION ?= 1.2.19
-TOOLS_NODE_VERSION ?= 22.18.0
+TOOLS_UV_VERSION ?= 0.10.4
+TOOLS_BUN_VERSION ?= 1.3.9
+TOOLS_NODE_VERSION ?= 24.13.0
 TOOLS_PYTHON_VERSION ?= 3.13
-TOOLS_KIND_IMAGE_VERSION ?= 1.33.2
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg LDFLAGS=$(LDFLAGS)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REPO=$(DOCKER_REPO)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
+
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	
+##@ Git
+
+.PHONY: init-git-hooks
+init-git-hooks:  ## Use the tracked version of Git hooks from this repo
+	git config core.hooksPath .githooks
+	echo "Git hooks initialized"
+
+# KMCP 
+KMCP_ENABLED ?= true
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 HELM_ACTION=upgrade --install
 
@@ -80,18 +120,43 @@ print-tools-versions:
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
-# Check if OPENAI_API_KEY is set
-check-openai-key:
-	@if [ -z "$(OPENAI_API_KEY)" ]; then \
-		echo "Error: OPENAI_API_KEY environment variable is not set"; \
-		echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
-		exit 1; \
+# Check if the appropriate API key is set based on the model provider
+check-api-key:
+	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
+		if [ -z "$(OPENAI_API_KEY)" ]; then \
+			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
+			echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "anthropic" ]; then \
+		if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
+			echo "Error: ANTHROPIC_API_KEY environment variable is not set for Anthropic provider"; \
+			echo "Please set it with: export ANTHROPIC_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
+		if [ -z "$(AZUREOPENAI_API_KEY)" ]; then \
+			echo "Error: AZUREOPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
+		if [ -z "$(GOOGLE_API_KEY)" ]; then \
+			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
+			echo "Please set it with: export GOOGLE_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
+		echo "Note: Ollama provider does not require an API key"; \
+	else \
+		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx use $(BUILDX_BUILDER_NAME) || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
@@ -100,16 +165,28 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
+.PHONY: push-test-agent
+push-test-agent: buildx-create build-kagent-adk
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	
+.PHONY: push-test-skill
+push-test-skill: buildx-create
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/test/e2e/testdata/skills/kebab-maker
+
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	docker pull kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) || true
-	kind create cluster --name $(KIND_CLUSTER_NAME) --image kindest/node:v$(TOOLS_KIND_IMAGE_VERSION) --config ./scripts/kind/kind-config.yaml
-	sh ./scripts/kind/setup-metallb.sh
+	bash ./scripts/kind/setup-kind.sh
+	bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
 	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config
+	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl create namespace kagent || true
 	kubectl config set-context --current --namespace kagent || true
 
@@ -137,12 +214,13 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app
+build: buildx-create build-controller build-ui build-app build-skills-init
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
-	@echo "Tools Image: $(TOOLS_IMG)"
+	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
+	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: buildx-create
@@ -162,9 +240,12 @@ build-img-versions:
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
+	@echo kagent-adk=$(KAGENT_ADK_IMG)
 
-.PHONY: push
-push: push-controller push-ui push-app
+.PHONY: lint
+lint:
+	make -C go lint
+	make -C python lint
 
 .PHONY: controller-manifests
 controller-manifests:
@@ -179,24 +260,17 @@ build-controller: buildx-create controller-manifests
 build-ui: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 
+.PHONY: build-kagent-adk
+build-kagent-adk: buildx-create
+		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+
 .PHONY: build-app
-build-app: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(APP_IMG) -f python/Dockerfile ./python
+build-app: buildx-create build-kagent-adk
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 
-.PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images use-kind-cluster
-	docker images | grep $(VERSION) | grep $(DOCKER_REGISTRY) || true
-	echo "Loading docker images into kind cluster $(KIND_CLUSTER_NAME)..."
-	kind get clusters || true
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
-
-.PHONY: retag-docker-images
-retag-docker-images: build
-	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
-	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
-	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
+.PHONY: build-skills-init
+build-skills-init: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -209,6 +283,7 @@ helm-test: helm-version
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key 			| tee tmp/openAI.yaml 		| grep ^kind: | wc -l)
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key 	| tee tmp/anthropic.yaml 	| grep ^kind: | wc -l)
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key		| tee tmp/azureOpenAI.yaml	| grep ^kind: | wc -l)
+	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=gemini       --set providers.gemini.apiKey=your-gemini-api-key 			| tee tmp/gemini.yaml 		| grep ^kind: | wc -l)
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
 
@@ -237,34 +312,30 @@ helm-agents:
 
 .PHONY: helm-tools
 helm-tools:
+	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
 	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents helm-tools
-	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
+	helm dependency update helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
-helm-install-provider: helm-version check-openai-key
-	helm $(HELM_ACTION) kmcp-crds oci://ghcr.io/kagent-dev/kmcp/helm/kmcp-crds \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2    \
-		--timeout 5m 			\
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--version 0.1.2 \
-		--wait
+helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait
+		--wait \
+		--set kmcp.enabled=$(KMCP_ENABLED)
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
@@ -273,22 +344,25 @@ helm-install-provider: helm-version check-openai-key
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
 		--set ui.service.type=LoadBalancer \
-		--set ui.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set ui.image.tag=$(UI_IMAGE_TAG) \
-		--set controller.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
+		--set registry=$(DOCKER_REGISTRY) \
+		--set imagePullPolicy=Always \
+		--set tag=$(VERSION) \
+		--set controller.loglevel=debug \
+		--set controller.image.pullPolicy=Always \
+		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
-		--set engine.image.registry=$(RETAGGED_DOCKER_REGISTRY) \
-		--set engine.image.tag=$(APP_IMAGE_TAG) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
+		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set kmcp.enabled=$(KMCP_ENABLED) \
+		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
-helm-install: kind-load-docker-images
+helm-install: build
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install
@@ -301,7 +375,6 @@ helm-test-install: helm-install-provider
 helm-uninstall:
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
-	helm uninstall kmcp-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
 .PHONY: helm-publish
 helm-publish: helm-version
@@ -318,33 +391,31 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 .PHONY: kagent-cli-install
-kagent-cli-install: use-kind-cluster build-cli-local kind-load-docker-images helm-version
-	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local install
+kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
 	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
-
-.PHONY: docker/push
-docker/push: retag-docker-images
-	docker push $(RETAGGED_UI_IMG)
-	docker push $(RETAGGED_APP_IMG)
-	docker push $(RETAGGED_CONTROLLER_IMG)
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
-	kubectl port-forward -n kagent service/kagent 8081:8081 8082:80 8084:8084
+	kubectl port-forward -n kagent service/kagent-controller 8083:8083
+
+.PHONY: kagent-ui-port-forward
+kagent-ui-port-forward: use-kind-cluster
+	open http://localhost:8082/
+	kubectl port-forward -n kagent service/kagent-ui 8082:8080
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
-	#to test the kagent addons - installing istio, grafana, prometheus, metrics-server
+	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
-	kubectl apply -f contrib/addons/grafana.yaml
-	kubectl apply -f contrib/addons/prometheus.yaml
-	kubectl apply -f contrib/addons/metrics-server.yaml
-	#wait for pods to be ready
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana 	-n kagent --timeout=60s
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
-	#port forward grafana service
-	kubectl port-forward svc/grafana 3000:3000 -n kagent
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
+	# wait for pods to be ready
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
 open-dev-container:

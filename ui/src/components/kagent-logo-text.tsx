@@ -1,14 +1,13 @@
 "use client";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+
+// Helper to detect if we're in browser environment
+const getIsMounted = (): boolean => typeof window !== 'undefined';
 
 export default function KAgentLogoWithText({ className } : { className?: string }) {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [mounted] = useState(getIsMounted);
 
   if (!mounted) {
     return null;

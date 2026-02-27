@@ -1,41 +1,30 @@
-'use server'
+"use server";
 
-import { BaseResponse, MemoryResponse, CreateMemoryRequest, UpdateMemoryRequest } from '@/types'
-import { fetchApi } from './utils'
+import { AgentMemory } from "@/types";
+import { fetchApi } from "./utils";
 
-export async function listMemories(): Promise<MemoryResponse[]> {
-  const data = await fetchApi<BaseResponse<MemoryResponse[]>>('/memories')
-  return data.data || []
+export async function clearAgentMemory(agentName: string, namespace?: string) {
+  try {
+    const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
+    const data = await fetchApi<unknown>(
+      `/memories?agent_name=${encodeURIComponent(fullName)}`,
+      { method: "DELETE" },
+    );
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
-export async function getMemory(ref: string): Promise<MemoryResponse> {
-  const data = await fetchApi<BaseResponse<MemoryResponse>>(`/memories/${ref}`)
-  return data.data || {} as MemoryResponse
+export async function listAgentMemories(agentName: string, namespace?: string) {
+  try {
+    const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
+    const data = await fetchApi<AgentMemory[]>(
+      `/memories?agent_name=${encodeURIComponent(fullName)}`,
+      { method: "GET" },
+    );
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
-
-export async function createMemory(
-  memoryData: CreateMemoryRequest
-): Promise<MemoryResponse> {
-  const data = await fetchApi<BaseResponse<MemoryResponse>>('/memories', {
-    method: 'POST',
-    body: JSON.stringify(memoryData),
-  })
-  return data.data || {} as MemoryResponse
-}
-
-export async function updateMemory(
-  memoryData: UpdateMemoryRequest
-): Promise<MemoryResponse> {
-  const data = await fetchApi<BaseResponse<MemoryResponse>>(`/memories/${memoryData.ref}`, {
-    method: 'PUT',
-    body: JSON.stringify(memoryData),
-  })
-  return data.data || {} as MemoryResponse
-}
-
-
-export async function deleteMemory(ref: string): Promise<void> {
-  await fetchApi<void>(`/memories/${ref}`, {
-    method: 'DELETE',
-  })
-} 

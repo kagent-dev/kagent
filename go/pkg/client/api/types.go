@@ -1,9 +1,9 @@
 package api
 
 import (
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 )
 
 // Common types
@@ -43,35 +43,42 @@ type VersionResponse struct {
 
 // ModelConfigResponse represents a model configuration response
 type ModelConfigResponse struct {
-	Ref             string                 `json:"ref"`
-	ProviderName    string                 `json:"providerName"`
-	Model           string                 `json:"model"`
-	APIKeySecret    string                 `json:"apiKeySecret"`
-	APIKeySecretKey string                 `json:"apiKeySecretKey"`
-	ModelParams     map[string]interface{} `json:"modelParams"`
+	Ref             string              `json:"ref"`
+	ProviderName    string              `json:"providerName"`
+	Model           string              `json:"model"`
+	APIKeySecret    string              `json:"apiKeySecret"`
+	APIKeySecretKey string              `json:"apiKeySecretKey"`
+	ModelParams     map[string]any      `json:"modelParams"`
+	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
 }
 
 // CreateModelConfigRequest represents a request to create a model configuration
 type CreateModelConfigRequest struct {
-	Ref             string                      `json:"ref"`
-	Provider        Provider                    `json:"provider"`
-	Model           string                      `json:"model"`
-	APIKey          string                      `json:"apiKey"`
-	OpenAIParams    *v1alpha2.OpenAIConfig      `json:"openAI,omitempty"`
-	AnthropicParams *v1alpha2.AnthropicConfig   `json:"anthropic,omitempty"`
-	AzureParams     *v1alpha2.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
-	OllamaParams    *v1alpha2.OllamaConfig      `json:"ollama,omitempty"`
+	Ref                     string                            `json:"ref"`
+	Provider                Provider                          `json:"provider"`
+	Model                   string                            `json:"model"`
+	APIKey                  string                            `json:"apiKey"`
+	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
+	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
+	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
+	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
+	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
+	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
+	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
 }
 
 // UpdateModelConfigRequest represents a request to update a model configuration
 type UpdateModelConfigRequest struct {
-	Provider        Provider                    `json:"provider"`
-	Model           string                      `json:"model"`
-	APIKey          *string                     `json:"apiKey,omitempty"`
-	OpenAIParams    *v1alpha2.OpenAIConfig      `json:"openAI,omitempty"`
-	AnthropicParams *v1alpha2.AnthropicConfig   `json:"anthropic,omitempty"`
-	AzureParams     *v1alpha2.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
-	OllamaParams    *v1alpha2.OllamaConfig      `json:"ollama,omitempty"`
+	Provider                Provider                          `json:"provider"`
+	Model                   string                            `json:"model"`
+	APIKey                  *string                           `json:"apiKey,omitempty"`
+	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
+	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
+	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
+	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
+	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
+	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
+	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
 }
 
 // Agent types
@@ -80,11 +87,13 @@ type AgentResponse struct {
 	ID    string          `json:"id"`
 	Agent *v1alpha2.Agent `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider  v1alpha2.ModelProvider `json:"modelProvider"`
-	Model          string                 `json:"model"`
-	ModelConfigRef string                 `json:"modelConfigRef"`
-	MemoryRefs     []string               `json:"memoryRefs"`
-	Tools          []*v1alpha2.Tool       `json:"tools"`
+	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
+	Model           string                 `json:"model"`
+	ModelConfigRef  string                 `json:"modelConfigRef"`
+	MemoryRefs      []string               `json:"memoryRefs"`
+	Tools           []*v1alpha2.Tool       `json:"tools"`
+	DeploymentReady bool                   `json:"deploymentReady"`
+	Accepted        bool                   `json:"accepted"`
 }
 
 // Session types
@@ -93,7 +102,6 @@ type AgentResponse struct {
 type SessionRequest struct {
 	AgentRef *string `json:"agent_ref,omitempty"`
 	Name     *string `json:"name,omitempty"`
-	UserID   string  `json:"user_id"`
 	ID       *string `json:"id,omitempty"`
 }
 
@@ -137,11 +145,11 @@ type ToolServerResponse struct {
 
 // MemoryResponse represents a memory response
 type MemoryResponse struct {
-	Ref             string                 `json:"ref"`
-	ProviderName    string                 `json:"providerName"`
-	APIKeySecretRef string                 `json:"apiKeySecretRef"`
-	APIKeySecretKey string                 `json:"apiKeySecretKey"`
-	MemoryParams    map[string]interface{} `json:"memoryParams"`
+	Ref             string         `json:"ref"`
+	ProviderName    string         `json:"providerName"`
+	APIKeySecretRef string         `json:"apiKeySecretRef"`
+	APIKeySecretKey string         `json:"apiKeySecretKey"`
+	MemoryParams    map[string]any `json:"memoryParams"`
 }
 
 // CreateMemoryRequest represents a request to create a memory
@@ -177,11 +185,11 @@ type ProviderInfo struct {
 
 // SessionRunsResponse represents the response for session runs
 type SessionRunsResponse struct {
-	Status bool        `json:"status"`
-	Data   interface{} `json:"data"`
+	Status bool `json:"status"`
+	Data   any  `json:"data"`
 }
 
 // SessionRunsData represents the data part of session runs response
 type SessionRunsData struct {
-	Runs []interface{} `json:"runs"`
+	Runs []any `json:"runs"`
 }

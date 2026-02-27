@@ -4,17 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Terminal, Globe, Loader2, ChevronDown, ChevronUp, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Terminal, Globe, Loader2, PlusCircle, Trash2, Code, InfoIcon, AlertCircle } from "lucide-react";
 import type { RemoteMCPServer, MCPServer, ToolServerCreateRequest } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { isResourceNameValid } from "@/lib/utils";
+import { createRFC1123ValidName, isResourceNameValid } from "@/lib/utils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Checkbox } from "./ui/checkbox";
 
 interface AddServerDialogProps {
   open: boolean;
+  supportedToolServerTypes: string[];
   onOpenChange: (open: boolean) => void;
   onAddServer: (serverRequest: ToolServerCreateRequest) => void;
   onError?: (error: string) => void;
@@ -29,11 +29,9 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
-  const [activeTab, setActiveTab] = useState<"command" | "url">("command");
+export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
+  const [activeTab, setActiveTab] = useState<"command" | "url">("url");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showAdvancedCommand, setShowAdvancedCommand] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverName, setServerName] = useState("");
   const [userEditedName, setUserEditedName] = useState(false);
@@ -46,64 +44,23 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
   const [argPairs, setArgPairs] = useState<ArgPair[]>([{ value: "" }]);
   const [envPairs, setEnvPairs] = useState<EnvPair[]>([{ key: "", value: "" }]);
   const [commandPreview, setCommandPreview] = useState("");
-  const [stderr, setStderr] = useState("");
-  const [cwd, setCwd] = useState("");
+  
 
   // SseServer parameters
   const [url, setUrl] = useState("");
   const [headers, setHeaders] = useState("");
   const [timeout, setTimeout] = useState("5s");
   const [sseReadTimeout, setSseReadTimeout] = useState("300s");
-
-  // Clean up package name for server name
-  const cleanPackageName = (pkgName: string): string => {
-    let cleaned = pkgName.trim().replace(/^@[\w-]+\//, "");
-
-    if (cleaned.startsWith("mcp-") && cleaned.length > 4) {
-      cleaned = cleaned.substring(4);
-    }
-
-    // Convert to lowercase
-    cleaned = cleaned.toLowerCase();
-    // Replace spaces and invalid characters with hyphens
-    cleaned = cleaned.replace(/[^a-z0-9.-]/g, "-");
-    // Replace multiple consecutive hyphens with a single hyphen
-    cleaned = cleaned.replace(/-+/g, "-");
-    // Remove hyphens at the beginning and end
-    cleaned = cleaned.replace(/^-+|-+$/g, "");
-    // If the string starts with a dot, prepend an 'a'
-    if (cleaned.startsWith(".")) {
-      cleaned = "a" + cleaned;
-    }
-    
-    // If the string ends with a dot, append an 'a'
-    if (cleaned.endsWith(".")) {
-      cleaned = cleaned + "a";
-    }
-    
-    // Ensure the name starts and ends with an alphanumeric character
-    // If it doesn't start with alphanumeric, prepend 'server-'
-    if (!/^[a-z0-9]/.test(cleaned)) {
-      cleaned = "server-" + cleaned;
-    }
-    
-    // If it doesn't end with alphanumeric, append '-server'
-    if (!/[a-z0-9]$/.test(cleaned)) {
-      cleaned = cleaned + "-server";
-    }
-    
-    // If the string is empty (could happen after all the replacements), use a default name
-    if (!cleaned) {
-      cleaned = "tool-server";
-    }
-    
-    return cleaned;
-  };
+  const [terminateOnClose, setTerminateOnClose] = useState(true);
 
   // Handle server name input changes
   const handleServerNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setServerName(e.target.value);
     setUserEditedName(true);
+  };
+
+  const isToolServerTypeSupported = (type: string): boolean => {
+    return supportedToolServerTypes.includes(type);
   };
 
   // Auto-generate server name when package name or URL changes, but only if user hasn't manually edited the name
@@ -116,7 +73,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     let generatedName = "";
 
     if (activeTab === "command" && packageName.trim()) {
-      generatedName = cleanPackageName(packageName.trim());
+      generatedName = createRFC1123ValidName([packageName.trim()]);
     } else if (activeTab === "url" && url.trim()) {
       try {
         const urlObj = new URL(url.trim());
@@ -215,22 +172,6 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     const updatedPairs = [...envPairs];
     updatedPairs[index][field] = newValue;
     setEnvPairs(updatedPairs);
-  };
-
-  const formatArgs = (): string[] => {
-    const args: string[] = [];
-
-    if (commandPrefix.trim()) {
-      args.push(...commandPrefix.trim().split(/\s+/));
-    }
-
-    if (packageName.trim()) {
-      args.push(packageName.trim());
-    }
-
-    argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => args.push(arg.value.trim()));
-
-    return args;
   };
 
   const formatEnvVars = (): Record<string, string> => {
@@ -354,6 +295,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
             parsedHeaders = JSON.parse(headers);
           } catch (e) {
             setError("Headers must be valid JSON");
+            console.error(`❌ Error parsing headers: ${e}`);
             setIsSubmitting(false);
             return;
           }
@@ -381,10 +323,11 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
             url: url.trim(),
             headersFrom: parsedHeaders ? Object.entries(parsedHeaders).map(([key, value]) => ({
               name: key,
-              value: value
+              value: value as string,
             })) : [],
             timeout: timeoutValue,
             sseReadTimeout: sseReadTimeoutValue,
+            terminateOnClose: terminateOnClose,
           },
         };
 
@@ -415,15 +358,14 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setEnvPairs([{ key: "", value: "" }]);
     setServerName("");
     setUserEditedName(false);
-    setStderr("");
-    setCwd("");
+    
     setUrl("");
     setHeaders("");
     setTimeout("5s");
     setSseReadTimeout("300s");
+    setTerminateOnClose(true);
     setError(null);
-    setShowAdvanced(false);
-    setShowAdvancedCommand(false);
+    
     setCommandPreview("");
   };
 
@@ -459,11 +401,44 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
     setUseStreamableHttp(checked);
   };
 
+  const renderTabTrigger = (
+    value: string,
+    icon: React.ReactNode,
+    label: string,
+    disabled: boolean,
+    tooltip?: string
+  ) => {
+    const trigger = (
+      <TabsTrigger
+        value={value}
+        className="flex items-center gap-2 justify-center w-full"
+        disabled={disabled}
+      >
+        {icon}
+        {label}
+      </TabsTrigger>
+    );
+    return disabled && tooltip ? (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="block w-full">{trigger}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <span>{tooltip}</span>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    ) : (
+      trigger
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
         <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
-          <DialogTitle>Add Tool Server</DialogTitle>
+          <DialogTitle>Add MCP Server</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6">
@@ -528,16 +503,19 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
               />
             </div>
 
-            <Tabs defaultValue="command" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
+            <Tabs defaultValue="url" value={activeTab} onValueChange={(v) => setActiveTab(v as "command" | "url")}>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="command" className="flex items-center gap-2">
-                  <Terminal className="h-4 w-4" />
-                  Command
-                </TabsTrigger>
                 <TabsTrigger value="url" className="flex items-center gap-2">
                   <Globe className="h-4 w-4" />
                   URL
                 </TabsTrigger>
+                {renderTabTrigger(
+                  "command",
+                  <Terminal className="h-4 w-4" />,
+                  "Command",
+                  !isToolServerTypeSupported("MCPServer"),
+                  "KMCP integration disabled: MCPServer CRD not found in cluster."
+                )}
               </TabsList>
 
               <TabsContent value="command" className="pt-4 space-y-4">
@@ -571,21 +549,12 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <Label htmlFor="package-name">Package Name</Label>
-                    <Button variant="ghost" size="sm" onClick={() => setShowAdvancedCommand(!showAdvancedCommand)} className="h-8 px-2 text-xs">
-                      {showAdvancedCommand ? "Hide Advanced" : "Show Advanced"}
-                    </Button>
                   </div>
                   <Input id="package-name" placeholder="E.g. mcp-package" value={packageName} onChange={(e) => setPackageName(e.target.value)} />
                   <p className="text-xs text-muted-foreground">The name of the package to execute</p>
                 </div>
 
-                {showAdvancedCommand && (
-                  <div className="space-y-2 border-l-2 pl-4 ml-2 border-blue-100">
-                    <Label htmlFor="command-prefix">Command Prefix (Optional)</Label>
-                    <Input id="command-prefix" placeholder="E.g., --from git+https://github.com/user/repo" value={commandPrefix} onChange={(e) => setCommandPrefix(e.target.value)} />
-                    <p className="text-xs text-muted-foreground">Additional parameters that go between the executor and package name</p>
-                  </div>
-                )}
+                
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -630,23 +599,7 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   </div>
                 </div>
 
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between p-2">
-                    <span className="font-medium">Advanced Settings</span>
-                    {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="stderr">Stderr Handling</Label>
-                      <Input id="stderr" placeholder="e.g., pipe" value={stderr} onChange={(e) => setStderr(e.target.value)} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="cwd">Working Directory</Label>
-                      <Input id="cwd" placeholder="e.g., /path/to/working/dir" value={cwd} onChange={(e) => setCwd(e.target.value)} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                
               </TabsContent>
 
               <TabsContent value="url" className="pt-4 space-y-4">
@@ -664,28 +617,30 @@ export function AddServerDialog({ open, onOpenChange, onAddServer, onError }: Ad
                   <p className="text-xs text-muted-foreground">Use Streamable HTTP to connect to the MCP server, instead of SSE</p>
                 </div>
 
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="border rounded-md p-2">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between p-2">
-                    <span className="font-medium">Advanced Settings</span>
-                    {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="headers">Headers (JSON)</Label>
-                      <Input id="headers" placeholder='e.g., {"Authorization": "Bearer token"}' value={headers} onChange={(e) => setHeaders(e.target.value)} />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="headers">Headers (JSON)</Label>
+                  <Input id="headers" placeholder='e.g., {"Authorization": "Bearer token"}' value={headers} onChange={(e) => setHeaders(e.target.value)} />
+                </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="timeout">Connection Timeout (seconds)</Label>
-                      <Input id="timeout" type="string" value={timeout} onChange={(e) => setTimeout(e.target.value)} />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="timeout">Connection Timeout (e.g., 30s)</Label>
+                  <Input id="timeout" type="string" value={timeout} onChange={(e) => setTimeout(e.target.value)} />
+                </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="sse-read-timeout">SSE Read Timeout (seconds)</Label>
-                      <Input id="sse-read-timeout" type="string" value={sseReadTimeout} onChange={(e) => setSseReadTimeout(e.target.value)} />
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                {!useStreamableHttp && (
+                  <div className="space-y-2">
+                    <Label htmlFor="sse-read-timeout">SSE Read Timeout (e.g., 60s)</Label>
+                    <Input id="sse-read-timeout" type="string" value={sseReadTimeout} onChange={(e) => setSseReadTimeout(e.target.value)} />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="terminate-on-close" checked={terminateOnClose} onCheckedChange={(checked) => setTerminateOnClose(Boolean(checked))} />
+                    <Label htmlFor="terminate-on-close">Terminate Connection On Close</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">When enabled, the server will terminate connection when the client disconnects</p>
+                </div>
               </TabsContent>
             </Tabs>
           </div>

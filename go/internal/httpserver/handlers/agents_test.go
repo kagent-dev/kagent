@@ -14,13 +14,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/controller/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/adk"
-	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	database_fake "github.com/kagent-dev/kagent/go/internal/database/fake"
+	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 )
 
 // Test fixtures and helper functions
@@ -44,9 +45,20 @@ func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.A
 			Namespace: "default",
 		},
 		Spec: v1alpha2.AgentSpec{
-			ModelConfig: modelConfig.Name,
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				ModelConfig: modelConfig.Name,
+			},
 		},
 	}
+}
+
+func createTestAgentWithStatus(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.Agent {
+	agent := createTestAgent(name, modelConfig)
+	agent.Status = v1alpha2.AgentStatus{
+		Conditions: conditions,
+	}
+	return agent
 }
 
 func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string) {
@@ -55,7 +67,7 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 		WithObjects(objects...).
 		Build()
 
-	userID := common.GetGlobalUserID()
+	userID := "test-user"
 	dbClient := database_fake.NewClient()
 
 	base := &handlers.Base{
@@ -65,6 +77,8 @@ func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string
 			Namespace: "default",
 		},
 		DatabaseService: dbClient,
+		Authorizer:      &auth.NoopAuthorizer{},
+		ProxyURL:        "",
 	}
 
 	return handlers.NewAgentsHandler(base), userID
@@ -75,7 +89,7 @@ func createAgent(client database.Client, agent *v1alpha2.Agent) {
 		Config: &adk.AgentConfig{},
 		ID:     common.GetObjectRef(agent),
 	}
-	client.StoreAgent(dbAgent)
+	client.StoreAgent(dbAgent) //nolint:errcheck
 }
 
 func TestHandleGetAgent(t *testing.T) {
@@ -84,10 +98,11 @@ func TestHandleGetAgent(t *testing.T) {
 		team := createTestAgent("test-team", modelConfig)
 
 		handler, _ := setupTestHandler(team, modelConfig)
-		createAgent(handler.Base.DatabaseService, team)
+		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
@@ -101,6 +116,100 @@ func TestHandleGetAgent(t *testing.T) {
 		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef, w.Body.String())
 		require.Equal(t, "gpt-4", response.Data.Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data.ModelProvider)
+		require.False(t, response.Data.DeploymentReady) // No status conditions, should be false
+	})
+
+	t.Run("gets agent with DeploymentReady=true, Accepted=true", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-ready", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-ready", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-ready"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.True(t, response.Data.DeploymentReady)
+		require.True(t, response.Data.Accepted)
+	})
+
+	t.Run("gets agent with DeploymentReady=false when Ready status is False", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "False", // Status is False
+				Reason: "DeploymentReady",
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-not-ready", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-not-ready", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-not-ready"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.False(t, response.Data.DeploymentReady)
+	})
+
+	t.Run("gets agent with DeploymentReady=false when reason is not DeploymentReady", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DifferentReason", // Different reason
+			},
+		}
+		agent := createTestAgentWithStatus("test-agent-different-reason", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(agent, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-different-reason", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-agent-different-reason"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.False(t, response.Data.DeploymentReady)
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
@@ -108,6 +217,7 @@ func TestHandleGetAgent(t *testing.T) {
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
@@ -116,15 +226,35 @@ func TestHandleGetAgent(t *testing.T) {
 	})
 }
 
-func TestHandleListTeams(t *testing.T) {
-	t.Run("lists teams successfully", func(t *testing.T) {
+func TestHandleListAgents(t *testing.T) {
+	t.Run("lists agents successfully", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
-		team := createTestAgent("test-team", modelConfig)
 
-		handler, _ := setupTestHandler(team, modelConfig)
-		createAgent(handler.Base.DatabaseService, team)
+		// Agent with DeploymentReady=true
+		readyConditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+		}
+		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
+
+		// Agent with DeploymentReady=false
+		notReadyAgent := createTestAgent("not-ready-agent", modelConfig)
+
+		handler, _ := setupTestHandler(readyAgent, notReadyAgent, modelConfig)
+		createAgent(handler.DatabaseService, readyAgent)
+		createAgent(handler.DatabaseService, notReadyAgent)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+
 		w := httptest.NewRecorder()
 
 		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
@@ -134,11 +264,74 @@ func TestHandleListTeams(t *testing.T) {
 		var response api.StandardResponse[[]api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Len(t, response.Data, 1)
-		require.Equal(t, "test-team", response.Data[0].Agent.Name)
+		require.Len(t, response.Data, 2)
+		require.Equal(t, "not-ready-agent", response.Data[0].Agent.Name)
 		require.Equal(t, "default/test-model-config", response.Data[0].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[0].Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[0].ModelProvider)
+		require.Equal(t, false, response.Data[0].DeploymentReady)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, "default/test-model-config", response.Data[1].ModelConfigRef)
+		require.Equal(t, "gpt-4", response.Data[1].Model)
+		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[1].ModelProvider)
+		require.Equal(t, true, response.Data[1].DeploymentReady)
+	})
+
+	t.Run("lists expected agent conditions", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+
+		// Agent with DeploymentReady=true
+		readyConditions := []metav1.Condition{
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+		}
+		invalidConditions := []metav1.Condition{ // an agent's deployment can be ready although it's configuration is invalid
+			{
+				Type:   "Accepted",
+				Status: "False",
+				Reason: "AgentReconcileFailed",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "DeploymentReady",
+			},
+		}
+		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
+		invalidAgent := createTestAgentWithStatus("invalid-agent", modelConfig, invalidConditions)
+
+		handler, _ := setupTestHandler(readyAgent, invalidAgent, modelConfig)
+		createAgent(handler.DatabaseService, readyAgent)
+		createAgent(handler.DatabaseService, invalidAgent)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// both agents are returned with their statuses
+		var response api.StandardResponse[[]api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Len(t, response.Data, 2)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, true, response.Data[1].Accepted)
+		require.Equal(t, true, response.Data[1].DeploymentReady)
+		require.Equal(t, "invalid-agent", response.Data[0].Agent.Name)
+		require.Equal(t, false, response.Data[0].Accepted)
+		require.Equal(t, true, response.Data[0].DeploymentReady)
 	})
 }
 
@@ -146,20 +339,31 @@ func TestHandleUpdateAgent(t *testing.T) {
 	t.Run("updates agent successfully", func(t *testing.T) {
 		existingAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec:       v1alpha2.AgentSpec{ModelConfig: "default/old-model-config"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig: "old-model-config",
+				},
+			},
 		}
 
 		handler, _ := setupTestHandler(existingAgent)
 
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec:       v1alpha2.AgentSpec{ModelConfig: "kagent/new-model-config"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig: "new-model-config",
+				},
+			},
 		}
 
 		body, _ := json.Marshal(updatedAgent)
 		req := httptest.NewRequest("PUT", "/api/agents/default/test-team", bytes.NewBuffer(body))
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
 		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleUpdateAgent(&testErrorResponseWriter{w}, req)
@@ -169,7 +373,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		var response api.StandardResponse[v1alpha2.Agent]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "kagent/new-model-config", response.Data.Spec.ModelConfig)
+		require.Equal(t, "new-model-config", response.Data.Spec.Declarative.ModelConfig)
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
@@ -183,6 +387,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		req := httptest.NewRequest("PUT", "/api/agents/default/non-existent", bytes.NewBuffer(body))
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "non-existent"})
 		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleUpdateAgent(&testErrorResponseWriter{w}, req)
@@ -207,15 +412,19 @@ func TestHandleCreateAgent(t *testing.T) {
 		agent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
-				ModelConfig:   modelConfig.Name,
-				SystemMessage: "You are an imagenary agent",
-				Description:   "Test team description",
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test team description",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig:   modelConfig.Name,
+					SystemMessage: "You are an imaginary agent",
+				},
 			},
 		}
 
 		body, _ := json.Marshal(agent)
 		req := httptest.NewRequest("POST", "/api/agents", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleCreateAgent(&testErrorResponseWriter{w}, req)
@@ -227,8 +436,8 @@ func TestHandleCreateAgent(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "test-team", response.Data.Name)
 		require.Equal(t, "default", response.Data.Namespace)
-		require.Equal(t, "You are an imagenary agent", response.Data.Spec.SystemMessage)
-		require.Equal(t, "test-model-config", response.Data.Spec.ModelConfig)
+		require.Equal(t, "You are an imaginary agent", response.Data.Spec.Declarative.SystemMessage)
+		require.Equal(t, "test-model-config", response.Data.Spec.Declarative.ModelConfig)
 	})
 }
 
@@ -239,10 +448,11 @@ func TestHandleDeleteTeam(t *testing.T) {
 		}
 
 		handler, _ := setupTestHandler(team)
-		createAgent(handler.Base.DatabaseService, team)
+		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("DELETE", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
@@ -258,6 +468,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 			"namespace": "default",
 			"name":      "non-existent",
 		})
+		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)

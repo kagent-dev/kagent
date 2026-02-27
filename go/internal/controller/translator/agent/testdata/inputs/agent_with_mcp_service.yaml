@@ -1,0 +1,61 @@
+operation: translateAgent
+targetObject: agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: math-secret
+      namespace: test
+    data:
+      math: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: nested-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A toolserver for math problems
+        systemMessage: You are a math toolserver. Focus on solving mathematical problems step by step.
+        modelConfig: nested-model
+        tools:
+          - type: MCPServer
+            mcpServer:
+              name: toolserver
+              kind: Service
+              toolNames:
+                - k8s_get_resources
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: toolserver
+      annotations:
+        kagent.dev/mcp-service-protocol: "sse"
+        kagent.dev/mcp-service-path: "/mcp"
+      namespace: test
+    spec:
+      ports:
+      - name: mcp
+        port: 8084
+        targetPort: 8084
+        protocol: TCP
+        appProtocol: mcp

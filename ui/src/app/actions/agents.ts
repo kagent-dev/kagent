@@ -1,58 +1,12 @@
 "use server";
 
-import { BaseResponse } from "@/types";
+import { AgentSpec, BaseResponse } from "@/types";
 import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
-import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
+import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
-
-/**
- * Converts a tool to AgentTool format
- * @param tool The tool to convert
- * @param allAgents List of all available agents to look up descriptions
- * @returns An AgentTool object, potentially augmented with description
- */
-function convertToolRepresentation(tool: unknown, allAgents: AgentResponse[]): Tool {
-  const typedTool = tool as Partial<Tool>;
-  if (isMcpTool(typedTool)) {
-    return tool as Tool;
-  } else if (isAgentTool(typedTool)) {
-    const foundAgent = allAgents.find(a => {
-      const aRef = k8sRefUtils.toRef(
-        a.agent.metadata.namespace || "",
-        a.agent.metadata.name,
-      )
-      return aRef === typedTool.agent.ref
-    });
-    const description = foundAgent?.agent.spec.description;
-    return {
-      ...typedTool,
-      type: "Agent",
-      agent: {
-        ...typedTool.agent,
-        ref: typedTool.agent.ref,
-        description: description
-      }
-    } as Tool;
-  }
-
-  throw new Error(`Unknown tool type: ${tool}`);
-}
-
-/**
- * Extracts tools from an AgentResponse, augmenting AgentTool references with descriptions.
- * @param data The AgentResponse to extract tools from
- * @param allAgents List of all available agents to look up descriptions
- * @returns An array of Tool objects
- */
-function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[]): Tool[] {
-  if (data.agent?.spec?.tools) {
-    return data.agent.spec.tools.map(tool => convertToolRepresentation(tool, allAgents));
-  }
-  return [];
-}
 
 /**
  * Converts AgentFormData to Agent format
@@ -60,89 +14,142 @@ function extractToolsFromResponse(data: AgentResponse, allAgents: AgentResponse[
  * @returns An Agent object
  */
 function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
-  const modelConfigName = agentFormData.modelName.includes("/") ? agentFormData.modelName.split("/").pop() || "" : agentFormData.modelName;
-  return {
+  const modelConfigName = agentFormData.modelName?.includes("/")
+    ? agentFormData.modelName.split("/").pop() || ""
+    : agentFormData.modelName;
+
+  const type = agentFormData.type || "Declarative";
+  const agentNamespace = agentFormData.namespace || "";
+
+  const convertTools = (tools: Tool[]) =>
+    tools.map((tool) => {
+      if (isMcpTool(tool)) {
+        const mcpServer = tool.mcpServer;
+        if (!mcpServer) {
+          throw new Error("MCP server not found");
+        }
+        
+        let name = mcpServer.name;
+        let namespace: string | undefined = mcpServer.namespace;
+        
+        if (k8sRefUtils.isValidRef(mcpServer.name)) {
+          const parsed = k8sRefUtils.fromRef(mcpServer.name);
+          name = parsed.name;
+          // Ignore namespace on the name ref if one is set - using namespace/name format is legacy behavior
+        }
+        
+        // If no namespace is set, default to the agent's namespace
+        if (!namespace) {
+          namespace = agentNamespace;
+        }
+
+        return {
+          type: "McpServer",
+          mcpServer: {
+            name,
+            namespace,
+            kind: mcpServer.kind,
+            apiGroup: mcpServer.apiGroup,
+            toolNames: mcpServer.toolNames,
+          },
+        } as Tool;
+      }
+
+      if (tool.type === "Agent") {
+        const agent = tool.agent;
+        if (!agent) {
+          throw new Error("Agent not found");
+        }
+
+        let name = agent.name;
+        let namespace: string | undefined = agent.namespace;
+        
+        if (k8sRefUtils.isValidRef(name)) {
+          const parsed = k8sRefUtils.fromRef(name);
+          name = parsed.name;
+          // Ignore namespace on the name ref if one is set - using namespace/name format is legacy behavior
+        }
+        
+        // If no namespace is set, default to the agent's namespace
+        if (!namespace) {
+          namespace = agentNamespace;
+        }
+        
+        return {
+          type: "Agent",
+          agent: {
+            name,
+            namespace,
+            kind: agent.kind || "Agent",
+            apiGroup: agent.apiGroup || "kagent.dev",
+          },
+        } as Tool;
+      }
+
+      console.warn("Unknown tool type:", tool);
+      return tool as Tool;
+    });
+
+  const base: Partial<Agent> = {
     metadata: {
       name: agentFormData.name,
       namespace: agentFormData.namespace || "",
     },
     spec: {
+      type,
       description: agentFormData.description,
-      systemMessage: agentFormData.systemPrompt,
-      modelConfig: modelConfigName,
-      memory: agentFormData.memory,
-      tools: agentFormData.tools.map((tool) => {
-        if (isMcpTool(tool)) {
-          const mcpServer = (tool as Tool).mcpServer;
-          if (!mcpServer) {
-            throw new Error("MCP server not found");
-          }
-          // Check if the MCP server name is a valid ref
-          let name = mcpServer.name;
-          if (k8sRefUtils.isValidRef(mcpServer.name)) {
-            name = k8sRefUtils.fromRef(mcpServer.name).name;
-          }
-
-          // I don't neccessarily like that, but... 
-          // we should probably move this out of here
-          // and have a helper function that checks which Kind to use
-          let kind = mcpServer.kind;
-          if (mcpServer.name.toLocaleLowerCase().includes("kagent-tool-server")) {
-            kind = "RemoteMCPServer";
-          }
-
-          return {
-            type: "McpServer",
-            mcpServer: {
-              // Just the name, no namespace or ref
-              name: name,
-              kind: kind,
-              apiGroup: mcpServer.apiGroup,
-              toolNames: mcpServer.toolNames,
-            },
-          } as Tool;
-        }
-
-        if (tool.agent) {
-          return {
-            type: "Agent",
-            agent: {
-              ref: tool.agent.ref,
-            },
-          } as Tool;
-        }
-
-        // Default case - shouldn't happen with proper type checking
-        console.warn("Unknown tool type:", tool);
-        return tool;
-      }),
-    },
+    } as AgentSpec,
   };
+
+  if (type === "Declarative") {
+    base.spec!.declarative = {
+      systemMessage: agentFormData.systemPrompt || "",
+      modelConfig: modelConfigName || "",
+      stream: agentFormData.stream ?? true,
+      tools: convertTools(agentFormData.tools || []),
+    };
+
+    if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
+      base.spec!.skills = {
+        refs: agentFormData.skillRefs,
+      };
+    }
+
+    if (agentFormData.memory?.modelConfig) {
+      const memoryModel = agentFormData.memory.modelConfig;
+      const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
+        ? k8sRefUtils.fromRef(memoryModel).name
+        : memoryModel;
+      base.spec!.memory = {
+        modelConfig: memoryModelName,
+        ttlDays: agentFormData.memory.ttlDays,
+      };
+    }
+  } else if (type === "BYO") {
+    base.spec!.byo = {
+      deployment: {
+        image: agentFormData.byoImage || "",
+        cmd: agentFormData.byoCmd,
+        args: agentFormData.byoArgs,
+        replicas: agentFormData.replicas,
+        imagePullSecrets: agentFormData.imagePullSecrets,
+        volumes: agentFormData.volumes,
+        volumeMounts: agentFormData.volumeMounts,
+        labels: agentFormData.labels,
+        annotations: agentFormData.annotations,
+        env: agentFormData.env,
+        imagePullPolicy: agentFormData.imagePullPolicy,
+      },
+    };
+  }
+
+  return base as Agent;
 }
 
 export async function getAgent(agentName: string, namespace: string): Promise<BaseResponse<AgentResponse>> {
   try {
     const agentData = await fetchApi<BaseResponse<AgentResponse>>(`/agents/${namespace}/${agentName}`);
-
-    // Fetch all agents to get descriptions for agent tools
-    // We use fetchApi directly to avoid circular dependency/logic issues with calling getAgents() here
-    const allAgentsData = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
-
-    // Extract and augment tools using the list of all agents
-    const tools = extractToolsFromResponse(agentData.data!, allAgentsData.data!);
-
-    const response: AgentResponse = {
-      ...agentData.data!,
-      agent: {
-        ...agentData.data!.agent,
-        spec: {
-          ...agentData.data!.agent.spec,
-          tools,
-        },
-      },
-    };
-
-    return { message: "Successfully fetched agent", data: response };
+    return { message: "Successfully fetched agent", data: agentData.data };
   } catch (error) {
     return createErrorResponse<AgentResponse>(error, "Error getting agent");
   }
@@ -203,6 +210,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
       response.data!.metadata.name,
     )
 
+    revalidatePath("/agents");
     revalidatePath(`/agents/${agentRef}/chat`);
     return { message: "Successfully created agent", data: response.data };
   } catch (error) {
@@ -216,48 +224,15 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
  */
 export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
   try {
-    const data = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
-    const validAgents = data.data?.filter(agent => !!agent.agent);
-    const agentMap = new Map(validAgents?.map(agentResp => [agentResp.agent.metadata.name, agentResp]));
+    const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
 
-    const convertedData: AgentResponse[] = validAgents!.map(agent => {
-      const augmentedTools = agent.tools?.map(tool => {
-        // Check if it's an Agent tool reference needing description
-        if (isAgentTool(tool)) {
-          const foundAgent = agentMap.get(tool.agent.ref);
-          return {
-            ...tool,
-            type: "Agent",
-            agent: {
-              ...tool.agent,
-              ref: tool.agent.ref,
-              description: foundAgent?.agent.spec.description
-            }
-          } as Tool;
-        }
-        return tool as Tool;
-      }) || [];
-
-      return {
-        ...agent,
-        agent: {
-          ...agent.agent,
-          spec: {
-            ...agent.agent.spec,
-            tools: augmentedTools
-          }
-        },
-      };
+    const sortedData = data?.sort((a, b) => {
+      const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
+      const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name);
+      return aRef.localeCompare(bRef);
     });
 
-    const sortedData = convertedData.sort((a, b) => {
-      const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
-      const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name)
-
-      return aRef.localeCompare(bRef)
-    });
-
-    return { message: "Successfully fetched agents", data: sortedData || [] };
+    return { message: "Successfully fetched agents", data: sortedData };
   } catch (error) {
     return createErrorResponse<AgentResponse[]>(error, "Error getting agents");
   }

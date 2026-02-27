@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit, Plus } from "lucide-react";
+import { ChevronRight, Edit } from "lucide-react";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,11 +9,12 @@ import { LoadingState } from "@/components/LoadingState";
 import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
@@ -25,7 +26,6 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
-  const router = useRouter();
 
   const selectedTeam = currentAgent;
 
@@ -160,6 +160,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
       );
     }
 
+    const agentNamespace = currentAgent.agent.metadata.namespace || "";
+
     return (
       <SidebarMenu>
         {tools.flatMap((tool) => {
@@ -169,17 +171,19 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
+            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
 
             return tool.mcpServer.toolNames.map((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
               const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
               const isExpanded = expandedTools[subToolIdentifier] || false;
+              const displayName = `${mcpToolName} (${serverDisplayName})`;
 
               return (
                 <RenderToolCollapsibleItem
                   key={subToolIdentifier}
                   itemKey={subToolIdentifier}
-                  displayName={mcpToolName}
+                  displayName={displayName}
                   providerTooltip={mcpProviderNameTooltip}
                   description={description}
                   isExpanded={isExpanded}
@@ -189,8 +193,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             });
           } else {
             const toolIdentifier = baseToolIdentifier;
-            const provider = isAgentTool(tool) ? (tool.agent?.ref || "unknown") : (tool.mcpServer?.name || "unknown");
-            const displayName = getToolDisplayName(tool);
+            const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
+            const displayName = getToolDisplayName(tool, agentNamespace);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;
 
@@ -214,6 +218,9 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     );
   };
 
+    // Check if agent is BYO type
+  const isDeclarativeAgent = selectedTeam?.agent.spec.type === "Declarative";
+  
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
@@ -223,7 +230,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} ({selectedTeam?.model})
+                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
                 </SidebarGroupLabel>
                 <Button
                   variant="ghost"
@@ -239,51 +246,74 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
-              {selectedTeam && renderAgentTools(selectedTeam.tools)}
-            </SidebarGroup>
-            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-              <SidebarGroupLabel>Memory</SidebarGroupLabel>
-              <SidebarMenu>
-                {selectedTeam?.memoryRefs && selectedTeam.memoryRefs.length > 0 ? (
-                  selectedTeam.memoryRefs.map((memoryRef) => (
-                    <SidebarMenuItem key={memoryRef}>
-                      <div className="flex justify-between items-center w-full">
-                        <SidebarMenuButton className="justify-start" disabled>
-                          <span className="truncate max-w-[180px]">{memoryRef}</span>
-                        </SidebarMenuButton>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 ml-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            router.push(`/memories/new?edit=${encodeURIComponent(memoryRef)}`);
-                          }}
-                          aria-label={`Edit memory ${memoryRef}`}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </SidebarMenuItem>
-                  ))
-                ) : (
-                  <div className="flex items-center justify-between px-2">
-                    <span className="text-sm italic text-muted-foreground">No memory configured</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => router.push('/memories/new')}
-                      aria-label="Add new memory"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                )}
-              </SidebarMenu>
-            </SidebarGroup>
+            {isDeclarativeAgent &&(
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
+                {selectedTeam && renderAgentTools(selectedTeam.tools)}
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
+                  <Badge variant="secondary" className="h-5">
+                    {selectedTeam.agent.spec.skills.refs.length}
+                  </Badge>
+                </div>
+                <SidebarMenu>
+                  <TooltipProvider>
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => {
+                      // Parse OCI image reference: [registry/]repository[:tag][@digest]
+                      // Groups: (1) registry, (2) repository, (3) tag, (4) digest
+                      const refMatch = skillRef.match(
+                        /^(?:((?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?|localhost(?::\d+)?|[a-zA-Z0-9-]+:\d+)\/)?([^:@]+)(?::([^@]+))?(?:@(.+))?$/
+                      );
+                      const registry = refMatch?.[1] ?? null;
+                      const repoName = refMatch?.[2] ?? null;
+                      const tag = refMatch?.[3] ?? null;
+                      const digest = refMatch?.[4] ?? null;
+
+                      // Only show a version badge when the ref was successfully parsed.
+                      // Truncate digests to keep the badge compact.
+                      const versionBadge = refMatch
+                        ? tag ?? (digest ? (digest.length > 16 ? digest.substring(0, 16) + "\u2026" : digest) : "latest")
+                        : null;
+                      const displayName = repoName ?? skillRef;
+                      return (
+                        <SidebarMenuItem key={index}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2">
+                                <div className="flex flex-col items-start w-full min-w-0 gap-0.5">
+                                  <div className="flex items-center w-full justify-between gap-2">
+                                    <span className="truncate text-sm font-medium leading-tight">{displayName}</span>
+                                    {versionBadge && (
+                                      <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                        {versionBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {registry && (
+                                    <span className="truncate w-full text-xs text-muted-foreground leading-tight" title={registry}>
+                                      {registry}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p className="max-w-xs break-all">{skillRef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </TooltipProvider>
+                </SidebarMenu>
+              </SidebarGroup>
+            )}
+
           </ScrollArea>
         </SidebarContent>
       </Sidebar>

@@ -1,12 +1,49 @@
-import type{ Tool, McpServerTool, AgentTool, ToolsResponse, DiscoveredTool } from "@/types";
+import { k8sRefUtils } from "@/lib/k8sUtils";
+import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
-export const isAgentTool = (tool: unknown): tool is { agent: AgentTool } => {
-  if (!tool || typeof tool !== "object") return false;
 
-  return "agent" in tool && typeof tool.agent === "object" && tool.agent !== null && Object.keys(tool.agent).length > 0;
+// Constants for MCP server types and defaults
+const DEFAULT_API_GROUP = "kagent.dev";
+const DEFAULT_MCP_KIND = "MCPServer";
+const TOOL_SERVER_NAME = "kagent-tool-server";
+const MCP_SERVER_TYPE = "McpServer" as const;
+
+export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
+  if (!value || typeof value !== "object") return false;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const obj = value as any;
+  return obj.type === "Agent" && obj.agent && typeof obj.agent === "object" && typeof obj.agent.name === "string";
 };
 
-export const isMcpTool = (tool: unknown): tool is { type: "MCPServer"; mcpServer: McpServerTool } => {
+// Compare server names it handles both "namespace/name" refs and plain names
+export const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
+  if (!serverName1 || !serverName2) return false;
+  
+  if (serverName1 === serverName2) return true;
+  
+  try {
+    const name1 = k8sRefUtils.isValidRef(serverName1) 
+      ? k8sRefUtils.fromRef(serverName1).name 
+      : serverName1;
+    const name2 = k8sRefUtils.isValidRef(serverName2) 
+      ? k8sRefUtils.fromRef(serverName2).name 
+      : serverName2;
+    
+    return name1 === name2;
+  } catch {
+    return false;
+  }
+};
+
+export const isAgentResponse = (value: unknown): value is AgentResponse => {
+  if (!value || typeof value !== "object") return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const obj = value as any;
+  return !!obj.agent && typeof obj.agent === "object" && !!obj.agent.metadata && typeof obj.agent.metadata?.name === "string";
+};
+
+export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
   if (!tool || typeof tool !== "object") return false;
 
   const possibleTool = tool as Partial<Tool>;
@@ -50,16 +87,26 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     }
   });
 
-  // Convert to Tool objects
-  const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => ({
-    type: "McpServer" as const,
-    mcpServer: {
-      name: serverNameRef,
-      apiGroup: "kagent.dev",
-      kind: "MCPServer",
-      toolNames: Array.from(toolNamesSet)
-    }
-  }));
+  // Convert to Tool objects- preserve original kind, apiGroup, and namespace from the first tool of each server
+  const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => {
+    // Find the first tool from this server to get its kind, apiGroup, and namespace
+    const originalTool = tools.find(tool => 
+      isMcpTool(tool) && tool.mcpServer?.name === serverNameRef
+    );
+    
+    const originalMcpServer = originalTool?.mcpServer;
+    
+    return {
+      type: MCP_SERVER_TYPE,
+      mcpServer: {
+        name: serverNameRef,
+        namespace: originalMcpServer?.namespace,
+        apiGroup: originalMcpServer?.apiGroup ?? DEFAULT_API_GROUP,
+        kind: originalMcpServer?.kind || DEFAULT_MCP_KIND,
+        toolNames: Array.from(toolNamesSet)
+      }
+    };
+  });
 
   return {
     groupedTools: [...groupedMcpTools, ...nonMcpTools],
@@ -69,7 +116,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
 
 export const getToolIdentifier = (tool: Tool): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return `agent-${tool.agent.ref}`;
+    return `agent-${tool.agent.name}`;
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
     return `mcp-${mcpTool.mcpServer?.name || "No name"}`;
@@ -77,19 +124,50 @@ export const getToolIdentifier = (tool: Tool): string => {
   return `unknown-tool-${Math.random().toString(36).substring(7)}`;
 };
 
-export const getToolDisplayName = (tool: Tool): string => {
+/**
+ * Parse groupKind string to extract apiGroup and kind
+ * @param groupKind - String in format "kind.apiGroup" or just "kind"
+ * @returns Object with apiGroup and kind
+ */
+export const parseGroupKind = (groupKind: string): { apiGroup: string; kind: string } => {
+  // Handle null, undefined, or empty string
+  if (!groupKind || !groupKind.trim()) {
+    return { apiGroup: DEFAULT_API_GROUP, kind: DEFAULT_MCP_KIND };
+  }
+
+  const parts = groupKind.trim().split('.');
+
+  if (parts.length === 1) {
+    // No dot means the API group is empty (core Kubernetes resource, e.g. "Service")
+    const kind = parts[0];
+    return { apiGroup: "", kind };
+  }
+  const kind = parts[0];
+  const apiGroup = parts.slice(1).join('.');
+  return { apiGroup, kind };
+};
+
+export const getToolDisplayName = (tool: Tool, defaultNamespace: string): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return tool.agent.ref;
+    const name = tool.agent?.name;
+    if (!name || name.trim() === "") {
+      return "Unknown Agent";
+    }
+    return k8sRefUtils.toRef(tool.agent.namespace || defaultNamespace, name);
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
-    return mcpTool.mcpServer?.name || "No name";
+    const name = mcpTool.mcpServer?.name;
+    if (!name || name.trim() === "") {
+      return "Unknown Tool";
+    }
+    return k8sRefUtils.toRef(mcpTool.mcpServer?.namespace || defaultNamespace, name);
   }
   return "Unknown Tool";
 };
 
 export const getToolDescription = (tool: Tool, availableTools: ToolsResponse[]): string => {
   if (isAgentTool(tool) && tool.agent) {
-    return "Agent Tool";
+    return "Agent";
   } else if (isMcpTool(tool)) {
     // For MCP tools, look up description from availableTools
     const mcpTool = tool as Tool;
@@ -103,39 +181,56 @@ export const getToolDescription = (tool: Tool, availableTools: ToolsResponse[]):
 };
 
 // Utility functions for DiscoveredTool type
-export const getToolResponseDisplayName = (tool: ToolsResponse): string => {
-  return tool.id || "Unknown Tool";
+export const getToolResponseDisplayName = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "Unknown Tool";
+  return (tool as ToolsResponse).id || "Unknown Tool";
 };
 
-export const getToolResponseDescription = (tool: ToolsResponse): string => {
-  return tool.description || "No description available";
+export const getToolResponseDescription = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "No description available";
+  return (tool as ToolsResponse).description || "No description available";
 };
 
-export const getToolResponseCategory = (tool: ToolsResponse): string => {
+export const getToolResponseCategory = (tool: ToolsResponse | undefined | null): string => {
   // Extract category from server reference or tool name
-  if (tool.server_name === 'kagent/kagent-tool-server') {
-    const parts = tool.id.split("_");
+  if (!tool || typeof tool !== "object") return "Unknown";
+  if ((tool as ToolsResponse).server_name === `kagent/${TOOL_SERVER_NAME}`) {
+    const parts = (tool as ToolsResponse).id.split("_");
     if (parts.length > 1) {
       return parts[0];
     } else {
-      return tool.id;
+      return (tool as ToolsResponse).id;
     } 
   }
-  return tool.server_name;
+  return (tool as ToolsResponse).server_name;
 };
 
-export const getToolResponseIdentifier = (tool: ToolsResponse): string => {
-  return `${tool.server_name}-${tool.id}`;
+export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null): string => {
+  if (!tool || typeof tool !== "object") return "unknown-unknown";
+  return `${(tool as ToolsResponse).server_name}-${(tool as ToolsResponse).id}`;
 };
 
 // Convert DiscoveredTool to Tool for agent creation
 export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
+  const { apiGroup, kind } = parseGroupKind(tool.group_kind);
+  
+  // Parse namespace and name from serverRef if it's in namespace/name format
+  let name = serverRef;
+  let namespace: string | undefined;
+  
+  if (k8sRefUtils.isValidRef(serverRef)) {
+    const parsed = k8sRefUtils.fromRef(serverRef);
+    name = parsed.name;
+    namespace = parsed.namespace;
+  }
+  
   return {
-    type: "McpServer",
+    type: MCP_SERVER_TYPE,
     mcpServer: {
-      name: serverRef,
-      apiGroup: "kagent.dev",
-      kind: "MCPServer",
+      name,
+      namespace,
+      apiGroup,
+      kind,
       toolNames: [tool.id]
     }
   };
@@ -152,7 +247,7 @@ export const getDiscoveredToolDescription = (tool: DiscoveredTool): string => {
 
 export const getDiscoveredToolCategory = (tool: DiscoveredTool, serverRef: string): string => {
   // Extract category from server reference or tool name
-  if (serverRef.includes('kagent-tool-server')) {
+  if (serverRef.includes(TOOL_SERVER_NAME)) {
     const parts = tool.name.split("_");
     if (parts.length > 1) {
       return parts[0];

@@ -5,7 +5,7 @@
 # ==============================================================================
 
 tag: ""
-
+registry: "cr.kagent.dev"
 
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
@@ -18,6 +18,11 @@ fullnameOverride: ""
 namespaceOverride: ""
 
 podAnnotations: {}
+
+# -- Additional labels to add to all Kubernetes resources
+labels: {}
+  # environment: production
+  # team: platform
 
 podSecurityContext: {}
   # fsGroup: 2000
@@ -47,9 +52,14 @@ nodeSelector: {}
 database:
   type: sqlite
   sqlite:
+    vectorEnabled: true
     databaseName: kagent.db
   postgres:
+    vectorEnabled: true
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+    # Path to a file containing the database URL.
+    # Takes precedence over url when set.
+    urlFile: ""
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -58,10 +68,24 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  # -- The base URL of the A2A Server endpoint, as advertised to clients.
+  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  a2aBaseUrl: ""
+  agentImage:
+    registry: ""
+    repository: kagent-dev/kagent/app
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
+  # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
+  skillsInitImage:
+    registry: ""
+    repository: kagent-dev/kagent/skills-init
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
   streaming: # Streaming buffer size for A2A communication
     maxBufSize: 1Mi # 1024 * 1024
     initialBufSize: 4Ki # 4 * 1024
-
+    timeout: 600s # 600 seconds
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)
@@ -76,10 +100,10 @@ controller:
   nodeSelector: {}
 
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/controller
     tag: "" # Will default to global, then Chart version
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m
@@ -92,7 +116,21 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  env: {}
+  env: []
+  envFrom: []
+
+  # Additional volumes on the output Deployment definition.
+  volumes: []
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
+
+  # Additional volumeMounts on the output Deployment definition.
+  volumeMounts: []
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -101,10 +139,10 @@ controller:
 ui:
   replicas: 1
   image:
-    registry: cr.kagent.dev
+    registry: ""
     repository: kagent-dev/kagent/ui
     tag: ""
-    pullPolicy: IfNotPresent
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m
@@ -115,10 +153,10 @@ ui:
   service:
     type: ClusterIP
     ports:
-      port: 80
+      port: 8080
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
-  
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -167,29 +205,48 @@ providers:
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
-    apiKey: ""
+    # apiKey: ""
   ollama:
     provider: Ollama
     model: "llama3.2"
     config:
       host: host.docker.internal:11434
+      options:
+        num_ctx: "64000"
+
   anthropic:
     provider: Anthropic
-    model: "claude-3-sonnet-20240229"
+    model: "claude-3-5-haiku-20241022"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
-    apiKey: ""
+    # apiKey: ""
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
-    apiKey: ""
+    # apiKey: ""
     config:
       apiVersion: "2023-05-15"
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
+  gemini:
+    provider: Gemini
+    model: "gemini-2.0-flash-lite"
+    apiKeySecretRef: kagent-gemini
+    apiKeySecretKey: GOOGLE_API_KEY
+    # apiKey: ""
+
+# ==============================================================================
+# KMCP
+# ==============================================================================
+
+kmcp:
+  enabled: true
+  nameOverride: "kmcp"
+  fullnameOverride: "" # Override if desired
+  namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
 
 # ==============================================================================
 # BUILT-IN TOOLS
@@ -199,46 +256,156 @@ kagent-tools:
   fullnameOverride: kagent-tools
   enabled: true
   replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
   tools:
     loglevel: "debug"
 
 # ==============================================================================
+# PROXY CONFIGURATION
+# ==============================================================================
+# Global proxy configuration for the controller
+# This proxy applies to all internally-built k8s URLs:
+# - Agents as tools (agent -> agent traffic)
+# - Services as MCP Tools
+# - MCPServer resources and RemoteMCPServer resources with internal k8s URLs
+# Set this once and the controller will apply it to all agents automatically
+# Note: RemoteMCPServer resources use user-supplied URLs and do not use this proxy unless the URL is an internal k8s URL.
+proxy:
+  # Proxy URL for internally-built k8s URLs
+  # Example: "http://proxy.kagent.svc.cluster.local:8080"
+  url: ""
+
+# ==============================================================================
 # AGENTS
 # ==============================================================================
-
 agents:
   k8s-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   kgateway-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   istio-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   promql-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   observability-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   argo-rollouts-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   helm-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-policy-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-manager-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
   cilium-debug-agent:
     enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
 
 # ==============================================================================
-# EXTERNAL MCP SERVERS
+# MCP TOOLS
 # ==============================================================================
+
+tools:
+  grafana-mcp:
+    enabled: true
+  querydoc:
+    enabled: true
+
+grafana-mcp:
+  grafana:
+    url: "grafana.kagent:3000/api"
+    serviceAccountToken: ""
+    # apiKey: "" # Deprecated - use serviceAccountToken instead.
+    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 querydoc:
-  enabled: true
   replicas: 1
   image:
     registry: ghcr.io
     repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.12
+    tag: 1.1.14
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -259,13 +426,13 @@ otel:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true

@@ -122,6 +122,7 @@ export default function ModelsPage() {
                                     </div>
                                     <div className="flex space-x-2">
                                         <Button
+                                            data-test={`edit-model-${model.ref}`}
                                             variant="ghost"
                                             size="sm"
                                             onClick={(e) => {

@@ -2,8 +2,15 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowBigUp, X, Loader2 } from "lucide-react";
+import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
@@ -51,6 +58,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+
+  const {
+    isListening,
+    isSupported: isVoiceSupported,
+    startListening,
+    stopListening,
+    error: voiceError,
+  } = useSpeechRecognition({
+    onResult(transcriptText) {
+      setCurrentInputMessage(transcriptText);
+    },
+    onError(msg) {
+      toast.error(msg);
+    },
+  });
 
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
@@ -136,11 +158,17 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return;
     }
 
+    // Stop voice recording if active before sending
+    if (isListening) {
+      stopListening();
+    }
+
     const userMessageText = currentInputMessage;
     setCurrentInputMessage("");
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
+    setStreamingContent(""); // Reset streaming content for new message
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
@@ -224,38 +252,61 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           message: a2aMessage,
           metadata: {}
         };
-        const stream = await kagentA2AClient.sendMessageStream(selectedNamespace, selectedAgentName, sendParams);
+        const stream = await kagentA2AClient.sendMessageStream(
+          selectedNamespace,
+          selectedAgentName,
+          sendParams,
+          abortControllerRef.current?.signal
+        );
 
-        let lastEventTime = Date.now();
-        const streamTimeout = 60000;
-
-        for await (const event of stream) {
-          lastEventTime = Date.now();
-
-          try {
-            handleMessageEvent(event);
-          } catch (error) {
-            console.error("❌ Event that caused error:", event);
+        let timeoutTimer: NodeJS.Timeout | null = null;
+        let streamActive = true;
+        const streamTimeout = 600000; // 10 minutes
+        
+        // Timeout handler
+        const handleTimeout = () => {
+          if (streamActive) {
+            console.error("⏰ Stream timeout - no events received for 10 minutes");
+            toast.error("⏰ Stream timed out - no events received for 10 minutes");
+            streamActive = false;
+            if (abortControllerRef.current) abortControllerRef.current.abort();
           }
+        };
 
-          // Check if we should stop streaming due to cancellation
-          if (abortControllerRef.current?.signal.aborted) {
-            break;
-          }
+        // Start timeout timer
+        const startTimeout = () => {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+          timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+        };
+        startTimeout();
 
-          // Timeout check (in case stream hangs)
-          if (Date.now() - lastEventTime > streamTimeout) {
-            console.warn("⏰ Stream timeout - no events received for 30 seconds");
-            break;
+        try {
+          for await (const event of stream) {
+            startTimeout(); // Reset timeout after every event
+
+            try {
+              handleMessageEvent(event);
+            } catch (error) {
+              console.error(`❌ Error handling event: ${error}\nEvent: ${event}`);
+            }
+
+            // Check if we should stop streaming due to cancellation
+            if (abortControllerRef.current?.signal.aborted) {
+              console.info("Stream aborted");
+              streamActive = false;
+              break;
+            }
           }
+        } finally {
+          streamActive = false;
+          if (timeoutTimer) clearTimeout(timeoutTimer);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (error: any) {
-        if (error.name === "AbortError") {
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") {
           toast.info("Request cancelled");
           setChatStatus("ready");
         } else {
-          toast.error(`Streaming failed: ${error.message}`);
+          toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
         }
@@ -264,8 +315,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         setIsStreaming(false);
         setStreamingContent("");
       } finally {
-        setChatStatus("ready");
         abortControllerRef.current = null;
+        // Don't reset chatStatus here — the message handlers (finalizeStreaming,
+        // handleA2ATaskStatusUpdate, handleA2ATaskArtifactUpdate) already set
+        // the correct status when the final stream event arrives. Unconditionally
+        // setting "ready" here was causing the status to show "Ready" while
+        // tools were still executing (#325).
       }
     } catch (error) {
       console.error("Error sending message or creating session:", error);
@@ -386,6 +441,36 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            {isVoiceSupported && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={isListening ? "destructive" : "default"}
+                      size="icon"
+                      onClick={isListening ? stopListening : startListening}
+                      disabled={chatStatus !== "ready"}
+                      className={isListening ? "animate-pulse" : ""}
+                      aria-label={isListening ? "Stop listening" : "Voice input"}
+                    >
+                      {isListening ? (
+                        <Square className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Mic className="h-4 w-4" aria-hidden />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {voiceError
+                      ? voiceError
+                      : isListening
+                        ? "Stop listening"
+                        : "Voice input — click and speak"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
               Send
               <ArrowBigUp className="h-4 w-4 ml-2" />

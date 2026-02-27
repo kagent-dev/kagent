@@ -2,10 +2,11 @@ package utils
 
 import (
 	"fmt"
-	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/kagent-dev/kagent/go/pkg/env"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,17 +27,13 @@ type ObjectWithModelConfig interface {
 // GetResourceNamespace returns the namespace for resources,
 // using the KAGENT_NAMESPACE environment variable or defaulting to "kagent".
 func GetResourceNamespace() string {
-	if val := os.Getenv("KAGENT_NAMESPACE"); val != "" {
-		return val
-	}
-	return "kagent"
+	return env.KagentNamespace.Get()
 }
 
-func GetGlobalUserID() string {
-	if val := os.Getenv("KAGENT_GLOBAL_USER_ID"); val != "" {
-		return val
-	}
-	return "admin@kagent.dev"
+// GetControllerName returns the name for the kagent controller,
+// using the KAGENT_CONTROLLER_NAME environment variable or defaulting to "kagent-controller".
+func GetControllerName() string {
+	return env.KagentControllerName.Get()
 }
 
 // ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
@@ -114,9 +111,7 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 	}
 
 	// ref is in namespace/name format
-	slashIndex := strings.Index(ref, "/")
-	namespace := ref[:slashIndex]
-	name := ref[slashIndex+1:]
+	namespace, name, _ := strings.Cut(ref, "/")
 
 	if namespace == "" && name == "" {
 		return types.NamespacedName{}, fmt.Errorf("namespace and name cannot be empty")
@@ -156,4 +151,15 @@ func ConvertToPythonIdentifier(name string) string {
 func ConvertToKubernetesIdentifier(name string) string {
 	name = strings.ReplaceAll(name, "__NS__", "/")
 	return strings.ReplaceAll(name, "_", "-")
+}
+
+// ParseStringToFloat64 parses a string to float64, returns nil if empty or invalid
+func ParseStringToFloat64(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+	if val, err := strconv.ParseFloat(s, 64); err == nil {
+		return &val
+	}
+	return nil
 }

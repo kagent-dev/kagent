@@ -7,17 +7,43 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - secrets
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - services
   verbs:
   - get
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - kagent.dev
   resources:
   - agents
-  - memories
   - modelconfigs
+  - modelproviderconfigs
   - remotemcpservers
   verbs:
   - create
@@ -31,8 +57,8 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
-  - memories/finalizers
   - modelconfigs/finalizers
+  - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
   verbs:
   - update
@@ -40,8 +66,8 @@ rules:
   - kagent.dev
   resources:
   - agents/status
-  - memories/status
   - modelconfigs/status
+  - modelproviderconfigs/status
   - remotemcpservers/status
   verbs:
   - get
