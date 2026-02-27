@@ -36,18 +36,21 @@ UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
+GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
+GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
+GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -271,6 +274,10 @@ build-kagent-adk: buildx-create
 build-kanban-mcp: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KANBAN_MCP_IMG) -f go/cmd/kanban-mcp/Dockerfile .
 
+.PHONY: build-gitrepo-mcp
+build-gitrepo-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(GITREPO_MCP_IMG) -f go/cmd/gitrepo-mcp/Dockerfile .
+
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
@@ -381,6 +388,19 @@ helm-install-kanban-mcp: build-kanban-mcp ## Build and deploy kanban-mcp chart.
 		--set image.tag=$(KANBAN_MCP_IMAGE_TAG) \
 		--set image.pullPolicy=Always
 
+.PHONY: helm-install-gitrepo-mcp
+helm-install-gitrepo-mcp: build-gitrepo-mcp ## Build and deploy gitrepo-mcp chart.
+	helm $(HELM_ACTION) gitrepo-mcp ./contrib/tools/gitrepo-mcp \
+		--namespace kagent \
+		--create-namespace \
+		--history-max 2 \
+		--timeout 5m \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--wait \
+		--set image.repository=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME) \
+		--set image.tag=$(GITREPO_MCP_IMAGE_TAG) \
+		--set image.pullPolicy=Always
+
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"
 helm-test-install: helm-install-provider
@@ -419,6 +439,15 @@ kagent-cli-port-forward: use-kind-cluster
 kagent-ui-port-forward: use-kind-cluster
 	open http://localhost:8082/
 	kubectl port-forward -n kagent service/kagent-ui 8082:8080
+
+.PHONY: kagent-kanban-mcp-port-forward
+kagent-kanban-mcp-port-forward: use-kind-cluster
+	open http://localhost:8084/kanban-mcp/
+	kubectl port-forward -n kagent service/kanban-mcp 8084:8080
+
+.PHONY: kagent-gitrepo-mcp-port-forward
+kagent-gitrepo-mcp-port-forward: use-kind-cluster
+	kubectl port-forward -n kagent service/gitrepo-mcp 8090:8090
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
