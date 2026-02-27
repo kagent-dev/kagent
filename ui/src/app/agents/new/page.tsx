@@ -4,12 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
-import { ModelConfig, AgentType } from "@/types";
+import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { ModelConfig, AgentType, ContextConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
+import { ContextSection } from "@/components/create/ContextSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -82,6 +83,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: string[];
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     stream: boolean;
+    contextConfig: ContextConfig | undefined;
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -106,6 +108,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
+    contextConfig: undefined,
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -150,6 +153,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   stream: agent.spec?.declarative?.stream ?? false,
                   selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
+                  contextConfig: agent.spec?.declarative?.context,
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -220,6 +224,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
         }
         : undefined,
+      context: state.contextConfig,
     };
 
     const newErrors = validateAgentData(formData);
@@ -328,6 +333,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
           : undefined,
+        context: state.agentType === "Declarative" ? state.contextConfig : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -701,6 +707,22 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onTtlBlur={() => validateField("memoryTtl", state.memoryTtlDays)}
                       modelError={state.errors.memoryModel}
                       ttlError={state.errors.memoryTtl}
+                      isSubmitting={state.isSubmitting || state.isLoading}
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-violet-500" />
+                      Context Management
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ContextSection
+                      context={state.contextConfig}
+                      onChange={(ctx) => setState(prev => ({ ...prev, contextConfig: ctx }))}
                       isSubmitting={state.isSubmitting || state.isLoading}
                     />
                   </CardContent>
