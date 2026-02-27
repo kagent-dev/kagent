@@ -24,6 +24,11 @@ help: ## list makefile targets
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	@# Remove format: int32/int64 from CRD schemas to avoid Kubernetes API server warnings
+	@# See https://github.com/kagent-dev/kagent/issues/1318
+	@for f in config/crd/bases/*.yaml; do \
+		sed -i '/^[[:space:]]*format: int\(32\|64\)$$/d' "$$f"; \
+	done
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
