@@ -50,7 +50,7 @@ jobs:
             This pull request has been marked as stale because of no activity in the last ${{ env.DAYS_BEFORE_PR_STALE }} days.
             It will be closed in the next ${{ env.DAYS_BEFORE_PR_CLOSE }} days unless it is tagged "no stalebot" or other activity occurs.
           close-pr-message: >
-            This pull request has been closed due to no activity in the last ${{ env.DAYS_BEFORE_PR_STALE }} days.
+            This pull request has been closed after ${{ env.DAYS_BEFORE_PR_STALE }} days of inactivity and an additional ${{ env.DAYS_BEFORE_PR_CLOSE }} days after being marked as stale.
           stale-pr-label: 'stale' # https://github.com/kagent-dev/kagent/labels/stale
           exempt-pr-labels: 'no stalebot' # https://github.com/kagent-dev/kagent/labels/no%20stalebot
           enable-statistics: true
