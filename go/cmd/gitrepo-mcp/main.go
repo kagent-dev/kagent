@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/server"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -113,27 +114,13 @@ func newServeCmd() *cobra.Command {
 			s := search.NewSearcher(repoStore, embStore, emb)
 			astS := search.NewAstSearcher(repoStore)
 
-			srv := server.NewServer(repoStore, idx, s, astS, reposDir)
+			mcpSrv := server.NewMCPServer(repoStore, idx, s, astS, reposDir)
 
-			httpSrv := &http.Server{
-				Addr:    addr,
-				Handler: srv.Handler(),
+			if transport == "stdio" {
+				return serveStdio(cmd.Context(), mcpSrv)
 			}
 
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
-			go func() {
-				<-ctx.Done()
-				log.Printf("shutting down server...")
-				_ = httpSrv.Close()
-			}()
-
-			log.Printf("gitrepo-mcp serve: addr=%s transport=%s data-dir=%s", addr, transport, cfgDataDir)
-			if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
-				return fmt.Errorf("server error: %w", err)
-			}
-			return nil
+			return serveHTTP(addr, repoStore, idx, s, astS, reposDir, mcpSrv)
 		},
 	}
 
@@ -141,6 +128,45 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&transport, "transport", envOrDefault("GITREPO_TRANSPORT", "http"), "transport mode: http or stdio")
 
 	return cmd
+}
+
+func serveHTTP(addr string, repoStore *storage.RepoStore, idx *indexer.Indexer, s *search.Searcher, astS *search.AstSearcher, reposDir string, mcpSrv *server.MCPServer) error {
+	restSrv := server.NewServer(repoStore, idx, s, astS, reposDir)
+
+	mux := http.NewServeMux()
+	mux.Handle("/mcp/", http.StripPrefix("/mcp", mcpSrv))
+	mux.Handle("/", restSrv.Handler())
+
+	httpSrv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		log.Printf("shutting down server...")
+		_ = httpSrv.Close()
+	}()
+
+	log.Printf("gitrepo-mcp serve: addr=%s transport=http data-dir=%s", addr, cfgDataDir)
+	log.Printf("  REST API: http://localhost%s/api/", addr)
+	log.Printf("  MCP:      http://localhost%s/mcp/", addr)
+	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", err)
+	}
+	return nil
+}
+
+func serveStdio(ctx context.Context, mcpSrv *server.MCPServer) error {
+	log.Printf("gitrepo-mcp serve: transport=stdio data-dir=%s", cfgDataDir)
+
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	return mcpSrv.Server().Run(ctx, &mcpsdk.StdioTransport{})
 }
 
 func newAddCmd() *cobra.Command {
