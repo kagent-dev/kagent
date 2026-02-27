@@ -380,11 +380,12 @@ class AgentConfig(BaseModel):
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
 
+        # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
             name=name,
             model=model,
             description=self.description,
-            instruction=self.instruction,
+            static_instruction=self.instruction,
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
@@ -411,11 +412,14 @@ class AgentConfig(BaseModel):
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
 
-            agent.instruction = (
-                f"{agent.instruction}\n\n"
-                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+            memory_suffix = (
+                "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
                 "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
             )
+            if agent.static_instruction:
+                agent.static_instruction += memory_suffix
+            else if agent.instruction:
+                agent.instruction += memory_suffix
 
             # Define auto-save callback
             async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
