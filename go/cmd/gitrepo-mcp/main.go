@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/embedder"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -267,21 +268,39 @@ func newIndexCmd() *cobra.Command {
 func newSearchCmd() *cobra.Command {
 	var query string
 	var limit int
+	var contextLines int
 
 	cmd := &cobra.Command{
 		Use:   "search <name>",
 		Short: "Semantic search within a repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: implement in Step 5 (semantic search)
+			dbMgr, err := initStorage()
+			if err != nil {
+				return fmt.Errorf("failed to initialize storage: %w", err)
+			}
+
+			repoStore := storage.NewRepoStore(dbMgr.DB())
+			embStore := storage.NewEmbeddingStore(dbMgr.DB())
+			emb := embedder.NewHashEmbedder(768)
+
+			s := search.NewSearcher(repoStore, embStore, emb)
+
 			name := args[0]
-			log.Printf("search: name=%s query=%q limit=%d (not yet implemented)", name, query, limit)
-			return nil
+			results, err := s.Search(query, name, limit, contextLines)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(results)
 		},
 	}
 
 	cmd.Flags().StringVarP(&query, "query", "c", "", "search query")
 	cmd.Flags().IntVar(&limit, "limit", 10, "maximum number of results")
+	cmd.Flags().IntVar(&contextLines, "context", 0, "number of context lines before and after each result")
 	_ = cmd.MarkFlagRequired("query")
 
 	return cmd
