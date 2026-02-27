@@ -125,9 +125,7 @@ class TestCanonicalInstructionBypass:
         config = _make_agent_config("Clone {repo} and run tests")
         agent = config.to_agent("test_agent")
         mock_ctx = MagicMock()
-        text, bypass = asyncio.get_event_loop().run_until_complete(
-            agent.canonical_instruction(mock_ctx)
-        )
+        text, bypass = asyncio.get_event_loop().run_until_complete(agent.canonical_instruction(mock_ctx))
         assert bypass is True, "callable instruction must set bypass_state_injection=True"
         assert text == "Clone {repo} and run tests"
 
@@ -143,9 +141,7 @@ class TestCanonicalInstructionBypass:
         # Temporarily replace instruction with a raw string to verify ADK behavior
         agent.instruction = "Raw string with {repo}"
         mock_ctx = MagicMock()
-        text, bypass = asyncio.get_event_loop().run_until_complete(
-            agent.canonical_instruction(mock_ctx)
-        )
+        text, bypass = asyncio.get_event_loop().run_until_complete(agent.canonical_instruction(mock_ctx))
         assert bypass is False, "raw string must set bypass_state_injection=False"
         assert text == "Raw string with {repo}"
 
@@ -161,6 +157,4 @@ class TestCanonicalInstructionBypass:
         mock_ctx = MagicMock()
         mock_ctx._invocation_context.session.state = {}
         with pytest.raises(KeyError, match="repo"):
-            asyncio.get_event_loop().run_until_complete(
-                inject_session_state("Clone {repo}", mock_ctx)
-            )
+            asyncio.get_event_loop().run_until_complete(inject_session_state("Clone {repo}", mock_ctx))
