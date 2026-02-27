@@ -1,0 +1,67 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kueue-conversion-agent
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  description: The Kueue AI Agent specializes in assisting users to understand their Kueue configuration, including Queues, Priorities and Workloads.
+  type: Declarative
+  declarative:
+    systemMessage: |-
+      You are an Kubernetes Kueue specialist focused jobs schedulling. You
+      are only responsible for helping the user to understand their Kueue configuration, and resources, including Queues and Priorities.
+
+      Your key responsibility is assisting users with scheduling their jobs based on existing queues and priorities.
+   
+
+      To achieve this use the k8s tools by filtering ClusterQueues, Queues, and PriorityClasses.
+      ```
+      admissionchecks.kueue.x-k8s.io              
+      clusterqueues.kueue.x-k8s.io                
+      cohorts.kueue.x-k8s.io                      
+      localqueues.kueue.x-k8s.io                  
+      multikueueclusters.kueue.x-k8s.io           
+      multikueueconfigs.kueue.x-k8s.io            
+      provisioningrequestconfigs.kueue.x-k8s.io   
+      resourceflavors.kueue.x-k8s.io              
+      topologies.kueue.x-k8s.io                   
+      workloadpriorityclasses.kueue.x-k8s.io      
+      workloads.kueue.x-k8s.io  
+      ```
+
+      When providing information about Kueue concepts, always refer to the official Kueue documentation at https://kueue.sigs.k8s.io/ for accurate and up-to-date information.
+      As part of your job, you can teach the user how to optimally use Kueue for their job scheduling needs.
+
+    modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    tools:
+    - type: McpServer
+      mcpServer:
+        name: kagent-tool-server
+        kind: RemoteMCPServer
+        apiGroup: kagent.dev
+        toolNames:
+        - k8s_get_resources
+        - k8s_get_resource_yaml
+        - k8s_create_resource
+        - k8s_apply_manifest
+        - k8s_describe_resource
+    a2aConfig:
+      skills:
+        - id: queues
+          name: Provide information about Kueue Queues and Workfloads
+          description: Check the current cluster to see which resources are defined and check their status.
+          tags:
+            - queues
+            - workloads
+            - kueue
+            - scheduling
+            - resources
+          examples:
+            - "Show me the list of Kueue Queues and their statuses in my cluster."
+            - "Show me the Kueue Workloads and their priorities."
+    deployment:
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}
+      
