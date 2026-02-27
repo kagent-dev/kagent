@@ -248,6 +248,15 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 					maps.Copy(paramsMap, m)
 				}
 			}
+			// OpenAI requires object schemas to have a "properties" field.
+			if _, ok := paramsMap["type"]; !ok {
+				paramsMap["type"] = "object"
+			}
+			if paramsMap["type"] == "object" {
+				if _, ok := paramsMap["properties"]; !ok {
+					paramsMap["properties"] = map[string]any{}
+				}
+			}
 			def := shared.FunctionDefinitionParam{
 				Name:        fd.Name,
 				Parameters:  paramsMap,

@@ -99,6 +99,37 @@ func TestGenaiToolsToOpenAITools(t *testing.T) {
 		}
 		// We only check we got one tool; internal shape is openai-specific
 	})
+
+	t.Run("nil params gets default object schema with properties", func(t *testing.T) {
+		tools := []*genai.Tool{{
+			FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name:        "istio_analyze_cluster_configuration",
+				Description: "Analyze Istio cluster config",
+			}},
+		}}
+		out := genaiToolsToOpenAITools(tools)
+		if len(out) != 1 {
+			t.Fatalf("len(out) = %d, want 1", len(out))
+		}
+		// The converted tool should have a valid schema; OpenAI rejects
+		// object schemas missing "properties".
+	})
+
+	t.Run("object type without properties gets empty properties", func(t *testing.T) {
+		tools := []*genai.Tool{{
+			FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name:        "no_props",
+				Description: "Object type but no properties field",
+				ParametersJsonSchema: map[string]any{
+					"type": "object",
+				},
+			}},
+		}}
+		out := genaiToolsToOpenAITools(tools)
+		if len(out) != 1 {
+			t.Fatalf("len(out) = %d, want 1", len(out))
+		}
+	})
 }
 
 func TestGenaiContentsToOpenAIMessages(t *testing.T) {
