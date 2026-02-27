@@ -123,6 +123,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	} else {
 		status = metav1.ConditionTrue
 		reason = "Reconciled"
+		message = "Agent has been accepted for processing"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
@@ -320,6 +321,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	} else {
 		status = metav1.ConditionTrue
 		reason = "ModelConfigReconciled"
+		message = "ModelConfig has been accepted for processing"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
@@ -468,6 +470,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	} else {
 		status = metav1.ConditionTrue
 		reason = "Reconciled"
+		message = "RemoteMCPServer has been accepted for processing"
 	}
 	conditionChanged := meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeAccepted,
