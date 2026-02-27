@@ -13,7 +13,7 @@ from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
-from google.adk.apps import App
+from google.adk.apps import App, ResumabilityConfig
 from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
@@ -61,7 +61,7 @@ class KAgentApp:
         kagent_url: str,
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
-        plugins: List[BasePlugin] = None,
+        plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
     ):
@@ -124,6 +124,7 @@ class KAgentApp:
                 root_agent=root_agent,
                 plugins=self.plugins,
                 events_compaction_config=events_compaction_config,
+                resumability_config=ResumabilityConfig(is_resumable=True),
             )
 
             return Runner(

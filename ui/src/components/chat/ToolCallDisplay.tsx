@@ -3,7 +3,7 @@ import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue, isHitlRejection } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -84,6 +84,10 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
         const data = part.data as unknown as FunctionCall;
+        // Skip ADK internal function calls (confirmation/auth) — not real tool calls
+        if (data.name === "adk_request_confirmation" || data.name === "adk_request_credential") {
+          continue;
+        }
         functionCalls.push({
           id: data.id,
           name: data.name,
@@ -130,7 +134,8 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
           call_id: data.id,
           name: data.name,
           content: textContent,
-          is_error: data.response?.isError || false
+          is_error: data.response?.isError || false,
+          is_hitl_rejection: isHitlRejection(data),
         });
       }
     }
@@ -154,6 +159,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
     return [];
   }
 };
+
 
 const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove, onReject }: ToolCallDisplayProps) => {
   // Track which call IDs this component instance registered in the cache
@@ -206,11 +212,20 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
         const requests = extractToolCallRequests(message);
         for (const request of requests) {
           if (request.id && ownedCallIds.has(request.id)) {
-            // For approval requests, set status to pending_approval
+            // For approval requests, set status based on whether a decision
+            // was already made (resolved on reload) or is still pending.
             const msgMetadata = message.metadata as ADKMetadata;
-            const initialStatus: ToolCallStatus = msgMetadata?.originalType === "ToolApprovalRequest"
-              ? "pending_approval"
-              : "requested";
+            let initialStatus: ToolCallStatus = "requested";
+            if (msgMetadata?.originalType === "ToolApprovalRequest") {
+              const decision = msgMetadata?.approvalDecision as string | undefined;
+              if (decision === "approve") {
+                initialStatus = "approved";
+              } else if (decision === "deny") {
+                initialStatus = "rejected";
+              } else {
+                initialStatus = "pending_approval";
+              }
+            }
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
@@ -221,7 +236,10 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
       }
     }
 
-    // Second pass: update with execution results
+    // Second pass: update with execution results.
+    // "approved" / "rejected" are terminal HITL states — don't override them.
+    const isHitlTerminal = (s: ToolCallStatus) => s === "approved" || s === "rejected";
+
     for (const message of allMessages) {
       if (isToolCallExecutionMessage(message)) {
         const results = extractToolCallResults(message);
@@ -232,7 +250,15 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
               content: result.content,
               is_error: result.is_error
             };
-            existingCall.status = "executing";
+            if (!isHitlTerminal(existingCall.status)) {
+              // Detect HITL rejection results: the before_tool_callback
+              // returns {"status": "rejected", ...} when the user rejects.
+              if (existingCall.status === "pending_approval" && result.is_hitl_rejection) {
+                existingCall.status = "rejected";
+              } else {
+                existingCall.status = "executing";
+              }
+            }
           }
         }
       }
@@ -249,7 +275,6 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
 
     if (summaryMessageEncountered) {
       newToolCalls.forEach((call, id) => {
-        // Only update owned calls that are in 'executing' state and have a result
         if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
           call.status = "completed";
         }

@@ -11,13 +11,35 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
   for (const task of tasks) {
     if (task.history) {
+      // Pre-compute the user's HITL decision for this task (if any) so we
+      // can attach it to the reconstructed approval card.
+      const decision = findUserDecision(
+        task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>
+      );
+
       for (const historyItem of task.history) {
         if (historyItem.kind === "message") {
           // Deduplicate by messageId to avoid showing the same message twice
-          if (!seenMessageIds.has(historyItem.messageId)) {
+          if (seenMessageIds.has(historyItem.messageId)) continue;
+
+          // If this history message IS an adk_request_confirmation, replace
+          // it with a ToolApprovalRequest card carrying the decision status.
+          const confirmationParts = findConfirmationParts(historyItem);
+          if (confirmationParts.length > 0) {
+            for (const confPart of confirmationParts) {
+              const approvalMsg = buildApprovalMessage(confPart, task, decision);
+              messages.push(approvalMsg);
+            }
             seenMessageIds.add(historyItem.messageId);
-            messages.push(historyItem);
+            continue;
           }
+
+          // Skip user decision messages — the decision is shown on the
+          // approval card itself, not as a separate chat bubble.
+          if (isUserDecisionMessage(historyItem)) continue;
+
+          seenMessageIds.add(historyItem.messageId);
+          messages.push(historyItem);
         }
       }
     }
@@ -26,62 +48,115 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
+/** Returns true if the message is a user HITL decision (approve/deny). */
+function isUserDecisionMessage(message: Message): boolean {
+  if (message.role !== "user" || !message.parts) return false;
+  return message.parts.some((p: Part) => {
+    if (p.kind !== "data") return false;
+    const data = (p as DataPart).data as Record<string, unknown> | undefined;
+    return data?.decision_type != null;
+  });
+}
+
 /**
- * Check tasks for input_required state with tool_approval data
- * and create ToolApprovalRequest messages for display.
- * This is needed to reconstruct the approval dialog after page reload.
+ * Check tasks for pending ADK confirmation requests (task still in
+ * input-required state) and create ToolApprovalRequest messages with
+ * Approve/Reject buttons.
+ *
+ * Resolved approvals are handled inline by extractMessagesFromTasks
+ * (inserted at the correct history position with an approved/rejected badge).
  */
 export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Message[]; hasPendingApproval: boolean } {
   const approvalMessages: Message[] = [];
+  let hasPending = false;
 
   for (const task of tasks) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const status = task.status as any;
-    console.log("[HITL] extractApprovalMessages: task", task.id, "status.state:", status?.state);
     if (status?.state !== "input-required" || !status?.message) continue;
-    console.log("[HITL] Found input-required task:", task.id, "message parts:", JSON.stringify(status.message.parts).substring(0, 500));
 
-    const statusMessage = status.message as Message;
-    if (!statusMessage.parts) continue;
+    const confirmationParts = findConfirmationParts(status.message as Message);
+    if (confirmationParts.length === 0) continue;
 
-    // Look for a DataPart with interrupt_type: "tool_approval"
-    const approvalDataPart = statusMessage.parts.find((part: Part) => {
-      if (part.kind === "data") {
-        const data = (part as DataPart).data as Record<string, unknown>;
-        return data?.interrupt_type === "tool_approval";
-      }
-      return false;
-    });
+    // Safety net: skip if the user already responded (covers pre-taskId-fix
+    // data where the response went to a different task).
+    if (hasUserDecisionInHistory(task)) continue;
 
-    if (!approvalDataPart) continue;
-
-    const approvalData = (approvalDataPart as DataPart).data as {
-      interrupt_type: string;
-      action_requests: Array<{ name: string; args: Record<string, unknown>; id: string | null }>;
-    };
-
-    for (const actionRequest of approvalData.action_requests) {
-      const toolCallContent: ProcessedToolCallData[] = [{
-        id: actionRequest.id || `approval_${actionRequest.name}_${Date.now()}`,
-        name: actionRequest.name,
-        args: actionRequest.args || {}
-      }];
-      const approvalMessage = createMessage("", "agent", {
-        originalType: "ToolApprovalRequest",
-        contextId: task.contextId,
-        taskId: task.id,
-        additionalMetadata: {
-          toolCallData: toolCallContent,
-          hitlApprovalRequests: approvalData.action_requests,
-          hitlTaskId: task.id,
-          hitlContextId: task.contextId,
-        }
-      });
-      approvalMessages.push(approvalMessage);
+    for (const confPart of confirmationParts) {
+      approvalMessages.push(buildApprovalMessage(confPart, task));
     }
+    hasPending = true;
   }
 
-  return { messages: approvalMessages, hasPendingApproval: approvalMessages.length > 0 };
+  return { messages: approvalMessages, hasPendingApproval: hasPending };
+}
+
+/** Find adk_request_confirmation DataParts in a message's parts. */
+function findConfirmationParts(message: Message): DataPart[] {
+  if (!message.parts) return [];
+  return message.parts.filter((part: Part) => {
+    if (part.kind !== "data") return false;
+    const dp = part as DataPart;
+    const meta = dp.metadata as Record<string, unknown> | undefined;
+    return (
+      getMetadataValue<string>(meta, "type") === "function_call" &&
+      getMetadataValue<boolean>(meta, "is_long_running") === true &&
+      (dp.data as Record<string, unknown>)?.name === "adk_request_confirmation"
+    );
+  }) as DataPart[];
+}
+
+/** Check if any user message in the task's history contains a decision_type DataPart. */
+function hasUserDecisionInHistory(task: Task): boolean {
+  return (task.history || []).some((item: { kind?: string; role?: string; parts?: Part[] }) => {
+    if (item.kind !== "message" || item.role !== "user" || !item.parts) return false;
+    return item.parts.some((p: Part) => {
+      if (p.kind !== "data") return false;
+      const data = (p as DataPart).data as Record<string, unknown> | undefined;
+      return data?.decision_type != null;
+    });
+  });
+}
+
+/** Find the user's approval/rejection decision from task history. Returns "approve" | "deny" | undefined. */
+function findUserDecision(history: Array<{ kind?: string; role?: string; parts?: Part[] }>): string | undefined {
+  for (const item of history) {
+    if (item.kind !== "message" || item.role !== "user" || !item.parts) continue;
+    for (const p of item.parts) {
+      if (p.kind !== "data") continue;
+      const data = (p as DataPart).data as Record<string, unknown> | undefined;
+      if (data?.decision_type != null) {
+        return data.decision_type as string;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Build a ToolApprovalRequest message from a confirmation DataPart. */
+function buildApprovalMessage(confPart: DataPart, task: Task, decision?: string): Message {
+  const data = confPart.data as {
+    name: string;
+    args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
+    id: string;
+  };
+  const origFc = data.args.originalFunctionCall;
+  const toolCallContent: ProcessedToolCallData[] = [{
+    id: origFc.id || data.id,
+    name: origFc.name,
+    args: origFc.args || {},
+  }];
+  return createMessage("", "agent", {
+    originalType: "ToolApprovalRequest",
+    contextId: task.contextId,
+    taskId: task.id,
+    additionalMetadata: {
+      toolCallData: toolCallContent,
+      // "approve" | "deny" | undefined — ToolCallDisplay reads this to
+      // set the initial status to "approved", "rejected", or "pending_approval".
+      approvalDecision: decision,
+    },
+  });
 }
 
 export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
@@ -178,6 +253,18 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
+  /** True when the before_tool_callback rejected this tool call (HITL denial). */
+  is_hitl_rejection?: boolean;
+}
+
+/** Returns true if a raw ToolResponseData result object represents a HITL rejection. */
+export function isHitlRejection(toolData: ToolResponseData): boolean {
+  const result = toolData.response?.result;
+  return (
+    result !== null &&
+    typeof result === "object" &&
+    (result as Record<string, unknown>).status === "rejected"
+  );
 }
 
 // Normalize various tool response result shapes into plain text
@@ -374,7 +461,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       call_id: toolData.id,
       name: toolData.name,
       content: normalizeToolResultToText(toolData),
-      is_error: toolData.response?.isError || false
+      is_error: toolData.response?.isError || false,
+      is_hitl_rejection: isHitlRejection(toolData),
     }];
     const execEvent = createMessage(
       "",
@@ -402,52 +490,49 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
       updateTokenStatsFromMetadata(adkMetadata);
 
-      // Check for tool approval interrupt
+      // Check for tool approval interrupt (ADK-native adk_request_confirmation)
       if (
         statusUpdate.status.state === "input-required" &&
         statusUpdate.status.message
       ) {
         const message = statusUpdate.status.message;
-        console.log("[HITL] Detected input-required status, message parts:", JSON.stringify(message.parts).substring(0, 500));
 
-        // Look for a DataPart with interrupt_type: "tool_approval"
-        const approvalDataPart = message.parts.find(
+        // Detect ADK-native confirmation requests: long-running function_call DataParts
+        // with name "adk_request_confirmation". These contain originalFunctionCall
+        // details from which we extract the real tool name/args for the approval UI.
+        const confirmationParts = message.parts.filter(
           (part): part is DataPart =>
             isDataPart(part) &&
-            (part.data as Record<string, unknown>)?.interrupt_type === "tool_approval"
+            getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call" &&
+            getMetadataValue<boolean>(part.metadata as Record<string, unknown>, "is_long_running") === true &&
+            (part.data as Record<string, unknown>)?.name === "adk_request_confirmation"
         );
 
-        console.log("[HITL] approvalDataPart found:", !!approvalDataPart);
-
-        if (approvalDataPart) {
-          const approvalData = approvalDataPart.data as {
-            interrupt_type: string;
-            action_requests: Array<{ name: string; args: Record<string, unknown>; id: string | null }>;
-          };
-
-          // Create tool call request messages for each pending approval
+        if (confirmationParts.length > 0) {
           const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-          for (const actionRequest of approvalData.action_requests) {
+          for (const confPart of confirmationParts) {
+            const data = confPart.data as {
+              name: string;
+              args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
+              id: string;
+            };
+            const origFc = data.args.originalFunctionCall;
+            // Use the original function call ID (origFc.id) so that the
+            // ToolCallDisplay cache merges the approval status into the
+            // existing "Call requested" card instead of creating a second card.
             const toolCallContent: ProcessedToolCallData[] = [{
-              id: actionRequest.id || `approval_${actionRequest.name}_${Date.now()}`,
-              name: actionRequest.name,
-              args: actionRequest.args || {}
+              id: origFc.id || data.id,
+              name: origFc.name,
+              args: origFc.args || {},
             }];
-            const approvalMessage = createMessage(
-              "",
-              source,
-              {
-                originalType: "ToolApprovalRequest",
-                contextId: statusUpdate.contextId,
-                taskId: statusUpdate.taskId,
-                additionalMetadata: {
-                  toolCallData: toolCallContent,
-                  hitlApprovalRequests: approvalData.action_requests,
-                  hitlTaskId: statusUpdate.taskId,
-                  hitlContextId: statusUpdate.contextId,
-                }
-              }
-            );
+            const approvalMessage = createMessage("", source, {
+              originalType: "ToolApprovalRequest",
+              contextId: statusUpdate.contextId,
+              taskId: statusUpdate.taskId,
+              additionalMetadata: {
+                toolCallData: toolCallContent,
+              },
+            });
             appendMessage(approvalMessage);
           }
 
@@ -500,11 +585,26 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
             const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
             if (partType === "function_call") {
+              // Skip ADK internal confirmation/auth function calls — they are
+              // handled by the approval/auth interrupt detection above and
+              // should not be rendered as regular tool call cards.
+              const fcName = (data as Record<string, unknown>)?.name as string | undefined;
+              if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") {
+                continue;
+              }
               const toolData = data as unknown as ToolCallData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 
             } else if (partType === "function_response") {
+              // Skip the initial confirmation_requested marker from the
+              // before_tool_callback (it's not a real tool result — the tool
+              // hasn't run yet, it's just the approval request signal).
+              const responseData = (data as { response?: Record<string, unknown> })?.response;
+              const responseStatus = responseData?.status as string | undefined;
+              if (responseStatus === "confirmation_requested") {
+                continue;
+              }
               const toolData = data as unknown as ToolResponseData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
@@ -559,7 +659,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
-          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
+          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false, is_hitl_rejection: isHitlRejection(toolData) }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
           convertedMessages.push(convertedMessage);
           continue;

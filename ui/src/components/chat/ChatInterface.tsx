@@ -128,15 +128,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
           const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
 
-          // Check for pending approval (task in input_required state)
-          const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(messagesResponse.data);
+          // Resolved approvals are already inline in extractedMessages (with
+          // approved/rejected badges). Only pending approvals need appending.
+          const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(messagesResponse.data);
 
-          setStoredMessages(extractedMessages);
+          setStoredMessages(
+            hasPendingApproval
+              ? [...extractedMessages, ...pendingApprovalMessages]
+              : extractedMessages
+          );
           setTokenStats(extractedTokenStats);
 
           if (hasPendingApproval) {
-            // Put approval messages in streamingMessages so they render with buttons
-            setStreamingMessages(approvalMessages);
             setChatStatus("input_required");
           }
         }
@@ -355,35 +358,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const sendApprovalDecision = async (decision: "approve" | "deny", reason?: string) => {
     const currentSessionId = session?.id || sessionId;
-    console.log("[HITL] sendApprovalDecision called:", { decision, reason, currentSessionId, selectedAgentName, selectedNamespace });
-    if (!currentSessionId || !selectedAgentName || !selectedNamespace) {
-      console.error("[HITL] sendApprovalDecision: missing required params, returning early");
-      return;
-    }
-
     setChatStatus("thinking");
-    // NOTE: We intentionally do NOT move streamingMessages to storedMessages here.
-    // Moving messages causes ToolCallDisplay components to unmount/remount, and a
-    // race condition with the global toolCallCache prevents the remounted components
-    // from re-registering their tool call IDs — making the approval card disappear.
-    // By keeping messages in place, the ToolDisplay's isSubmitting state is preserved
-    // and naturally shows "Submitting decision..." feedback.
     setStreamingContent("");
 
-    // Build the approval/rejection message
+    // Build the approval/rejection data (no visible user message — the tool card
+    // already shows "Submitting decision..." feedback via its isSubmitting state)
     const displayText = decision === "approve" ? "Approved" : `Rejected${reason ? `: ${reason}` : ""}`;
     const decisionData: Record<string, unknown> = { decision_type: decision };
     if (reason) decisionData.reason = reason;
 
-    // Show the user's decision as a message (appended to existing streaming messages)
-    const userMessage: Message = {
-      kind: "message",
-      messageId: uuidv4(),
-      role: "user",
-      parts: [{ kind: "text", text: displayText }],
-      metadata: { timestamp: Date.now() },
-    };
-    setStreamingMessages(prev => [...prev, userMessage]);
+    // Find the taskId from the pending approval message so the A2A framework
+    // reuses the existing task instead of creating a new one.
+    const pendingApproval = streamingMessages.find(
+      m => m.metadata && (m.metadata as Record<string, unknown>).originalType === "ToolApprovalRequest"
+    );
+    const approvalTaskId = pendingApproval?.taskId;
 
     isFirstAssistantChunkRef.current = true;
     abortControllerRef.current = new AbortController();
@@ -399,20 +388,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           { kind: "text", text: displayText },
         ],
         contextId: currentSessionId,
+        taskId: approvalTaskId,
         metadata: {
           timestamp: Date.now(),
         },
       };
 
       const sendParams = { message: a2aMessage, metadata: {} };
-      console.log("[HITL] Sending approval stream request...", JSON.stringify(sendParams).substring(0, 500));
       const stream = await kagentA2AClient.sendMessageStream(
         selectedNamespace,
         selectedAgentName,
         sendParams,
         abortControllerRef.current?.signal
       );
-      console.log("[HITL] Stream opened successfully");
 
       let timeoutTimer: NodeJS.Timeout | null = null;
       let streamActive = true;
@@ -463,6 +451,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setStreamingContent("");
     } finally {
       abortControllerRef.current = null;
+      // Ensure chat state resets after approval stream ends
+      setIsStreaming(false);
+      setStreamingContent("");
+      // Only reset to ready if not already set to a terminal state by error handling
+      setChatStatus(prev => (prev === "thinking" || prev === "input_required") ? "ready" : prev);
     }
   };
 

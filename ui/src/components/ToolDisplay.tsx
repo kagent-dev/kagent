@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
-export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval";
+export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval" | "approved" | "rejected";
 
 interface ToolDisplayProps {
   call: FunctionCall;
@@ -86,6 +86,20 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
             Approval required
           </>
         );
+      case "approved":
+        return (
+          <>
+            <CheckCircle className="w-3 h-3 inline-block mr-2 text-green-500" />
+            Approved
+          </>
+        );
+      case "rejected":
+        return (
+          <>
+            <AlertCircle className="w-3 h-3 inline-block mr-2 text-red-500" />
+            Rejected
+          </>
+        );
       case "executing":
         return (
           <>
@@ -115,9 +129,13 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
 
   const borderClass = status === "pending_approval"
     ? 'border-amber-300 dark:border-amber-700'
-    : isError
-      ? 'border-red-300'
-      : '';
+    : status === "rejected"
+      ? 'border-red-300 dark:border-red-700'
+      : status === "approved"
+        ? 'border-green-300 dark:border-green-700'
+        : isError
+          ? 'border-red-300'
+          : '';
 
   return (
     <Card className={`w-full mx-auto my-1 min-w-full ${borderClass}`}>
