@@ -405,10 +405,18 @@ class AgentConfig(BaseModel):
             agent.tools.append(LoadMemoryTool())
             agent.tools.append(SaveMemoryTool())
 
-            agent.instruction = (
-                "You have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+            memory_suffix = (
+                "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
                 "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
             )
+            # Append memory instructions to static_instruction so they stay
+            # in the system prompt (same as the main instruction) instead of
+            # being injected as a separate user message, which would confuse
+            # the LLM conversation flow and break mock-based e2e tests.
+            if agent.static_instruction:
+                agent.static_instruction += memory_suffix
+            else:
+                agent.instruction += memory_suffix
 
             # Define auto-save callback
             async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
