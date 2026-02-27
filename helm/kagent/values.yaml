@@ -163,6 +163,35 @@ ui:
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
 
+  # -- Init containers to add to the UI pod if you require a custom configuration
+  initContainers: []
+  # - name: init-nginx
+  #   image: busybox
+  #   command: []
+
+  # -- Additional volumeMounts to the UI container
+  volumeMounts: []
+  #  - mountPath: /tmp
+  #    name: tmp
+
+  # -- Additional volumes to the UI pod
+  volumes: []
+  #  - name: tmp
+  #    emptyDir: {}
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: false
+    seccompProfile:
+      type: RuntimeDefault
+
+  podSecurityContext:
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    fsGroup: 1001
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
