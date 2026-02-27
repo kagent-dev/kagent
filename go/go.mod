@@ -19,6 +19,8 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/muesli/reflow v0.3.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/robfig/cron/v3 v3.0.1
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
@@ -62,7 +64,6 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/openai/openai-go/v3 v3.16.0 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
