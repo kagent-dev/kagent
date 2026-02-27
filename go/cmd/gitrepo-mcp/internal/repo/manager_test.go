@@ -2,6 +2,7 @@ package repo
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -194,4 +195,190 @@ func TestManager_DefaultBranch(t *testing.T) {
 	repo, err := mgr.Get("defaultbranch")
 	require.NoError(t, err)
 	require.Equal(t, "main", repo.Branch)
+}
+
+// --- git repo helper for sync tests ---
+
+// createClonedGitRepo creates a bare repo + clone in reposDir/name, suitable for git pull.
+func createClonedGitRepo(t *testing.T, reposDir, name string) {
+	t.Helper()
+
+	bareDir := filepath.Join(t.TempDir(), name+"-bare.git")
+	runGit(t, "", "init", "--bare", "--initial-branch=main", bareDir)
+
+	cloneDir := filepath.Join(reposDir, name)
+	runGit(t, "", "clone", bareDir, cloneDir)
+
+	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "file.txt"), []byte("hello"), 0o644))
+	runGit(t, cloneDir, "add", "file.txt")
+	runGitEnv(t, cloneDir, "commit", "-m", "initial")
+	runGit(t, cloneDir, "push", "origin", "main")
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, string(out))
+}
+
+func runGitEnv(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com",
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, string(out))
+}
+
+// --- SyncAndReindex ---
+
+func TestManager_SyncAndReindex_IndexedRepo(t *testing.T) {
+	mgr, repoStore := newTestManager(t)
+
+	createClonedGitRepo(t, mgr.reposDir, "myrepo")
+
+	err := repoStore.Create(&storage.Repo{
+		Name:      "myrepo",
+		URL:       "https://example.com/myrepo.git",
+		Branch:    "main",
+		Status:    storage.RepoStatusIndexed,
+		LocalPath: filepath.Join(mgr.reposDir, "myrepo"),
+	})
+	require.NoError(t, err)
+
+	var reindexCalled bool
+	reindexFn := func(name string) error {
+		reindexCalled = true
+		require.Equal(t, "myrepo", name)
+		return nil
+	}
+
+	repo, reindexed, err := mgr.SyncAndReindex("myrepo", reindexFn)
+	require.NoError(t, err)
+	require.True(t, reindexed)
+	require.True(t, reindexCalled)
+	require.NotNil(t, repo.LastSynced)
+}
+
+func TestManager_SyncAndReindex_ClonedRepo_NoReindex(t *testing.T) {
+	mgr, repoStore := newTestManager(t)
+
+	createClonedGitRepo(t, mgr.reposDir, "clonedrepo")
+
+	err := repoStore.Create(&storage.Repo{
+		Name:      "clonedrepo",
+		URL:       "https://example.com/cloned.git",
+		Branch:    "main",
+		Status:    storage.RepoStatusCloned,
+		LocalPath: filepath.Join(mgr.reposDir, "clonedrepo"),
+	})
+	require.NoError(t, err)
+
+	reindexCalled := false
+	reindexFn := func(_ string) error {
+		reindexCalled = true
+		return nil
+	}
+
+	repo, reindexed, err := mgr.SyncAndReindex("clonedrepo", reindexFn)
+	require.NoError(t, err)
+	require.False(t, reindexed)
+	require.False(t, reindexCalled)
+	require.NotNil(t, repo.LastSynced)
+}
+
+func TestManager_SyncAndReindex_NilReindexFn(t *testing.T) {
+	mgr, repoStore := newTestManager(t)
+
+	createClonedGitRepo(t, mgr.reposDir, "nilreindex")
+
+	err := repoStore.Create(&storage.Repo{
+		Name:      "nilreindex",
+		URL:       "https://example.com/nil.git",
+		Branch:    "main",
+		Status:    storage.RepoStatusIndexed,
+		LocalPath: filepath.Join(mgr.reposDir, "nilreindex"),
+	})
+	require.NoError(t, err)
+
+	repo, reindexed, err := mgr.SyncAndReindex("nilreindex", nil)
+	require.NoError(t, err)
+	require.False(t, reindexed)
+	require.NotNil(t, repo.LastSynced)
+}
+
+func TestManager_SyncAndReindex_NotFound(t *testing.T) {
+	mgr, _ := newTestManager(t)
+
+	_, _, err := mgr.SyncAndReindex("nonexistent", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
+}
+
+// --- SyncAll ---
+
+func TestManager_SyncAll_Empty(t *testing.T) {
+	mgr, _ := newTestManager(t)
+
+	results, err := mgr.SyncAll(nil)
+	require.NoError(t, err)
+	require.Empty(t, results)
+}
+
+func TestManager_SyncAll_SkipsBusy(t *testing.T) {
+	mgr, repoStore := newTestManager(t)
+
+	err := repoStore.Create(&storage.Repo{
+		Name: "busy", URL: "https://example.com/busy.git", Branch: "main",
+		Status: storage.RepoStatusCloning, LocalPath: "/tmp/busy",
+	})
+	require.NoError(t, err)
+
+	results, err := mgr.SyncAll(nil)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "busy", results[0].Name)
+	require.False(t, results[0].Synced)
+	require.Contains(t, results[0].Error, "busy")
+}
+
+func TestManager_SyncAll_MixedResults(t *testing.T) {
+	mgr, repoStore := newTestManager(t)
+
+	// Create a syncable repo with real git
+	createClonedGitRepo(t, mgr.reposDir, "good")
+	err := repoStore.Create(&storage.Repo{
+		Name: "good", URL: "https://example.com/good.git", Branch: "main",
+		Status: storage.RepoStatusCloned, LocalPath: filepath.Join(mgr.reposDir, "good"),
+	})
+	require.NoError(t, err)
+
+	// Create a busy repo
+	err = repoStore.Create(&storage.Repo{
+		Name: "busy", URL: "https://example.com/busy.git", Branch: "main",
+		Status: storage.RepoStatusIndexing, LocalPath: "/tmp/busy",
+	})
+	require.NoError(t, err)
+
+	results, err := mgr.SyncAll(nil)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Results are ordered by name (alpha sort from DB)
+	require.Equal(t, "busy", results[0].Name)
+	require.False(t, results[0].Synced)
+	require.Contains(t, results[0].Error, "busy")
+
+	require.Equal(t, "good", results[1].Name)
+	require.True(t, results[1].Synced)
+	require.False(t, results[1].Reindexed)
 }

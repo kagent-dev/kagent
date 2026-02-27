@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 )
@@ -20,6 +21,7 @@ import (
 // Server serves the REST API for gitrepo-mcp.
 type Server struct {
 	repoStore   *storage.RepoStore
+	repoManager *repo.Manager
 	indexer     *indexer.Indexer
 	searcher    *search.Searcher
 	astSearcher *search.AstSearcher
@@ -29,6 +31,7 @@ type Server struct {
 // NewServer creates a REST API server.
 func NewServer(
 	repoStore *storage.RepoStore,
+	repoManager *repo.Manager,
 	idx *indexer.Indexer,
 	searcher *search.Searcher,
 	astSearcher *search.AstSearcher,
@@ -36,6 +39,7 @@ func NewServer(
 ) *Server {
 	return &Server{
 		repoStore:   repoStore,
+		repoManager: repoManager,
 		indexer:     idx,
 		searcher:    searcher,
 		astSearcher: astSearcher,
@@ -59,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	// Operations
 	mux.HandleFunc("POST /api/repos/{name}/sync", s.handleSyncRepo)
 	mux.HandleFunc("POST /api/repos/{name}/index", s.handleIndexRepo)
+	mux.HandleFunc("POST /api/sync-all", s.handleSyncAll)
 
 	// Search
 	mux.HandleFunc("POST /api/repos/{name}/search", s.handleSearchRepo)
@@ -108,6 +113,10 @@ type astSearchResponse struct {
 
 type languagesResponse struct {
 	Languages []string `json:"languages"`
+}
+
+type syncAllResponse struct {
+	Results []repo.SyncResult `json:"results"`
 }
 
 // --- Handlers ---
@@ -204,39 +213,52 @@ func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSyncRepo(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	repo, err := s.repoStore.Get(name)
+	syncedRepo, err := s.repoManager.Sync(name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "repo %s not found", name)
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "repo %s not found", name)
+			return
+		}
+		if strings.Contains(err.Error(), "busy") {
+			writeError(w, http.StatusConflict, "%s", err)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "%s", err)
 		return
 	}
 
-	if repo.Status == storage.RepoStatusCloning || repo.Status == storage.RepoStatusIndexing {
-		writeError(w, http.StatusConflict, "repo %s is busy (status: %s)", name, repo.Status)
-		return
+	// Trigger background re-index if repo was indexed
+	if syncedRepo.Status == storage.RepoStatusIndexed {
+		go func() {
+			if err := s.indexer.Index(name); err != nil {
+				log.Printf("background re-index of repo %s failed: %v", name, err)
+			}
+		}()
 	}
 
-	cmd := exec.Command("git", "-C", repo.LocalPath, "pull", "--ff-only")
-	if err := cmd.Run(); err != nil {
-		errMsg := fmt.Sprintf("git pull failed: %v", err)
-		repo.Status = storage.RepoStatusError
-		repo.Error = &errMsg
-		_ = s.repoStore.Update(repo)
-		writeError(w, http.StatusInternalServerError, "%s", errMsg)
-		return
+	writeJSON(w, http.StatusOK, syncedRepo)
+}
+
+func (s *Server) handleSyncAll(w http.ResponseWriter, _ *http.Request) {
+	reindexFn := func(name string) error {
+		go func() {
+			if err := s.indexer.Index(name); err != nil {
+				log.Printf("background re-index of repo %s failed: %v", name, err)
+			}
+		}()
+		return nil
 	}
 
-	now := time.Now()
-	repo.LastSynced = &now
-	repo.Error = nil
-	if repo.Status == storage.RepoStatusError {
-		repo.Status = storage.RepoStatusCloned
-	}
-	if err := s.repoStore.Update(repo); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update repo: %v", err)
+	results, err := s.repoManager.SyncAll(reindexFn)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to sync repos: %v", err)
 		return
 	}
+	if results == nil {
+		results = []repo.SyncResult{}
+	}
 
-	writeJSON(w, http.StatusOK, repo)
+	writeJSON(w, http.StatusOK, syncAllResponse{Results: results})
 }
 
 func (s *Server) handleIndexRepo(w http.ResponseWriter, r *http.Request) {

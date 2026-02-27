@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/config"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/embedder"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 )
@@ -39,11 +40,12 @@ func setupTestServer(t *testing.T) (*Server, *httptest.Server) {
 	emb := embedder.NewHashEmbedder(768)
 
 	reposDir := filepath.Join(tmpDir, "repos")
+	repoMgr := repo.NewManager(repoStore, reposDir)
 	idx := indexer.NewIndexer(repoStore, embStore, emb)
 	s := search.NewSearcher(repoStore, embStore, emb)
 	astS := search.NewAstSearcher(repoStore)
 
-	srv := NewServer(repoStore, idx, s, astS, reposDir)
+	srv := NewServer(repoStore, repoMgr, idx, s, astS, reposDir)
 	ts := httptest.NewServer(srv.Handler())
 
 	return srv, ts
@@ -500,4 +502,49 @@ func TestAstSearch_RepoNotFound(t *testing.T) {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// --- Sync-all ---
+
+func TestSyncAll_Empty(t *testing.T) {
+	_, ts := setupTestServer(t)
+	defer ts.Close()
+
+	resp := doRequest(t, "POST", ts.URL+"/api/sync-all", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body syncAllResponse
+	decodeJSON(t, resp, &body)
+	if len(body.Results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(body.Results))
+	}
+}
+
+func TestSyncAll_SkipsBusy(t *testing.T) {
+	srv, ts := setupTestServer(t)
+	defer ts.Close()
+
+	_ = srv.repoStore.Create(&storage.Repo{
+		Name: "busy", URL: "http://example.com", Branch: "main",
+		Status: storage.RepoStatusCloning, LocalPath: "/tmp/busy",
+	})
+
+	resp := doRequest(t, "POST", ts.URL+"/api/sync-all", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body syncAllResponse
+	decodeJSON(t, resp, &body)
+	if len(body.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(body.Results))
+	}
+	if body.Results[0].Synced {
+		t.Error("expected busy repo to not be synced")
+	}
+	if body.Results[0].Error == "" {
+		t.Error("expected error message for busy repo")
+	}
 }

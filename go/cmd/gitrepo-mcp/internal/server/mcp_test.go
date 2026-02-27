@@ -9,6 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/config"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/embedder"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,11 +38,12 @@ func setupMCPTest(t *testing.T) (*MCPServer, *mcpsdk.ClientSession) {
 	emb := embedder.NewHashEmbedder(768)
 
 	reposDir := filepath.Join(tmpDir, "repos")
+	repoMgr := repo.NewManager(repoStore, reposDir)
 	idx := indexer.NewIndexer(repoStore, embStore, emb)
 	s := search.NewSearcher(repoStore, embStore, emb)
 	astS := search.NewAstSearcher(repoStore)
 
-	mcpSrv := NewMCPServer(repoStore, idx, s, astS, reposDir)
+	mcpSrv := NewMCPServer(repoStore, repoMgr, idx, s, astS, reposDir)
 
 	ctx := context.Background()
 	t1, t2 := mcpsdk.NewInMemoryTransports()
@@ -114,6 +116,7 @@ func TestMCP_ToolsRegistered(t *testing.T) {
 	expected := []string{
 		"add_repo", "list_repos", "remove_repo", "sync_repo",
 		"index_repo", "search_code", "ast_search", "ast_search_languages",
+		"sync_all_repos",
 	}
 	for _, name := range expected {
 		if !tools[name] {
@@ -456,5 +459,38 @@ func TestMCP_AstSearchLanguages(t *testing.T) {
 		if len(out.Languages) == 0 {
 			t.Error("expected non-empty languages in structured output")
 		}
+	}
+}
+
+// --- sync_all_repos ---
+
+func TestMCP_SyncAll_Empty(t *testing.T) {
+	_, session := setupMCPTest(t)
+
+	result := callTool(t, session, "sync_all_repos", nil)
+	if result.IsError {
+		t.Errorf("unexpected error: %s", resultText(t, result))
+	}
+	text := resultText(t, result)
+	if text != "Synced 0 repo(s)" {
+		t.Errorf("expected 'Synced 0 repo(s)', got: %s", text)
+	}
+}
+
+func TestMCP_SyncAll_SkipsBusy(t *testing.T) {
+	mcpSrv, session := setupMCPTest(t)
+
+	_ = mcpSrv.repoStore.Create(&storage.Repo{
+		Name: "busy", URL: "http://example.com", Branch: "main",
+		Status: storage.RepoStatusCloning, LocalPath: "/tmp/busy",
+	})
+
+	result := callTool(t, session, "sync_all_repos", nil)
+	if result.IsError {
+		t.Errorf("unexpected error: %s", resultText(t, result))
+	}
+	text := resultText(t, result)
+	if text != "Synced 0 repo(s), 1 skipped/failed" {
+		t.Errorf("unexpected text: %s", text)
 	}
 }

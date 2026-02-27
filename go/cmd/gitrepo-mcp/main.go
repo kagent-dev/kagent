@@ -43,6 +43,7 @@ func main() {
 		newListCmd(),
 		newRemoveCmd(),
 		newSyncCmd(),
+		newSyncAllCmd(),
 		newIndexCmd(),
 		newSearchCmd(),
 		newAstSearchCmd(),
@@ -110,17 +111,18 @@ func newServeCmd() *cobra.Command {
 			emb := embedder.NewHashEmbedder(768)
 
 			reposDir := filepath.Join(cfgDataDir, "repos")
+			repoMgr := repo.NewManager(repoStore, reposDir)
 			idx := indexer.NewIndexer(repoStore, embStore, emb)
 			s := search.NewSearcher(repoStore, embStore, emb)
 			astS := search.NewAstSearcher(repoStore)
 
-			mcpSrv := server.NewMCPServer(repoStore, idx, s, astS, reposDir)
+			mcpSrv := server.NewMCPServer(repoStore, repoMgr, idx, s, astS, reposDir)
 
 			if transport == "stdio" {
 				return serveStdio(cmd.Context(), mcpSrv)
 			}
 
-			return serveHTTP(addr, repoStore, idx, s, astS, reposDir, mcpSrv)
+			return serveHTTP(addr, repoStore, repoMgr, idx, s, astS, reposDir, mcpSrv)
 		},
 	}
 
@@ -130,8 +132,8 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
-func serveHTTP(addr string, repoStore *storage.RepoStore, idx *indexer.Indexer, s *search.Searcher, astS *search.AstSearcher, reposDir string, mcpSrv *server.MCPServer) error {
-	restSrv := server.NewServer(repoStore, idx, s, astS, reposDir)
+func serveHTTP(addr string, repoStore *storage.RepoStore, repoMgr *repo.Manager, idx *indexer.Indexer, s *search.Searcher, astS *search.AstSearcher, reposDir string, mcpSrv *server.MCPServer) error {
+	restSrv := server.NewServer(repoStore, repoMgr, idx, s, astS, reposDir)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp/", http.StripPrefix("/mcp", mcpSrv))
@@ -246,17 +248,48 @@ func newRemoveCmd() *cobra.Command {
 }
 
 func newSyncCmd() *cobra.Command {
-	return &cobra.Command{
+	var reindex bool
+
+	cmd := &cobra.Command{
 		Use:   "sync <name>",
 		Short: "Pull latest changes for a repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			if reindex {
+				dbMgr, err := initStorage()
+				if err != nil {
+					return fmt.Errorf("failed to initialize: %w", err)
+				}
+				repoStore := storage.NewRepoStore(dbMgr.DB())
+				embStore := storage.NewEmbeddingStore(dbMgr.DB())
+				emb := embedder.NewHashEmbedder(768)
+				reposDir := filepath.Join(cfgDataDir, "repos")
+				mgr := repo.NewManager(repoStore, reposDir)
+				idx := indexer.NewIndexer(repoStore, embStore, emb)
+
+				r, reindexed, err := mgr.SyncAndReindex(name, func(n string) error {
+					log.Printf("re-indexing repo %s ...", n)
+					return idx.Index(n)
+				})
+				if err != nil {
+					return err
+				}
+				if reindexed {
+					log.Printf("repo %s synced and re-indexed", name)
+				}
+
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(r)
+			}
+
 			mgr, err := initRepoManager()
 			if err != nil {
 				return fmt.Errorf("failed to initialize: %w", err)
 			}
 
-			name := args[0]
 			r, err := mgr.Sync(name)
 			if err != nil {
 				return err
@@ -267,6 +300,53 @@ func newSyncCmd() *cobra.Command {
 			return enc.Encode(r)
 		},
 	}
+
+	cmd.Flags().BoolVar(&reindex, "reindex", false, "re-index the repo if it was previously indexed")
+
+	return cmd
+}
+
+func newSyncAllCmd() *cobra.Command {
+	var reindex bool
+
+	cmd := &cobra.Command{
+		Use:   "sync-all",
+		Short: "Sync all repositories with optional re-indexing",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dbMgr, err := initStorage()
+			if err != nil {
+				return fmt.Errorf("failed to initialize storage: %w", err)
+			}
+
+			repoStore := storage.NewRepoStore(dbMgr.DB())
+			reposDir := filepath.Join(cfgDataDir, "repos")
+			mgr := repo.NewManager(repoStore, reposDir)
+
+			var reindexFn func(string) error
+			if reindex {
+				embStore := storage.NewEmbeddingStore(dbMgr.DB())
+				emb := embedder.NewHashEmbedder(768)
+				idx := indexer.NewIndexer(repoStore, embStore, emb)
+				reindexFn = func(name string) error {
+					log.Printf("re-indexing repo %s ...", name)
+					return idx.Index(name)
+				}
+			}
+
+			results, err := mgr.SyncAll(reindexFn)
+			if err != nil {
+				return err
+			}
+
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(results)
+		},
+	}
+
+	cmd.Flags().BoolVar(&reindex, "reindex", true, "re-index repos that were previously indexed")
+
+	return cmd
 }
 
 func newIndexCmd() *cobra.Command {

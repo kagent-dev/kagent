@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/indexer"
+	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/repo"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/cmd/gitrepo-mcp/internal/storage"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,6 +22,7 @@ import (
 // MCPServer exposes gitrepo-mcp functionality via MCP protocol.
 type MCPServer struct {
 	repoStore   *storage.RepoStore
+	repoManager *repo.Manager
 	indexer     *indexer.Indexer
 	searcher    *search.Searcher
 	astSearcher *search.AstSearcher
@@ -98,9 +100,16 @@ type AstSearchLanguagesOutput struct {
 	Languages []string `json:"languages"`
 }
 
+type SyncAllInput struct{}
+
+type SyncAllOutput struct {
+	Results []repo.SyncResult `json:"results"`
+}
+
 // NewMCPServer creates an MCP server with all tools registered.
 func NewMCPServer(
 	repoStore *storage.RepoStore,
+	repoManager *repo.Manager,
 	idx *indexer.Indexer,
 	searcher *search.Searcher,
 	astSearcher *search.AstSearcher,
@@ -108,6 +117,7 @@ func NewMCPServer(
 ) *MCPServer {
 	m := &MCPServer{
 		repoStore:   repoStore,
+		repoManager: repoManager,
 		indexer:     idx,
 		searcher:    searcher,
 		astSearcher: astSearcher,
@@ -160,6 +170,11 @@ func NewMCPServer(
 		Name:        "ast_search_languages",
 		Description: "List programming languages supported by ast-grep structural search.",
 	}, m.handleAstSearchLanguages)
+
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{
+		Name:        "sync_all_repos",
+		Description: "Sync all repositories (git pull) and trigger re-indexing for previously indexed repos. Busy repos are skipped.",
+	}, m.handleSyncAll)
 
 	m.httpHandler = mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return srv },
@@ -265,35 +280,63 @@ func (m *MCPServer) handleSyncRepo(_ context.Context, _ *mcpsdk.CallToolRequest,
 		return mcpError("name is required"), SyncRepoOutput{}, nil
 	}
 
-	repo, err := m.repoStore.Get(in.Name)
+	syncedRepo, err := m.repoManager.Sync(in.Name)
 	if err != nil {
-		return mcpError("repo %s not found", in.Name), SyncRepoOutput{}, nil
+		return mcpError("%s", err), SyncRepoOutput{}, nil
 	}
 
-	if repo.Status == storage.RepoStatusCloning || repo.Status == storage.RepoStatusIndexing {
-		return mcpError("repo %s is busy (status: %s)", in.Name, repo.Status), SyncRepoOutput{}, nil
+	// Trigger background re-index if repo was indexed
+	reindexing := false
+	if syncedRepo.Status == storage.RepoStatusIndexed {
+		reindexing = true
+		go func() {
+			if err := m.indexer.Index(in.Name); err != nil {
+				log.Printf("background re-index of repo %s failed: %v", in.Name, err)
+			}
+		}()
 	}
 
-	cmd := exec.Command("git", "-C", repo.LocalPath, "pull", "--ff-only")
-	if err := cmd.Run(); err != nil {
-		errMsg := fmt.Sprintf("git pull failed: %v", err)
-		repo.Status = storage.RepoStatusError
-		repo.Error = &errMsg
-		_ = m.repoStore.Update(repo)
-		return mcpError("%s", errMsg), SyncRepoOutput{}, nil
+	msg := fmt.Sprintf("Repo %s synced.", in.Name)
+	if reindexing {
+		msg = fmt.Sprintf("Repo %s synced. Re-indexing started in background.", in.Name)
+	}
+	return mcpText("%s", msg), SyncRepoOutput{Repo: *syncedRepo}, nil
+}
+
+func (m *MCPServer) handleSyncAll(_ context.Context, _ *mcpsdk.CallToolRequest, _ SyncAllInput) (*mcpsdk.CallToolResult, SyncAllOutput, error) {
+	reindexFn := func(name string) error {
+		go func() {
+			if err := m.indexer.Index(name); err != nil {
+				log.Printf("background re-index of repo %s failed: %v", name, err)
+			}
+		}()
+		return nil
 	}
 
-	now := time.Now()
-	repo.LastSynced = &now
-	repo.Error = nil
-	if repo.Status == storage.RepoStatusError {
-		repo.Status = storage.RepoStatusCloned
+	results, err := m.repoManager.SyncAll(reindexFn)
+	if err != nil {
+		return mcpError("failed to sync repos: %v", err), SyncAllOutput{}, nil
 	}
-	if err := m.repoStore.Update(repo); err != nil {
-		return mcpError("failed to update repo: %v", err), SyncRepoOutput{}, nil
+	if results == nil {
+		results = []repo.SyncResult{}
 	}
 
-	return mcpText("Repo %s synced.", in.Name), SyncRepoOutput{Repo: *repo}, nil
+	var sb strings.Builder
+	synced, failed := 0, 0
+	for _, r := range results {
+		if r.Synced {
+			synced++
+		}
+		if r.Error != "" {
+			failed++
+		}
+	}
+	sb.WriteString(fmt.Sprintf("Synced %d repo(s)", synced))
+	if failed > 0 {
+		sb.WriteString(fmt.Sprintf(", %d skipped/failed", failed))
+	}
+
+	return mcpText("%s", sb.String()), SyncAllOutput{Results: results}, nil
 }
 
 func (m *MCPServer) handleIndexRepo(_ context.Context, _ *mcpsdk.CallToolRequest, in IndexRepoInput) (*mcpsdk.CallToolResult, IndexRepoOutput, error) {

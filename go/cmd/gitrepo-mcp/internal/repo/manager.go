@@ -98,6 +98,14 @@ func (m *Manager) Remove(name string) error {
 	return nil
 }
 
+// SyncResult holds the result of syncing a single repo.
+type SyncResult struct {
+	Name      string `json:"name"`
+	Synced    bool   `json:"synced"`
+	Reindexed bool   `json:"reindexed"`
+	Error     string `json:"error,omitempty"`
+}
+
 // Sync pulls latest changes for a repo.
 func (m *Manager) Sync(name string) (*storage.Repo, error) {
 	repo, err := m.repoStore.Get(name)
@@ -128,6 +136,60 @@ func (m *Manager) Sync(name string) (*storage.Repo, error) {
 	}
 
 	return repo, nil
+}
+
+// SyncAndReindex syncs a repo and triggers re-indexing if it was previously indexed.
+// reindexFn is called when the repo has status "indexed"; pass nil to skip re-indexing.
+func (m *Manager) SyncAndReindex(name string, reindexFn func(string) error) (*storage.Repo, bool, error) {
+	repo, err := m.Sync(name)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if repo.Status == storage.RepoStatusIndexed && reindexFn != nil {
+		if err := reindexFn(name); err != nil {
+			return repo, false, fmt.Errorf("sync succeeded but re-index failed for %s: %w", name, err)
+		}
+		repo, err = m.repoStore.Get(name)
+		if err != nil {
+			return nil, true, fmt.Errorf("failed to refresh repo after re-index: %w", err)
+		}
+		return repo, true, nil
+	}
+
+	return repo, false, nil
+}
+
+// SyncAll syncs all repos, optionally triggering re-index for indexed repos.
+// Repos with busy status (cloning/indexing) are skipped.
+func (m *Manager) SyncAll(reindexFn func(string) error) ([]SyncResult, error) {
+	repos, err := m.repoStore.List()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repos: %w", err)
+	}
+
+	var results []SyncResult
+	for _, r := range repos {
+		result := SyncResult{Name: r.Name}
+
+		if r.Status == storage.RepoStatusCloning || r.Status == storage.RepoStatusIndexing {
+			result.Error = fmt.Sprintf("skipped: repo is busy (status: %s)", r.Status)
+			results = append(results, result)
+			continue
+		}
+
+		_, reindexed, err := m.SyncAndReindex(r.Name, reindexFn)
+		if err != nil {
+			result.Error = err.Error()
+		} else {
+			result.Synced = true
+			result.Reindexed = reindexed
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
 }
 
 // cloneRepo runs git clone with shallow depth.

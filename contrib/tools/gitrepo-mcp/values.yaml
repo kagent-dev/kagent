@@ -29,6 +29,13 @@ persistence:
 
 resources: {}
 
+cronJob:
+  enabled: false
+  schedule: "0 */6 * * *"
+  reindex: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
 remoteMCPServer:
   enabled: true
   description: "Git repo MCP server — semantic and structural code search"
