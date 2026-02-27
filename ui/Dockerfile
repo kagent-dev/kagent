@@ -1,3 +1,9 @@
+# Uses Node.js + npm instead of Bun because:
+# - Bun crashes with SIGILL on certain Docker build platforms (see #1331)
+# - Upgrading Bun versions (#1330) did not resolve the SIGILL issue
+# - The CI ui-tests job already uses npm, so this aligns Docker with CI
+# - Node.js standalone output (next build) works identically with node runtime
+
 ### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG BUILDPLATFORM
