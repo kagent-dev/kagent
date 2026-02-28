@@ -293,9 +293,10 @@ spec:
         - The `cilium monitor` tool is invaluable for real-time traffic analysis
         - For persistent issues, collect debug info with `cilium bugtool`
     promptTemplate:
-      - configMapRef:
+      dataSources:
+        - kind: ConfigMap
           name: kagent-builtin-prompts
-        alias: builtin
+          alias: builtin
     tools:
       - type: McpServer
         mcpServer:

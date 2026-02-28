@@ -453,9 +453,10 @@ spec:
       These tools can be used to troubleshoot policy issues, verify policy behavior, and ensure your network policies are correctly configured before deployment.
 
     promptTemplate:
-      - configMapRef:
+      dataSources:
+        - kind: ConfigMap
           name: kagent-builtin-prompts
-        alias: builtin
+          alias: builtin
     tools:
       - type: McpServer
         mcpServer:

@@ -82,9 +82,10 @@ spec:
 
       Always start with the least intrusive approach, and escalate diagnostics only as needed. When in doubt, gather more information before recommending changes.
     promptTemplate:
-      - configMapRef:
+      dataSources:
+        - kind: ConfigMap
           name: kagent-builtin-prompts
-        alias: builtin
+          alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     tools:
     - type: McpServer

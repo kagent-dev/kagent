@@ -70,9 +70,10 @@ spec:
       - `cilium-dbg bpf recorder delete <id>` - Delete PCAP recorder
 
     promptTemplate:
-      - configMapRef:
+      dataSources:
+        - kind: ConfigMap
           name: kagent-builtin-prompts
-        alias: builtin
+          alias: builtin
     tools:
     - type: McpServer
       mcpServer:
