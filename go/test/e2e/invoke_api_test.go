@@ -477,7 +477,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "RemoteMCPServer",
 					Name:     "kagent-tool-server",
@@ -517,7 +517,7 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "RemoteMCPServer",
 					Name:     "kagent-tool-server",
@@ -578,7 +578,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
@@ -845,7 +845,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
@@ -1054,7 +1054,7 @@ func TestE2EInvokeAgentWithPromptTemplate(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "RemoteMCPServer",
 					Name:     "kagent-tool-server",

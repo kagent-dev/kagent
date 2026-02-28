@@ -93,7 +93,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "source-ns",
 								},
@@ -134,7 +134,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -263,7 +263,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -305,7 +305,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -653,7 +653,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 			leafAgents = append(leafAgents, leafAgent(name))
 			tools = append(tools, &v1alpha2.Tool{
 				Type: v1alpha2.ToolProviderType_Agent,
-				Agent: &v1alpha2.TypedLocalReference{
+				Agent: &v1alpha2.TypedReference{
 					Name: name,
 				},
 			})
@@ -711,7 +711,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 				agents[i].Spec.Declarative.Tools = []*v1alpha2.Tool{
 					{
 						Type: v1alpha2.ToolProviderType_Agent,
-						Agent: &v1alpha2.TypedLocalReference{
+						Agent: &v1alpha2.TypedReference{
 							Name: fmt.Sprintf("chain-%d", i+1),
 						},
 					},
@@ -754,7 +754,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 				agents[i].Spec.Declarative.Tools = []*v1alpha2.Tool{
 					{
 						Type: v1alpha2.ToolProviderType_Agent,
-						Agent: &v1alpha2.TypedLocalReference{
+						Agent: &v1alpha2.TypedReference{
 							Name: fmt.Sprintf("deep-%d", i+1),
 						},
 					},
@@ -789,7 +789,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 					Tools: []*v1alpha2.Tool{
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "cycle-b",
 							},
 						},
@@ -811,7 +811,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 					Tools: []*v1alpha2.Tool{
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "cycle-a",
 							},
 						},
@@ -847,7 +847,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 					Tools: []*v1alpha2.Tool{
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "diamond-d",
 							},
 						},
@@ -869,7 +869,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 					Tools: []*v1alpha2.Tool{
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "diamond-d",
 							},
 						},
@@ -891,13 +891,13 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 					Tools: []*v1alpha2.Tool{
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "diamond-b",
 							},
 						},
 						{
 							Type: v1alpha2.ToolProviderType_Agent,
-							Agent: &v1alpha2.TypedLocalReference{
+							Agent: &v1alpha2.TypedReference{
 								Name: "diamond-c",
 							},
 						},

@@ -526,7 +526,7 @@ func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context,
 // This includes:
 //  1. Checking that target namespaces are watched by the controller
 //  2. Checking that the target Agent allows references from the agent's namespace
-func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedLocalReference) error {
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedReference) error {
 	agentRef := ref.NamespacedName(sourceNamespace)
 
 	// Same namespace references are always allowed

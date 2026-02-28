@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"text/template"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -27,7 +28,7 @@ type PromptTemplateContext struct {
 	SkillNames []string
 }
 
-// resolvePromptSources fetches all data from the referenced ConfigMaps/Secrets and builds
+// resolvePromptSources fetches all data from the referenced ConfigMaps and builds
 // a lookup map keyed by "identifier/key" where identifier is the alias (if set) or resource name.
 func resolvePromptSources(ctx context.Context, kube client.Client, namespace string, sources []v1alpha2.PromptSource) (map[string]string, error) {
 	lookup := make(map[string]string)
@@ -38,19 +39,9 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 			identifier = src.Alias
 		}
 
-		nn := src.NamespacedName(namespace)
+		nn := types.NamespacedName{Namespace: namespace, Name: src.Name}
 
-		var data map[string]string
-		var err error
-
-		switch src.Kind {
-		case "ConfigMap":
-			data, err = utils.GetConfigMapData(ctx, kube, nn)
-		case "Secret":
-			data, err = utils.GetSecretData(ctx, kube, nn)
-		default:
-			return nil, fmt.Errorf("unsupported prompt source kind %q (apiGroup=%q) for %q", src.Kind, src.ApiGroup, src.Name)
-		}
+		data, err := utils.GetConfigMapData(ctx, kube, nn)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve prompt source %q: %w", src.Name, err)
 		}
@@ -64,47 +55,39 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 	return lookup, nil
 }
 
-// buildTemplateContext constructs the template context from an Agent resource.
-func buildTemplateContext(agent *v1alpha2.Agent) PromptTemplateContext {
-	ctx := PromptTemplateContext{
+// buildTemplateContext constructs the template context from an Agent resource and its
+// already-translated AgentConfig. Tool names are extracted from the config rather than
+// recomputed from the spec.
+func buildTemplateContext(agent *v1alpha2.Agent, cfg *adk.AgentConfig) PromptTemplateContext {
+	tplCtx := PromptTemplateContext{
 		AgentName:      agent.Name,
 		AgentNamespace: agent.Namespace,
 		Description:    agent.Spec.Description,
 	}
 
-	// Collect tool names from all MCP server tools.
-	if agent.Spec.Declarative != nil {
-		for _, tool := range agent.Spec.Declarative.Tools {
-			if tool.McpServer != nil {
-				ctx.ToolNames = append(ctx.ToolNames, tool.McpServer.ToolNames...)
-			}
-		}
+	// Collect tool names from the already-translated agent config.
+	for _, t := range cfg.HttpTools {
+		tplCtx.ToolNames = append(tplCtx.ToolNames, t.Tools...)
+	}
+	for _, t := range cfg.SseTools {
+		tplCtx.ToolNames = append(tplCtx.ToolNames, t.Tools...)
 	}
 
-	// Collect skill names from OCI refs and git refs.
+	// Collect skill names using the shared OCI/Git name helpers.
 	if agent.Spec.Skills != nil {
 		for _, ref := range agent.Spec.Skills.Refs {
-			// Use the last segment of the OCI reference as the skill name.
-			parts := strings.Split(ref, "/")
-			name := parts[len(parts)-1]
-			// Strip tag if present (e.g., "image:v1" -> "image").
-			if idx := strings.Index(name, ":"); idx != -1 {
-				name = name[:idx]
+			if name := ociSkillName(ref); name != "" {
+				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
 			}
-			ctx.SkillNames = append(ctx.SkillNames, name)
 		}
 		for _, gitRef := range agent.Spec.Skills.GitRefs {
-			if gitRef.Name != "" {
-				ctx.SkillNames = append(ctx.SkillNames, gitRef.Name)
-			} else {
-				// Fall back to repo URL last segment.
-				parts := strings.Split(strings.TrimSuffix(gitRef.URL, ".git"), "/")
-				ctx.SkillNames = append(ctx.SkillNames, parts[len(parts)-1])
+			if name := gitSkillName(gitRef); name != "" {
+				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
 			}
 		}
 	}
 
-	return ctx
+	return tplCtx
 }
 
 // executeSystemMessageTemplate parses and executes the system message as a Go text/template.

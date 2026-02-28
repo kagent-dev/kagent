@@ -223,21 +223,19 @@ type ContextSummarizerConfig struct {
 
 // PromptTemplateSpec configures prompt template processing for an agent's system message.
 type PromptTemplateSpec struct {
-	// DataSources defines the ConfigMaps or Secrets whose keys can be included in the systemMessage
+	// DataSources defines the ConfigMaps whose keys can be included in the systemMessage
 	// using Go template syntax, e.g. include("alias/key") or include("name/key").
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	DataSources []PromptSource `json:"dataSources,omitempty"`
 }
 
-// PromptSource references a Kubernetes resource whose keys are available as prompt fragments.
-// Currently supports ConfigMap and Secret resources (core API group).
+// PromptSource references a ConfigMap whose keys are available as prompt fragments.
 // In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
 // to insert the value of a specific key from this source.
 type PromptSource struct {
 	// Inline reference to the Kubernetes resource.
 	// For ConfigMaps: kind=ConfigMap, apiGroup="" (empty for core API group).
-	// For Secrets: kind=Secret, apiGroup="" (empty for core API group).
 	TypedLocalReference `json:",inline"`
 
 	// Alias is an optional short identifier for use in include directives.
@@ -353,7 +351,7 @@ type Tool struct {
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
-	Agent *TypedLocalReference `json:"agent,omitempty"`
+	Agent *TypedReference `json:"agent,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
@@ -382,7 +380,7 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// +optional
-	TypedLocalReference `json:",inline"`
+	TypedReference `json:",inline"`
 
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
@@ -410,18 +408,26 @@ type TypedLocalReference struct {
 	// +optional
 	ApiGroup string `json:"apiGroup"`
 	Name     string `json:"name"`
+}
+
+type TypedReference struct {
+	// +optional
+	Kind string `json:"kind"`
+	// +optional
+	ApiGroup string `json:"apiGroup"`
+	Name     string `json:"name"`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
 
-func (t *TypedLocalReference) GroupKind() schema.GroupKind {
+func (t *TypedReference) GroupKind() schema.GroupKind {
 	return schema.GroupKind{
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
 	}
 }
 
-func (t *TypedLocalReference) NamespacedName(defaultNamespace string) types.NamespacedName {
+func (t *TypedReference) NamespacedName(defaultNamespace string) types.NamespacedName {
 	namespace := t.Namespace
 	if namespace == "" {
 		namespace = defaultNamespace

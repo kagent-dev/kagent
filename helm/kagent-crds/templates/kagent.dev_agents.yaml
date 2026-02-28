@@ -9949,12 +9949,11 @@ spec:
                     properties:
                       dataSources:
                         description: |-
-                          DataSources defines the ConfigMaps or Secrets whose keys can be included in the systemMessage
+                          DataSources defines the ConfigMaps whose keys can be included in the systemMessage
                           using Go template syntax, e.g. include("alias/key") or include("name/key").
                         items:
                           description: |-
-                            PromptSource references a Kubernetes resource whose keys are available as prompt fragments.
-                            Currently supports ConfigMap and Secret resources (core API group).
+                            PromptSource references a ConfigMap whose keys are available as prompt fragments.
                             In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
                             to insert the value of a specific key from this source.
                           properties:
@@ -9968,8 +9967,6 @@ spec:
                             kind:
                               type: string
                             name:
-                              type: string
-                            namespace:
                               type: string
                           required:
                           - name

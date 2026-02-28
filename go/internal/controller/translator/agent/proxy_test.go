@@ -74,14 +74,14 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 				Tools: []*v1alpha2.Tool{
 					{
 						Type: v1alpha2.ToolProviderType_Agent,
-						Agent: &v1alpha2.TypedLocalReference{
+						Agent: &v1alpha2.TypedReference{
 							Name: "nested-agent",
 						},
 					},
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -218,7 +218,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "external-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -310,7 +310,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -407,7 +407,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-service",
 								Kind: "Service",
 							},

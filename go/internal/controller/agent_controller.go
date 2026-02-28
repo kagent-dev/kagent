@@ -360,7 +360,7 @@ func (r *AgentController) findAgentsReferencingConfigMap(ctx context.Context, cl
 		// Check if any promptTemplate dataSources reference this ConfigMap.
 		if pt := agent.Spec.Declarative.PromptTemplate; pt != nil {
 			for _, ds := range pt.DataSources {
-				if ds.Kind == "ConfigMap" && ds.Name == obj.Name {
+				if ds.Name == obj.Name {
 					agents = append(agents, agent)
 					break
 				}

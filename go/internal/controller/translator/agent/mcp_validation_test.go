@@ -70,7 +70,7 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -155,7 +155,7 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -225,7 +225,7 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "non-existent-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -364,7 +364,7 @@ func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "test-remote-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -512,7 +512,7 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "valid-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -522,7 +522,7 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_McpServer,
 						McpServer: &v1alpha2.McpServerTool{
-							TypedLocalReference: v1alpha2.TypedLocalReference{
+							TypedReference: v1alpha2.TypedReference{
 								Name: "invalid-mcp-server",
 								Kind: "MCPServer",
 							},

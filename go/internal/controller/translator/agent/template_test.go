@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/pkg/adk"
 )
 
 func TestExecuteSystemMessageTemplate(t *testing.T) {
@@ -176,10 +177,11 @@ func TestBuildTemplateContext(t *testing.T) {
 	tests := []struct {
 		name    string
 		agent   *v1alpha2.Agent
+		cfg     *adk.AgentConfig
 		wantCtx PromptTemplateContext
 	}{
 		{
-			name: "full agent with tools and skills",
+			name: "tool names from config, skill names from spec",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
@@ -188,20 +190,7 @@ func TestBuildTemplateContext(t *testing.T) {
 				Spec: v1alpha2.AgentSpec{
 					Type:        v1alpha2.AgentType_Declarative,
 					Description: "A helpful agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						Tools: []*v1alpha2.Tool{
-							{
-								McpServer: &v1alpha2.McpServerTool{
-									ToolNames: []string{"get-pods", "describe-pod"},
-								},
-							},
-							{
-								McpServer: &v1alpha2.McpServerTool{
-									ToolNames: []string{"helm-install"},
-								},
-							},
-						},
-					},
+					Declarative: &v1alpha2.DeclarativeAgentSpec{},
 					Skills: &v1alpha2.SkillForAgent{
 						Refs: []string{"ghcr.io/org/skill-k8s:v1", "ghcr.io/org/skill-helm"},
 						GitRefs: []v1alpha2.GitRepo{
@@ -209,6 +198,12 @@ func TestBuildTemplateContext(t *testing.T) {
 							{URL: "https://github.com/org/other-repo.git"},
 						},
 					},
+				},
+			},
+			cfg: &adk.AgentConfig{
+				HttpTools: []adk.HttpMcpServerConfig{
+					{Tools: []string{"get-pods", "describe-pod"}},
+					{Tools: []string{"helm-install"}},
 				},
 			},
 			wantCtx: PromptTemplateContext{
@@ -220,7 +215,7 @@ func TestBuildTemplateContext(t *testing.T) {
 			},
 		},
 		{
-			name: "agent with skills using digests and git URLs with query/fragment",
+			name: "skills with OCI digests and git URLs with query/fragment",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
@@ -229,20 +224,7 @@ func TestBuildTemplateContext(t *testing.T) {
 				Spec: v1alpha2.AgentSpec{
 					Type:        v1alpha2.AgentType_Declarative,
 					Description: "A helpful agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						Tools: []*v1alpha2.Tool{
-							{
-								McpServer: &v1alpha2.McpServerTool{
-									ToolNames: []string{"get-pods", "describe-pod"},
-								},
-							},
-							{
-								McpServer: &v1alpha2.McpServerTool{
-									ToolNames: []string{"helm-install"},
-								},
-							},
-						},
-					},
+					Declarative: &v1alpha2.DeclarativeAgentSpec{},
 					Skills: &v1alpha2.SkillForAgent{
 						Refs: []string{
 							"ghcr.io/org/skill-k8s@sha256:abcdef0123456789",
@@ -260,6 +242,12 @@ func TestBuildTemplateContext(t *testing.T) {
 					},
 				},
 			},
+			cfg: &adk.AgentConfig{
+				HttpTools: []adk.HttpMcpServerConfig{
+					{Tools: []string{"get-pods", "describe-pod"}},
+					{Tools: []string{"helm-install"}},
+				},
+			},
 			wantCtx: PromptTemplateContext{
 				AgentName:      "my-agent",
 				AgentNamespace: "production",
@@ -269,7 +257,33 @@ func TestBuildTemplateContext(t *testing.T) {
 			},
 		},
 		{
-			name: "agent with no tools or skills",
+			name: "SSE tools included",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sse-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "SSE agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{},
+				},
+			},
+			cfg: &adk.AgentConfig{
+				SseTools: []adk.SseMcpServerConfig{
+					{Tools: []string{"sse-tool-1", "sse-tool-2"}},
+				},
+			},
+			wantCtx: PromptTemplateContext{
+				AgentName:      "sse-agent",
+				AgentNamespace: "default",
+				Description:    "SSE agent",
+				ToolNames:      []string{"sse-tool-1", "sse-tool-2"},
+				SkillNames:     nil,
+			},
+		},
+		{
+			name: "empty config",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "simple-agent",
@@ -281,6 +295,7 @@ func TestBuildTemplateContext(t *testing.T) {
 					Declarative: &v1alpha2.DeclarativeAgentSpec{},
 				},
 			},
+			cfg: &adk.AgentConfig{},
 			wantCtx: PromptTemplateContext{
 				AgentName:      "simple-agent",
 				AgentNamespace: "default",
@@ -289,36 +304,11 @@ func TestBuildTemplateContext(t *testing.T) {
 				SkillNames:     nil,
 			},
 		},
-		{
-			name: "agent with agent-type tools (not MCP)",
-			agent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "orchestrator",
-					Namespace: "default",
-				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						Tools: []*v1alpha2.Tool{
-							{
-								Agent: &v1alpha2.TypedLocalReference{Name: "sub-agent"},
-							},
-						},
-					},
-				},
-			},
-			wantCtx: PromptTemplateContext{
-				AgentName:      "orchestrator",
-				AgentNamespace: "default",
-				ToolNames:      nil,
-				SkillNames:     nil,
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildTemplateContext(tt.agent)
+			got := buildTemplateContext(tt.agent, tt.cfg)
 			assert.Equal(t, tt.wantCtx, got)
 		})
 	}
