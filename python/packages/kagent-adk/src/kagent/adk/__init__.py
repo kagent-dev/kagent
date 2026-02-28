@@ -1,9 +1,10 @@
 import importlib.metadata
 import warnings
 
-# Suppress repeated experimental mode warnings from google-adk's A2A decorators.
-# Without this filter, every RemoteA2aAgent/A2aAgentExecutor instantiation emits
-# a UserWarning, flooding logs during normal A2A operations.
+# Suppress repeated experimental-mode UserWarnings whose messages start with
+# "[EXPERIMENTAL]" and mention RemoteA2aAgent or A2aAgentExecutor.  This covers
+# warnings from google-adk's A2A decorators, where every instantiation would
+# otherwise emit a warning and flood logs during normal A2A operations.
 # See: https://github.com/kagent-dev/kagent/issues/1379
 warnings.filterwarnings(
     "once",
