@@ -13,6 +13,7 @@ from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
+from google.adk.agents.context_cache_config import ContextCacheConfig as AdkContextCacheConfig
 from google.adk.apps import App
 from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
@@ -117,13 +118,16 @@ class KAgentApp:
             if self.agent_config and self.agent_config.context_config is not None:
                 from .types import build_adk_context_configs
 
-                events_compaction_config, _ = build_adk_context_configs(self.agent_config.context_config)
+                events_compaction_config, context_cache_config = build_adk_context_configs(
+                    self.agent_config.context_config
+                )
 
             adk_app = App(
                 name=self.app_name,
                 root_agent=root_agent,
                 plugins=self.plugins,
                 events_compaction_config=events_compaction_config,
+                context_cache_config=context_cache_config,
             )
 
             return Runner(

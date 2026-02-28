@@ -15,21 +15,42 @@ export function ContextSection({
   isSubmitting,
 }: ContextSectionProps) {
   const compactionEnabled = !!context?.compaction;
+  const cacheEnabled = !!context?.cache;
 
   const toggleCompaction = (enabled: boolean) => {
     if (enabled) {
+      // Add default compaction config, if not present
       onChange({
         compaction: {
           compactionInterval: 5,
           overlapSize: 2,
         },
+        ...context,
       });
-    } else {
-      onChange(undefined);
+    } else if(context) {
+        const { compaction: _, ...newContext } = context;
+        onChange(Object.keys(newContext).length ? newContext : undefined);
     }
   };
 
-  return (
+    const toggleCache = (enabled: boolean) => {
+        if (enabled) {
+            // Add default cache config, if not present
+            onChange({
+                cache: {
+                    cacheIntervals: 10,
+                    ttlSeconds: 1800,
+                    minTokens: 0,
+                },
+                ...context,
+            });
+        } else if(context) {
+            const { cache: _, ...newContext } = context;
+            onChange(Object.keys(newContext).length ? newContext : undefined);
+        }
+    };
+
+    return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
@@ -141,6 +162,58 @@ export function ContextSection({
           </div>
         </div>
       )}
+      {/* Cache Config */}
+      <div className="space-y-4">
+          <div className="flex items-center justify-between">
+              <div>
+                  <Label className="text-base font-bold">Context Caching</Label>
+                  <p className="text-xs text-muted-foreground">
+                      Cache prefix context at the provider level.
+                  </p>
+              </div>
+              <Switch
+                  checked={cacheEnabled}
+                  onCheckedChange={toggleCache}
+                  disabled={isSubmitting}
+              />
+          </div>
+
+          {cacheEnabled && context?.cache && (
+              <div className="grid grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
+                  <div>
+                      <Label>Cache Intervals (events)</Label>
+                      <Input
+                          type="number"
+                          value={context.cache.cacheIntervals || ""}
+                          onChange={(e) => onChange({...context, cache: {...context.cache, cacheIntervals: e.target.value ? parseInt(e.target.value) : undefined}})}
+                          placeholder="Default: 10"
+                          disabled={isSubmitting}
+                      />
+                  </div>
+                  <div>
+                      <Label>TTL Seconds</Label>
+                      <Input
+                          type="number"
+                          value={context.cache.ttlSeconds || ""}
+                          onChange={(e) => onChange({...context, cache: {...context.cache, ttlSeconds: e.target.value ? parseInt(e.target.value) : undefined}})}
+                          placeholder="Default: 1800"
+                          disabled={isSubmitting}
+                      />
+                  </div>
+                  <div>
+                      <Label>Min Tokens</Label>
+                      <Input
+                          type="number"
+                          value={context.cache.minTokens || ""}
+                          onChange={(e) => onChange({...context, cache: {...context.cache, minTokens: e.target.value ? parseInt(e.target.value) : undefined}})}
+                          placeholder="Default: 0"
+                          disabled={isSubmitting}
+                      />
+                  </div>
+              </div>
+          )}
+      </div>
+
     </div>
   );
 }

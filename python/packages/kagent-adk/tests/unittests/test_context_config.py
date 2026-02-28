@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from kagent.adk.types import (
     AgentConfig,
+    ContextCacheSettings,
     ContextCompressionSettings,
     ContextConfig,
     Gemini,
@@ -36,6 +37,7 @@ class TestContextConfigParsing:
         config = AgentConfig.model_validate(data)
         assert config.context_config is not None
         assert config.context_config.compaction is None
+        assert config.context_config.cache is None
 
     def test_compaction_only(self):
         data = json.loads(_make_agent_config_json())
@@ -45,8 +47,20 @@ class TestContextConfigParsing:
         assert config.context_config.compaction is not None
         assert config.context_config.compaction.compaction_interval == 5
         assert config.context_config.compaction.overlap_size == 2
+        assert config.context_config.cache is None
 
-    def test_compaction_with_all_fields(self):
+    def test_cache_only(self):
+        data = json.loads(_make_agent_config_json())
+        data["context_config"] = {"cache": {"cache_intervals": 20, "ttl_seconds": 3600, "min_tokens": 100}}
+        config = AgentConfig.model_validate(data)
+        assert config.context_config is not None
+        assert config.context_config.compaction is None
+        assert config.context_config.cache is not None
+        assert config.context_config.cache.cache_intervals == 20
+        assert config.context_config.cache.ttl_seconds == 3600
+        assert config.context_config.cache.min_tokens == 100
+
+    def test_both_compaction_and_cache(self):
         data = json.loads(_make_agent_config_json())
         data["context_config"] = {
             "compaction": {
@@ -55,12 +69,14 @@ class TestContextConfigParsing:
                 "token_threshold": 1000,
                 "event_retention_size": 5,
             },
+            "cache": {"cache_intervals": 15},
         }
         config = AgentConfig.model_validate(data)
         assert config.context_config.compaction.compaction_interval == 10
         assert config.context_config.compaction.overlap_size == 3
         assert config.context_config.compaction.token_threshold == 1000
         assert config.context_config.compaction.event_retention_size == 5
+        assert config.context_config.cache.cache_intervals == 15
 
     def test_compaction_with_summarizer_model(self):
         data = json.loads(_make_agent_config_json())
@@ -109,6 +125,12 @@ class TestContextConfigParsing:
         assert parsed.compaction.overlap_size == 2
         assert parsed.compaction.token_threshold == 1000
 
+    def test_cache_with_defaults(self):
+        cache = ContextCacheSettings()
+        assert cache.cache_intervals is None
+        assert cache.ttl_seconds is None
+        assert cache.min_tokens is None
+
 
 class TestBuildAdkContextConfigs:
     def test_compaction_only(self):
@@ -125,6 +147,24 @@ class TestBuildAdkContextConfigs:
         assert events_cfg.summarizer is None
         assert cache_cfg is None
 
+    def test_cache_basic(self):
+        ctx_config = ContextConfig(cache=ContextCacheSettings(cache_intervals=20, ttl_seconds=3600, min_tokens=100))
+        events_cfg, cache_cfg = build_adk_context_configs(ctx_config)
+        assert events_cfg is None
+        assert cache_cfg is not None
+        assert cache_cfg.cache_intervals == 20
+        assert cache_cfg.ttl_seconds == 3600
+        assert cache_cfg.min_tokens == 100
+
+    def test_cache_defaults(self):
+        ctx_config = ContextConfig(cache=ContextCacheSettings())
+        events_cfg, cache_cfg = build_adk_context_configs(ctx_config)
+        assert events_cfg is None
+        assert cache_cfg is not None
+        assert cache_cfg.cache_intervals == 10
+        assert cache_cfg.ttl_seconds == 1800
+        assert cache_cfg.min_tokens == 0
+
     def test_compaction_with_summarizer_model(self):
         config = ContextConfig(
             compaction=ContextCompressionSettings(
@@ -134,9 +174,10 @@ class TestBuildAdkContextConfigs:
                 prompt_template="Summarize: {{events}}",
             )
         )
-        events_cfg, _ = build_adk_context_configs(config)
+        events_cfg, cache_cfg = build_adk_context_configs(config)
         assert events_cfg is not None
         assert events_cfg.summarizer is not None
+        assert cache_cfg is None
 
     def test_empty_config(self):
         config = ContextConfig()

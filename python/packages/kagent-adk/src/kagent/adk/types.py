@@ -229,10 +229,19 @@ class ContextCompressionSettings(BaseModel):
     event_retention_size: int | None = None
 
 
+class ContextCacheSettings(BaseModel):
+    """Settings for prefix context caching."""
+
+    cache_intervals: int | None = None
+    ttl_seconds: int | None = None
+    min_tokens: int | None = None
+
+
 class ContextConfig(BaseModel):
     """Context management configuration containing compaction settings."""
 
     compaction: ContextCompressionSettings | None = None
+    cache: ContextCacheSettings | None = None
 
 
 class EmbeddingConfig(BaseModel):
@@ -522,9 +531,13 @@ def build_adk_context_configs(
     Returns:
         Tuple of (EventsCompactionConfig | None, None).
     """
+    from google.adk.agents.context_cache_config import (
+        ContextCacheConfig as AdkContextCacheConfig,
+    )
     from google.adk.apps.app import EventsCompactionConfig
 
     events_compaction_config = None
+    context_cache_config = None
 
     if context_config.compaction is not None:
         comp = context_config.compaction
@@ -548,4 +561,15 @@ def build_adk_context_configs(
         if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
             events_compaction_config.event_retention_size = comp.event_retention_size
 
-    return events_compaction_config, None
+    if context_config.cache is not None:
+        cache = context_config.cache
+        kwargs = {}
+        if cache.cache_intervals is not None:
+            kwargs["cache_intervals"] = cache.cache_intervals
+        if cache.ttl_seconds is not None:
+            kwargs["ttl_seconds"] = cache.ttl_seconds
+        if cache.min_tokens is not None:
+            kwargs["min_tokens"] = cache.min_tokens
+        context_cache_config = AdkContextCacheConfig(**kwargs)
+
+    return events_compaction_config, context_cache_config

@@ -365,6 +365,14 @@ type MemoryConfig struct {
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
+	Cache      *AgentCacheConfig       `json:"cache,omitempty"`
+}
+
+// AgentCacheConfig maps to Python's ContextCacheSettings.
+type AgentCacheConfig struct {
+	CacheIntervals *int `json:"cache_intervals,omitempty"`
+	TTLSeconds     *int `json:"ttl_seconds,omitempty"`
+	MinTokens      *int `json:"min_tokens,omitempty"`
 }
 
 // AgentCompressionConfig maps to Python's ContextCompressionSettings.

@@ -317,7 +317,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
       const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
 
-      const agentData = {
+      const agentData: AgentFormData = {
         name: state.name,
         namespace: state.namespace,
         description: state.description,
