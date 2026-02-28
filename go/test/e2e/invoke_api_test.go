@@ -134,13 +134,14 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
-	Name          string
-	SystemMessage string
-	Stream        bool
-	Env           []corev1.EnvVar
-	Skills        *v1alpha2.SkillForAgent
-	ExecuteCode   *bool
-	Memory        *v1alpha2.MemorySpec
+	Name           string
+	SystemMessage  string
+	Stream         bool
+	Env            []corev1.EnvVar
+	Skills         *v1alpha2.SkillForAgent
+	ExecuteCode    *bool
+	Memory         *v1alpha2.MemorySpec
+	PromptTemplate *v1alpha2.PromptTemplateSpec
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -417,6 +418,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if opts.Memory != nil {
 		agent.Spec.Declarative.Memory = opts.Memory
+	}
+
+	if opts.PromptTemplate != nil {
+		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
 	}
 
 	return agent
@@ -1017,6 +1022,111 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 			nil,
 			saveResult.ContextID,
 		)
+	})
+}
+
+func TestE2EInvokeAgentWithPromptTemplate(t *testing.T) {
+	// Setup mock server — reuses the inline agent mock since the system prompt
+	// content doesn't affect mock matching; the test verifies that the controller
+	// correctly resolves promptTemplate and the agent reaches Ready state.
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+
+	// Create a ConfigMap with prompt fragments
+	promptConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "test-prompt-templates-",
+			Namespace:    "kagent",
+		},
+		Data: map[string]string{
+			"preamble": "You are a helpful Kubernetes assistant. Always explain your reasoning.",
+			"safety":   "Never delete resources without explicit user confirmation.",
+		},
+	}
+	err := cli.Create(t.Context(), promptConfigMap)
+	require.NoError(t, err)
+	cleanup(t, cli, promptConfigMap)
+
+	// Define tools
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedLocalReference: v1alpha2.TypedLocalReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	// Create agent with promptTemplate using include directives and variable interpolation
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
+		Name: "prompt-tpl-test",
+		SystemMessage: `{{include "prompts/preamble"}}
+
+You are {{.AgentName}}, operating in {{.AgentNamespace}}.
+
+{{include "prompts/safety"}}`,
+		PromptTemplate: &v1alpha2.PromptTemplateSpec{
+			DataSources: []v1alpha2.PromptSource{
+				{
+					TypedLocalReference: v1alpha2.TypedLocalReference{
+						Kind: "ConfigMap",
+						Name: promptConfigMap.Name,
+					},
+					Alias: "prompts",
+				},
+			},
+		},
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+	})
+
+	// Test that updating the ConfigMap triggers re-reconciliation
+	t.Run("configmap_update_triggers_rereconcile", func(t *testing.T) {
+		// Update the ConfigMap
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			cm := &corev1.ConfigMap{}
+			if err := cli.Get(t.Context(), client.ObjectKeyFromObject(promptConfigMap), cm); err != nil {
+				return err
+			}
+			cm.Data["preamble"] = "You are an updated Kubernetes assistant."
+			return cli.Update(t.Context(), cm)
+		})
+		require.NoError(t, err)
+
+		// Wait for agent to re-reconcile by checking that it remains Ready
+		// (the controller watches ConfigMaps and re-reconciles referencing agents)
+		time.Sleep(5 * time.Second)
+		updatedAgent := &v1alpha2.Agent{}
+		err = cli.Get(t.Context(), client.ObjectKeyFromObject(agent), updatedAgent)
+		require.NoError(t, err)
+
+		// Verify agent is still accepted and ready after ConfigMap update
+		for _, cond := range updatedAgent.Status.Conditions {
+			if cond.Type == v1alpha2.AgentConditionTypeAccepted {
+				require.Equal(t, string(metav1.ConditionTrue), string(cond.Status),
+					"Agent should remain Accepted after ConfigMap update, got: %s", cond.Message)
+			}
+		}
+
+		// Verify the agent still responds correctly
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
 	})
 }
 
