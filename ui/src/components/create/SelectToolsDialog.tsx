@@ -13,8 +13,8 @@ import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
-// Maximum number of tools that can be selected
-const MAX_TOOLS_LIMIT = 20;
+// Threshold at which a warning is shown about potential increased token usage
+const TOOLS_WARNING_THRESHOLD = 20;
 
 interface SelectToolsDialogProps {
   open: boolean;
@@ -117,7 +117,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     }, 0);
   }, [localSelectedTools]);
 
-  const isLimitReached = actualSelectedCount >= MAX_TOOLS_LIMIT;
+  const isWarningThresholdReached = actualSelectedCount >= TOOLS_WARNING_THRESHOLD;
 
   const filteredAvailableItems = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
@@ -218,10 +218,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const handleAddItem = (item: ToolsResponse | AgentResponse) => {
     if (isItemSelected(item)) {
-      return;
-    }
-
-    if (actualSelectedCount >= MAX_TOOLS_LIMIT) {
       return;
     }
 
@@ -399,20 +395,19 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                             {items.map((item) => {
                               const { displayName, description, identifier, providerText } = getItemDisplayInfo(item);
                               const isSelected = isItemSelected(item);
-                              const isDisabled = !isSelected && isLimitReached;
 
                               return (
                                 <div
                                   key={identifier}
-                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : isSelected ? 'cursor-default' : 'cursor-pointer hover:bg-muted/50'}`}
-                                  onClick={() => !isDisabled && !isSelected && handleAddItem(item)}
+                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isSelected ? 'cursor-default' : 'cursor-pointer hover:bg-muted/50'}`}
+                                  onClick={() => !isSelected && handleAddItem(item)}
                                 >
                                   <div className="flex-1 overflow-hidden pr-2">
                                     <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
                                     {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
                                     {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
                                   </div>
-                                  {!isSelected && !isDisabled && (
+                                  {!isSelected && (
                                      <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700" >
                                        <PlusCircle className="h-4 w-4"/>
                                      </Button>
@@ -478,17 +473,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           {/* Right Panel: Selected Tools */}
           <div className="w-1/2 flex flex-col p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})</h3>
+              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount})</h3>
               <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={actualSelectedCount === 0}>
                 Clear All
               </Button>
             </div>
 
-            {isLimitReached && actualSelectedCount >= MAX_TOOLS_LIMIT && (
+            {isWarningThresholdReached && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800 text-sm">
                 <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
                 <div>
-                  Tool limit reached. Deselect a tool to add another.
+                  You have selected {actualSelectedCount} tools. A large number of tools may increase token usage and affect performance.
                 </div>
               </div>
             )}
@@ -607,7 +602,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         <DialogFooter className="p-4 border-t mt-auto">
           <div className="flex justify-between w-full items-center">
             <div className="text-sm text-muted-foreground">
-              Select up to {MAX_TOOLS_LIMIT} tools for your agent.
+              Select tools for your agent.
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel}>Cancel</Button>

@@ -774,9 +774,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                                     variant="outline"
                                     size="icon"
                                     onClick={() => {
-                                      if ((state.skillRefs || []).length < 20) {
-                                        setState(prev => ({ ...prev, skillRefs: [...prev.skillRefs, ""] }));
-                                      }
+                                      setState(prev => ({ ...prev, skillRefs: [...prev.skillRefs, ""] }));
                                     }}
                                     title="Add skill"
                                   >
