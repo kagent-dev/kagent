@@ -44,14 +44,51 @@ def maybe_add_skills(root_agent: BaseAgent):
         add_skills_tool_to_agent(skills_directory, root_agent)
 
 
+def resolve_host_port(
+    host: Optional[str], port: Optional[int], default_host: str = "127.0.0.1", default_port: int = 8080
+) -> tuple[str, int]:
+    """
+    Resolve host and port from Typer arguments and environment variables.
+
+    Priority order:
+    1. Command-line arguments (if provided)
+    2. Environment variables (HOST, PORT) - takes precedence over defaults
+    3. Default values
+
+    Args:
+        host: Host value from Typer (may be None)
+        port: Port value from Typer (may be None)
+        default_host: Default host if neither arg nor env var is set
+        default_port: Default port if neither arg nor env var is set
+
+    Returns:
+        Tuple of (resolved_host, resolved_port)
+    """
+    env_host = os.getenv("HOST")
+    env_port = os.getenv("PORT")
+
+    if host is None:
+        host = env_host if env_host else default_host
+    elif env_host and env_host != host:
+        host = env_host
+
+    if port is None:
+        port = int(env_port) if env_port else default_port
+    elif env_port:
+        port = int(env_port)
+
+    return host, port
+
+
 @app.command()
 def static(
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: Annotated[Optional[str], typer.Option("--host", envvar="HOST")] = None,
+    port: Annotated[Optional[int], typer.Option("--port", envvar="PORT")] = None,
     workers: int = 1,
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
+    host, port = resolve_host_port(host, port)
     app_cfg = KAgentConfig()
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
@@ -127,13 +164,14 @@ def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
 def run(
     name: Annotated[str, typer.Argument(help="The name of the agent to run")],
     working_dir: str = ".",
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: Annotated[Optional[str], typer.Option("--host", envvar="HOST")] = None,
+    port: Annotated[Optional[int], typer.Option("--port", envvar="PORT")] = None,
     workers: int = 1,
     local: Annotated[
         bool, typer.Option("--local", help="Run with in-memory session service (for local development)")
     ] = False,
 ):
+    host, port = resolve_host_port(host, port)
     app_cfg = KAgentConfig()
 
     plugins = None
