@@ -50,6 +50,12 @@ data:
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
+  {{- if .Values.controller.authorization.externalEndpoint }}
+  EXTERNAL_AUTHZ_ENDPOINT: {{ .Values.controller.authorization.externalEndpoint | quote }}
+  {{- end }}
+  {{- if .Values.controller.authorization.provider }}
+  AUTHZ_PROVIDER: {{ .Values.controller.authorization.provider | quote }}
+  {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}

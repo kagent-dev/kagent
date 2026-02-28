@@ -11,12 +11,21 @@ import (
 )
 
 type SimpleSession struct {
-	P          auth.Principal
+	principal  auth.Principal
 	authHeader string
+	claims     map[string]any
+}
+
+func NewSimpleSession(principal auth.Principal, claims map[string]any) *SimpleSession {
+	return &SimpleSession{principal: principal, claims: claims}
 }
 
 func (s *SimpleSession) Principal() auth.Principal {
-	return s.P
+	return s.principal
+}
+
+func (s *SimpleSession) Claims() map[string]any {
+	return s.claims
 }
 
 type UnsecureAuthenticator struct{}
@@ -29,20 +38,18 @@ func (a *UnsecureAuthenticator) Authenticate(ctx context.Context, reqHeaders htt
 	if userID == "" {
 		userID = "admin@kagent.dev"
 	}
-	agentId := reqHeaders.Get("X-Agent-Name")
-	authHeader := reqHeaders.Get("Authorization")
+	agentID := reqHeaders.Get("X-Agent-Name")
 
-	return &SimpleSession{
-		P: auth.Principal{
-			User: auth.User{
-				ID: userID,
-			},
-			Agent: auth.Agent{
-				ID: agentId,
-			},
+	session := NewSimpleSession(
+		auth.Principal{
+			User:  auth.User{ID: userID},
+			Agent: auth.Agent{ID: agentID},
 		},
-		authHeader: authHeader,
-	}, nil
+		nil,
+	)
+	session.authHeader = reqHeaders.Get("Authorization")
+
+	return session, nil
 }
 
 func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {

@@ -132,6 +132,16 @@ controller:
   #   mountPath: "/etc/foo"
   #   readOnly: true
 
+  # -- External authorization webhook configuration.
+  # When set, kagent POSTs AuthzRequest JSON to this endpoint and expects
+  # AuthzDecision JSON back. Works with any policy engine (OPA, Cedar, custom).
+  # When empty, all requests are allowed (NoopAuthorizer).
+  authorization:
+    # -- Authorization provider type that controls wire format translation.
+    # Supported: "opa". Defaults to "opa" when externalEndpoint is set.
+    provider: ""
+    externalEndpoint: ""
+
 # ==============================================================================
 # UI CONFIGURATION
 # ==============================================================================
