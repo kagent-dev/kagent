@@ -282,6 +282,7 @@
       "spec": {
         "ports": [
           {
+            "appProtocol": "kgateway.dev/a2a",
             "name": "http",
             "port": 8080,
             "targetPort": 8080

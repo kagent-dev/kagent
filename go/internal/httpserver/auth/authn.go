@@ -70,7 +70,21 @@ type A2AAuthenticator struct {
 }
 
 func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
-	return auth.AuthnMiddleware(p.provider)(next)
+	authn := auth.AuthnMiddleware(p.provider)(next)
+	// Capture W3C trace context headers from the incoming request into the
+	// context before the A2A server strips the *http.Request. These headers
+	// are later injected into outgoing requests by A2ARequestHandler.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tp := r.Header.Get("traceparent"); tp != "" {
+			traceHeaders := make(http.Header, 2)
+			traceHeaders.Set("traceparent", tp)
+			if ts := r.Header.Get("tracestate"); ts != "" {
+				traceHeaders.Set("tracestate", ts)
+			}
+			r = r.WithContext(auth.TraceHeadersTo(r.Context(), traceHeaders))
+		}
+		authn.ServeHTTP(w, r)
+	})
 }
 
 type handler func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error)
@@ -104,6 +118,15 @@ func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.Namespaced
 		if session, ok := auth.AuthSessionFrom(ctx); ok {
 			if err := authProvider.UpstreamAuth(req, session, upstreamPrincipal); err != nil {
 				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
+			}
+		}
+
+		// Propagate W3C trace context headers captured from the incoming request.
+		if traceHeaders, ok := auth.TraceHeadersFrom(ctx); ok {
+			for key, values := range traceHeaders {
+				for _, v := range values {
+					req.Header.Set(key, v)
+				}
 			}
 		}
 
