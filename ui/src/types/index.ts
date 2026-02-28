@@ -252,6 +252,24 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  context?: ContextConfig;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval?: number;
+  overlapSize?: number;
+  summarizer?: ContextSummarizerConfig;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+}
+
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
 }
 
 export interface MemorySpec {

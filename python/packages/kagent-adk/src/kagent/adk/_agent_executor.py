@@ -39,10 +39,10 @@ from kagent.core.tracing._span_processor import (
     set_kagent_span_attributes,
 )
 
+from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
-from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
