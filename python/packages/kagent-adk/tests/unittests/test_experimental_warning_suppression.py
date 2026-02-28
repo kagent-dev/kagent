@@ -10,7 +10,6 @@ warning is only shown once per matching message and category.
 
 import warnings
 
-
 # The exact filter installed by kagent.adk.__init__
 _FILTER_MESSAGE = r"\[EXPERIMENTAL\].*(RemoteA2aAgent|A2aAgentExecutor)"
 
@@ -38,9 +37,7 @@ def test_experimental_warning_emitted_once():
             )
 
         experimental = [w for w in caught if "[EXPERIMENTAL]" in str(w.message)]
-        assert len(experimental) == 1, (
-            f"Expected exactly 1 experimental warning, got {len(experimental)}"
-        )
+        assert len(experimental) == 1, f"Expected exactly 1 experimental warning, got {len(experimental)}"
 
 
 def test_non_experimental_warnings_unaffected():
@@ -57,9 +54,7 @@ def test_non_experimental_warnings_unaffected():
         warnings.warn("Something else happened", UserWarning, stacklevel=1)
 
         other = [w for w in caught if "[EXPERIMENTAL]" not in str(w.message)]
-        assert len(other) == 2, (
-            f"Expected 2 non-experimental warnings, got {len(other)}"
-        )
+        assert len(other) == 2, f"Expected 2 non-experimental warnings, got {len(other)}"
 
 
 def test_filter_only_matches_a2a_experimental():
@@ -79,11 +74,5 @@ def test_filter_only_matches_a2a_experimental():
                 stacklevel=1,
             )
 
-        unrelated = [
-            w
-            for w in caught
-            if "SomeOtherFeature" in str(w.message)
-        ]
-        assert len(unrelated) == 3, (
-            f"Expected 3 unrelated experimental warnings, got {len(unrelated)}"
-        )
+        unrelated = [w for w in caught if "SomeOtherFeature" in str(w.message)]
+        assert len(unrelated) == 3, f"Expected 3 unrelated experimental warnings, got {len(unrelated)}"
