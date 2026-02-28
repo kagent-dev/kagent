@@ -1,0 +1,17 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: proxy-deny-test
+  namespace: kagent
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: proxy
+  traffic:
+    authorization:
+      action: Deny
+      policy:
+        matchExpressions:
+          # Deny all requests - this matches everything
+          - "true"
