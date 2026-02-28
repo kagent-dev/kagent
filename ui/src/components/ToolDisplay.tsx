@@ -19,15 +19,13 @@ interface ToolDisplayProps {
   /** When true, the card is in a "decided but not yet submitted" state (batch flow). */
   isDecided?: boolean;
   onApprove?: () => void;
-  onReject?: (reason?: string) => void;
+  onReject?: () => void;
 }
 
 const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, onApprove, onReject }: ToolDisplayProps) => {
   const [areArgumentsExpanded, setAreArgumentsExpanded] = useState(status === "pending_approval");
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const [showRejectInput, setShowRejectInput] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const hasResult = result !== undefined;
@@ -55,7 +53,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
       return;
     }
     setIsSubmitting(true);
-    onReject(rejectReason || undefined);
+    onReject();
   };
 
   // Define UI elements based on status
@@ -170,52 +168,22 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
         {/* Approval buttons — hidden when decided (batch) or submitting */}
         {status === "pending_approval" && !isSubmitting && !isDecided && (
           <div className="mt-4 space-y-2">
-            {!showRejectInput ? (
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleApprove}
-                >
-                  Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setShowRejectInput(true)}
-                >
-                  Reject
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Textarea
-                  placeholder="Reason for rejection (optional)"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  className="min-h-[60px] text-sm"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={handleReject}
-                  >
-                    Confirm Reject
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setShowRejectInput(false);
-                      setRejectReason("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleApprove}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleReject}
+              >
+                Reject
+              </Button>
+            </div>
           </div>
         )}
 

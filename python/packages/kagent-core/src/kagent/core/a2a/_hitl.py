@@ -116,6 +116,25 @@ def extract_batch_decisions_from_message(message: Message | None) -> dict[str, D
 
             decisions = data.get(KAGENT_HITL_DECISIONS_KEY)
             if isinstance(decisions, dict):
-                return decisions
+                # Filter out invalid decisions
+                filtered: dict[str, DecisionType] = {}
+                for call_id, decision in decisions.items():
+                    # Ensure key type and decision value are valid
+                    if not isinstance(call_id, str):
+                        logger.warning("Ignoring HITL batch decision with non-string key: %r", call_id)
+                        continue
+                    if decision in (
+                        KAGENT_HITL_DECISION_TYPE_APPROVE,
+                        KAGENT_HITL_DECISION_TYPE_DENY,
+                        KAGENT_HITL_DECISION_TYPE_REJECT,
+                    ):
+                        filtered[call_id] = decision
+                    else:
+                        logger.warning(
+                            "Ignoring HITL batch decision with invalid value %r for call_id %r",
+                            decision,
+                            call_id,
+                        )
+                return filtered or None
 
     return None

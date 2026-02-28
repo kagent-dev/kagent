@@ -10,7 +10,7 @@ interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
   onApprove?: (toolCallId: string) => void;
-  onReject?: (toolCallId: string, reason?: string) => void;
+  onReject?: (toolCallId: string) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
@@ -172,28 +172,29 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
       return new Set<string>();
     }
 
-    // Build a map of id → first message index that introduces it
-    const firstOwnerIndex = new Map<string, number>();
-    for (let i = 0; i < allMessages.length; i++) {
-      const msg = allMessages[i];
-      if (isToolCallRequestMessage(msg)) {
-        const requests = extractToolCallRequests(msg);
-        for (const req of requests) {
-          if (req.id && !firstOwnerIndex.has(req.id)) {
-            firstOwnerIndex.set(req.id, i);
-          }
-        }
-      }
-    }
-
     // Find the index of currentMessage in allMessages
     const currentIndex = allMessages.indexOf(currentMessage);
+    if (currentIndex <= 0) {
+      // If it's the first message (or not found), it owns all its requests
+      return new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
+    }
 
-    const ownedIds = new Set<string>();
-    for (const req of currentRequests) {
-      if (req.id && firstOwnerIndex.get(req.id) === currentIndex) {
-        ownedIds.add(req.id);
+    const ownedIds = new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
+    
+    // Scan backwards from our index to see if any earlier message already has these IDs.
+    // This avoids a full O(N) scan per component render by aborting early.
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const msg = allMessages[i];
+      if (!isToolCallRequestMessage(msg)) continue;
+      
+      const prevRequests = extractToolCallRequests(msg);
+      for (const pr of prevRequests) {
+        if (pr.id) {
+          ownedIds.delete(pr.id);
+        }
       }
+      
+      if (ownedIds.size === 0) break; // Early exit if all IDs were claimed by earlier messages
     }
     return ownedIds;
   }, [currentMessage, allMessages]);
@@ -325,7 +326,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             isError={toolCall.result?.is_error}
             isDecided={isDecided}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
-            onReject={showButtons && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
+            onReject={showButtons && onReject ? () => onReject(toolCall.id) : undefined}
           />
         );
       })}

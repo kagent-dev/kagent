@@ -486,7 +486,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
-
   const recordDecision = (toolCallId: string, decision: "approve" | "deny") => {
     const updated = { ...pendingDecisionsRef.current, [toolCallId]: decision };
     pendingDecisionsRef.current = updated;
@@ -505,7 +504,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     recordDecision(toolCallId, "approve");
   };
 
-  const handleReject = (toolCallId: string, _reason?: string) => {
+  const handleReject = (toolCallId: string) => {
     recordDecision(toolCallId, "deny");
   };
 
@@ -558,7 +557,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stored-${index}`}
                     message={message}
-                    allMessages={storedMessages}
+                    allMessages={[...storedMessages, ...streamingMessages]}
                     agentContext={{
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
@@ -574,7 +573,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stream-${index}`}
                     message={message}
-                    allMessages={streamingMessages}
+                    allMessages={[...storedMessages, ...streamingMessages]}
                     agentContext={{
                       namespace: selectedNamespace,
                       agentName: selectedAgentName

@@ -17,7 +17,7 @@ interface ChatMessageProps {
     agentName: string;
   };
   onApprove?: (toolCallId: string) => void;
-  onReject?: (toolCallId: string, reason?: string) => void;
+  onReject?: (toolCallId: string) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
 }
 

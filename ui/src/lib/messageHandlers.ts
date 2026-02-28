@@ -11,13 +11,9 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
   for (const task of tasks) {
     if (task.history) {
-      // Pre-compute the user's HITL decision for this task (if any) so we
-      // can attach it to the reconstructed approval card.
-      const decision = findUserDecisionData(
-        task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>
-      );
-
-      for (const historyItem of task.history) {
+      // Loop over task history to reconstruct chat messages
+      for (let i = 0; i < task.history.length; i++) {
+        const historyItem = task.history[i];
         if (historyItem.kind === "message") {
           // Deduplicate by messageId to avoid showing the same message twice
           if (seenMessageIds.has(historyItem.messageId)) continue;
@@ -26,6 +22,12 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
           // it with a ToolApprovalRequest card carrying the decision status.
           const confirmationParts = findConfirmationParts(historyItem);
           if (confirmationParts.length > 0) {
+            // Find the decision that applies to THIS confirmation (first decision AFTER this message)
+            const decision = findDecisionAfterIndex(
+              task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>,
+              i
+            );
+
             for (const confPart of confirmationParts) {
               const approvalMsg = buildApprovalMessage(confPart, task, decision);
               messages.push(approvalMsg);
@@ -78,10 +80,6 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
     const confirmationParts = findConfirmationParts(status.message as Message);
     if (confirmationParts.length === 0) continue;
 
-    // Safety net: skip if the user already responded (covers pre-taskId-fix
-    // data where the response went to a different task).
-    if (hasUserDecisionInHistory(task)) continue;
-
     for (const confPart of confirmationParts) {
       approvalMessages.push(buildApprovalMessage(confPart, task));
     }
@@ -106,27 +104,17 @@ function findConfirmationParts(message: Message): DataPart[] {
   }) as DataPart[];
 }
 
-/** Check if any user message in the task's history contains a decision_type DataPart. */
-function hasUserDecisionInHistory(task: Task): boolean {
-  return (task.history || []).some((item: { kind?: string; role?: string; parts?: Part[] }) => {
-    if (item.kind !== "message" || item.role !== "user" || !item.parts) return false;
-    return item.parts.some((p: Part) => {
-      if (p.kind !== "data") return false;
-      const data = (p as DataPart).data as Record<string, unknown> | undefined;
-      return data?.decision_type != null;
-    });
-  });
-}
-
 /**
- * Find the user's HITL decision data from task history.
- * Returns the full data object so callers can resolve per-tool decisions
- * for batch mode.
+ * Find the user's HITL decision data from task history, starting after a specific index.
+ * This ensures we associate the correct decision payload with each specific approval cycle
+ * if a task enters input-required multiple times.
  */
-function findUserDecisionData(
-  history: Array<{ kind?: string; role?: string; parts?: Part[] }>
+function findDecisionAfterIndex(
+  history: Array<{ kind?: string; role?: string; parts?: Part[] }>,
+  startIndex: number
 ): Record<string, unknown> | undefined {
-  for (const item of history) {
+  for (let i = startIndex + 1; i < history.length; i++) {
+    const item = history[i];
     if (item.kind !== "message" || item.role !== "user" || !item.parts) continue;
     for (const p of item.parts) {
       if (p.kind !== "data") continue;

@@ -345,6 +345,7 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 	return result, nil
 }
 
+// +kubebuilder:validation:XValidation:message="each RequireApproval entry must also appear in ToolNames",rule="!has(self.requireApproval) || self.requireApproval.all(x, has(self.toolNames) && x in self.toolNames)"
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// +optional
