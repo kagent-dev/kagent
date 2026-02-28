@@ -109,6 +109,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       tools: convertTools(agentFormData.tools || []),
     };
 
+    if (agentFormData.a2aSkills && agentFormData.a2aSkills.length > 0) {
+      base.spec!.declarative!.a2aConfig = {
+        skills: agentFormData.a2aSkills,
+      };
+    }
+
     if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
       base.spec!.skills = {
         refs: agentFormData.skillRefs,
