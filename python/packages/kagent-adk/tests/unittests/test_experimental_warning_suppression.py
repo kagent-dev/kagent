@@ -4,18 +4,25 @@ The google-adk library emits UserWarning with '[EXPERIMENTAL]' on every
 instantiation of RemoteA2aAgent and A2aAgentExecutor. Without filtering,
 this floods logs during normal A2A operations.
 
-kagent.adk.__init__ sets warnings.filterwarnings("once", ...) so the
-warning is only shown once per matching message and category.
+kagent.adk.__init__ sets warnings.filterwarnings("once", ...), so a given
+warning message/category combination is only shown once, regardless of
+call location.
 """
 
 import warnings
 
-# The exact filter installed by kagent.adk.__init__
+# The exact filter pattern installed by kagent.adk.__init__
 _FILTER_MESSAGE = r"\[EXPERIMENTAL\].*(RemoteA2aAgent|A2aAgentExecutor)"
 
 
 def _install_init_filter():
-    """Re-create the filter that kagent.adk.__init__ installs."""
+    """Re-install the filter that kagent.adk.__init__ provides.
+
+    The package-level ``__init__.py`` registers this filter at import time.
+    We reproduce it here so the tests can run without pulling in heavy
+    transitive dependencies (opentelemetry, google-adk, etc.) while still
+    validating the filter semantics using the same regex.
+    """
     warnings.filterwarnings("once", message=_FILTER_MESSAGE, category=UserWarning)
 
 
@@ -25,7 +32,7 @@ def test_experimental_warning_emitted_once():
         # Baseline: surface every warning so we can verify suppression
         warnings.simplefilter("always")
 
-        # Layer the kagent.adk filter on top (mirrors what __init__.py does)
+        # Re-install the filter from kagent.adk (validates the package-level code)
         _install_init_filter()
 
         # Simulate multiple instantiations (same message, same location)
@@ -46,7 +53,7 @@ def test_non_experimental_warnings_unaffected():
         # Baseline: surface every warning
         warnings.simplefilter("always")
 
-        # Layer the kagent.adk filter on top
+        # Re-install the filter from kagent.adk
         _install_init_filter()
 
         # Non-experimental warnings should still appear every time
@@ -63,7 +70,7 @@ def test_filter_only_matches_a2a_experimental():
         # Baseline: surface every warning
         warnings.simplefilter("always")
 
-        # Layer the kagent.adk filter on top
+        # Re-install the filter from kagent.adk
         _install_init_filter()
 
         # An [EXPERIMENTAL] warning NOT from A2A should repeat (not caught by filter)
