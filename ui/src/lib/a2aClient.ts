@@ -1,27 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
 import { MessageSendParams } from '@a2a-js/sdk';
 
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: MessageSendParams;
+  params: MessageSendParams | TaskIDParams;
   id: string | number;
 }
 
+export interface TaskIDParams {
+  id: string;
+}
+
 export class KagentA2AClient {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = getBackendUrl();
-  }
-
-  /**
-   * Get the A2A URL for a specific agent
-   */
-  getAgentUrl(namespace: string, agentName: string): string {
-    return `${this.baseUrl}/a2a/${namespace}/${agentName}`;
+  private getProxyUrl(namespace: string, agentName: string): string {
+    return `/a2a/${namespace}/${agentName}`;
   }
 
   /**
@@ -47,12 +41,8 @@ export class KagentA2AClient {
     signal?: AbortSignal
   ): Promise<AsyncIterable<any>> {
     const request = this.createStreamingRequest(params);
-    // This redirects to the Next.js API route
-    // Note that this route CAN'T be the same
-    // as the routes on the backend.
-    const proxyUrl = `/a2a/${namespace}/${agentName}`;
 
-    const response = await fetch(proxyUrl, {
+    const response = await fetch(this.getProxyUrl(namespace, agentName), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -73,6 +63,46 @@ export class KagentA2AClient {
     }
 
     // Return an async iterable for SSE processing
+    return this.processSSEStream(response.body);
+  }
+
+  /**
+   * Resubscribe to an in-progress task's SSE stream via Next.js API route.
+   * Uses the A2A tasks/resubscribe JSON-RPC method to reconnect to events
+   * for a task that is still running (e.g. after a page reload).
+   */
+  async resubscribeToTask(
+    namespace: string,
+    agentName: string,
+    taskId: string,
+    signal?: AbortSignal
+  ): Promise<AsyncIterable<any>> {
+    const request: A2AJsonRpcRequest = {
+      jsonrpc: "2.0",
+      method: "tasks/resubscribe",
+      params: { id: taskId },
+      id: uuidv4(),
+    };
+
+    const response = await fetch(this.getProxyUrl(namespace, agentName), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify(request),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`A2A resubscribe failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Resubscribe response body is null');
+    }
+
     return this.processSSEStream(response.body);
   }
 

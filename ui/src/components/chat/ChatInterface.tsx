@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,11 +22,18 @@ import { createSession, getSessionTasks, checkSessionExists } from "@/app/action
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage, type StreamEvent } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
-import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message } from "@a2a-js/sdk";
+import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
+import { Message, Task } from "@a2a-js/sdk";
+
+const TERMINAL_TASK_STATES = new Set(["completed", "canceled", "failed", "rejected"]);
+const RESUBSCRIBABLE_TASK_STATES = new Set(["submitted", "working"]);
+
+function findNonTerminalTask(tasks: Task[]): Task | undefined {
+  return tasks.find(task => !TERMINAL_TASK_STATES.has(task.status.state));
+}
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -74,17 +81,97 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
+  const agentContext = useMemo(() => ({
+    namespace: selectedNamespace,
+    agentName: selectedAgentName
+  }), [selectedNamespace, selectedAgentName]);
+
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
     setStreamingContent,
     setTokenStats,
     setChatStatus,
-    agentContext: {
-      namespace: selectedNamespace,
-      agentName: selectedAgentName
-    }
+    agentContext,
   });
+
+  const handleMessageEventRef = useRef(handleMessageEvent);
+  handleMessageEventRef.current = handleMessageEvent;
+
+  const consumeEventStream = useCallback(async (
+    stream: AsyncIterable<StreamEvent>,
+    abortController: AbortController
+  ) => {
+    let timeoutTimer: NodeJS.Timeout | null = null;
+    let streamActive = true;
+    const streamTimeout = 600000;
+
+    const handleTimeout = () => {
+      if (streamActive) {
+        console.error("Stream timeout - no events received for 10 minutes");
+        toast.error("Stream timed out - no events received for 10 minutes");
+        streamActive = false;
+        abortController.abort();
+      }
+    };
+
+    const startTimeout = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+    };
+    startTimeout();
+
+    try {
+      for await (const event of stream) {
+        startTimeout();
+
+        try {
+          handleMessageEventRef.current(event);
+        } catch (error) {
+          console.error(`Error handling event: ${error}\nEvent: ${event}`);
+        }
+
+        if (abortController.signal.aborted) {
+          streamActive = false;
+          break;
+        }
+      }
+    } finally {
+      streamActive = false;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    }
+  }, []);
+
+  const attemptResubscribe = useCallback(async (taskId: string) => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const stream = await kagentA2AClient.resubscribeToTask(
+        selectedNamespace,
+        selectedAgentName,
+        taskId,
+        controller.signal
+      );
+      await consumeEventStream(stream, controller);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      console.warn("Resubscribe failed, task may have already completed:", error);
+      // Resubscribe failed — reload tasks to get final state
+      if (sessionId) {
+        const refreshed = await getSessionTasks(sessionId);
+        if (refreshed.data && refreshed.data.length > 0) {
+          setStoredMessages(extractMessagesFromTasks(refreshed.data));
+          setTokenStats(extractTokenStatsFromTasks(refreshed.data));
+        }
+      }
+      setChatStatus("ready");
+    } finally {
+      abortControllerRef.current = null;
+    }
+  }, [selectedNamespace, selectedAgentName, sessionId]);
 
   useEffect(() => {
     async function initializeChat() {
@@ -129,6 +216,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
           setStoredMessages(extractedMessages);
           setTokenStats(extractedTokenStats);
+
+          const activeTask = findNonTerminalTask(messagesResponse.data);
+          if (activeTask) {
+            setChatStatus(mapA2AStateToStatus(activeTask.status.state));
+            if (RESUBSCRIBABLE_TASK_STATES.has(activeTask.status.state)) {
+              void attemptResubscribe(activeTask.id);
+            }
+          }
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -139,7 +234,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     initializeChat();
-  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage, attemptResubscribe]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -240,7 +342,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      abortControllerRef.current = new AbortController();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       try {
         const messageId = uuidv4();
@@ -256,51 +359,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           selectedNamespace,
           selectedAgentName,
           sendParams,
-          abortControllerRef.current?.signal
+          controller.signal
         );
 
-        let timeoutTimer: NodeJS.Timeout | null = null;
-        let streamActive = true;
-        const streamTimeout = 600000; // 10 minutes
-        
-        // Timeout handler
-        const handleTimeout = () => {
-          if (streamActive) {
-            console.error("⏰ Stream timeout - no events received for 10 minutes");
-            toast.error("⏰ Stream timed out - no events received for 10 minutes");
-            streamActive = false;
-            if (abortControllerRef.current) abortControllerRef.current.abort();
-          }
-        };
-
-        // Start timeout timer
-        const startTimeout = () => {
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          timeoutTimer = setTimeout(handleTimeout, streamTimeout);
-        };
-        startTimeout();
-
-        try {
-          for await (const event of stream) {
-            startTimeout(); // Reset timeout after every event
-
-            try {
-              handleMessageEvent(event);
-            } catch (error) {
-              console.error(`❌ Error handling event: ${error}\nEvent: ${event}`);
-            }
-
-            // Check if we should stop streaming due to cancellation
-            if (abortControllerRef.current?.signal.aborted) {
-              console.info("Stream aborted");
-              streamActive = false;
-              break;
-            }
-          }
-        } finally {
-          streamActive = false;
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-        }
+        await consumeEventStream(stream, controller);
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
           toast.info("Request cancelled");
@@ -311,16 +373,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setCurrentInputMessage(userMessageText);
         }
 
-        // Clean up streaming state
         setIsStreaming(false);
         setStreamingContent("");
       } finally {
         abortControllerRef.current = null;
-        // Don't reset chatStatus here — the message handlers (finalizeStreaming,
-        // handleA2ATaskStatusUpdate, handleA2ATaskArtifactUpdate) already set
-        // the correct status when the final stream event arrives. Unconditionally
-        // setting "ready" here was causing the status to show "Ready" while
-        // tools were still executing (#325).
+        // chatStatus is set by stream event handlers, not here (#325)
       }
     } catch (error) {
       console.error("Error sending message or creating session:", error);
