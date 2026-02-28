@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,6 +73,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       toast.error(msg);
     },
   });
+
+  const shortcutKey = useMemo(() => {
+    if (typeof navigator !== "undefined") {
+      return /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘" : "Ctrl";
+    }
+    return "Ctrl";
+  }, []);
 
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
@@ -441,6 +448,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            <span className="mr-auto text-xs text-muted-foreground">{shortcutKey}+Enter to send</span>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
