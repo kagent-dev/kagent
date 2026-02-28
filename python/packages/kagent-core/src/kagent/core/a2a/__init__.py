@@ -8,23 +8,18 @@ from ._consts import (
     A2A_DATA_PART_METADATA_TYPE_KEY,
     ADK_METADATA_KEY_PREFIX,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
     KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
-    KAGENT_HITL_INTERRUPT_TYPE_TOOL_APPROVAL,
-    KAGENT_HITL_RESUME_KEYWORDS_APPROVE,
-    KAGENT_HITL_RESUME_KEYWORDS_DENY,
+    KAGENT_HITL_DECISIONS_KEY,
     get_kagent_metadata_key,
     read_metadata_value,
 )
 from ._hitl import (
     DecisionType,
-    ToolApprovalRequest,
-    escape_markdown_backticks,
+    extract_batch_decisions_from_message,
     extract_decision_from_message,
-    format_tool_approval_text_parts,
-    handle_tool_approval_interrupt,
-    is_input_required_task,
 )
 from ._requests import KAgentRequestContextBuilder
 from ._task_result_aggregator import TaskResultAggregator
@@ -45,21 +40,15 @@ __all__ = [
     "A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE",
     "TaskResultAggregator",
     # HITL constants
-    "KAGENT_HITL_INTERRUPT_TYPE_TOOL_APPROVAL",
     "KAGENT_HITL_DECISION_TYPE_KEY",
     "KAGENT_HITL_DECISION_TYPE_APPROVE",
     "KAGENT_HITL_DECISION_TYPE_DENY",
     "KAGENT_HITL_DECISION_TYPE_REJECT",
-    "KAGENT_HITL_RESUME_KEYWORDS_APPROVE",
-    "KAGENT_HITL_RESUME_KEYWORDS_DENY",
+    "KAGENT_HITL_DECISION_TYPE_BATCH",
+    "KAGENT_HITL_DECISIONS_KEY",
     # HITL types
     "DecisionType",
-    "ToolApprovalRequest",
     # HITL utilities
-    "escape_markdown_backticks",
     "extract_decision_from_message",
-    "format_tool_approval_text_parts",
-    "is_input_required_task",
-    # HITL handlers
-    "handle_tool_approval_interrupt",
+    "extract_batch_decisions_from_message",
 ]

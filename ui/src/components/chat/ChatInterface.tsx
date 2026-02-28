@@ -22,11 +22,11 @@ import { createSession, getSessionTasks, checkSessionExists } from "@/app/action
 import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractTokenStatsFromTasks, createMessage } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message } from "@a2a-js/sdk";
+import { Message, DataPart } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -58,6 +58,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
+  const [pendingDecisions, setPendingDecisions] = useState<Record<string, "approve" | "deny">>({});
+  const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
 
   const {
     isListening,
@@ -90,6 +92,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     async function initializeChat() {
       setTokenStats({ total: 0, input: 0, output: 0 });
       setStreamingMessages([]);
+      setPendingDecisions({});
+      pendingDecisionsRef.current = {};
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -127,8 +131,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         else {
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
           const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
-          setStoredMessages(extractedMessages);
+
+          // Resolved approvals are already inline in extractedMessages (with
+          // approved/rejected badges). Only pending approvals need appending.
+          const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(messagesResponse.data);
+
+          setStoredMessages(
+            hasPendingApproval
+              ? [...extractedMessages, ...pendingApprovalMessages]
+              : extractedMessages
+          );
           setTokenStats(extractedTokenStats);
+
+          if (hasPendingApproval) {
+            setChatStatus("input_required");
+          }
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -169,6 +186,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
     setStreamingContent(""); // Reset streaming content for new message
+    setPendingDecisions({});
+    pendingDecisionsRef.current = {};
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
@@ -240,93 +259,98 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      abortControllerRef.current = new AbortController();
+      const messageId = uuidv4();
+      const a2aMessage = createMessage(userMessageText, "user", {
+        messageId,
+        contextId: currentSessionId,
+      });
 
-      try {
-        const messageId = uuidv4();
-        const a2aMessage = createMessage(userMessageText, "user", {
-          messageId,
-          contextId: currentSessionId,
-        });
-        const sendParams = {
-          message: a2aMessage,
-          metadata: {}
-        };
-        const stream = await kagentA2AClient.sendMessageStream(
-          selectedNamespace,
-          selectedAgentName,
-          sendParams,
-          abortControllerRef.current?.signal
-        );
-
-        let timeoutTimer: NodeJS.Timeout | null = null;
-        let streamActive = true;
-        const streamTimeout = 600000; // 10 minutes
-        
-        // Timeout handler
-        const handleTimeout = () => {
-          if (streamActive) {
-            console.error("⏰ Stream timeout - no events received for 10 minutes");
-            toast.error("⏰ Stream timed out - no events received for 10 minutes");
-            streamActive = false;
-            if (abortControllerRef.current) abortControllerRef.current.abort();
-          }
-        };
-
-        // Start timeout timer
-        const startTimeout = () => {
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-          timeoutTimer = setTimeout(handleTimeout, streamTimeout);
-        };
-        startTimeout();
-
-        try {
-          for await (const event of stream) {
-            startTimeout(); // Reset timeout after every event
-
-            try {
-              handleMessageEvent(event);
-            } catch (error) {
-              console.error(`❌ Error handling event: ${error}\nEvent: ${event}`);
-            }
-
-            // Check if we should stop streaming due to cancellation
-            if (abortControllerRef.current?.signal.aborted) {
-              console.info("Stream aborted");
-              streamActive = false;
-              break;
-            }
-          }
-        } finally {
-          streamActive = false;
-          if (timeoutTimer) clearTimeout(timeoutTimer);
-        }
-      } catch (error: unknown) {
-        if (error instanceof Error && error.name === "AbortError") {
-          toast.info("Request cancelled");
-          setChatStatus("ready");
-        } else {
-          toast.error(`Streaming failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-          setChatStatus("error");
-          setCurrentInputMessage(userMessageText);
-        }
-
-        // Clean up streaming state
-        setIsStreaming(false);
-        setStreamingContent("");
-      } finally {
-        abortControllerRef.current = null;
-        // Don't reset chatStatus here — the message handlers (finalizeStreaming,
-        // handleA2ATaskStatusUpdate, handleA2ATaskArtifactUpdate) already set
-        // the correct status when the final stream event arrives. Unconditionally
-        // setting "ready" here was causing the status to show "Ready" while
-        // tools were still executing (#325).
-      }
+      await streamA2AMessage(a2aMessage, {
+        errorLabel: "Streaming failed",
+        onError: () => setCurrentInputMessage(userMessageText),
+      });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
       toast.error("Error sending message or creating session");
       setChatStatus("error");
       setCurrentInputMessage(userMessageText);
+    }
+  };
+
+  /**
+   * Shared streaming helper used by both handleSendMessage and
+   * sendApprovalDecision.  Handles the abort controller, timeout, event loop,
+   * and base cleanup.
+   */
+  const streamA2AMessage = async (
+    a2aMessage: Message,
+    opts?: {
+      errorLabel?: string;
+      onError?: () => void;
+      onFinally?: () => void;
+    },
+  ) => {
+    abortControllerRef.current = new AbortController();
+    isFirstAssistantChunkRef.current = true;
+
+    try {
+      const sendParams = { message: a2aMessage, metadata: {} };
+      const stream = await kagentA2AClient.sendMessageStream(
+        selectedNamespace,
+        selectedAgentName,
+        sendParams,
+        abortControllerRef.current?.signal
+      );
+
+      let timeoutTimer: NodeJS.Timeout | null = null;
+      let streamActive = true;
+      const streamTimeout = 600000; // 10 minutes
+
+      const handleTimeout = () => {
+        if (streamActive) {
+          console.error("⏰ Stream timeout - no events received for 10 minutes");
+          toast.error("⏰ Stream timed out - no events received for 10 minutes");
+          streamActive = false;
+          if (abortControllerRef.current) abortControllerRef.current.abort();
+        }
+      };
+
+      const startTimeout = () => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(handleTimeout, streamTimeout);
+      };
+      startTimeout();
+
+      try {
+        for await (const event of stream) {
+          startTimeout();
+          try {
+            handleMessageEvent(event);
+          } catch (error) {
+            console.error(`❌ Error handling event: ${error}`);
+          }
+          if (abortControllerRef.current?.signal.aborted) {
+            streamActive = false;
+            break;
+          }
+        }
+      } finally {
+        streamActive = false;
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
+        setChatStatus("ready");
+      } else {
+        toast.error(`${opts?.errorLabel || "Request failed"}: ${error instanceof Error ? error.message : "Unknown error"}`);
+        setChatStatus("error");
+        opts?.onError?.();
+      }
+      setIsStreaming(false);
+      setStreamingContent("");
+    } finally {
+      abortControllerRef.current = null;
+      opts?.onFinally?.();
     }
   };
 
@@ -341,6 +365,147 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setStreamingContent("");
     setChatStatus("ready");
     toast.error("Request cancelled");
+  };
+
+  // Collect all pending tool call IDs from ToolApprovalRequest messages
+  const getPendingApprovalToolIds = (): { toolIds: string[]; taskId: string | undefined } => {
+    const toolIds: string[] = [];
+    let taskId: string | undefined;
+    const allCurrentMessages = [...storedMessages, ...streamingMessages];
+    for (const msg of allCurrentMessages) {
+      const meta = msg.metadata as ADKMetadata | undefined;
+      if (meta?.originalType !== "ToolApprovalRequest") continue;
+      // Skip approval messages that already have a decision (from previous cycles)
+      if (meta?.approvalDecision) continue;
+      if (!taskId) taskId = msg.taskId;
+      const toolCallData = meta.toolCallData as ProcessedToolCallData[] | undefined;
+      if (toolCallData) {
+        for (const tc of toolCallData) {
+          if (tc.id) toolIds.push(tc.id);
+        }
+      }
+    }
+    return { toolIds, taskId };
+  };
+
+  const sendApprovalDecision = async (
+    decisionData: Record<string, unknown>,
+    displayText: string,
+  ) => {
+    const currentSessionId = session?.id || sessionId;
+    setChatStatus("thinking");
+    setStreamingContent("");
+
+    // Find the taskId from the pending approval message so the A2A framework
+    // reuses the existing task instead of creating a new one.
+    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
+
+    // Stamp approvalDecision on the current pending approval messages so they
+    // are excluded from getPendingApprovalToolIds on future HITL cycles.
+    const stampDecision = (msgs: Message[]) => msgs.map(m => {
+      const meta = m.metadata as Record<string, unknown> | undefined;
+      if (meta?.originalType === "ToolApprovalRequest" && !meta.approvalDecision) {
+        const toolCallData = meta?.toolCallData as Array<{ id?: string }> | undefined;
+        const toolId = toolCallData?.[0]?.id;
+        // For uniform decisions, stamp all; for batch, stamp per-tool
+        const dt = decisionData.decision_type as string;
+        let resolvedDecision: string | undefined;
+        if (dt === "batch") {
+          const decisions = decisionData.decisions as Record<string, string>;
+          resolvedDecision = toolId ? decisions[toolId] : undefined;
+        } else {
+          resolvedDecision = dt; // "approve" or "deny"
+        }
+        if (resolvedDecision) {
+          return { ...m, metadata: { ...meta, approvalDecision: resolvedDecision } };
+        }
+      }
+      return m;
+    });
+    setStreamingMessages(stampDecision);
+    setStoredMessages(stampDecision);
+
+    const messageId = uuidv4();
+    const a2aMessage: Message = {
+      kind: "message",
+      messageId,
+      role: "user",
+      parts: [
+        { kind: "data", data: decisionData, metadata: {} } as DataPart,
+        { kind: "text", text: displayText },
+      ],
+      contextId: currentSessionId,
+      taskId: approvalTaskId,
+      metadata: {
+        timestamp: Date.now(),
+      },
+    };
+
+    await streamA2AMessage(a2aMessage, {
+      errorLabel: "Approval failed",
+      onFinally: () => {
+        // Ensure chat state resets after approval stream ends
+        setIsStreaming(false);
+        setStreamingContent("");
+        setPendingDecisions({});
+        pendingDecisionsRef.current = {};
+        // Only reset "thinking" → "ready".  Do NOT reset "input_required" —
+        // handleMessageEvent may have already set it for the next HITL cycle
+        // during this same stream.
+        setChatStatus(prev => prev === "thinking" ? "ready" : prev);
+      },
+    });
+  };
+
+  // Submit all collected decisions to the backend. Called when every pending
+  // tool has a decision recorded in `pendingDecisions`, or immediately for
+  // "approve all" / uniform decisions.
+  const submitDecisions = (decisions: Record<string, "approve" | "deny">) => {
+    const values = Object.values(decisions);
+    const allApprove = values.every(v => v === "approve");
+    const allDeny = values.every(v => v !== "approve");
+
+    if (allApprove) {
+      // Uniform approve — no need for batch
+      sendApprovalDecision(
+        { decision_type: "approve" },
+        "Approved",
+      );
+    } else if (allDeny) {
+      // Uniform deny
+      sendApprovalDecision(
+        { decision_type: "deny" },
+        "Rejected",
+      );
+    } else {
+      // Mixed decisions — use batch mode with per-tool decisions
+      sendApprovalDecision(
+        { decision_type: "batch", decisions },
+        `Batch decision: ${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
+      );
+    }
+  };
+
+  const recordDecision = (toolCallId: string, decision: "approve" | "deny") => {
+    const updated = { ...pendingDecisionsRef.current, [toolCallId]: decision };
+    pendingDecisionsRef.current = updated;
+    setPendingDecisions(updated);
+
+    // Check if all pending tools now have a decision
+    const { toolIds } = getPendingApprovalToolIds();
+    if (toolIds.length > 0 && toolIds.every(id => id in updated)) {
+      submitDecisions(updated);
+    } else if (toolIds.length === 0) {
+      submitDecisions(updated);
+    }
+  };
+
+  const handleApprove = (toolCallId: string) => {
+    recordDecision(toolCallId, "approve");
+  };
+
+  const handleReject = (toolCallId: string) => {
+    recordDecision(toolCallId, "deny");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -392,11 +557,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stored-${index}`}
                     message={message}
-                    allMessages={storedMessages}
+                    allMessages={[...storedMessages, ...streamingMessages]}
                     agentContext={{
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
                     }}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    pendingDecisions={pendingDecisions}
                   />
                 })}
 
@@ -405,11 +573,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stream-${index}`}
                     message={message}
-                    allMessages={streamingMessages}
+                    allMessages={[...storedMessages, ...streamingMessages]}
                     agentContext={{
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
                     }}
+
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    pendingDecisions={pendingDecisions}
                   />
                 })}
 

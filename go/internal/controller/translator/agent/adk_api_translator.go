@@ -1337,9 +1337,10 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
-			Params:         *tool,
-			Tools:          mcpServerTool.ToolNames,
-			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Params:          *tool,
+			Tools:           mcpServerTool.ToolNames,
+			AllowedHeaders:  mcpServerTool.AllowedHeaders,
+			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	default:
 		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -1347,9 +1348,10 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
-			Params:         *tool,
-			Tools:          mcpServerTool.ToolNames,
-			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Params:          *tool,
+			Tools:           mcpServerTool.ToolNames,
+			AllowedHeaders:  mcpServerTool.AllowedHeaders,
+			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	}
 	return nil
