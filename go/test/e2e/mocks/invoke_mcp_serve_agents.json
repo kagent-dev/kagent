@@ -1,0 +1,31 @@
+{
+  "openai": [
+    {
+      "name": "serve_agents_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What can you do?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "I can answer questions and help you with tasks. Also: kebab.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}
