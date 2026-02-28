@@ -43,11 +43,6 @@ const isToolCallRequestMessage = (message: Message): boolean => {
   return hasDataParts;
 };
 
-const isToolApprovalRequestMessage = (message: Message): boolean => {
-  const metadata = message.metadata as ADKMetadata;
-  return metadata?.originalType === "ToolApprovalRequest";
-};
-
 const isToolCallExecutionMessage = (message: Message): boolean => {
   const hasDataParts = message.parts?.some(part => {
     if (part.kind === "data" && part.metadata) {

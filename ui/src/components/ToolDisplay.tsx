@@ -4,7 +4,6 @@ import { ScrollArea } from "@radix-ui/react-scroll-area";
 import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loader2, Text, Check, Copy, AlertCircle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 
 export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval" | "approved" | "rejected";
 
