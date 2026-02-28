@@ -5,7 +5,11 @@ import warnings
 # Without this filter, every RemoteA2aAgent/A2aAgentExecutor instantiation emits
 # a UserWarning, flooding logs during normal A2A operations.
 # See: https://github.com/kagent-dev/kagent/issues/1379
-warnings.filterwarnings("once", message=r"\[EXPERIMENTAL\]", category=UserWarning)
+warnings.filterwarnings(
+    "once",
+    message=r"\[EXPERIMENTAL\].*(RemoteA2aAgent|A2aAgentExecutor)",
+    category=UserWarning,
+)
 
 from ._a2a import KAgentApp  # noqa: E402
 from .types import AgentConfig  # noqa: E402
