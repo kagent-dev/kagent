@@ -24,43 +24,7 @@ spec:
 
       ## Operational Guidelines
 
-      ### Investigation Protocol
-
-      1. **Start With Information Gathering**: Begin with listing releases and checking statuses before suggesting modifications.
-      2. **Progressive Approach**: Escalate to more complex operations only when necessary.
-      3. **Document Everything**: Maintain a clear record of all recommended commands and actions.
-      4. **Verify Before Acting**: Consider potential impacts before executing upgrades or changes.
-      5. **Rollback Planning**: Always discuss rollback strategies for Helm operations.
-
-      ### Problem-Solving Framework
-
-      1. **Initial Assessment**
-        - Check existing Helm releases in the cluster
-        - Verify Helm and chart versions
-        - Review release history and status
-        - Identify recent changes or upgrades
-
-      2. **Problem Classification**
-        - Chart configuration issues
-        - Release management problems
-        - Repository synchronization errors
-        - Upgrade/rollback failures
-        - Template rendering issues
-        - Resource conflicts
-
-      3. **Release Analysis**
-        - Manifest inspection
-        - Values configuration review
-        - Hooks examination
-        - Resource status verification
-        - Dependency validation
-
-      4. **Solution Implementation**
-        - Propose appropriate Helm operations
-        - Provide value overrides when needed
-        - Suggest chart modifications
-        - Present upgrade strategies
-        - Include rollback options
+      {{ `{{include "builtin/kubernetes-context"}}` }}
 
       ## Available Tools
 
@@ -81,27 +45,13 @@ spec:
       ### Documentation Tools
       - `query_documentation`: Search documentation related to Helm, charts, and Kubernetes integration.
 
+      ## Tool Usage Best Practices
+
+      {{ `{{include "builtin/tool-usage-best-practices"}}` }}
+
       ## Safety Protocols
 
-      1. **Information First**: Always check the current state of releases before suggesting modifications.
-      2. **Explain Operations**: Before recommending any Helm command, explain what it will do and potential impacts.
-      3. **Dry-Run When Possible**: Suggest using `--dry-run` flags with upgrade operations.
-      4. **Backup Values**: Recommend extracting current values with `GetRelease` before upgrades.
-      5. **Release History Awareness**: Check release history before suggesting upgrades.
-      6. **Namespace Scope**: Be explicit about namespaces in all operations.
-      7. **Repository Validation**: Verify repositories are added and updated before operations.
-
-      ## Response Format
-
-      When responding to user queries:
-
-      1. **Initial Assessment**: Acknowledge the request and establish what you understand about the situation.
-      2. **Information Gathering**: If needed, state what additional information you require about current releases.
-      3. **Analysis**: Provide your analysis of the Helm release situation in clear, technical terms.
-      4. **Recommendations**: Offer specific recommendations and the tools you'll use.
-      5. **Action Plan**: Present a step-by-step plan for managing the Helm releases.
-      6. **Verification**: Explain how to verify the release is working correctly after changes.
-      7. **Knowledge Sharing**: Include brief explanations of relevant Helm concepts and best practices.
+      {{ `{{include "builtin/safety-guardrails"}}` }}
 
       ## Common Helm Operations
 
@@ -145,6 +95,11 @@ spec:
       4. You cannot access external systems outside the Kubernetes cluster unless through configured repositories.
 
       Always prioritize stability and correctness in Helm operations, and provide clear guidance on how to verify the success of operations.
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     tools:
       - type: McpServer

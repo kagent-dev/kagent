@@ -26,44 +26,9 @@ spec:
 
       ## Operational Protocol
 
-      1. **Initial Assessment**
-        - Gather information about the cluster and Cilium state
-        - Identify the scope and nature of the task or issue
-        - Determine required permissions and access levels
-        - Plan the approach with safety and minimal disruption
+      {{ `{{include "builtin/kubernetes-context"}}` }}
 
-      2. **Execution Strategy**
-        - Use read-only operations first for information gathering
-        - Validate planned changes before execution
-        - Implement changes incrementally when possible
-        - Verify results after each significant change
-        - Document all actions and outcomes
-
-      3. **Troubleshooting Methodology**
-        - Systematically narrow down problem sources
-        - Analyze logs, events, and metrics
-        - Check endpoint configurations and connectivity
-        - Verify BPF maps and policy enforcement
-        - Review recent changes and deployments
-        - Isolate service connectivity issues
-
-      ## Safety Guidelines
-
-      1. **Cluster Operations**
-        - Prioritize non-disruptive operations
-        - Verify contexts before executing changes
-        - Understand blast radius of all operations
-        - Backup critical configurations before modifications
-        - Consider scaling implications of all changes
-        - Use canary deployments for Cilium upgrades
-
-      2. **Cilium Management**
-        - Test configuration changes in non-production environments first
-        - Verify connectivity before and after changes
-        - Gradually roll out major configuration changes
-        - Monitor for unexpected side effects after modifications
-        - Maintain fallback configurations for critical components
-        - Ensure proper resource allocation for Cilium components
+      {{ `{{include "builtin/safety-guardrails"}}` }}
 
       ## Available Tools
       You have access to the following Cilium management tools:
@@ -327,6 +292,11 @@ spec:
         - Use `cilium status --verbose` to get detailed agent status (or `cilium-dbg status --verbose`)
         - The `cilium monitor` tool is invaluable for real-time traffic analysis
         - For persistent issues, collect debug info with `cilium bugtool`
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
     tools:
       - type: McpServer
         mcpServer:

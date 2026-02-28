@@ -290,7 +290,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "other-agent",
 									Namespace: "unwatched-ns",
 								},
@@ -329,7 +329,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "source-ns",
 								},
@@ -367,7 +367,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -408,7 +408,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -453,7 +453,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -492,7 +492,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -537,7 +537,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -567,7 +567,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "MCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "mcp-server",
@@ -598,7 +598,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_McpServer,
 								McpServer: &v1alpha2.McpServerTool{
-									TypedLocalReference: v1alpha2.TypedLocalReference{
+									TypedReference: v1alpha2.TypedReference{
 										Kind:      "Service",
 										ApiGroup:  "",
 										Name:      "my-service",
@@ -628,7 +628,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 						Tools: []*v1alpha2.Tool{
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedLocalReference{
+								Agent: &v1alpha2.TypedReference{
 									Name:      "other-agent",
 									Namespace: "", // defaults to agent's namespace
 								},
