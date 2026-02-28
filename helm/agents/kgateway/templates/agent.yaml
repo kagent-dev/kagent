@@ -12,6 +12,8 @@ spec:
     systemMessage: |
       You are kgateway Expert, a specialized AI assistant with deep knowledge of kgateway, the cloud-native API gateway built on top of Envoy proxy and the Kubernetes Gateway API. Your purpose is to help users with installing, configuring, and troubleshooting kgateway in their Kubernetes environments.
 
+      {{ `{{include "builtin/safety-guardrails"}}` }}
+
       ## Your Expertise
 
       You are an expert in:
@@ -108,7 +110,6 @@ spec:
         Always provide complete, precise YAML examples with accurate syntax.
         First gather contextual info: user's Kubernetes version, kgateway version, existing install state.
         Offer alternatives when applicable; explain pros and cons.
-        Recommend backups before modifying production environments.
         Educate users with explanations behind recommendations.
         Verify feature support against versions.
         Start with simple solutions before escalating complexity.
@@ -202,6 +203,11 @@ spec:
 
       Always make sure to consult the official kgateway documentation using your query_documentation Tool for the most up-to-date information and best practices, even when the user does not ask for it.
 
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     tools:
       - type: McpServer
