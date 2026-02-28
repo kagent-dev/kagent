@@ -9941,18 +9941,58 @@ spec:
                       If not specified, the default value is "default-model-config".
                       Must be in the same namespace as the Agent.
                     type: string
+                  promptTemplate:
+                    description: |-
+                      PromptTemplate enables Go text/template processing on the systemMessage field.
+                      When set, systemMessage is treated as a Go template with access to the include function
+                      and agent context variables.
+                    properties:
+                      dataSources:
+                        description: |-
+                          DataSources defines the ConfigMaps or Secrets whose keys can be included in the systemMessage
+                          using Go template syntax, e.g. include("alias/key") or include("name/key").
+                        items:
+                          description: |-
+                            PromptSource references a Kubernetes resource whose keys are available as prompt fragments.
+                            Currently supports ConfigMap and Secret resources (core API group).
+                            In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
+                            to insert the value of a specific key from this source.
+                          properties:
+                            alias:
+                              description: |-
+                                Alias is an optional short identifier for use in include directives.
+                                If set, use include("alias/key") instead of include("name/key").
+                              type: string
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                    type: object
                   stream:
                     description: |-
                       Whether to stream the response from the model.
                       If not specified, the default value is false.
                     type: boolean
                   systemMessage:
-                    description: SystemMessage is a string specifying the system message
-                      for the agent
+                    description: |-
+                      SystemMessage is a string specifying the system message for the agent.
+                      When PromptTemplate is set, this field is treated as a Go text/template
+                      with access to an include("source/key") function and agent context variables
+                      such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
                     type: string
                   systemMessageFrom:
-                    description: SystemMessageFrom is a reference to a ConfigMap or
-                      Secret containing the system message.
+                    description: |-
+                      SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+                      When PromptTemplate is set, the resolved value is treated as a Go text/template.
                     properties:
                       key:
                         description: The key of the ConfigMap or Secret.

@@ -120,8 +120,8 @@ type GitRepo struct {
 type DeclarativeAgentSpec struct {
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
-	// with access to an {{include "source/key"}} function and agent context variables
-	// such as {{.AgentName}}, {{.AgentNamespace}}, {{.Description}}, {{.ToolNames}}, and {{.SkillNames}}.
+	// with access to an include("source/key") function and agent context variables
+	// such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
@@ -224,7 +224,7 @@ type ContextSummarizerConfig struct {
 // PromptTemplateSpec configures prompt template processing for an agent's system message.
 type PromptTemplateSpec struct {
 	// DataSources defines the ConfigMaps or Secrets whose keys can be included in the systemMessage
-	// using Go template syntax: {{include "alias/key"}} or {{include "name/key"}}.
+	// using Go template syntax, e.g. include("alias/key") or include("name/key").
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	DataSources []PromptSource `json:"dataSources,omitempty"`
@@ -232,7 +232,7 @@ type PromptTemplateSpec struct {
 
 // PromptSource references a Kubernetes resource whose keys are available as prompt fragments.
 // Currently supports ConfigMap and Secret resources (core API group).
-// In systemMessage templates, use {{include "alias/key"}} (or {{include "name/key"}} if no alias is set)
+// In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
 // to insert the value of a specific key from this source.
 type PromptSource struct {
 	// Inline reference to the Kubernetes resource.
@@ -241,7 +241,7 @@ type PromptSource struct {
 	TypedLocalReference `json:",inline"`
 
 	// Alias is an optional short identifier for use in include directives.
-	// If set, use {{include "alias/key"}} instead of {{include "name/key"}}.
+	// If set, use include("alias/key") instead of include("name/key").
 	// +optional
 	Alias string `json:"alias,omitempty"`
 }

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -119,7 +119,7 @@ func executeSystemMessageTemplate(rawMessage string, lookup map[string]string, t
 				for k := range lookup {
 					available = append(available, k)
 				}
-				sort.Strings(available)
+				slices.Sort(available)
 				return "", fmt.Errorf("prompt template %q not found in promptSources, available: %v", path, available)
 			}
 			return content, nil
