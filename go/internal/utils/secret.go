@@ -8,19 +8,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GetSecretData fetches all data from a Secret, converting byte values to strings.
-func GetSecretData(ctx context.Context, c client.Client, ref client.ObjectKey) (map[string]string, error) {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, ref, secret); err != nil {
-		return nil, fmt.Errorf("failed to find Secret %s: %v", ref.String(), err)
-	}
-	data := make(map[string]string, len(secret.Data))
-	for k, v := range secret.Data {
-		data[k] = string(v)
-	}
-	return data, nil
-}
-
 // GetSecretValue fetches a value from a Secret
 func GetSecretValue(ctx context.Context, c client.Client, ref client.ObjectKey, key string) (string, error) {
 	secret := &corev1.Secret{}
