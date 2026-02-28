@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,11 +74,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
-  const shortcutKey = useMemo(() => {
-    if (typeof navigator !== "undefined") {
-      return /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘" : "Ctrl";
+  const [shortcutKey, setShortcutKey] = useState("Ctrl");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      setShortcutKey("⌘");
     }
-    return "Ctrl";
   }, []);
 
   const { handleMessageEvent } = createMessageHandlers({
