@@ -48,6 +48,9 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 
 		for key, value := range data {
 			lookupKey := identifier + "/" + key
+			if _, exists := lookup[lookupKey]; exists {
+				return nil, fmt.Errorf("duplicate prompt template identifier %q from prompt source %q (kind=%q, apiGroup=%q)", lookupKey, src.Name, src.Kind, src.ApiGroup)
+			}
 			lookup[lookupKey] = value
 		}
 	}
