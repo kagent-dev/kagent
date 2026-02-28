@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kagent.fullname" . }}-getter-rolebinding
+  name: {{ include "kagent.fullname" . }}-controller-getter-rolebinding
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 roleRef:
@@ -16,7 +16,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kagent.fullname" . }}-writer-rolebinding
+  name: {{ include "kagent.fullname" . }}-controller-writer-rolebinding
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 roleRef:

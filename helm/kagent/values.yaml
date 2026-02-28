@@ -223,7 +223,7 @@ kmcp:
 # ==============================================================================
 
 kagent-tools:
-  fullnameOverride: kagent-tools
+  fullnameOverride: "" # Override if desired
   enabled: true
   replicaCount: 1
   resources:
