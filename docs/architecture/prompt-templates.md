@@ -4,9 +4,9 @@ This document explains the prompt templates feature — how it works, the design
 
 ## Overview
 
-Prompt templates allow agents to compose their system messages from reusable fragments and dynamic variables, instead of writing everything from scratch. The system message field on the Agent CRD becomes a Go [text/template](https://pkg.go.dev/text/template) when prompt sources are configured, supporting two capabilities:
+Prompt templates allow agents to compose their system messages from reusable fragments and dynamic variables, instead of writing everything from scratch. The system message field on the Agent CRD becomes a Go [text/template](https://pkg.go.dev/text/template) when a prompt template is configured, supporting two capabilities:
 
-1. **Include directives** — `{{include "source/key"}}` inserts a prompt fragment from a ConfigMap or Secret
+1. **Include directives** — `{{include "source/key"}}` inserts a prompt fragment from a ConfigMap
 2. **Variable interpolation** — `{{.AgentName}}`, `{{.ToolNames}}`, etc. inject agent metadata
 
 Templates are resolved at **reconciliation time** by the controller. The final, fully-resolved prompt is baked into the agent's config Secret, so the Python ADK runtime receives a plain string with no template syntax.
@@ -31,9 +31,9 @@ Templates are resolved at **reconciliation time** by the controller. The final, 
 │              Controller (Go)                             │
 │                                                          │
 │  1. Resolve raw system message                           │
-│  2. Fetch all data from referenced ConfigMaps/Secrets    │
-│  3. Build lookup map: "alias/key" → value                │
-│  4. Build template context from agent metadata           │
+│  2. Translate tools (MCP servers, agents)                │
+│  3. Fetch all data from referenced ConfigMaps            │
+│  4. Build template context from agent + translated config│
 │  5. Execute Go text/template with include + variables    │
 │  6. Store resolved string in config Secret               │
 └──────────────────────┬───────────────────────────────────┘
@@ -79,11 +79,11 @@ Content pulled from ConfigMaps via `{{include "source/key"}}` is treated as **pl
 
 ### Why `TypedLocalReference` for prompt sources?
 
-Each prompt source uses an inlined `TypedLocalReference` (`kind`, `apiGroup`, `name`) rather than a fixed enum like `type: ConfigMap`. This makes the API extensible — today it supports ConfigMaps and Secrets (core API group), but a future `PromptLibrary` CRD (`kind: PromptLibrary, apiGroup: kagent.dev`) could be added without changing the schema.
+Each prompt source uses an inlined `TypedLocalReference` (`kind`, `apiGroup`, `name`) rather than a fixed enum. This makes the API extensible — today it supports ConfigMaps, but a future `PromptLibrary` CRD (`kind: PromptLibrary, apiGroup: kagent.dev`) could be added without changing the schema. The reference is local (same namespace as the agent) for simplicity and performance.
 
-### Why ConfigMaps as the initial implementation?
+### Why ConfigMaps only (no Secrets)?
 
-ConfigMaps are a well-understood Kubernetes primitive and sufficient for the initial implementation. The `TypedLocalReference` pattern ensures the API is ready to support custom CRDs in the future without breaking changes.
+Prompt templates contain prompt text, not sensitive credentials. Supporting Secrets would introduce unnecessary security risk — users might accidentally expose sensitive data in system prompts. ConfigMaps are the right primitive for non-sensitive configuration data.
 
 ### Backwards compatibility
 
@@ -183,9 +183,9 @@ Kagent ships a `kagent-builtin-prompts` ConfigMap (deployed via Helm) with the f
 | Key | Description |
 |-----|-------------|
 | `skills-usage` | Instructions for agents that use skills from `/skills` |
-| `tool-usage-best-practices` | Guidelines for effective tool usage |
-| `safety-guardrails` | Safety rules for destructive operations and sensitive data |
-| `kubernetes-context` | Context about operating within a Kubernetes cluster |
+| `tool-usage-best-practices` | Guidelines for effective tool usage (read before write, explain before acting, verify after changes) |
+| `safety-guardrails` | Safety rules: no destructive ops without confirmation, least privilege, rollback planning, protect sensitive data |
+| `kubernetes-context` | Kubernetes operational methodology: investigation protocol, problem-solving framework, key principles |
 | `a2a-communication` | Guidelines for agent-to-agent communication |
 
 Example using built-in prompts:
@@ -214,9 +214,11 @@ spec:
           alias: builtin
 ```
 
+All 10 shipped agent Helm charts (k8s, helm, cilium-debug, cilium-manager, cilium-policy, istio, kgateway, observability, promql, argo-rollouts) use the built-in prompts to replace their repeated safety, operational, and tool-usage sections.
+
 ### Using multiple sources
 
-You can reference multiple ConfigMaps and Secrets simultaneously:
+You can reference multiple ConfigMaps simultaneously:
 
 ```yaml
 promptTemplate:
@@ -227,9 +229,6 @@ promptTemplate:
     - kind: ConfigMap
       name: team-prompts
       alias: team
-    - kind: Secret
-      name: proprietary-prompts
-      alias: proprietary
 ```
 
 Then use any key from any source:
@@ -238,7 +237,6 @@ Then use any key from any source:
 systemMessage: |
   {{include "builtin/safety-guardrails"}}
   {{include "team/coding-standards"}}
-  {{include "proprietary/company-instructions"}}
 ```
 
 ### Available template variables
@@ -250,8 +248,10 @@ When `promptTemplate` is set, the following variables are available in `systemMe
 | `{{.AgentName}}` | `string` | `metadata.name` |
 | `{{.AgentNamespace}}` | `string` | `metadata.namespace` |
 | `{{.Description}}` | `string` | `spec.description` |
-| `{{.ToolNames}}` | `[]string` | Collected from all `tools[*].mcpServer.toolNames` |
-| `{{.SkillNames}}` | `[]string` | Derived from `skills.refs` (OCI image name) and `skills.gitRefs[*].name` |
+| `{{.ToolNames}}` | `[]string` | Collected from the translated agent config (HTTP and SSE MCP tools) |
+| `{{.SkillNames}}` | `[]string` | Derived from `skills.refs` and `skills.gitRefs` using shared OCI/Git name helpers |
+
+Template resolution happens **after** tools are translated, so `.ToolNames` reflects the actual tool names from the fully resolved MCP server configurations.
 
 You can use standard Go template constructs to work with these variables:
 
@@ -285,6 +285,6 @@ kubectl get agent my-agent -o jsonpath='{.status.conditions[?(@.type=="Accepted"
 - [agent_types.go](../../go/api/v1alpha2/agent_types.go) — `PromptTemplateSpec`, `PromptSource` types
 - [template.go](../../go/internal/controller/translator/agent/template.go) — Template resolution logic
 - [template_test.go](../../go/internal/controller/translator/agent/template_test.go) — Unit tests
-- [adk_api_translator.go](../../go/internal/controller/translator/agent/adk_api_translator.go) — `resolveSystemMessage()` integration
+- [adk_api_translator.go](../../go/internal/controller/translator/agent/adk_api_translator.go) — Template integration in `translateInlineAgent()`
 - [agent_controller.go](../../go/internal/controller/agent_controller.go) — ConfigMap watch setup
 - [builtin-prompts-configmap.yaml](../../helm/kagent/templates/builtin-prompts-configmap.yaml) — Built-in prompt templates
