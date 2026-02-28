@@ -220,6 +220,55 @@ func TestBuildTemplateContext(t *testing.T) {
 			},
 		},
 		{
+			name: "agent with skills using digests and git URLs with query/fragment",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-agent",
+					Namespace: "production",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "A helpful agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						Tools: []*v1alpha2.Tool{
+							{
+								McpServer: &v1alpha2.McpServerTool{
+									ToolNames: []string{"get-pods", "describe-pod"},
+								},
+							},
+							{
+								McpServer: &v1alpha2.McpServerTool{
+									ToolNames: []string{"helm-install"},
+								},
+							},
+						},
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{
+							"ghcr.io/org/skill-k8s@sha256:abcdef0123456789",
+							"ghcr.io/org/skill-helm:v1@sha256:0123456789abcdef",
+						},
+						GitRefs: []v1alpha2.GitRepo{
+							{
+								URL:  "https://github.com/org/my-skills.git?ref=main#subdir",
+								Name: "custom-skills",
+							},
+							{
+								URL: "https://github.com/org/other-repo.git?ref=dev#path/to/skills",
+							},
+						},
+					},
+				},
+			},
+			wantCtx: PromptTemplateContext{
+				AgentName:      "my-agent",
+				AgentNamespace: "production",
+				Description:    "A helpful agent",
+				ToolNames:      []string{"get-pods", "describe-pod", "helm-install"},
+				SkillNames:     []string{"skill-k8s", "skill-helm", "custom-skills", "other-repo"},
+			},
+		},
+		{
 			name: "agent with no tools or skills",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{
