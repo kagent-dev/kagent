@@ -11,7 +11,7 @@ interface ToolCallDisplayProps {
   allMessages: Message[];
 }
 
-interface ToolCallState {
+export interface ToolCallState {
   id: string;
   call: FunctionCall;
   result?: {
@@ -19,6 +19,19 @@ interface ToolCallState {
     is_error?: boolean;
   };
   status: ToolCallStatus;
+  author?: string;
+}
+
+const NAMESPACE_SEPARATOR = "__NS__";
+
+/**
+ * Extract the sub-agent name from an agent-as-tool call name.
+ * e.g. "kagent__NS__k8s-agent" -> "k8s-agent"
+ */
+function extractAgentName(toolCallName: string): string {
+  const lastIdx = toolCallName.lastIndexOf(NAMESPACE_SEPARATOR);
+  if (lastIdx === -1) return toolCallName;
+  return toolCallName.substring(lastIdx + NAMESPACE_SEPARATOR.length);
 }
 
 // Create a global cache to track tool calls across components
@@ -33,13 +46,13 @@ const isToolCallRequestMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallRequestEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -50,13 +63,13 @@ const isToolCallExecutionMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallExecutionEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -67,11 +80,11 @@ const isToolCallSummaryMessage = (message: Message): boolean => {
 
 const extractToolCallRequests = (message: Message): FunctionCall[] => {
   if (!isToolCallRequestMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const functionCalls: FunctionCall[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
@@ -84,16 +97,16 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
       }
     }
   }
-  
+
   // If we found function calls in data parts, return them
   if (functionCalls.length > 0) {
     return functionCalls;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
-  
+
   try {
     // Tool call data might be stored as JSON in content or metadata
     const metadata = message.metadata as ADKMetadata;
@@ -106,11 +119,11 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
 
 const extractToolCallResults = (message: Message): ProcessedToolResultData[] => {
   if (!isToolCallExecutionMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const toolResults: ProcessedToolResultData[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
@@ -127,17 +140,17 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
       }
     }
   }
-  
+
   // If we found tool results in data parts, return them
   if (toolResults.length > 0) {
     return toolResults;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
-  
+
   try {
     const metadata = message.metadata as ADKMetadata;
     const resultData = metadata?.toolResultData || JSON.parse(content || "[]");
@@ -145,6 +158,26 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   } catch {
     return [];
   }
+};
+
+/**
+ * Extract the author metadata from a message.
+ * Checks both stored-task format (data part metadata) and streaming format (message metadata).
+ */
+const extractAuthor = (message: Message): string | undefined => {
+  // Try message-level metadata first (streaming format preserves author here)
+  const msgAuthor = getMetadataValue<string>(message.metadata as Record<string, unknown>, "author");
+  if (msgAuthor) return msgAuthor;
+
+  // For stored tasks, data parts may carry their own metadata
+  for (const part of message.parts || []) {
+    if (part.kind === "data" && part.metadata) {
+      const partAuthor = getMetadataValue<string>(part.metadata as Record<string, unknown>, "author");
+      if (partAuthor) return partAuthor;
+    }
+  }
+
+  return undefined;
 };
 
 const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) => {
@@ -190,12 +223,14 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     for (const message of allMessages) {
       if (isToolCallRequestMessage(message)) {
         const requests = extractToolCallRequests(message);
+        const author = extractAuthor(message);
         for (const request of requests) {
           if (request.id && ownedCallIds.has(request.id)) {
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
-              status: "requested"
+              status: "requested",
+              author,
             });
           }
         }
@@ -224,7 +259,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     for (const message of allMessages) {
       if (isToolCallSummaryMessage(message)) {
         summaryMessageEncountered = true;
-        break; 
+        break;
       }
     }
 
@@ -247,8 +282,98 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     return newToolCalls;
   }, [allMessages, ownedCallIds]);
 
+  // Collect ALL tool calls across all messages (not just owned) for nesting lookup
+  const allToolCalls = useMemo(() => {
+    const all = new Map<string, ToolCallState>();
+
+    for (const message of allMessages) {
+      if (isToolCallRequestMessage(message)) {
+        const requests = extractToolCallRequests(message);
+        const author = extractAuthor(message);
+        for (const request of requests) {
+          if (request.id) {
+            all.set(request.id, {
+              id: request.id,
+              call: request,
+              status: "requested",
+              author,
+            });
+          }
+        }
+      }
+    }
+
+    // Update with results
+    for (const message of allMessages) {
+      if (isToolCallExecutionMessage(message)) {
+        const results = extractToolCallResults(message);
+        for (const result of results) {
+          if (result.call_id && all.has(result.call_id)) {
+            const existingCall = all.get(result.call_id)!;
+            existingCall.result = {
+              content: result.content,
+              is_error: result.is_error
+            };
+            existingCall.status = "completed";
+          }
+        }
+      }
+    }
+
+    return all;
+  }, [allMessages]);
+
+  // Build parent-child map: agent call ID -> nested tool call states
+  // Uses message ordering to disambiguate multiple invocations of the same sub-agent.
+  const nestedCallsMap = useMemo(() => {
+    const map = new Map<string, ToolCallState[]>();
+    const allCalls = Array.from(allToolCalls.values());
+
+    // Single pass: assign each child to the most recent preceding agent call
+    // for the matching sub-agent name (disambiguates repeat invocations).
+    // Track: subAgentName -> current parent call ID
+    const activeParent = new Map<string, string>();
+
+    for (const call of allCalls) {
+      if (isAgentToolName(call.call.name)) {
+        // This is an agent-as-tool call; register it as the active parent
+        const subAgentName = extractAgentName(call.call.name);
+        activeParent.set(subAgentName, call.id);
+        if (!map.has(call.id)) {
+          map.set(call.id, []);
+        }
+      } else if (call.author) {
+        // This is a regular tool call with an author — attach to active parent
+        const parentId = activeParent.get(call.author);
+        if (parentId) {
+          map.get(parentId)!.push(call);
+        }
+      }
+    }
+
+    // Remove empty entries
+    for (const [id, children] of map) {
+      if (children.length === 0) map.delete(id);
+    }
+
+    return map;
+  }, [allToolCalls]);
+
+  // Determine which call IDs are nested children (should not render at top level)
+  const nestedChildIds = useMemo(() => {
+    const ids = new Set<string>();
+    nestedCallsMap.forEach(children => {
+      for (const child of children) {
+        ids.add(child.id);
+      }
+    });
+    return ids;
+  }, [nestedCallsMap]);
+
   // If no tool calls to display for this message, return null
-  const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
+  const currentDisplayableCalls = Array.from(toolCalls.values()).filter(
+    call => ownedCallIds.has(call.id) && !nestedChildIds.has(call.id)
+  );
   if (currentDisplayableCalls.length === 0) return null;
 
   return (
@@ -261,6 +386,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
             result={toolCall.result}
             status={toolCall.status}
             isError={toolCall.result?.is_error}
+            nestedCalls={nestedCallsMap.get(toolCall.id)}
           />
         ) : (
           <ToolDisplay
@@ -277,3 +403,4 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
 };
 
 export default ToolCallDisplay;
+export type { ToolCallDisplayProps };
