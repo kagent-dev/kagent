@@ -118,12 +118,23 @@ type GitRepo struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// SystemMessage is a string specifying the system message for the agent
+	// SystemMessage is a string specifying the system message for the agent.
+	// When PromptSources is non-empty, this field is treated as a Go text/template
+	// with access to an {{include "source/key"}} function and agent context variables
+	// such as {{.AgentName}}, {{.AgentNamespace}}, {{.Description}}, {{.ToolNames}}, and {{.SkillNames}}.
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+	// When PromptSources is non-empty, the resolved value is treated as a Go text/template.
 	// +optional
 	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
+	// PromptSources defines ConfigMaps or Secrets whose keys can be included in the systemMessage
+	// using Go template syntax: {{include "alias/key"}} or {{include "name/key"}}.
+	// When this field is non-empty, systemMessage is treated as a Go template with access to
+	// the include function and agent context variables.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	PromptSources []PromptSource `json:"promptSources,omitempty"`
 	// The name of the model config to use.
 	// If not specified, the default value is "default-model-config".
 	// Must be in the same namespace as the Agent.
@@ -157,6 +168,22 @@ type DeclarativeAgentSpec struct {
 	// Memory configuration for the agent.
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`
+}
+
+// PromptSource references a Kubernetes resource whose keys are available as prompt fragments.
+// Currently supports ConfigMap and Secret resources (core API group).
+// In systemMessage templates, use {{include "alias/key"}} (or {{include "name/key"}} if no alias is set)
+// to insert the value of a specific key from this source.
+type PromptSource struct {
+	// Inline reference to the Kubernetes resource.
+	// For ConfigMaps: kind=ConfigMap, apiGroup="" (empty for core API group).
+	// For Secrets: kind=Secret, apiGroup="" (empty for core API group).
+	TypedLocalReference `json:",inline"`
+
+	// Alias is an optional short identifier for use in include directives.
+	// If set, use {{include "alias/key"}} instead of {{include "name/key"}}.
+	// +optional
+	Alias string `json:"alias,omitempty"`
 }
 
 // MemorySpec enables long-term memory for an agent.

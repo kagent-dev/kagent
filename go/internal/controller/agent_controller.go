@@ -142,6 +142,30 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		)
 
+	// Watch ConfigMaps referenced by agents via promptTemplates or systemMessageFrom.
+	// When a ConfigMap changes, re-reconcile any agents that reference it.
+	build = build.Watches(
+		&corev1.ConfigMap{},
+		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			requests := []reconcile.Request{}
+
+			for _, agent := range r.findAgentsReferencingConfigMap(ctx, mgr.GetClient(), types.NamespacedName{
+				Name:      obj.GetName(),
+				Namespace: obj.GetNamespace(),
+			}) {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      agent.Name,
+						Namespace: agent.Namespace,
+					},
+				})
+			}
+
+			return requests
+		}),
+		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+	)
+
 	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
 		build = build.Watches(
 			&v1alpha1.MCPServer{},
@@ -302,6 +326,43 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 
 		if agent.Spec.Declarative.ModelConfig == obj.Name {
 			agents = append(agents, agent)
+		}
+	}
+
+	return agents
+}
+
+func (r *AgentController) findAgentsReferencingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(ctx, &agentsList); err != nil {
+		agentControllerLog.Error(err, "failed to list agents in order to reconcile ConfigMap update")
+		return nil
+	}
+
+	var agents []*v1alpha2.Agent
+	for i := range agentsList.Items {
+		agent := &agentsList.Items[i]
+		if agent.Namespace != obj.Namespace {
+			continue
+		}
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
+			continue
+		}
+
+		// Check if systemMessageFrom references this ConfigMap.
+		if ref := agent.Spec.Declarative.SystemMessageFrom; ref != nil {
+			if ref.Type == v1alpha2.ConfigMapValueSource && ref.Name == obj.Name {
+				agents = append(agents, agent)
+				continue
+			}
+		}
+
+		// Check if any promptSources reference this ConfigMap.
+		for _, ps := range agent.Spec.Declarative.PromptSources {
+			if ps.Kind == "ConfigMap" && ps.Name == obj.Name {
+				agents = append(agents, agent)
+				break
+			}
 		}
 	}
 

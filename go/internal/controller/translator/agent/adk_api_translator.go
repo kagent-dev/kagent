@@ -667,13 +667,37 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 }
 
 func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
+	var rawMessage string
 	if agent.Spec.Declarative.SystemMessageFrom != nil {
-		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
+		msg, err := agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
+		if err != nil {
+			return "", err
+		}
+		rawMessage = msg
+	} else if agent.Spec.Declarative.SystemMessage != "" {
+		rawMessage = agent.Spec.Declarative.SystemMessage
+	} else {
+		return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
 	}
-	if agent.Spec.Declarative.SystemMessage != "" {
-		return agent.Spec.Declarative.SystemMessage, nil
+
+	// Only treat as a template when promptSources is configured (backwards compatible).
+	if len(agent.Spec.Declarative.PromptSources) == 0 {
+		return rawMessage, nil
 	}
-	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
+
+	lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptSources)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve prompt sources: %w", err)
+	}
+
+	tplCtx := buildTemplateContext(agent)
+
+	resolved, err := executeSystemMessageTemplate(rawMessage, lookup, tplCtx)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute system message template: %w", err)
+	}
+
+	return resolved, nil
 }
 
 const (
