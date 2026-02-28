@@ -4,8 +4,10 @@ from a2a.types import DataPart, Message, Part, Role
 
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
     KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
+    extract_batch_decisions_from_message,
     extract_decision_from_message,
 )
 
@@ -51,3 +53,25 @@ def test_extract_decision_edge_cases():
         parts=[Part(DataPart(data={"some_other_key": "value"}))],
     )
     assert extract_decision_from_message(message) is None
+
+
+def test_extract_decision_batch():
+    """Test DataPart batch decision extraction (priority 1)."""
+    message = Message(
+        role=Role.user,
+        message_id="test",
+        task_id="task1",
+        context_id="ctx1",
+        parts=[
+            Part(
+                DataPart(
+                    data={
+                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
+                        "decisions": {"tool1": "approve", "tool2": "deny"},
+                    }
+                )
+            )
+        ],
+    )
+    assert extract_decision_from_message(message) == KAGENT_HITL_DECISION_TYPE_BATCH
+    assert extract_batch_decisions_from_message(message) == {"tool1": "approve", "tool2": "deny"}

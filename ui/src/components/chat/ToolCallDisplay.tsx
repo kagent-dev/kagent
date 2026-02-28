@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
@@ -9,9 +9,9 @@ import { FunctionCall } from "@/types";
 interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
-  onApproveAll?: () => void;
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
+  pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
 interface ToolCallState {
@@ -23,9 +23,6 @@ interface ToolCallState {
   };
   status: ToolCallStatus;
 }
-
-// Create a global cache to track tool calls across components
-const toolCallCache = new Map<string, boolean>();
 
 // Helper functions to work with A2A SDK Messages
 const isToolCallRequestMessage = (message: Message): boolean => {
@@ -161,42 +158,45 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
 };
 
 
-const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove, onReject }: ToolCallDisplayProps) => {
-  // Track which call IDs this component instance registered in the cache
-  const registeredIdsRef = useRef<Set<string>>(new Set());
-
-  const isApprovalMessage = isToolApprovalRequestMessage(currentMessage);
-
-  if (isApprovalMessage) {
-    console.log("[HITL] ToolCallDisplay render: isApprovalMessage=true, onApprove defined:", !!onApprove, "onReject defined:", !!onReject);
-  }
-
-  // Compute owned call IDs based on current message (memoized)
+const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions }: ToolCallDisplayProps) => {
+  // Determine which tool call IDs this component instance "owns" by finding,
+  // for each ID introduced by currentMessage, whether currentMessage is the
+  // FIRST message in allMessages that introduces that ID.
   const ownedCallIds = useMemo(() => {
-    const currentOwnedIds = new Set<string>();
-    if (isToolCallRequestMessage(currentMessage)) {
-      const requests = extractToolCallRequests(currentMessage);
-      for (const request of requests) {
-        if (request.id && !toolCallCache.has(request.id)) {
-          currentOwnedIds.add(request.id);
-          toolCallCache.set(request.id, true);
+    if (!isToolCallRequestMessage(currentMessage)) {
+      return new Set<string>();
+    }
+
+    const currentRequests = extractToolCallRequests(currentMessage);
+    if (currentRequests.length === 0) {
+      return new Set<string>();
+    }
+
+    // Build a map of id → first message index that introduces it
+    const firstOwnerIndex = new Map<string, number>();
+    for (let i = 0; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      if (isToolCallRequestMessage(msg)) {
+        const requests = extractToolCallRequests(msg);
+        for (const req of requests) {
+          if (req.id && !firstOwnerIndex.has(req.id)) {
+            firstOwnerIndex.set(req.id, i);
+          }
         }
       }
     }
-    return currentOwnedIds;
-  }, [currentMessage]);
 
-  // Update ref and handle cleanup
-  useEffect(() => {
-    // Store current owned IDs for cleanup
-    registeredIdsRef.current = ownedCallIds;
+    // Find the index of currentMessage in allMessages
+    const currentIndex = allMessages.indexOf(currentMessage);
 
-    return () => {
-      registeredIdsRef.current.forEach(id => {
-        toolCallCache.delete(id);
-      });
-    };
-  }, [ownedCallIds]);
+    const ownedIds = new Set<string>();
+    for (const req of currentRequests) {
+      if (req.id && firstOwnerIndex.get(req.id) === currentIndex) {
+        ownedIds.add(req.id);
+      }
+    }
+    return ownedIds;
+  }, [currentMessage, allMessages]);
 
   // Compute tool calls based on all messages and owned IDs (memoized)
   const toolCalls = useMemo(() => {
@@ -295,29 +295,25 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
   if (currentDisplayableCalls.length === 0) return null;
 
-  // Count pending approval calls for "Approve All" button
-  const pendingApprovalCalls = currentDisplayableCalls.filter(call => call.status === "pending_approval");
-  const showApproveAll = pendingApprovalCalls.length > 1 && onApproveAll;
-
   return (
     <div className="space-y-2">
-      {showApproveAll && (
-        <div className="flex justify-end">
-          <button
-            className="text-sm px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={onApproveAll}
-          >
-            Approve All ({pendingApprovalCalls.length})
-          </button>
-        </div>
-      )}
-      {currentDisplayableCalls.map(toolCall => (
-        isAgentToolName(toolCall.call.name) ? (
+      {currentDisplayableCalls.map(toolCall => {
+        // Determine effective status: use local pending decision for optimistic UI
+        const localDecision = pendingDecisions?.[toolCall.id];
+        const effectiveStatus: ToolCallStatus = localDecision
+          ? (localDecision === "approve" ? "approved" : "rejected")
+          : toolCall.status;
+        // Hide approve/reject buttons if a local decision was already made
+        const showButtons = toolCall.status === "pending_approval" && !localDecision;
+        // Tool has been decided locally but batch may not be submitted yet
+        const isDecided = !!localDecision;
+
+        return isAgentToolName(toolCall.call.name) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}
             result={toolCall.result}
-            status={toolCall.status === "pending_approval" ? "requested" : toolCall.status as AgentCallStatus}
+            status={effectiveStatus === "pending_approval" ? "requested" : effectiveStatus as AgentCallStatus}
             isError={toolCall.result?.is_error}
           />
         ) : (
@@ -325,13 +321,14 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApproveAll, onApprove,
             key={toolCall.id}
             call={toolCall.call}
             result={toolCall.result}
-            status={toolCall.status}
+            status={effectiveStatus}
             isError={toolCall.result?.is_error}
-            onApprove={toolCall.status === "pending_approval" && onApprove ? () => onApprove(toolCall.id) : undefined}
-            onReject={toolCall.status === "pending_approval" && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
+            isDecided={isDecided}
+            onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
+            onReject={showButtons && onReject ? (reason) => onReject(toolCall.id, reason) : undefined}
           />
-        )
-      ))}
+        );
+      })}
     </div>
   );
 };

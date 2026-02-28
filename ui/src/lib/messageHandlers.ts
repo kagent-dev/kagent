@@ -13,7 +13,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
     if (task.history) {
       // Pre-compute the user's HITL decision for this task (if any) so we
       // can attach it to the reconstructed approval card.
-      const decision = findUserDecision(
+      const decision = findUserDecisionData(
         task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>
       );
 
@@ -118,31 +118,62 @@ function hasUserDecisionInHistory(task: Task): boolean {
   });
 }
 
-/** Find the user's approval/rejection decision from task history. Returns "approve" | "deny" | undefined. */
-function findUserDecision(history: Array<{ kind?: string; role?: string; parts?: Part[] }>): string | undefined {
+/**
+ * Find the user's HITL decision data from task history.
+ * Returns the full data object so callers can resolve per-tool decisions
+ * for batch mode.
+ */
+function findUserDecisionData(
+  history: Array<{ kind?: string; role?: string; parts?: Part[] }>
+): Record<string, unknown> | undefined {
   for (const item of history) {
     if (item.kind !== "message" || item.role !== "user" || !item.parts) continue;
     for (const p of item.parts) {
       if (p.kind !== "data") continue;
       const data = (p as DataPart).data as Record<string, unknown> | undefined;
       if (data?.decision_type != null) {
-        return data.decision_type as string;
+        return data;
       }
     }
   }
   return undefined;
 }
 
+/**
+ * Resolve the decision for a specific tool from the user's decision data.
+ * Handles uniform ("approve"/"deny") and batch modes.
+ */
+function resolveToolDecision(
+  decisionData: Record<string, unknown> | undefined,
+  toolId: string
+): string | undefined {
+  if (!decisionData) return undefined;
+  const decisionType = decisionData.decision_type as string;
+
+  if (decisionType === "batch") {
+    const decisions = decisionData.decisions as Record<string, string> | undefined;
+    return decisions?.[toolId]; // "approve" | "deny" | undefined
+  }
+
+  // Uniform decision — applies to all tools
+  return decisionType; // "approve" | "deny"
+}
+
 /** Build a ToolApprovalRequest message from a confirmation DataPart. */
-function buildApprovalMessage(confPart: DataPart, task: Task, decision?: string): Message {
+function buildApprovalMessage(
+  confPart: DataPart,
+  task: Task,
+  decisionData?: Record<string, unknown>
+): Message {
   const data = confPart.data as {
     name: string;
     args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
     id: string;
   };
   const origFc = data.args.originalFunctionCall;
+  const toolId = origFc.id || data.id;
   const toolCallContent: ProcessedToolCallData[] = [{
-    id: origFc.id || data.id,
+    id: toolId,
     name: origFc.name,
     args: origFc.args || {},
   }];
@@ -154,7 +185,7 @@ function buildApprovalMessage(confPart: DataPart, task: Task, decision?: string)
       toolCallData: toolCallContent,
       // "approve" | "deny" | undefined — ToolCallDisplay reads this to
       // set the initial status to "approved", "rejected", or "pending_approval".
-      approvalDecision: decision,
+      approvalDecision: resolveToolDecision(decisionData, toolId),
     },
   });
 }

@@ -16,12 +16,12 @@ interface ChatMessageProps {
     namespace: string;
     agentName: string;
   };
-  onApproveAll?: () => void;
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
+  pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext, onApproveAll, onApprove, onReject }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -89,9 +89,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return <ToolCallDisplay
       currentMessage={message}
       allMessages={allMessages}
-      onApproveAll={onApproveAll}
       onApprove={onApprove}
       onReject={onReject}
+      pendingDecisions={pendingDecisions}
     />;
   }
 
@@ -99,9 +99,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return <ToolCallDisplay
       currentMessage={message}
       allMessages={allMessages}
-      onApproveAll={onApproveAll}
       onApprove={onApprove}
       onReject={onReject}
+      pendingDecisions={pendingDecisions}
     />;
   }
 

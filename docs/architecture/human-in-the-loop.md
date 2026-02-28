@@ -17,11 +17,13 @@ This approach provides:
   `FunctionResponse` the ADK expects). The interrupt path is handled entirely
   by the ADK and the existing event converter pipeline.
 
+This design avoids as much homebrewed Kagent constants and HITL logic as possible. However, this is only to an extend. For example, there are still a lot of custom UI logic that cannot be avoided.
+
 ---
 
 ## Data Flow
 
-```
+```plaintext
 before_tool_callback
   │ calls tool_context.request_confirmation()
   │ returns {"status": "confirmation_requested"} to block execution
@@ -39,12 +41,15 @@ Executor event loop
 UI detects input_required + adk_request_confirmation DataPart
   │ Extracts originalFunctionCall, shows Approve/Reject buttons
   ▼
-User clicks Approve or Reject
-  │ UI sends DataPart {decision_type: "approve"|"deny"} with taskId
+User clicks Approve or Reject on each tool card
+  │ UI collects per-tool decisions in pendingDecisions state
+  │ Once every tool has a decision, sends DataPart with taskId:
+  │   Uniform: {decision_type: "approve"|"deny"}
+  │   Mixed:   {decision_type: "batch", decisions: {toolId: "approve"|"deny", ...}}
   ▼
 Executor resume path
-  │ Translates decision to FunctionResponse(name="adk_request_confirmation",
-  │   response=ToolConfirmation(confirmed=True/False))
+  │ Translates decision(s) to FunctionResponse(name="adk_request_confirmation",
+  │   response=ToolConfirmation(confirmed=True/False)) — one per pending tool
   ▼
 ADK _RequestConfirmationLlmRequestProcessor (built-in)
   │ Finds original function call in session history
@@ -231,7 +236,7 @@ return Agent(
      rejected by user."}`.
 
 The callback requires no session state of its own; the ADK tracks the
-confirmation via session event history.
+confirmation via session event history and tool context interanlly.
 
 ---
 
@@ -245,19 +250,37 @@ The executor has two small HITL-specific pieces:
 contains a `decision_type` DataPart (sent by the UI after approve/reject), the
 executor calls `_find_pending_confirmations(session)` to locate any
 `adk_request_confirmation` FunctionCall events in session history that do not
-yet have a matching FunctionResponse. For each, it constructs:
+yet have a matching FunctionResponse. It returns a dict mapping each
+confirmation `function_call_id` to the original tool call ID (extracted from
+`args.originalFunctionCall.id`).
+
+The executor supports two modes:
+
+- **Uniform mode** (`decision_type` is `"approve"` or `"deny"`): the same
+  `ToolConfirmation(confirmed=...)` is constructed for every pending
+  confirmation.
+- **Batch mode** (`decision_type` is `"batch"`): the message also contains a
+  `decisions` dict mapping original tool call IDs to individual decisions.
+  The executor looks up each tool's decision by its original ID and
+  constructs a per-tool `ToolConfirmation`.
+
+For each pending confirmation it constructs:
 
 ```python
 FunctionResponse(
     name="adk_request_confirmation",
     id=confirmation_fc_id,
-    response=ToolConfirmation(confirmed=(decision == "approve")),
+    response=ToolConfirmation(confirmed=...),  # per-tool in batch mode
 )
 ```
 
-This response is prepended to the new turn's content so the ADK's
-`_RequestConfirmationLlmRequestProcessor` can find it and replay the original
-tool call — no LLM call required on the resume path.
+These responses are set as the new turn's content so the ADK's
+`_RequestConfirmationLlmRequestProcessor` can find them and replay the
+original tool calls — no LLM call required on the resume path. When the
+processor replays the tools, each receives its own `ToolConfirmation` via
+`ToolContext`. Approved tools execute normally; rejected tools are blocked by
+the `before_tool_callback` which returns `{"status": "rejected", ...}`. The
+mixed results are fed to the LLM in the next step.
 
 **Event loop break:** The event loop contains a single explicit break:
 
@@ -266,8 +289,26 @@ if getattr(adk_event, "long_running_tool_ids", None):
     break
 ```
 
-This is required because the ADK does not break automatically (see
-[ADK Loop Break Caveat](#adk-loop-break-caveat) below).
+The ADK's `BaseLlmFlow.run_async()` loop checks `last_event.is_final_response()`
+after consuming all events from one step. `is_final_response()` returns `True`
+when `long_running_tool_ids` is set.
+
+However, `_postprocess_handle_function_calls_async` yields **two** events in
+order:
+
+1. `tool_confirmation_event` — has `long_running_tool_ids` set.
+2. `function_response_event` — carries the `confirmation_requested` function
+   response; does **not** have `long_running_tool_ids`.
+
+Since the loop assigns `last_event` to each event as it is yielded,
+`last_event` ends up being the `function_response_event`.
+`function_response_event.is_final_response()` returns `False` (events with
+function responses are disqualified), so the loop continues to the next LLM
+step instead of pausing.
+
+Without the explicit break, the agent feeds the `confirmation_requested` stub
+response back to the LLM and continues executing — bypassing the approval gate
+entirely.
 
 ---
 
@@ -348,8 +389,13 @@ in addition to the standard `"requested"`, `"executing"`, and `"completed"`.
 - `"approved"` — renders a green checkmark badge; buttons hidden.
 - `"rejected"` — renders a red alert badge; buttons hidden.
 
-When multiple tools are pending approval in the same turn, `ToolCallDisplay`
-renders an "Approve All" button above the individual tool cards.
+When the user clicks Approve or Reject on an individual tool card,
+`ToolCallDisplay` uses the `pendingDecisions` prop to compute an
+`effectiveStatus`: if a local decision exists, the card immediately shows an
+"Approved" or "Rejected" badge and hides the buttons — even before the batch
+decision is sent to the backend. An `isDecided` prop is also passed to
+`ToolDisplay` to show "Waiting for other tools..." during the batch collection
+phase.
 
 ---
 
@@ -357,61 +403,49 @@ renders an "Approve All" button above the individual tool cards.
 
 **File:** `ui/src/components/chat/ChatInterface.tsx`
 
-`sendApprovalDecision(decision, reason?)` sends a structured A2A message
-through the existing `sendMessageStream()` flow:
+The chat interface supports both uniform and per-tool approval decisions.
+
+**Per-tool decision collection:** When multiple tools are pending approval,
+the user can click Approve or Reject on each tool card independently.
+`handleApprove(toolCallId)` and `handleReject(toolCallId)` record each
+decision in `pendingDecisions` state (and a parallel ref for stale-closure
+safety). After each click, `recordDecision` checks whether every pending
+tool now has a decision. Once all tools are decided, `submitDecisions` is
+called automatically.
+
+**Decision submission:** `submitDecisions(decisions)` inspects the
+collected decisions and sends the appropriate wire format:
 
 ```typescript
-// Approve
+// All approved — uniform mode
 { parts: [{ kind: "data", data: { decision_type: "approve" }, metadata: {} }] }
 
-// Reject with reason
-{ parts: [{ kind: "data", data: { decision_type: "deny", reason }, metadata: {} }] }
+// All denied — uniform mode
+{ parts: [{ kind: "data", data: { decision_type: "deny" }, metadata: {} }] }
+
+// Mixed — batch mode with per-tool decisions
+{ parts: [{ kind: "data", data: {
+    decision_type: "batch",
+    decisions: { "tool_call_id_1": "approve", "tool_call_id_2": "deny" }
+  }, metadata: {} }] }
 ```
 
 The message is sent with `taskId` set to the pending approval's task ID so the
 A2A framework routes the response to the correct task.
 
-After sending, `chatStatus` is set back to `"ready"` (in a `finally` block) to
-unblock the input regardless of whether the agent's subsequent response
-succeeds or fails.
-
 ---
 
-## ADK Loop Break Caveat
+## HITL Flows
 
-The executor's event loop contains an explicit break on `long_running_tool_ids`:
+### Approval Flow
 
-```python
-if getattr(adk_event, "long_running_tool_ids", None):
-    break
-```
+1. Executor sends `ToolConfirmation(confirmed=True)` as a `FunctionResponse`.
+2. `_RequestConfirmationLlmRequestProcessor` re-invokes the original tool.
+3. `before_tool_callback` checks `tool_context.tool_confirmation.confirmed`
+   → `True`, returns `None`.
+4. The tool executes normally.
 
-**This is required because the ADK does not break automatically.**
-
-The ADK's `BaseLlmFlow.run_async()` loop checks `last_event.is_final_response()`
-after consuming all events from one step. `is_final_response()` returns `True`
-when `long_running_tool_ids` is set.
-
-However, `_postprocess_handle_function_calls_async` yields **two** events in
-order:
-
-1. `tool_confirmation_event` — has `long_running_tool_ids` set.
-2. `function_response_event` — carries the `confirmation_requested` function
-   response; does **not** have `long_running_tool_ids`.
-
-Since the loop assigns `last_event` to each event as it is yielded,
-`last_event` ends up being the `function_response_event`.
-`function_response_event.is_final_response()` returns `False` (events with
-function responses are disqualified), so the loop continues to the next LLM
-step instead of pausing.
-
-Without the explicit break, the agent feeds the `confirmation_requested` stub
-response back to the LLM and continues executing — bypassing the approval gate
-entirely.
-
----
-
-## Rejection Flow
+### Rejection Flow
 
 1. Executor sends `ToolConfirmation(confirmed=False)` as a `FunctionResponse`.
 2. `_RequestConfirmationLlmRequestProcessor` re-invokes the original tool.
@@ -426,3 +460,28 @@ On the UI side the rejection `FunctionResponse` (which carries the original
 responses which are internal signals. `ToolCallDisplay` reads
 `is_hitl_rejection` from `ProcessedToolResultData` and transitions the tool
 card to `"rejected"`.
+
+### Mixed Decision Flow (Parallel Tools)
+
+When multiple tools are pending approval simultaneously and the user approves
+some while rejecting others:
+
+1. The UI collects per-tool decisions in `pendingDecisions` state as the user
+   clicks Approve/Reject on individual tool cards. Each click immediately
+   shows an optimistic badge on the card.
+2. Once every pending tool has a decision, the UI sends a batch message:
+   `{decision_type: "batch", decisions: {"fc1": "approve", "fc2": "deny"}}`.
+3. The executor extracts per-tool decisions via
+   `extract_batch_decisions_from_message()` and constructs individual
+   `ToolConfirmation` objects for each pending confirmation.
+4. The ADK's `_RequestConfirmationLlmRequestProcessor` replays **all**
+   original tool calls in parallel via `asyncio.gather`. Each tool receives
+   its own `ToolConfirmation` through `ToolContext`.
+5. Approved tools execute normally and return real results. Rejected tools
+   are blocked by `before_tool_callback` and return
+   `{"status": "rejected", ...}`.
+6. The merged `FunctionResponse` event (containing both real results and
+   rejections) has no `long_running_tool_ids`, so the ADK loop continues
+   to the next LLM step without pausing.
+7. The LLM receives the mixed results and generates an appropriate text
+   response (e.g., summarising what succeeded and what was rejected).

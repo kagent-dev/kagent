@@ -16,11 +16,13 @@ interface ToolDisplayProps {
   };
   status?: ToolCallStatus;
   isError?: boolean;
+  /** When true, the card is in a "decided but not yet submitted" state (batch flow). */
+  isDecided?: boolean;
   onApprove?: () => void;
   onReject?: (reason?: string) => void;
 }
 
-const ToolDisplay = ({ call, result, status = "requested", isError = false, onApprove, onReject }: ToolDisplayProps) => {
+const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, onApprove, onReject }: ToolDisplayProps) => {
   const [areArgumentsExpanded, setAreArgumentsExpanded] = useState(status === "pending_approval");
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -41,9 +43,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
   };
 
   const handleApprove = async () => {
-    console.log("[HITL] ToolDisplay.handleApprove called, onApprove defined:", !!onApprove, "status:", status);
     if (!onApprove) {
-      console.warn("[HITL] onApprove is undefined - button click ignored");
       return;
     }
     setIsSubmitting(true);
@@ -51,9 +51,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
   };
 
   const handleReject = async () => {
-    console.log("[HITL] ToolDisplay.handleReject called, onReject defined:", !!onReject, "status:", status);
     if (!onReject) {
-      console.warn("[HITL] onReject is undefined - button click ignored");
       return;
     }
     setIsSubmitting(true);
@@ -128,7 +126,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
   };
 
   const borderClass = status === "pending_approval"
-    ? 'border-amber-300 dark:border-amber-700'
+    ? 'border-violet-300 dark:border-violet-700'
     : status === "rejected"
       ? 'border-red-300 dark:border-red-700'
       : status === "approved"
@@ -169,8 +167,8 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
           )}
         </div>
 
-        {/* Approval buttons */}
-        {status === "pending_approval" && !isSubmitting && (
+        {/* Approval buttons — hidden when decided (batch) or submitting */}
+        {status === "pending_approval" && !isSubmitting && !isDecided && (
           <div className="mt-4 space-y-2">
             {!showRejectInput ? (
               <div className="flex gap-2">
@@ -221,10 +219,12 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, onAp
           </div>
         )}
 
-        {status === "pending_approval" && isSubmitting && (
+        {status === "pending_approval" && (isSubmitting || isDecided) && (
           <div className="flex items-center gap-2 py-2 mt-4">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-sm text-muted-foreground">Submitting decision...</span>
+            <span className="text-sm text-muted-foreground">
+              {isDecided ? "Waiting..." : "Submitting decision..."}
+            </span>
           </div>
         )}
 

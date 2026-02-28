@@ -39,7 +39,9 @@ from typing_extensions import override
 
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
     TaskResultAggregator,
+    extract_batch_decisions_from_message,
     extract_decision_from_message,
     get_kagent_metadata_key,
 )
@@ -341,16 +343,17 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     @staticmethod
-    def _find_pending_confirmations(session: Session) -> list[str]:
-        """Find function_call_ids of pending adk_request_confirmation calls in session.
+    def _find_pending_confirmations(session: Session) -> dict[str, str | None]:
+        """Find pending adk_request_confirmation calls and their original tool call IDs.
 
         Scans session events backwards for the most recent adk_request_confirmation
-        FunctionCall event that hasn't been responded to yet.
+        FunctionCall events that haven't been responded to yet.
 
         Returns:
-            List of confirmation function_call_ids that are still pending.
+            Dict mapping confirmation function_call_id to the original tool call ID
+            (from args.originalFunctionCall.id), or None if not available.
         """
-        pending_ids: set[str] = set()
+        pending: dict[str, str | None] = {}
         responded_ids: set[str] = set()
 
         for event in reversed(session.events or []):
@@ -359,17 +362,75 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if fr.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fr.id is not None:
                     responded_ids.add(fr.id)
 
-            # Collect requested confirmation IDs
+            # Collect requested confirmation IDs and extract original tool call ID
             for fc in event.get_function_calls():
                 if fc.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fc.id is not None:
-                    pending_ids.add(fc.id)
+                    # Extract original tool call ID from args.originalFunctionCall.id
+                    original_id = None
+                    if fc.args and isinstance(fc.args, dict):
+                        orig_fc = fc.args.get("originalFunctionCall")
+                        if isinstance(orig_fc, dict):
+                            original_id = orig_fc.get("id")
+                    pending[fc.id] = original_id
 
             # Stop scanning once we find confirmation requests (they're recent)
-            if pending_ids:
+            if pending:
                 break
 
-        # Find the ones that are not responded to yet
-        return list(pending_ids - responded_ids)
+        # Remove the ones that have already been responded to
+        for responded_id in responded_ids:
+            pending.pop(responded_id, None)
+
+        return pending
+
+    def _process_hitl_decision(
+        self, session: Session, decision: str, message: Message
+    ) -> list[genai_types.Part] | None:
+        """Process a HITL decision from a message and return the corresponding FunctionResponse parts."""
+        pending_confirmations = self._find_pending_confirmations(session)
+        if not pending_confirmations:
+            return None
+
+        logger.info(
+            "HITL continuation detected: decision=%s, pending_confirmations=%d",
+            decision,
+            len(pending_confirmations),
+        )
+
+        if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
+            # Batch mode: per-tool decisions
+            batch_decisions = extract_batch_decisions_from_message(message) or {}
+            parts = []
+            for fc_id, original_id in pending_confirmations.items():
+                # Look up the per-tool decision using the original tool call ID
+                tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
+                confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+                confirmation = ToolConfirmation(confirmed=confirmed)
+                # Append a response for each tool call
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                            id=fc_id,
+                            response={"response": confirmation.model_dump_json()},
+                        )
+                    )
+                )
+            return parts
+        else:
+            # Uniform mode: same decision for all pending tools
+            confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+            confirmation = ToolConfirmation(confirmed=confirmed)
+            return [
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                        id=fc_id,
+                        response={"response": confirmation.model_dump_json()},
+                    )
+                )
+                for fc_id in pending_confirmations
+            ]
 
     async def _handle_request(
         self,
@@ -384,26 +445,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
         decision = extract_decision_from_message(context.message)
         if decision:
-            pending_fc_ids = self._find_pending_confirmations(session)
-            if pending_fc_ids:
-                logger.info(
-                    "HITL continuation detected: decision=%s, pending_confirmations=%d", decision, len(pending_fc_ids)
-                )
-                confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
-                confirmation = ToolConfirmation(confirmed=confirmed)
-                run_args["new_message"] = genai_types.Content(
-                    role="user",
-                    parts=[
-                        genai_types.Part(
-                            function_response=genai_types.FunctionResponse(
-                                name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                                id=fc_id,
-                                response={"response": confirmation.model_dump_json()},
-                            )
-                        )
-                        for fc_id in pending_fc_ids
-                    ],
-                )
+            parts = self._process_hitl_decision(session, decision, context.message)
+            if parts:
+                run_args["new_message"] = genai_types.Content(role="user", parts=parts)
             # Fall through to normal execution with the constructed FunctionResponse
         else:
             # Normal flow: set request headers to session state
