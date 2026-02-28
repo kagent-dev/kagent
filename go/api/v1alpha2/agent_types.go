@@ -133,7 +133,6 @@ type DeclarativeAgentSpec struct {
 	// If not specified, the default value is false.
 	// +optional
 	Stream bool `json:"stream,omitempty"`
-	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
