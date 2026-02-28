@@ -3,7 +3,7 @@ import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue, isHitlRejection } from "@/lib/messageHandlers";
+import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -127,7 +127,6 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
           name: data.name,
           content: textContent,
           is_error: data.response?.isError || false,
-          is_hitl_rejection: isHitlRejection(data),
         });
       }
     }
@@ -247,13 +246,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               is_error: result.is_error
             };
             if (!isHitlTerminal(existingCall.status)) {
-              // Detect HITL rejection results: the before_tool_callback
-              // returns {"status": "rejected", ...} when the user rejects.
-              if (existingCall.status === "pending_approval" && result.is_hitl_rejection) {
-                existingCall.status = "rejected";
-              } else {
-                existingCall.status = "executing";
-              }
+              existingCall.status = "executing";
             }
           }
         }

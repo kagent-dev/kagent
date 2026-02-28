@@ -1,4 +1,4 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart, TaskStatus } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
@@ -29,7 +29,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
             );
 
             for (const confPart of confirmationParts) {
-              const approvalMsg = buildApprovalMessage(confPart, task, decision);
+              const approvalMsg = buildApprovalMessage(confPart, task.contextId, task.id, decision);
               messages.push(approvalMsg);
             }
             seenMessageIds.add(historyItem.messageId);
@@ -73,15 +73,14 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
   let hasPending = false;
 
   for (const task of tasks) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const status = task.status as any;
+    const status = task.status;
     if (status?.state !== "input-required" || !status?.message) continue;
 
     const confirmationParts = findConfirmationParts(status.message as Message);
     if (confirmationParts.length === 0) continue;
 
     for (const confPart of confirmationParts) {
-      approvalMessages.push(buildApprovalMessage(confPart, task));
+      approvalMessages.push(buildApprovalMessage(confPart, task.contextId, task.id));
     }
     hasPending = true;
   }
@@ -150,7 +149,8 @@ function resolveToolDecision(
 /** Build a ToolApprovalRequest message from a confirmation DataPart. */
 function buildApprovalMessage(
   confPart: DataPart,
-  task: Task,
+  contextId: string | undefined,
+  taskId: string | undefined,
   decisionData?: Record<string, unknown>
 ): Message {
   const data = confPart.data as {
@@ -167,8 +167,8 @@ function buildApprovalMessage(
   }];
   return createMessage("", "agent", {
     originalType: "ToolApprovalRequest",
-    contextId: task.contextId,
-    taskId: task.id,
+    contextId,
+    taskId,
     additionalMetadata: {
       toolCallData: toolCallContent,
       // "approve" | "deny" | undefined — ToolCallDisplay reads this to
@@ -272,18 +272,6 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
-  /** True when the before_tool_callback rejected this tool call (HITL denial). */
-  is_hitl_rejection?: boolean;
-}
-
-/** Returns true if a raw ToolResponseData result object represents a HITL rejection. */
-export function isHitlRejection(toolData: ToolResponseData): boolean {
-  const result = toolData.response?.result;
-  return (
-    result !== null &&
-    typeof result === "object" &&
-    (result as Record<string, unknown>).status === "rejected"
-  );
 }
 
 // Normalize various tool response result shapes into plain text
@@ -481,7 +469,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       name: toolData.name,
       content: normalizeToolResultToText(toolData),
       is_error: toolData.response?.isError || false,
-      is_hitl_rejection: isHitlRejection(toolData),
     }];
     const execEvent = createMessage(
       "",
@@ -509,50 +496,16 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
       updateTokenStatsFromMetadata(adkMetadata);
 
-      // Check for tool approval interrupt (ADK-native adk_request_confirmation)
+      // Check for tool approval interrupt
       if (
         statusUpdate.status.state === "input-required" &&
         statusUpdate.status.message
       ) {
-        const message = statusUpdate.status.message;
-
-        // Detect ADK-native confirmation requests: long-running function_call DataParts
-        // with name "adk_request_confirmation". These contain originalFunctionCall
-        // details from which we extract the real tool name/args for the approval UI.
-        const confirmationParts = message.parts.filter(
-          (part): part is DataPart =>
-            isDataPart(part) &&
-            getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call" &&
-            getMetadataValue<boolean>(part.metadata as Record<string, unknown>, "is_long_running") === true &&
-            (part.data as Record<string, unknown>)?.name === "adk_request_confirmation"
-        );
+        const confirmationParts = findConfirmationParts(statusUpdate.status.message as Message);
 
         if (confirmationParts.length > 0) {
-          const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
           for (const confPart of confirmationParts) {
-            const data = confPart.data as {
-              name: string;
-              args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
-              id: string;
-            };
-            const origFc = data.args.originalFunctionCall;
-            // Use the original function call ID (origFc.id) so that the
-            // ToolCallDisplay cache merges the approval status into the
-            // existing "Call requested" card instead of creating a second card.
-            const toolCallContent: ProcessedToolCallData[] = [{
-              id: origFc.id || data.id,
-              name: origFc.name,
-              args: origFc.args || {},
-            }];
-            const approvalMessage = createMessage("", source, {
-              originalType: "ToolApprovalRequest",
-              contextId: statusUpdate.contextId,
-              taskId: statusUpdate.taskId,
-              additionalMetadata: {
-                toolCallData: toolCallContent,
-              },
-            });
-            appendMessage(approvalMessage);
+            appendMessage(buildApprovalMessage(confPart, statusUpdate.contextId, statusUpdate.taskId));
           }
 
           if (handlers.setChatStatus) {
@@ -604,9 +557,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
             const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
             if (partType === "function_call") {
-              // Skip ADK internal confirmation/auth function calls — they are
-              // handled by the approval/auth interrupt detection above and
-              // should not be rendered as regular tool call cards.
+              // Skip ADK internal confirmation/auth function calls
               const fcName = (data as Record<string, unknown>)?.name as string | undefined;
               if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") {
                 continue;
@@ -616,9 +567,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 
             } else if (partType === "function_response") {
-              // Skip the initial confirmation_requested marker from the
-              // before_tool_callback (it's not a real tool result — the tool
-              // hasn't run yet, it's just the approval request signal).
+              // Skip the initial confirmation_requested marker from the before_tool_callback
               const responseData = (data as { response?: Record<string, unknown> })?.response;
               const responseStatus = responseData?.status as string | undefined;
               if (responseStatus === "confirmation_requested") {
@@ -678,7 +627,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
-          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false, is_hitl_rejection: isHitlRejection(toolData) }];
+          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
           convertedMessages.push(convertedMessage);
           continue;

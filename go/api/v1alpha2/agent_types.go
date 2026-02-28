@@ -354,6 +354,7 @@ type McpServerTool struct {
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
+	// +kubebuilder:validation:MaxItems=50
 	ToolNames []string `json:"toolNames,omitempty"`
 
 	// RequireApproval lists tool names that require human approval before
@@ -361,6 +362,7 @@ type McpServerTool struct {
 	// this list is invoked by the agent, execution pauses and the user is
 	// prompted to approve or reject the call.
 	// +optional
+	// +kubebuilder:validation:MaxItems=50
 	RequireApproval []string `json:"requireApproval,omitempty"`
 
 	// AllowedHeaders specifies which headers from the A2A request should be

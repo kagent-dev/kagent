@@ -10062,6 +10062,7 @@ spec:
                                 prompted to approve or reject the call.
                               items:
                                 type: string
+                              maxItems: 50
                               type: array
                             toolNames:
                               description: |-
@@ -10070,6 +10071,7 @@ spec:
                                 the client can query the status of the ToolServer object after it has been created
                               items:
                                 type: string
+                              maxItems: 50
                               type: array
                           required:
                           - name
