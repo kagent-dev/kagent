@@ -1,0 +1,60 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: content-generator-agent
+
+# Use the base wake-cycle-agent pattern
+resources:
+  - ../../manifests
+
+# Override the namespace (single declaration)
+namespace: content-generator
+
+namePrefix: cg-
+
+# Patches for content generator specific config
+patches:
+  # Update the CronJob schedule to every 4 hours
+  - target:
+      kind: CronJob
+      name: wake-trigger
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 */4 * * *"
+
+  # Add content-generator specific constitution
+  - target:
+      kind: ConfigMap
+      name: agent-constitution
+    patch: |
+      - op: add
+        path: /data/content-rules.md
+        value: |
+          # Content Generation Rules
+
+          ## Content Types
+          - blog_post: 800-1500 words, SEO optimized
+          - social: 280 characters max, engaging hook
+          - thread: 5-10 tweets, storytelling format
+
+          ## Posting Schedule
+          - Blog: 1-2 per week
+          - Social: 4-6 per day
+          - Threads: 2-3 per week
+
+          ## Quality Guidelines
+          - Provide value, not noise
+          - Cite sources when applicable
+          - No clickbait or misleading content
+          - Respect platform community guidelines
+
+  # Update agent description
+  - target:
+      kind: Agent
+      name: wake-cycle-agent
+    patch: |
+      - op: replace
+        path: /spec/description
+        value: "Content generator agent that creates and posts content on schedule"

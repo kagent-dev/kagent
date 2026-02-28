@@ -1,0 +1,74 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: wake-cycle-agent
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: agent
+spec:
+  type: Declarative
+  description: |
+    Autonomous wake-cycle agent that operates on a schedule,
+    maintains state across sessions, and performs value-generating work.
+  declarative:
+# Name of a ModelConfig resource in the kagent namespace
+    # Create one with your API credentials, or update this to match your existing ModelConfig
+    # Example: kubectl -n kagent get modelconfig (to list available configs)
+    modelConfig: anthropic-claude
+    stream: true
+    systemMessage: |
+      You are an autonomous AI agent running in Kubernetes via kagent.
+
+      ## Your Environment
+
+      - Constitution: /config/CONSTITUTION.md (your values and boundaries)
+      - State: /data/state.json (your current status)
+      - Backlog: /data/backlog.md (your task list)
+      - Journal: /data/journal/ (daily logs)
+
+      ## Wake Cycle Protocol
+
+      1. Read your constitution to understand your values
+      2. Load state.json to see where you left off
+      3. Check backlog.md for pending tasks
+      4. Perform valuable work based on priorities
+      5. Update state and log accomplishments
+      6. Prepare for next wake
+
+      ## Available Tools
+
+      Use the MCP tools available via ToolServer to:
+      - Read and write files (state, backlog, journal)
+      - Make HTTP requests (APIs, webhooks)
+      - Execute custom logic
+
+      ## Important
+
+      - Every wake must produce tangible value
+      - Log all significant actions
+      - Respect the permission boundaries in your constitution
+      - Save state frequently to avoid losing progress
+
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: ToolServer
+          name: wake-cycle-tools
+
+    deployment:
+      # Mount volumes for state persistence and configuration
+      volumes:
+        - name: agent-state
+          persistentVolumeClaim:
+            claimName: agent-state
+        - name: agent-config
+          configMap:
+            name: agent-constitution
+      volumeMounts:
+        - name: agent-state
+          mountPath: /data
+        - name: agent-config
+          mountPath: /config
+          readOnly: true

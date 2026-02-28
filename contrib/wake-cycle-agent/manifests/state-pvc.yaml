@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-state
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: state
+spec:
+  # ReadWriteOnce: Can only be mounted by pods on a single node
+  # The CronJob's pod affinity ensures it schedules on the same node as the Agent
+  # For multi-node scenarios, consider ReadWriteMany if your storage backend supports it
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Use default storage class, or specify one:
+  # storageClassName: standard

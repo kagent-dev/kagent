@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wake-trigger
+  namespace: wake-cycle-demo
+  labels:
+    app.kubernetes.io/name: wake-cycle-agent
+    app.kubernetes.io/component: scheduler
+spec:
+  # Wake every 15 minutes
+  schedule: "*/15 * * * *"
+  # Keep history for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # Don't overlap wakes
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      # Auto-cleanup completed jobs after 1 hour
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: wake-cycle-agent
+            app.kubernetes.io/component: wake-job
+        spec:
+          restartPolicy: OnFailure
+          # Schedule CronJob on same node as Agent using pod affinity
+          # This ensures both can access the ReadWriteOnce PVC
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: wake-cycle-agent
+                      app.kubernetes.io/component: agent
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: wake-trigger
+              # Pin to specific version for reproducible deployments
+              image: curlimages/curl:8.5.0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+
+                  # Generate wake prompt with current context
+                  WAKE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                  WAKE_NUMBER=$(cat /data/wake_counter 2>/dev/null || echo "1")
+
+                  # Create wake prompt as JSON file to avoid shell escaping issues
+                  cat > /tmp/wake-prompt.json << EOF
+                  {
+                    "prompt": "Wake trigger: scheduled\nTime: ${WAKE_TIME}\nWake number: ${WAKE_NUMBER}\n\nBegin your wake cycle."
+                  }
+                  EOF
+
+                  # Invoke the agent via its service endpoint
+                  # Agents are exposed at http://{agent-name}.{namespace}:8080
+                  curl -f -X POST \
+                    -H "Content-Type: application/json" \
+                    -d @/tmp/wake-prompt.json \
+                    http://wake-cycle-agent.wake-cycle-demo.svc.cluster.local:8080/chat
+
+                  # Increment wake counter atomically after successful invocation
+                  # Write to temp file first, then atomically move to avoid partial writes
+                  NEW_WAKE=$((WAKE_NUMBER + 1))
+                  echo "$NEW_WAKE" > /data/wake_counter.tmp
+                  mv /data/wake_counter.tmp /data/wake_counter
+              volumeMounts:
+                - name: agent-state
+                  mountPath: /data
+          volumes:
+            - name: agent-state
+              persistentVolumeClaim:
+                claimName: agent-state
