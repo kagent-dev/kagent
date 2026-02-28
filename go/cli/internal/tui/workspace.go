@@ -218,7 +218,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadSessions()
 	case wsAgentsLoadedMsg:
 		if msg.err != nil {
-			m.details.WriteString(fmt.Sprintf("Error: failed to load agents: %v", msg.err))
+			fmt.Fprintf(&m.details, "Error: failed to load agents: %v", msg.err)
 			return m, nil
 		}
 		// Sort and store agents for later; do not auto-open chooser or auto-select.
@@ -230,7 +230,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loadAgentMsg:
 		if msg.err != nil {
-			m.details.WriteString(fmt.Sprintf("Error: %v", msg.err))
+			fmt.Fprintf(&m.details, "Error: %v", msg.err)
 			return m, nil
 		}
 		a := msg.agent

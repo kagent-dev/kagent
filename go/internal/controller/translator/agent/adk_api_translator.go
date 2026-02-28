@@ -574,14 +574,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		return nil, nil, nil, err
 	}
 
-	systemMessage, err := a.resolveSystemMessage(ctx, agent)
+	// Resolve the raw system message (template processing happens after tools are translated).
+	rawSystemMessage, err := a.resolveRawSystemMessage(ctx, agent)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
 		Description: agent.Spec.Description,
-		Instruction: systemMessage,
+		Instruction: rawSystemMessage,
 		Model:       model,
 		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 		Stream:      agent.Spec.Declarative.Stream,
@@ -704,10 +705,29 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Apply prompt template processing after tools are translated, so tool names
+	// from the config are available as template variables.
+	if agent.Spec.Declarative.PromptTemplate != nil && len(agent.Spec.Declarative.PromptTemplate.DataSources) > 0 {
+		lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptTemplate.DataSources)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to resolve prompt sources: %w", err)
+		}
+
+		tplCtx := buildTemplateContext(agent, cfg)
+
+		resolved, err := executeSystemMessageTemplate(cfg.Instruction, lookup, tplCtx)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
+		}
+		cfg.Instruction = resolved
+	}
+
 	return cfg, mdd, secretHashBytes, nil
 }
 
-func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
+// resolveRawSystemMessage gets the raw system message string from the agent spec
+// without applying any template processing.
+func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
 	if agent.Spec.Declarative.SystemMessageFrom != nil {
 		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
 	}

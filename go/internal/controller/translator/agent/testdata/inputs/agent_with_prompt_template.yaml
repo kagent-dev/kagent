@@ -1,0 +1,75 @@
+operation: translateAgent
+targetObject: agent-with-prompt-template
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5 # base64 encoded "sk-test-api-key"
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: my-prompts
+      namespace: test
+    data:
+      safety: |
+        ## Safety Guidelines
+        Never delete resources without explicit user confirmation.
+      preamble: |
+        ## Preamble
+        You are a helpful Kubernetes assistant.
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: RemoteMCPServer
+    metadata:
+      name: toolserver
+      namespace: test
+    spec:
+      url: http://localhost:8084/mcp
+      description: "KAgent Tool Server"
+      timeout: 30s
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-prompt-template
+      namespace: test
+    spec:
+      type: Declarative
+      description: A Kubernetes troubleshooting agent
+      declarative:
+        systemMessage: |
+          {{include "builtin/preamble"}}
+
+          You are {{.AgentName}}, operating in {{.AgentNamespace}}.
+          Your purpose: {{.Description}}
+
+          Available tools: {{range .ToolNames}}{{.}}, {{end}}
+
+          {{include "builtin/safety"}}
+        promptTemplate:
+          dataSources:
+            - kind: ConfigMap
+              name: my-prompts
+              alias: builtin
+        modelConfig: default-model
+        tools:
+          - type: McpServer
+            mcpServer:
+              name: toolserver
+              kind: RemoteMCPServer
+              apiGroup: kagent.dev
+              toolNames:
+                - k8s_get_resources
+                - k8s_describe_resource

@@ -8,6 +8,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// GetConfigMapData fetches all data from a ConfigMap.
+func GetConfigMapData(ctx context.Context, c client.Client, ref client.ObjectKey) (map[string]string, error) {
+	configMap := &corev1.ConfigMap{}
+	if err := c.Get(ctx, ref, configMap); err != nil {
+		return nil, fmt.Errorf("failed to find ConfigMap %s: %v", ref.String(), err)
+	}
+	return configMap.Data, nil
+}
+
 // GetConfigMapValue fetches a value from a ConfigMap
 func GetConfigMapValue(ctx context.Context, c client.Client, ref client.ObjectKey, key string) (string, error) {
 	configMap := &corev1.ConfigMap{}
