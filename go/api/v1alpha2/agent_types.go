@@ -77,7 +77,6 @@ type SkillForAgent struct {
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 
 	// The list of skill images to fetch.
-	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	Refs []string `json:"refs,omitempty"`
@@ -90,7 +89,6 @@ type SkillForAgent struct {
 	GitAuthSecretRef *corev1.LocalObjectReference `json:"gitAuthSecretRef,omitempty"`
 
 	// Git repositories to fetch skills from.
-	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
@@ -132,9 +130,8 @@ type DeclarativeAgentSpec struct {
 	// Whether to stream the response from the model.
 	// If not specified, the default value is false.
 	// +optional
-	Stream bool `json:"stream,omitempty"`
-	// +kubebuilder:validation:MaxItems=20
-	Tools []*Tool `json:"tools,omitempty"`
+	Stream bool    `json:"stream,omitempty"`
+	Tools  []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
