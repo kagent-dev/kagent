@@ -2277,7 +2277,6 @@ spec:
                     rule: '!(has(self.agent) && self.type != ''Agent'')'
                   - message: type.agent must be specified for Agent filter.type
                     rule: '!(!has(self.agent) && self.type == ''Agent'')'
-                maxItems: 20
                 type: array
             type: object
           status:
@@ -10086,7 +10085,6 @@ spec:
                         rule: '!(has(self.agent) && self.type != ''Agent'')'
                       - message: type.agent must be specified for Agent filter.type
                         rule: '!(!has(self.agent) && self.type == ''Agent'')'
-                    maxItems: 20
                     type: array
                 type: object
                 x-kubernetes-validations:
@@ -10142,7 +10140,6 @@ spec:
                       required:
                       - url
                       type: object
-                    maxItems: 20
                     minItems: 1
                     type: array
                   insecureSkipVerify:
@@ -10154,7 +10151,6 @@ spec:
                     description: The list of skill images to fetch.
                     items:
                       type: string
-                    maxItems: 20
                     minItems: 1
                     type: array
                 type: object

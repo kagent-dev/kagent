@@ -77,7 +77,6 @@ type SkillForAgent struct {
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 
 	// The list of skill images to fetch.
-	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	Refs []string `json:"refs,omitempty"`
@@ -90,7 +89,6 @@ type SkillForAgent struct {
 	GitAuthSecretRef *corev1.LocalObjectReference `json:"gitAuthSecretRef,omitempty"`
 
 	// Git repositories to fetch skills from.
-	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
