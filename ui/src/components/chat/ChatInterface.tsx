@@ -74,6 +74,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
+  const [shortcutKey, setShortcutKey] = useState("Ctrl");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      setShortcutKey("⌘");
+    }
+  }, []);
+
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
@@ -441,6 +448,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            <span className="mr-auto text-xs text-muted-foreground">{shortcutKey}+Enter to send</span>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
