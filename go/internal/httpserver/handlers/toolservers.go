@@ -14,6 +14,9 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -187,6 +190,264 @@ func (h *ToolServersHandler) handleCreateMCPServer(w ErrorResponseWriter, r *htt
 	log.Info("Successfully created MCPServer")
 	data := api.NewResponse(toolServerRequest, "Successfully created MCPServer", false)
 	RespondWithJSON(w, http.StatusCreated, data)
+}
+
+// HandleGetToolServer handles GET /api/toolservers/{namespace}/{name}/{groupKind} requests
+func (h *ToolServersHandler) HandleGetToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "get")
+	log.Info("Received request to get ToolServer")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		log.Error(err, "Failed to get namespace from path")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	toolServerName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	groupKind, err := GetPathParam(r, "groupKind")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get groupKind from path", err))
+		return
+	}
+
+	log = log.WithValues(
+		"toolServerNamespace", namespace,
+		"toolServerName", toolServerName,
+		"groupKind", groupKind,
+	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: toolServerName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	ref := fmt.Sprintf("%s/%s", namespace, toolServerName)
+
+	// Get discovered tools
+	tools, err := h.DatabaseService.ListToolsForServer(ref, groupKind)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
+		return
+	}
+
+	discoveredTools := make([]*v1alpha2.MCPTool, len(tools))
+	for j, tool := range tools {
+		discoveredTools[j] = &v1alpha2.MCPTool{
+			Name:        tool.ID,
+			Description: tool.Description,
+		}
+	}
+
+	response := api.ToolServerDetailResponse{
+		Ref:             ref,
+		GroupKind:       groupKind,
+		DiscoveredTools: discoveredTools,
+	}
+
+	// Fetch the full CRD based on groupKind
+	switch groupKind {
+	case "RemoteMCPServer.kagent.dev":
+		toolServer := &v1alpha2.RemoteMCPServer{}
+		err = h.KubeClient.Get(
+			r.Context(),
+			client.ObjectKey{
+				Namespace: namespace,
+				Name:      toolServerName,
+			},
+			toolServer,
+		)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
+				return
+			}
+			w.RespondWithError(errors.NewInternalServerError("Failed to get RemoteMCPServer", err))
+			return
+		}
+		response.RemoteMCPServer = toolServer
+
+	case "MCPServer.kagent.dev":
+		toolServer := &v1alpha1.MCPServer{}
+		err = h.KubeClient.Get(
+			r.Context(),
+			client.ObjectKey{
+				Namespace: namespace,
+				Name:      toolServerName,
+			},
+			toolServer,
+		)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
+				return
+			}
+			w.RespondWithError(errors.NewInternalServerError("Failed to get MCPServer", err))
+			return
+		}
+		response.MCPServer = toolServer
+
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unknown tool server type", nil))
+		return
+	}
+
+	log.Info("Successfully retrieved ToolServer")
+	data := api.NewResponse(response, "Successfully retrieved ToolServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleUpdateToolServer handles PUT /api/toolservers/{namespace}/{name}/{groupKind} requests
+func (h *ToolServersHandler) HandleUpdateToolServer(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("toolservers-handler").WithValues("operation", "update")
+	log.Info("Received request to update ToolServer")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		log.Error(err, "Failed to get namespace from path")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	toolServerName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	groupKind, err := GetPathParam(r, "groupKind")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get groupKind from path", err))
+		return
+	}
+
+	log = log.WithValues(
+		"toolServerNamespace", namespace,
+		"toolServerName", toolServerName,
+		"groupKind", groupKind,
+	)
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: toolServerName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	var toolServerRequest ToolServerCreateRequest
+	if err := DecodeJSONBody(r, &toolServerRequest); err != nil {
+		log.Error(err, "Invalid request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	switch toolServerRequest.Type {
+	case ToolServerTypeRemoteMCPServer:
+		if toolServerRequest.RemoteMCPServer == nil {
+			w.RespondWithError(errors.NewBadRequestError("RemoteMCPServer data is required when type is RemoteMCPServer", nil))
+			return
+		}
+		h.handleUpdateRemoteMCPServer(w, r, namespace, toolServerName, toolServerRequest.RemoteMCPServer, log)
+	case ToolServerTypeMCPServer:
+		if toolServerRequest.MCPServer == nil {
+			w.RespondWithError(errors.NewBadRequestError("MCPServer data is required when type is MCPServer", nil))
+			return
+		}
+		h.handleUpdateMCPServer(w, r, namespace, toolServerName, toolServerRequest.MCPServer, log)
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Invalid tool server type", nil))
+	}
+}
+
+// handleUpdateRemoteMCPServer handles updating a RemoteMCPServer using server-side apply
+func (h *ToolServersHandler) handleUpdateRemoteMCPServer(w ErrorResponseWriter, r *http.Request, namespace, name string, update *v1alpha2.RemoteMCPServer, log logr.Logger) {
+	// Build the apply object with TypeMeta, ObjectMeta, and desired Spec
+	applyObj := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: update.Spec,
+	}
+	applyObj.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("RemoteMCPServer"))
+
+	applyConfig, err := toApplyConfiguration(applyObj)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to build apply configuration", err))
+		return
+	}
+
+	if err := h.KubeClient.Apply(r.Context(), applyConfig, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("RemoteMCPServer not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to update RemoteMCPServer", err))
+		return
+	}
+
+	// Re-fetch the updated object to return in the response
+	result := &v1alpha2.RemoteMCPServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, result); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to fetch updated RemoteMCPServer", err))
+		return
+	}
+
+	log.Info("Successfully updated RemoteMCPServer")
+	data := api.NewResponse(result, "Successfully updated RemoteMCPServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// handleUpdateMCPServer handles updating an MCPServer using server-side apply
+func (h *ToolServersHandler) handleUpdateMCPServer(w ErrorResponseWriter, r *http.Request, namespace, name string, update *v1alpha1.MCPServer, log logr.Logger) {
+	// Build the apply object with TypeMeta, ObjectMeta, and desired Spec
+	applyObj := &v1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: update.Spec,
+	}
+	applyObj.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind("MCPServer"))
+
+	applyConfig, err := toApplyConfiguration(applyObj)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to build apply configuration", err))
+		return
+	}
+
+	if err := h.KubeClient.Apply(r.Context(), applyConfig, client.FieldOwner("kagent-httpserver"), client.ForceOwnership); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("MCPServer not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to update MCPServer", err))
+		return
+	}
+
+	// Re-fetch the updated object to return in the response
+	result := &v1alpha1.MCPServer{}
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, result); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to fetch updated MCPServer", err))
+		return
+	}
+
+	log.Info("Successfully updated MCPServer")
+	data := api.NewResponse(result, "Successfully updated MCPServer", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// toApplyConfiguration converts a Kubernetes runtime.Object to a runtime.ApplyConfiguration
+// by marshaling it to unstructured form. This is used for the non-deprecated client.Apply() API.
+func toApplyConfiguration(obj runtime.Object) (runtime.ApplyConfiguration, error) {
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
+	}
+	u := &unstructured.Unstructured{}
+	u.SetUnstructuredContent(unstructuredMap)
+	return client.ApplyConfigurationFromUnstructured(u), nil
 }
 
 // HandleDeleteToolServer handles DELETE /api/toolservers/{namespace}/{name} requests
