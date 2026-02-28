@@ -119,22 +119,20 @@ type GitRepo struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
 	// SystemMessage is a string specifying the system message for the agent.
-	// When PromptSources is non-empty, this field is treated as a Go text/template
+	// When PromptTemplate is set, this field is treated as a Go text/template
 	// with access to an {{include "source/key"}} function and agent context variables
 	// such as {{.AgentName}}, {{.AgentNamespace}}, {{.Description}}, {{.ToolNames}}, and {{.SkillNames}}.
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
-	// When PromptSources is non-empty, the resolved value is treated as a Go text/template.
+	// When PromptTemplate is set, the resolved value is treated as a Go text/template.
 	// +optional
 	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
-	// PromptSources defines ConfigMaps or Secrets whose keys can be included in the systemMessage
-	// using Go template syntax: {{include "alias/key"}} or {{include "name/key"}}.
-	// When this field is non-empty, systemMessage is treated as a Go template with access to
-	// the include function and agent context variables.
+	// PromptTemplate enables Go text/template processing on the systemMessage field.
+	// When set, systemMessage is treated as a Go template with access to the include function
+	// and agent context variables.
 	// +optional
-	// +kubebuilder:validation:MaxItems=20
-	PromptSources []PromptSource `json:"promptSources,omitempty"`
+	PromptTemplate *PromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// The name of the model config to use.
 	// If not specified, the default value is "default-model-config".
 	// Must be in the same namespace as the Agent.
@@ -221,6 +219,15 @@ type ContextSummarizerConfig struct {
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
 	PromptTemplate *string `json:"promptTemplate,omitempty"`
+}
+
+// PromptTemplateSpec configures prompt template processing for an agent's system message.
+type PromptTemplateSpec struct {
+	// DataSources defines the ConfigMaps or Secrets whose keys can be included in the systemMessage
+	// using Go template syntax: {{include "alias/key"}} or {{include "name/key"}}.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	DataSources []PromptSource `json:"dataSources,omitempty"`
 }
 
 // PromptSource references a Kubernetes resource whose keys are available as prompt fragments.

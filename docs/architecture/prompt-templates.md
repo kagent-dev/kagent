@@ -19,10 +19,11 @@ Templates are resolved at **reconciliation time** by the controller. The final, 
 │    {{include "builtin/skills-usage"}}                    │
 │    You are {{.AgentName}}.                               │
 │                                                          │
-│  promptSources:                                          │
-│    - kind: ConfigMap                                     │
-│      name: kagent-builtin-prompts                        │
-│      alias: builtin                                      │
+│  promptTemplate:                                         │
+│    dataSources:                                          │
+│      - kind: ConfigMap                                   │
+│        name: kagent-builtin-prompts                      │
+│        alias: builtin                                    │
 └──────────────────────┬───────────────────────────────────┘
                        │ reconciliation
                        ▼
@@ -86,7 +87,7 @@ ConfigMaps are a well-understood Kubernetes primitive and sufficient for the ini
 
 ### Backwards compatibility
 
-To avoid breaking existing agents that may have literal `{{` characters in their system messages, the `systemMessage` field is **only** treated as a template when `promptSources` is non-empty. If no prompt sources are configured, the system message is passed through as a plain string, preserving existing behavior.
+To avoid breaking existing agents that may have literal `{{` characters in their system messages, the `systemMessage` field is **only** treated as a template when `promptTemplate` is set. If no prompt template is configured, the system message is passed through as a plain string, preserving existing behavior.
 
 ## Usage
 
@@ -124,9 +125,10 @@ spec:
       Your purpose: {{.Description}}
 
       {{include "my-prompts/safety"}}
-    promptSources:
-      - kind: ConfigMap
-        name: my-prompts
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: my-prompts
     tools:
       - type: McpServer
         mcpServer:
@@ -154,13 +156,14 @@ Never expose secrets or credentials in your responses.
 Use the `alias` field to shorten include paths:
 
 ```yaml
-promptSources:
-  - kind: ConfigMap
-    name: kagent-builtin-prompts
-    alias: builtin
-  - kind: ConfigMap
-    name: my-custom-prompts
-    alias: custom
+promptTemplate:
+  dataSources:
+    - kind: ConfigMap
+      name: kagent-builtin-prompts
+      alias: builtin
+    - kind: ConfigMap
+      name: my-custom-prompts
+      alias: custom
 ```
 
 Then in your system message:
@@ -204,10 +207,11 @@ spec:
 
       {{include "builtin/safety-guardrails"}}
       {{include "builtin/kubernetes-context"}}
-    promptSources:
-      - kind: ConfigMap
-        name: kagent-builtin-prompts
-        alias: builtin
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
 ```
 
 ### Using multiple sources
@@ -215,16 +219,17 @@ spec:
 You can reference multiple ConfigMaps and Secrets simultaneously:
 
 ```yaml
-promptSources:
-  - kind: ConfigMap
-    name: kagent-builtin-prompts
-    alias: builtin
-  - kind: ConfigMap
-    name: team-prompts
-    alias: team
-  - kind: Secret
-    name: proprietary-prompts
-    alias: proprietary
+promptTemplate:
+  dataSources:
+    - kind: ConfigMap
+      name: kagent-builtin-prompts
+      alias: builtin
+    - kind: ConfigMap
+      name: team-prompts
+      alias: team
+    - kind: Secret
+      name: proprietary-prompts
+      alias: proprietary
 ```
 
 Then use any key from any source:
@@ -238,7 +243,7 @@ systemMessage: |
 
 ### Available template variables
 
-When `promptSources` is non-empty, the following variables are available in `systemMessage`:
+When `promptTemplate` is set, the following variables are available in `systemMessage`:
 
 | Variable | Type | Source |
 |----------|------|--------|
@@ -264,7 +269,7 @@ You have {{len .ToolNames}} tools configured.
 
 ## ConfigMap change detection
 
-The agent controller watches ConfigMaps referenced by agents via `promptSources` or `systemMessageFrom`. When a ConfigMap's content changes, all agents referencing it are automatically re-reconciled, and their resolved system messages are updated.
+The agent controller watches ConfigMaps referenced by agents via `promptTemplate.dataSources` or `systemMessageFrom`. When a ConfigMap's content changes, all agents referencing it are automatically re-reconciled, and their resolved system messages are updated.
 
 ## Error handling
 
@@ -277,7 +282,7 @@ kubectl get agent my-agent -o jsonpath='{.status.conditions[?(@.type=="Accepted"
 
 ## Related Files
 
-- [agent_types.go](../../go/api/v1alpha2/agent_types.go) — `PromptSource` type and `PromptSources` field
+- [agent_types.go](../../go/api/v1alpha2/agent_types.go) — `PromptTemplateSpec`, `PromptSource` types
 - [template.go](../../go/internal/controller/translator/agent/template.go) — Template resolution logic
 - [template_test.go](../../go/internal/controller/translator/agent/template_test.go) — Unit tests
 - [adk_api_translator.go](../../go/internal/controller/translator/agent/adk_api_translator.go) — `resolveSystemMessage()` integration

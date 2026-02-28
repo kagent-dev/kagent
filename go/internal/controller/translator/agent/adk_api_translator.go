@@ -721,12 +721,12 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 		return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
 	}
 
-	// Only treat as a template when promptSources is configured (backwards compatible).
-	if len(agent.Spec.Declarative.PromptSources) == 0 {
+	// Only treat as a template when promptTemplate is configured (backwards compatible).
+	if agent.Spec.Declarative.PromptTemplate == nil || len(agent.Spec.Declarative.PromptTemplate.DataSources) == 0 {
 		return rawMessage, nil
 	}
 
-	lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptSources)
+	lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptTemplate.DataSources)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve prompt sources: %w", err)
 	}
