@@ -130,8 +130,8 @@ type DeclarativeAgentSpec struct {
 	// Whether to stream the response from the model.
 	// If not specified, the default value is false.
 	// +optional
-	Stream bool `json:"stream,omitempty"`
-	Tools []*Tool `json:"tools,omitempty"`
+	Stream bool    `json:"stream,omitempty"`
+	Tools  []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
