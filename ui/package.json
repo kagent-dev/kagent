@@ -10,7 +10,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:e2e:cypress": "cypress run --e2e",
-    "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress"
+    "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.8",
@@ -82,6 +84,19 @@
     "tailwindcss": "^3.4.17",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "storybook": "^10.2.10",
+    "@storybook/nextjs-vite": "^10.2.10",
+    "@chromatic-com/storybook": "^5.0.1",
+    "@storybook/addon-vitest": "^10.2.10",
+    "@storybook/addon-a11y": "^10.2.10",
+    "@storybook/addon-docs": "^10.2.10",
+    "@storybook/addon-onboarding": "^10.2.10",
+    "vite": "^7.3.1",
+    "eslint-plugin-storybook": "^10.2.10",
+    "vitest": "^4.0.18",
+    "playwright": "^1.58.2",
+    "@vitest/browser-playwright": "^4.0.18",
+    "@vitest/coverage-v8": "^4.0.18"
   }
 }
