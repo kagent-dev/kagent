@@ -1,34 +1,24 @@
 
-# Install bun
-# https://bun.sh/docs/installation
-
 .PHONY: build
 build:
-	rm -f bun.lockb
-	bun install
-	bun run build
+	npm ci
+	npm run build
 
 .PHONY: clean
 clean:
 	rm -rf node_modules
-	rm -f bun.lockb
 	rm -rf dist
-	rm -rf .bun
 	rm -rf .cache
-
-.PHONY: install-bun
-install-bun:
-	brew install bun
 
 .PHONY: audit
 audit:
 	@echo "Running security audit..."
-	bun audit
+	npm audit
 	@echo "Security audit completed."
 
-.PHONY: build
+.PHONY: update
 update:
 	@echo "Updating UI lock file..."
 	npm audit fix
-	bun install --frozen-lockfile --production
+	npm ci
 	@echo "Updating UI lock file done."
