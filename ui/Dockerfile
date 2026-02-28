@@ -43,15 +43,22 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
 
+ARG VERSION
+ENV NEXT_PUBLIC_KAGENT_VERSION=$VERSION
+
 # Copy source files
 COPY . .
 
 # Build the application (native compilation for speed)
+# Note: bun may segfault during process cleanup after a successful build
+# (known bun bug, exit code 132/SIGILL). We capture the exit code and
+# verify the build output exists to distinguish real failures from crashes.
 RUN --mount=type=cache,target=/cache/node_modules,rw \
     --mount=type=cache,target=/app/ui/.next/cache,rw \
     export NEXT_TELEMETRY_DEBUG=1 \
     && bun install --frozen-lockfile \
-    && bun run build \
+    && { bun run build; BUN_EXIT=$?; } \
+    && if [ $BUN_EXIT -ne 0 ] && [ ! -d /app/ui/.next/standalone ]; then exit $BUN_EXIT; fi \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime
