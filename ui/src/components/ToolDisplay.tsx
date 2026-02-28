@@ -126,7 +126,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
   };
 
   const borderClass = status === "pending_approval"
-    ? 'border-violet-300 dark:border-violet-700'
+    ? 'border-amber-300 dark:border-amber-700'
     : status === "rejected"
       ? 'border-red-300 dark:border-red-700'
       : status === "approved"
