@@ -8,8 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"encoding/json"
+
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/a2a"
+	internala2a "github.com/kagent-dev/kagent/go/internal/a2a"
 	authimpl "github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
@@ -17,8 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // MCPHandler handles MCP requests and bridges them to A2A endpoints
@@ -187,38 +189,35 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	agentRef := agentNS + "/" + agentName
 	agentNns := types.NamespacedName{Namespace: agentNS, Name: agentName}
 
-	// Get context ID from client request (stateless mode)
-	// If not provided, contextIDPtr will be nil and a new conversation will start
-	var contextIDPtr *string
 	if input.ContextID != "" {
-		contextIDPtr = &input.ContextID
 		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
 	}
 
 	// Get or create cached A2A client for this agent
 	a2aURL := fmt.Sprintf("%s/%s/", h.a2aBaseURL, agentRef)
-	var a2aClient *a2aclient.A2AClient
+	var a2aClient *a2aclient.Client
 
 	if cached, ok := h.a2aClients.Load(agentRef); ok {
-		if client, ok := cached.(*a2aclient.A2AClient); ok {
-			a2aClient = client
+		if cachedClient, ok := cached.(*a2aclient.Client); ok {
+			a2aClient = cachedClient
 		}
 	}
 
 	// Create new client if not cached
 	if a2aClient == nil {
-		// Build A2A client options with authentication propagation
-		a2aOpts := []a2aclient.Option{
-			a2aclient.WithTimeout(30 * time.Second),
-			a2aclient.WithHTTPReqHandler(
-				authimpl.A2ARequestHandler(
-					h.authenticator,
-					agentNns,
-				),
-			),
+		httpClient := &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: authimpl.NewA2AAuthTransport(h.authenticator, agentNns),
 		}
-
-		newClient, err := a2aclient.NewA2AClient(a2aURL, a2aOpts...)
+		endpoints := []a2a.AgentInterface{
+			{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+		}
+		newClient, err := a2aclient.NewFromEndpoints(
+			ctx,
+			endpoints,
+			a2aclient.WithDefaultsDisabled(),
+			a2aclient.WithJSONRPCTransport(httpClient),
+		)
 		if err != nil {
 			log.Error(err, "Failed to create A2A client", "agent", agentRef)
 			return &mcpsdk.CallToolResult{
@@ -234,15 +233,14 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		a2aClient = newClient
 	}
 
-	// Send message via A2A
-	result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
-		Message: protocol.Message{
-			Kind:      protocol.KindMessage,
-			Role:      protocol.MessageRoleUser,
-			ContextID: contextIDPtr,
-			Parts:     []protocol.Part{protocol.NewTextPart(input.Task)},
-		},
-	})
+	// Build and send message via A2A
+	message := a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: input.Task})
+	if input.ContextID != "" {
+		message.ContextID = input.ContextID
+	}
+	params := &a2a.MessageSendParams{Message: message}
+
+	result, err := a2aClient.SendMessage(ctx, params)
 	if err != nil {
 		log.Error(err, "Failed to send A2A message", "agent", agentRef)
 		return &mcpsdk.CallToolResult{
@@ -255,25 +253,23 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 
 	// Extract response text and context ID
 	var responseText, newContextID string
-	switch a2aResult := result.Result.(type) {
-	case *protocol.Message:
-		responseText = a2a.ExtractText(*a2aResult)
-		if a2aResult.ContextID != nil {
-			newContextID = *a2aResult.ContextID
-		}
+	switch a2aResult := result.(type) {
+	case *a2a.Message:
+		responseText = internala2a.ExtractText(a2aResult)
+		newContextID = a2aResult.ContextID
 	// Kagent A2A only returns Task type for now
-	case *protocol.Task:
+	case *a2a.Task:
 		newContextID = a2aResult.ContextID
 		if a2aResult.Status.Message != nil {
-			responseText = a2a.ExtractText(*a2aResult.Status.Message)
+			responseText = internala2a.ExtractText(a2aResult.Status.Message)
 		}
 		for _, artifact := range a2aResult.Artifacts {
-			responseText += a2a.ExtractText(protocol.Message{Parts: artifact.Parts})
+			responseText += internala2a.ExtractText(&a2a.Message{Parts: artifact.Parts})
 		}
 	}
 
 	if responseText == "" {
-		raw, err := result.MarshalJSON()
+		raw, err := json.Marshal(result)
 		if err != nil {
 			return &mcpsdk.CallToolResult{
 				Content: []mcpsdk.Content{

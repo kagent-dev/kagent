@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"github.com/kagent-dev/kagent/go/pkg/database"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // SessionsHandler handles session-related requests
@@ -118,7 +118,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 
-	id := protocol.GenerateContextID()
+	id := a2a.NewContextID()
 	if sessionRequest.ID != nil && *sessionRequest.ID != "" {
 		id = *sessionRequest.ID
 	}

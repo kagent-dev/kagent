@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	agent_translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -20,16 +22,15 @@ import (
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 )
 
 type A2ARegistrar struct {
-	cache          crcache.Cache
-	translator     agent_translator.AdkApiTranslator
-	handlerMux     A2AHandlerMux
-	a2aBaseUrl     string
-	authenticator  auth.AuthProvider
-	a2aBaseOptions []a2aclient.Option
+	cache            crcache.Cache
+	translator       agent_translator.AdkApiTranslator
+	handlerMux       A2AHandlerMux
+	a2aBaseUrl       string
+	authenticator    auth.AuthProvider
+	streamingTimeout time.Duration
 }
 
 var _ manager.Runnable = (*A2ARegistrar)(nil)
@@ -44,20 +45,14 @@ func NewA2ARegistrar(
 	streamingInitialBuf int,
 	streamingTimeout time.Duration,
 ) *A2ARegistrar {
-	reg := &A2ARegistrar{
-		cache:         cache,
-		translator:    translator,
-		handlerMux:    mux,
-		a2aBaseUrl:    a2aBaseUrl,
-		authenticator: authenticator,
-		a2aBaseOptions: []a2aclient.Option{
-			a2aclient.WithTimeout(streamingTimeout),
-			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
-			debugOpt(),
-		},
+	return &A2ARegistrar{
+		cache:            cache,
+		translator:       translator,
+		handlerMux:       mux,
+		a2aBaseUrl:       a2aBaseUrl,
+		authenticator:    authenticator,
+		streamingTimeout: streamingTimeout,
 	}
-
-	return reg
 }
 
 func (a *A2ARegistrar) NeedLeaderElection() bool {
@@ -124,17 +119,20 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	card := agent_translator.GetA2AAgentCard(agent)
 
-	client, err := a2aclient.NewA2AClient(
-		card.URL,
-		append(
-			a.a2aBaseOptions,
-			a2aclient.WithHTTPReqHandler(
-				authimpl.A2ARequestHandler(
-					a.authenticator,
-					agentRef,
-				),
-			),
-		)...,
+	httpClient := &http.Client{
+		Timeout:   a.streamingTimeout,
+		Transport: a.buildTransport(agentRef),
+	}
+
+	endpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: card.URL},
+	}
+
+	client, err := a2aclient.NewFromEndpoints(
+		ctx,
+		endpoints,
+		a2aclient.WithDefaultsDisabled(),
+		a2aclient.WithJSONRPCTransport(httpClient),
 	)
 	if err != nil {
 		return fmt.Errorf("create A2A client for %s: %w", agentRef, err)
@@ -151,18 +149,26 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 	return nil
 }
 
-func debugOpt() a2aclient.Option {
+func (a *A2ARegistrar) buildTransport(agentRef types.NamespacedName) http.RoundTripper {
+	var baseTransport http.RoundTripper
+
 	debugAddr := env.KagentA2ADebugAddr.Get()
 	if debugAddr != "" {
-		client := new(http.Client)
-		client.Transport = &http.Transport{
+		baseTransport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
 		}
-		return a2aclient.WithHTTPClient(client)
-	} else {
-		return func(*a2aclient.A2AClient) {}
+	}
+
+	return &authimpl.A2AAuthRoundTripper{
+		Base:         baseTransport,
+		AuthProvider: a.authenticator,
+		UpstreamPrincipal: auth.Principal{
+			Agent: auth.Agent{
+				ID: agentRef.String(),
+			},
+		},
 	}
 }

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"trpc.group/trpc-go/trpc-a2a-go/server"
+	"github.com/a2aproject/a2a-go/a2a"
 )
 
 // AgentType represents the agent type
@@ -351,7 +351,7 @@ type A2AConfig struct {
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
-type AgentSkill server.AgentSkill
+type AgentSkill a2a.AgentSkill
 
 const (
 	AgentConditionTypeAccepted = "Accepted"

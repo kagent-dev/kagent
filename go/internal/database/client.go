@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type clientImpl struct {
@@ -88,15 +88,15 @@ func (c *clientImpl) DeleteToolsForServer(serverName string, groupKind string) e
 }
 
 // GetTaskMessages retrieves messages for a specific task
-func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
+func (c *clientImpl) GetTaskMessages(taskID int) ([]*a2a.Message, error) {
 	messages, err := list[dbpkg.Event](c.db, Clause{Key: "task_id", Value: taskID})
 	if err != nil {
 		return nil, err
 	}
 
-	protocolMessages := make([]*protocol.Message, 0, len(messages))
+	protocolMessages := make([]*a2a.Message, 0, len(messages))
 	for _, message := range messages {
-		var protocolMessage protocol.Message
+		var protocolMessage a2a.Message
 		if err := json.Unmarshal([]byte(message.Data), &protocolMessage); err != nil {
 			return nil, fmt.Errorf("failed to deserialize message: %w", err)
 		}
@@ -149,7 +149,7 @@ func (c *clientImpl) StoreEvents(events ...*dbpkg.Event) error {
 }
 
 // ListSessionRuns lists all runs for a specific session
-func (c *clientImpl) ListTasksForSession(sessionID string) ([]*protocol.Task, error) {
+func (c *clientImpl) ListTasksForSession(sessionID string) ([]*a2a.Task, error) {
 	tasks, err := list[dbpkg.Task](c.db,
 		Clause{Key: "session_id", Value: sessionID},
 	)
@@ -226,7 +226,7 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, groupKind string, 
 }
 
 // ListMessagesForRun retrieves messages for a specific run (helper method)
-func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*protocol.Message, error) {
+func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*a2a.Message, error) {
 	messages, err := list[dbpkg.Event](c.db,
 		Clause{Key: "task_id", Value: taskID},
 		Clause{Key: "user_id", Value: userID})
@@ -272,13 +272,13 @@ func (c *clientImpl) ListEventsForSession(sessionID, userID string, options dbpk
 }
 
 // GetMessage retrieves a protocol message from the database
-func (c *clientImpl) GetMessage(messageID string) (*protocol.Message, error) {
+func (c *clientImpl) GetMessage(messageID string) (*a2a.Message, error) {
 	dbMessage, err := get[dbpkg.Event](c.db, Clause{Key: "id", Value: messageID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
 
-	var message protocol.Message
+	var message a2a.Message
 	if err := json.Unmarshal([]byte(dbMessage.Data), &message); err != nil {
 		return nil, fmt.Errorf("failed to deserialize message: %w", err)
 	}
@@ -292,7 +292,7 @@ func (c *clientImpl) DeleteMessage(messageID string) error {
 }
 
 // ListMessagesByContextID retrieves messages by context ID with optional limit
-func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]protocol.Message, error) {
+func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]a2a.Message, error) {
 	var dbMessages []dbpkg.Event
 	query := c.db.Where("session_id = ?", contextID).Order("created_at DESC")
 
@@ -305,9 +305,9 @@ func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]pro
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
 
-	protocolMessages := make([]protocol.Message, 0, len(dbMessages))
+	protocolMessages := make([]a2a.Message, 0, len(dbMessages))
 	for _, dbMessage := range dbMessages {
-		var protocolMessage protocol.Message
+		var protocolMessage a2a.Message
 		if err := json.Unmarshal([]byte(dbMessage.Data), &protocolMessage); err != nil {
 			return nil, fmt.Errorf("failed to deserialize message: %w", err)
 		}
@@ -318,14 +318,14 @@ func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]pro
 }
 
 // StoreTask stores a MemoryCancellableTask in the database
-func (c *clientImpl) StoreTask(task *protocol.Task) error {
+func (c *clientImpl) StoreTask(task *a2a.Task) error {
 	data, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
 
 	dbTask := dbpkg.Task{
-		ID:        task.ID,
+		ID:        string(task.ID),
 		Data:      string(data),
 		SessionID: task.ContextID,
 	}
@@ -334,13 +334,13 @@ func (c *clientImpl) StoreTask(task *protocol.Task) error {
 }
 
 // GetTask retrieves a MemoryCancellableTask from the database
-func (c *clientImpl) GetTask(taskID string) (*protocol.Task, error) {
+func (c *clientImpl) GetTask(taskID string) (*a2a.Task, error) {
 	dbTask, err := get[dbpkg.Task](c.db, Clause{Key: "id", Value: taskID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
 
-	var task protocol.Task
+	var task a2a.Task
 	if err := json.Unmarshal([]byte(dbTask.Data), &task); err != nil {
 		return nil, fmt.Errorf("failed to deserialize task: %w", err)
 	}
@@ -356,15 +356,15 @@ func (c *clientImpl) TaskExists(taskID string) bool {
 }
 
 // StorePushNotification stores a push notification configuration in the database
-func (c *clientImpl) StorePushNotification(config *protocol.TaskPushNotificationConfig) error {
+func (c *clientImpl) StorePushNotification(config *a2a.TaskPushConfig) error {
 	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification config: %w", err)
 	}
 
 	dbPushNotification := dbpkg.PushNotification{
-		ID:     config.PushNotificationConfig.ID,
-		TaskID: config.TaskID,
+		ID:     config.Config.ID,
+		TaskID: string(config.TaskID),
 		Data:   string(data),
 	}
 
@@ -372,7 +372,7 @@ func (c *clientImpl) StorePushNotification(config *protocol.TaskPushNotification
 }
 
 // GetPushNotification retrieves a push notification configuration from the database
-func (c *clientImpl) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
+func (c *clientImpl) GetPushNotification(taskID string, configID string) (*a2a.TaskPushConfig, error) {
 	dbPushNotification, err := get[dbpkg.PushNotification](c.db,
 		Clause{Key: "task_id", Value: taskID},
 		Clause{Key: "id", Value: configID})
@@ -380,7 +380,7 @@ func (c *clientImpl) GetPushNotification(taskID string, configID string) (*proto
 		return nil, fmt.Errorf("failed to get push notification config: %w", err)
 	}
 
-	var config protocol.TaskPushNotificationConfig
+	var config a2a.TaskPushConfig
 	if err := json.Unmarshal([]byte(dbPushNotification.Data), &config); err != nil {
 		return nil, fmt.Errorf("failed to deserialize push notification config: %w", err)
 	}
@@ -388,15 +388,15 @@ func (c *clientImpl) GetPushNotification(taskID string, configID string) (*proto
 	return &config, nil
 }
 
-func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
+func (c *clientImpl) ListPushNotifications(taskID string) ([]*a2a.TaskPushConfig, error) {
 	pushNotifications, err := list[dbpkg.PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
 	if err != nil {
 		return nil, err
 	}
 
-	protocolPushNotifications := make([]*protocol.TaskPushNotificationConfig, 0, len(pushNotifications))
+	protocolPushNotifications := make([]*a2a.TaskPushConfig, 0, len(pushNotifications))
 	for _, pushNotification := range pushNotifications {
-		var protocolPushNotification protocol.TaskPushNotificationConfig
+		var protocolPushNotification a2a.TaskPushConfig
 		if err := json.Unmarshal([]byte(pushNotification.Data), &protocolPushNotification); err != nil {
 			return nil, fmt.Errorf("failed to deserialize push notification config: %w", err)
 		}

@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // InMemoryFakeClient is a fake implementation of database.Client for testing
@@ -27,7 +27,7 @@ type InMemoryFakeClient struct {
 	tools             map[string]*database.Tool
 	eventsBySession   map[string][]*database.Event                    // key: sessionId
 	events            map[string]*database.Event                      // key: eventID
-	pushNotifications map[string]*protocol.TaskPushNotificationConfig // key: taskID
+	pushNotifications map[string]*a2a.TaskPushConfig                  // key: taskID
 	checkpoints       map[string]*database.LangGraphCheckpoint        // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
@@ -47,7 +47,7 @@ func NewClient() database.Client {
 		tools:             make(map[string]*database.Tool),
 		eventsBySession:   make(map[string][]*database.Event),
 		events:            make(map[string]*database.Event),
-		pushNotifications: make(map[string]*protocol.TaskPushNotificationConfig),
+		pushNotifications: make(map[string]*a2a.TaskPushConfig),
 		checkpoints:       make(map[string]*database.LangGraphCheckpoint),
 		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
 		crewaiMemory:      make(map[string][]*database.CrewAIAgentMemory),
@@ -69,14 +69,14 @@ func (c *InMemoryFakeClient) DeletePushNotification(taskID string) error {
 	return nil
 }
 
-func (c *InMemoryFakeClient) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
+func (c *InMemoryFakeClient) GetPushNotification(taskID string, configID string) (*a2a.TaskPushConfig, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.pushNotifications[taskID], nil
 }
 
-func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
+func (c *InMemoryFakeClient) GetTask(taskID string) (*a2a.Task, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -84,7 +84,7 @@ func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
 	if !exists {
 		return nil, gorm.ErrRecordNotFound
 	}
-	parsedTask := &protocol.Task{}
+	parsedTask := &a2a.Task{}
 	err := json.Unmarshal([]byte(task.Data), parsedTask)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (c *InMemoryFakeClient) StoreAgent(agent *database.Agent) error {
 }
 
 // StoreTask creates a new task record
-func (c *InMemoryFakeClient) StoreTask(task *protocol.Task) error {
+func (c *InMemoryFakeClient) StoreTask(task *a2a.Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -156,19 +156,19 @@ func (c *InMemoryFakeClient) StoreTask(task *protocol.Task) error {
 	if err != nil {
 		return err
 	}
-	c.tasks[task.ID] = &database.Task{
-		ID:   task.ID,
+	c.tasks[string(task.ID)] = &database.Task{
+		ID:   string(task.ID),
 		Data: string(jsn),
 	}
 	return nil
 }
 
 // StorePushNotification creates a new push notification record
-func (c *InMemoryFakeClient) StorePushNotification(config *protocol.TaskPushNotificationConfig) error {
+func (c *InMemoryFakeClient) StorePushNotification(config *a2a.TaskPushConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.pushNotifications[config.TaskID] = config
+	c.pushNotifications[string(config.TaskID)] = config
 	return nil
 }
 
@@ -301,11 +301,11 @@ func (c *InMemoryFakeClient) ListFeedback(userID string) ([]database.Feedback, e
 	return result, nil
 }
 
-func (c *InMemoryFakeClient) ListTasksForSession(sessionID string) ([]*protocol.Task, error) {
+func (c *InMemoryFakeClient) ListTasksForSession(sessionID string) ([]*a2a.Task, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var result []*protocol.Task
+	var result []*a2a.Task
 	for _, task := range c.tasks {
 		if task.SessionID == sessionID {
 			parsed, err := task.Parse()
@@ -420,11 +420,11 @@ func (c *InMemoryFakeClient) ListToolsForServer(serverName string, groupKind str
 	return result, nil
 }
 
-func (c *InMemoryFakeClient) ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
+func (c *InMemoryFakeClient) ListPushNotifications(taskID string) ([]*a2a.TaskPushConfig, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var result []*protocol.TaskPushNotificationConfig
+	var result []*a2a.TaskPushConfig
 	config, exists := c.pushNotifications[taskID]
 	if exists {
 		result = append(result, config)
@@ -547,7 +547,7 @@ func (c *InMemoryFakeClient) Clear() {
 	c.tools = make(map[string]*database.Tool)
 	c.eventsBySession = make(map[string][]*database.Event)
 	c.events = make(map[string]*database.Event)
-	c.pushNotifications = make(map[string]*protocol.TaskPushNotificationConfig)
+	c.pushNotifications = make(map[string]*a2a.TaskPushConfig)
 	c.checkpoints = make(map[string]*database.LangGraphCheckpoint)
 	c.checkpointWrites = make(map[string][]*database.LangGraphCheckpointWrite)
 	c.memories = make(map[string]*database.Memory)

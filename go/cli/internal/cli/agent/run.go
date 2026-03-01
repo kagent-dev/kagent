@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
 	commonexec "github.com/kagent-dev/kagent/go/cli/internal/common/exec"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2autil "github.com/kagent-dev/kagent/go/internal/a2a"
 )
 
 type RunCfg struct {
@@ -106,20 +107,26 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 	fmt.Println("Launching chat interface...")
 
 	// Generate a new session ID
-	sessionID := protocol.GenerateContextID()
+	sessionID := a2a.NewContextID()
 
 	// Create A2A client for local agent
-	a2aClient, err := a2aclient.NewA2AClient(agentURL, a2aclient.WithTimeout(cfg.Config.Timeout))
+	httpClient := &http.Client{Timeout: cfg.Config.Timeout}
+	endpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: agentURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		ctx,
+		endpoints,
+		a2aclient.WithDefaultsDisabled(),
+		a2aclient.WithJSONRPCTransport(httpClient),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create A2A client: %v", err)
 	}
 
-	sendFn := func(ctx context.Context, params protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
-		ch, err := a2aClient.StreamMessage(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		return ch, err
+	sendFn := func(ctx context.Context, params *a2a.MessageSendParams) (<-chan a2a.Event, error) {
+		eventIter := a2aClient.SendStreamingMessage(ctx, params)
+		return a2autil.EventIterToChannel(ctx, eventIter), nil
 	}
 
 	// Launch TUI chat directly

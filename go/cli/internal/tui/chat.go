@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -15,11 +16,10 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/pkg/utils"
 	"github.com/muesli/reflow/wordwrap"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// SendMessageFn abstracts the A2A client's StreamMessage method for easier testing.
-type SendMessageFn func(ctx context.Context, params protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error)
+// SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.
+type SendMessageFn func(ctx context.Context, params *a2a.MessageSendParams) (<-chan a2a.Event, error)
 
 // RunChat starts the TUI chat, blocking until the user exits.
 func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bool) error {
@@ -30,7 +30,7 @@ func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bo
 }
 
 type a2aEventMsg struct {
-	Event protocol.StreamingMessageEvent
+	Event a2a.Event
 }
 
 type streamDoneMsg struct{}
@@ -63,7 +63,7 @@ type chatModel struct {
 	spin spinner.Model
 
 	send      SendMessageFn
-	streamCh  <-chan protocol.StreamingMessageEvent
+	streamCh  <-chan a2a.Event
 	cancel    context.CancelFunc
 	streaming bool
 
@@ -223,14 +223,9 @@ func (m *chatModel) submit(text string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	params := protocol.SendMessageParams{
-		Message: protocol.Message{
-			Kind:      protocol.KindMessage,
-			Role:      protocol.MessageRoleUser,
-			ContextID: &m.sessionID,
-			Parts:     []protocol.Part{protocol.NewTextPart(text)},
-		},
-	}
+	message := a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: text})
+	message.ContextID = m.sessionID
+	params := &a2a.MessageSendParams{Message: message}
 
 	ch, err := m.send(ctx, params)
 	if err != nil {
@@ -261,44 +256,42 @@ func (m *chatModel) appendUser(text string) {
 	m.appendLine(theme.UserStyle().Render("You:") + " " + text)
 }
 
-func (m *chatModel) appendEvent(ev protocol.StreamingMessageEvent) {
-	switch res := ev.Result.(type) {
-	case *protocol.TaskStatusUpdateEvent:
+func (m *chatModel) appendEvent(ev a2a.Event) {
+	switch res := ev.(type) {
+	case *a2a.TaskStatusUpdateEvent:
 		if res.Final {
 			m.working = false
 			m.updateStatus()
 		} else {
-			// Timestamp is RFC3339 string; parse to time for consistent elapsed display
-			if ts, err := time.Parse(time.RFC3339Nano, res.Status.Timestamp); err == nil {
-				m.setWorkingTime(ts)
+			if res.Status.Timestamp != nil {
+				m.setWorkingTime(*res.Status.Timestamp)
 			} else {
 				m.setWorkingTime(time.Time{})
 			}
 		}
 		if res.Status.Message != nil {
 			// Handle tool calls and results in the message
-			m.handleMessageParts(*res.Status.Message, res.Final)
+			m.handleMessageParts(res.Status.Message, res.Final)
 		}
-	case *protocol.TaskArtifactUpdateEvent:
+	case *a2a.TaskArtifactUpdateEvent:
 		// Render artifact content when the last chunk arrives
-		if res.LastChunk != nil && *res.LastChunk {
+		if res.LastChunk {
 			text := extractTextFromParts(res.Artifact.Parts)
 			if strings.TrimSpace(text) != "" {
 				m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 			}
 		}
-	case *protocol.Message:
-		m.handleMessageParts(*res, true)
+	case *a2a.Message:
+		m.handleMessageParts(res, true)
 
-	case *protocol.Task:
+	case *a2a.Task:
 		// Show the last message in the task history
 		if len(res.History) > 0 {
-			last := res.History[len(res.History)-1]
-			m.handleMessageParts(last, true)
+			m.handleMessageParts(res.History[len(res.History)-1], true)
 		}
 	default:
 		if m.verbose {
-			if b, err := ev.MarshalJSON(); err == nil {
+			if b, err := json.Marshal(ev); err == nil {
 				m.appendLine(theme.AgentStyle().Render("Agent (raw):") + "\n" + string(b))
 			}
 		}
@@ -310,16 +303,16 @@ func (m *chatModel) appendError(err error) {
 }
 
 // handleMessageParts processes a message and displays text, tool calls, and tool results
-func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool) {
+func (m *chatModel) handleMessageParts(msg *a2a.Message, shouldDisplay bool) {
 	var textParts []string
 	var toolCalls []toolCall
 	var toolResults []toolResult
 
 	// Process all parts
 	for _, part := range msg.Parts {
-		if tp, ok := part.(*protocol.TextPart); ok {
+		if tp, ok := part.(*a2a.TextPart); ok {
 			textParts = append(textParts, tp.Text)
-		} else if dp, ok := part.(*protocol.DataPart); ok {
+		} else if dp, ok := part.(*a2a.DataPart); ok {
 			// Debug: log what we're seeing
 			if m.verbose {
 				if metaJSON, err := json.Marshal(dp.Metadata); err == nil {
@@ -344,10 +337,7 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 				continue
 			}
 
-			dataMap, ok := dp.Data.(map[string]any)
-			if !ok {
-				continue
-			}
+			dataMap := dp.Data
 
 			switch kagentType {
 			case "function_call":
@@ -416,7 +406,7 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 		text := strings.Join(textParts, "")
 		if strings.TrimSpace(text) != "" {
 			style := theme.UserStyle()
-			if msg.Role == protocol.MessageRoleAgent {
+			if msg.Role == a2a.MessageRoleAgent {
 				style = theme.AgentStyle()
 			}
 			m.appendLine(style.Render(fmt.Sprintf("%s:", msg.Role)) + "\n" + text)
@@ -452,15 +442,15 @@ func (m *chatModel) SetInputVisible(visible bool) {
 }
 
 // extractTextFromParts concatenates text from a slice of protocol.Part, stringifying non-text when reasonable.
-func extractTextFromParts(parts []protocol.Part) string {
+func extractTextFromParts(parts []a2a.Part) string {
 	b := strings.Builder{}
 	for _, p := range parts {
-		if tp, ok := p.(*protocol.TextPart); ok {
+		if tp, ok := p.(*a2a.TextPart); ok {
 			b.WriteString(tp.Text)
 			continue
 		}
 
-		if dp, ok := p.(*protocol.DataPart); ok {
+		if dp, ok := p.(*a2a.DataPart); ok {
 			if jp, err := json.Marshal(dp.Data); err == nil {
 				b.WriteString(string(jp))
 			}

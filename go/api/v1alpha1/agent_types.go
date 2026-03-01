@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"trpc.group/trpc-go/trpc-a2a-go/server"
+	"github.com/a2aproject/a2a-go/a2a"
 )
 
 type AgentType string
@@ -121,7 +121,7 @@ type A2AConfig struct {
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
-type AgentSkill server.AgentSkill
+type AgentSkill a2a.AgentSkill
 
 const (
 	AgentConditionTypeAccepted = "Accepted"

@@ -20,6 +20,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/internal/utils"
@@ -37,7 +38,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 const (
@@ -271,7 +271,7 @@ func (a *adkApiTranslator) buildManifest(
 	agent *v1alpha2.Agent,
 	dep *resolvedDeployment,
 	cfg *adk.AgentConfig, // nil for BYO
-	card *server.AgentCard, // nil for BYO
+	card *a2a.AgentCard, // nil for BYO
 	modelConfigSecretHashBytes []byte, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}

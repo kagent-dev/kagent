@@ -3,9 +3,9 @@ package database
 import (
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type QueryOptions struct {
@@ -23,8 +23,8 @@ type Client interface {
 	StoreFeedback(feedback *Feedback) error
 	StoreSession(session *Session) error
 	StoreAgent(agent *Agent) error
-	StoreTask(task *protocol.Task) error
-	StorePushNotification(config *protocol.TaskPushNotificationConfig) error
+	StoreTask(task *a2a.Task) error
+	StorePushNotification(config *a2a.TaskPushConfig) error
 	StoreToolServer(toolServer *ToolServer) (*ToolServer, error)
 	StoreEvents(messages ...*Event) error
 
@@ -39,22 +39,22 @@ type Client interface {
 	// Get methods
 	GetSession(name string, userID string) (*Session, error)
 	GetAgent(name string) (*Agent, error)
-	GetTask(id string) (*protocol.Task, error)
+	GetTask(id string) (*a2a.Task, error)
 	GetTool(name string) (*Tool, error)
 	GetToolServer(name string) (*ToolServer, error)
-	GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error)
+	GetPushNotification(taskID string, configID string) (*a2a.TaskPushConfig, error)
 
 	// List methods
 	ListTools() ([]Tool, error)
 	ListFeedback(userID string) ([]Feedback, error)
-	ListTasksForSession(sessionID string) ([]*protocol.Task, error)
+	ListTasksForSession(sessionID string) ([]*a2a.Task, error)
 	ListSessions(userID string) ([]Session, error)
 	ListSessionsForAgent(agentID string, userID string) ([]Session, error)
 	ListAgents() ([]Agent, error)
 	ListToolServers() ([]ToolServer, error)
 	ListToolsForServer(serverName string, groupKind string) ([]Tool, error)
 	ListEventsForSession(sessionID, userID string, options QueryOptions) ([]*Event, error)
-	ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error)
+	ListPushNotifications(taskID string) ([]*a2a.TaskPushConfig, error)
 
 	// Helper methods
 	RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error

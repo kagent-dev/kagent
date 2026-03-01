@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,12 +12,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	pygen "github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/pkg/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 var (
@@ -89,23 +90,14 @@ func (p *PortForward) Stop() {
 	// The kubectl process will terminate when the context is canceled
 }
 
-func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
+func StreamA2AEvents(ch <-chan a2a.Event, verbose bool) {
 	for event := range ch {
-		if verbose {
-			json, err := event.MarshalJSON()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
-				continue
-			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
-		} else {
-			json, err := event.MarshalJSON()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
-				continue
-			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
+		eventJSON, err := json.Marshal(event)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
+			continue
 		}
+		fmt.Fprintf(os.Stdout, "%+v\n", string(eventJSON))
 	}
 	fmt.Fprintln(os.Stdout)
 }

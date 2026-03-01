@@ -3,10 +3,10 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // TasksHandler handles task-related requests
@@ -43,13 +43,13 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("tasks-handler").WithValues("operation", "create-task")
 
-	task := protocol.Task{}
+	task := a2a.Task{}
 	if err := DecodeJSONBody(r, &task); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 	if task.ID == "" {
-		task.ID = protocol.GenerateTaskID()
+		task.ID = a2a.NewTaskID()
 	}
 	log = log.WithValues("task_id", task.ID)
 

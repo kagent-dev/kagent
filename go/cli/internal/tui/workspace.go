@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -19,13 +21,12 @@ import (
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/dialogs"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/keys"
 	"github.com/kagent-dev/kagent/go/cli/internal/tui/theme"
+	a2autil "github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/client"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
 	"k8s.io/utils/ptr"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // RunWorkspace launches a split-pane TUI: sessions (left), chat (center), details (toggleable right).
@@ -54,7 +55,7 @@ type loadAgentMsg struct {
 }
 type sessionSelectedMsg struct{ session *api.Session }
 type sessionHistoryLoadedMsg struct {
-	items []*protocol.Task
+	items []*a2a.Task
 	err   error
 }
 type agentChosenMsg struct{ agent api.AgentResponse }
@@ -289,14 +290,13 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					continue
 				}
 				for _, mmsg := range task.History {
-					if mmsg.MessageID != "" {
-						if _, ok := seen[mmsg.MessageID]; ok {
+					if mmsg.ID != "" {
+						if _, ok := seen[mmsg.ID]; ok {
 							continue
 						}
-						seen[mmsg.MessageID] = struct{}{}
+						seen[mmsg.ID] = struct{}{}
 					}
-					ev := protocol.StreamingMessageEvent{Result: &mmsg}
-					m.chat.appendEvent(ev)
+					m.chat.appendEvent(mmsg)
 				}
 			}
 		}
@@ -461,15 +461,23 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 		return nil
 	}
 	a2aURL := fmt.Sprintf("%s/api/a2a/%s", m.cfg.KAgentURL, m.agentRef)
-	client, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(m.cfg.Timeout),
+	httpClient := &http.Client{Timeout: m.cfg.Timeout}
+	endpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		context.Background(),
+		endpoints,
+		a2aclient.WithDefaultsDisabled(),
+		a2aclient.WithJSONRPCTransport(httpClient),
 	)
 	if err != nil {
 		m.details.WriteString("\nA2A error\n")
 		return nil
 	}
-	sendFn := func(ctx context.Context, params protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
-		return client.StreamMessage(ctx, params)
+	sendFn := func(ctx context.Context, params *a2a.MessageSendParams) (<-chan a2a.Event, error) {
+		eventIter := a2aClient.SendStreamingMessage(ctx, params)
+		return a2autil.EventIterToChannel(ctx, eventIter), nil
 	}
 	// Reset chat for new session
 	if m.chat == nil {
@@ -496,7 +504,7 @@ func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 		}
 		defer resp.Body.Close()
 		var payload struct {
-			Data []*protocol.Task `json:"data"`
+			Data []*a2a.Task `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}

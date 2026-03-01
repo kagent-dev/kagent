@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/pkg/adk"
 	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // Agent represents an agent configuration
@@ -33,20 +33,20 @@ type Event struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Data string `gorm:"type:text;not null" json:"data"` // JSON serialized protocol.Message
+	Data string `gorm:"type:text;not null" json:"data"` // JSON serialized a2a.Message
 }
 
-func (m *Event) Parse() (protocol.Message, error) {
-	var data protocol.Message
+func (m *Event) Parse() (a2a.Message, error) {
+	var data a2a.Message
 	err := json.Unmarshal([]byte(m.Data), &data)
 	if err != nil {
-		return protocol.Message{}, err
+		return a2a.Message{}, err
 	}
 	return data, nil
 }
 
-func ParseMessages(messages []Event) ([]*protocol.Message, error) {
-	result := make([]*protocol.Message, 0, len(messages))
+func ParseMessages(messages []Event) ([]*a2a.Message, error) {
+	result := make([]*a2a.Message, 0, len(messages))
 	for _, message := range messages {
 		parsedMessage, err := message.Parse()
 		if err != nil {
@@ -77,17 +77,17 @@ type Task struct {
 	SessionID string         `gorm:"index" json:"session_id"`
 }
 
-func (t *Task) Parse() (protocol.Task, error) {
-	var data protocol.Task
+func (t *Task) Parse() (a2a.Task, error) {
+	var data a2a.Task
 	err := json.Unmarshal([]byte(t.Data), &data)
 	if err != nil {
-		return protocol.Task{}, err
+		return a2a.Task{}, err
 	}
 	return data, nil
 }
 
-func ParseTasks(tasks []Task) ([]*protocol.Task, error) {
-	result := make([]*protocol.Task, 0, len(tasks))
+func ParseTasks(tasks []Task) ([]*a2a.Task, error) {
+	result := make([]*a2a.Task, 0, len(tasks))
 	for _, task := range tasks {
 		parsedTask, err := task.Parse()
 		if err != nil {

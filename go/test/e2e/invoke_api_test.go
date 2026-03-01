@@ -21,15 +21,15 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/a2a"
+	internala2a "github.com/kagent-dev/kagent/go/internal/a2a"
 	e2emocks "github.com/kagent-dev/kagent/go/test/e2e/mocks"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 //go:embed mocks
@@ -175,19 +175,26 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 }
 
 // setupA2AClient creates an A2A client for the test agent
-func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
+func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.Client {
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	endpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		endpoints,
+		a2aclient.WithDefaultsDisabled(),
+	)
 	require.NoError(t, err)
 	return a2aClient
 }
 
 // extractTextFromArtifacts extracts all text content from task artifacts
-func extractTextFromArtifacts(taskResult *protocol.Task) string {
+func extractTextFromArtifacts(taskResult *a2a.Task) string {
 	var text strings.Builder
 	for _, artifact := range taskResult.Artifacts {
 		for _, part := range artifact.Parts {
-			if textPart, ok := part.(*protocol.TextPart); ok {
+			if textPart, ok := part.(*a2a.TextPart); ok {
 				text.WriteString(textPart.Text)
 			}
 		}
@@ -205,22 +212,20 @@ var defaultRetry = wait.Backoff{
 // runSyncTest runs a synchronous message test
 // useArtifacts: if true, check artifacts; if false or nil, check history;
 // contextID: optional context ID to maintain conversation context
-func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *protocol.Task {
+func runSyncTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *a2a.Task {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	msg := protocol.Message{
-		Kind:  protocol.KindMessage,
-		Role:  protocol.MessageRoleUser,
-		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-	}
+	message := a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: userMessage})
 
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
-		msg.ContextID = &contextID[0]
+		message.ContextID = contextID[0]
 	}
 
-	var result *protocol.MessageResult
+	params := &a2a.MessageSendParams{Message: message}
+
+	var result a2a.SendMessageResult
 	err := retry.OnError(defaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
@@ -230,13 +235,13 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		t.Logf("%s trying to send message", time.Now().Format(time.RFC3339))
-		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+		result, retryErr = a2aClient.SendMessage(ctx, params)
 		t.Logf("%s finished trying sending message. success = %v", time.Now().Format(time.RFC3339), retryErr == nil)
 		return retryErr
 	})
 	require.NoError(t, err)
 
-	taskResult, ok := result.Result.(*protocol.Task)
+	taskResult, ok := result.(*a2a.Task)
 	require.True(t, ok)
 
 	// Extract text based on useArtifacts flag
@@ -246,7 +251,7 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		require.Contains(t, text, expectedText)
 	} else {
 		// Check history (used by declarative agents) - default
-		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
+		text := internala2a.ExtractText(taskResult.History[len(taskResult.History)-1])
 		jsn, err := json.Marshal(taskResult)
 		require.NoError(t, err)
 		require.Contains(t, text, expectedText, string(jsn))
@@ -258,17 +263,15 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 // runStreamingTest runs a streaming message test
 // If contextID is provided, it will be included in the message to maintain conversation context
 // Checks the full JSON output to support both artifacts and history from different agent types
-func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, contextID ...string) {
-	msg := protocol.Message{
-		Kind:  protocol.KindMessage,
-		Role:  protocol.MessageRoleUser,
-		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-	}
+func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, contextID ...string) {
+	message := a2a.NewMessage(a2a.MessageRoleUser, &a2a.TextPart{Text: userMessage})
 
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
-		msg.ContextID = &contextID[0]
+		message.ContextID = contextID[0]
 	}
+
+	params := &a2a.MessageSendParams{Message: message}
 
 	// Retry the entire stream-connect-read-check cycle.
 	// The most common failure mode is: stream connects but yields zero events
@@ -281,15 +284,12 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		defer cancel()
 
 		t.Logf("%s trying to open stream", time.Now().Format(time.RFC3339))
-		stream, streamErr := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
-		if streamErr != nil {
-			t.Logf("%s stream connection failed: %v", time.Now().Format(time.RFC3339), streamErr)
-			return streamErr
-		}
+		eventIter := a2aClient.SendStreamingMessage(ctx, params)
+		stream := internala2a.EventIterToChannel(ctx, eventIter)
 
-		resultList := []protocol.StreamingMessageEvent{}
+		resultList := []a2a.Event{}
 		for event := range stream {
-			if _, ok := event.Result.(*protocol.TaskStatusUpdateEvent); !ok {
+			if _, ok := event.(*a2a.TaskStatusUpdateEvent); !ok {
 				continue
 			}
 			resultList = append(resultList, event)
@@ -539,7 +539,14 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 func TestE2EInvokeExternalAgent(t *testing.T) {
 	// Setup A2A client for external agent
 	a2aURL := a2aUrl("kagent", "kebab-agent")
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	endpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		endpoints,
+		a2aclient.WithDefaultsDisabled(),
+	)
 	require.NoError(t, err)
 
 	// Run tests
@@ -552,8 +559,20 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 	})
 
 	t.Run("invocation with different user", func(t *testing.T) {
-		// Setup A2A client with authentication
-		authClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "x-user-id"))
+		// Setup A2A client with authentication header
+		authHTTPClient := &http.Client{
+			Transport: &httpTransportWithHeaders{
+				base:    http.DefaultTransport,
+				t:       t,
+				headers: map[string]string{"x-user-id": "user@example.com"},
+			},
+		}
+		authClient, err := a2aclient.NewFromEndpoints(
+			t.Context(),
+			endpoints,
+			a2aclient.WithDefaultsDisabled(),
+			a2aclient.WithJSONRPCTransport(authHTTPClient),
+		)
 		require.NoError(t, err)
 
 		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com", nil)
@@ -721,7 +740,14 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 
 	// Setup A2A client - use the agent's actual name
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	openaiEndpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		openaiEndpoints,
+		a2aclient.WithDefaultsDisabled(),
+	)
 	require.NoError(t, err)
 
 	useArtifacts := true
@@ -795,7 +821,14 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 
 	// Setup A2A client
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	crewEndpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		crewEndpoints,
+		a2aclient.WithDefaultsDisabled(),
+	)
 	require.NoError(t, err)
 
 	t.Run("two_turn_conversation", func(t *testing.T) {
@@ -879,9 +912,16 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 	}
 
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(60*time.Second),
-		a2aclient.WithHTTPClient(httpClient))
+	stsEndpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	httpClient.Timeout = 60 * time.Second
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		stsEndpoints,
+		a2aclient.WithDefaultsDisabled(),
+		a2aclient.WithJSONRPCTransport(httpClient),
+	)
 	require.NoError(t, err)
 
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -967,9 +1007,16 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 		},
 	}
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(60*time.Second),
-		a2aclient.WithHTTPClient(httpClient))
+	passthroughEndpoints := []a2a.AgentInterface{
+		{Transport: a2a.TransportProtocolJSONRPC, URL: a2aURL},
+	}
+	httpClient.Timeout = 60 * time.Second
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		passthroughEndpoints,
+		a2aclient.WithDefaultsDisabled(),
+		a2aclient.WithJSONRPCTransport(httpClient),
+	)
 	require.NoError(t, err)
 
 	// The mock server will only match if it receives the exact
@@ -1001,7 +1048,7 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 
 	a2aClient := setupA2AClient(t, agent)
 
-	var saveResult *protocol.Task
+	var saveResult *a2a.Task
 	t.Run("save_memory", func(t *testing.T) {
 		saveResult = runSyncTest(t, a2aClient,
 			"Remember that I prefer dark mode and Go over Python",

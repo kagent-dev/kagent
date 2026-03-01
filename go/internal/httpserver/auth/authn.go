@@ -73,45 +73,36 @@ func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
 	return auth.AuthnMiddleware(p.provider)(next)
 }
 
-type handler func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error)
-
-func (h handler) Handle(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-	return h(ctx, client, req)
+// A2AAuthRoundTripper is an http.RoundTripper that injects upstream auth
+// headers into outgoing A2A client requests.
+type A2AAuthRoundTripper struct {
+	Base              http.RoundTripper
+	AuthProvider      auth.AuthProvider
+	UpstreamPrincipal auth.Principal
 }
 
-func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.NamespacedName) handler {
-	return func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-		var err error
-		var resp *http.Response
-		defer func() {
-			if err != nil && resp != nil {
-				resp.Body.Close()
-			}
-		}()
-
-		if client == nil {
-			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http client is nil")
+func (t *A2AAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if session, ok := auth.AuthSessionFrom(req.Context()); ok {
+		if err := t.AuthProvider.UpstreamAuth(req, session, t.UpstreamPrincipal); err != nil {
+			return nil, fmt.Errorf("a2a auth round tripper: upstream auth failed: %w", err)
 		}
-		upstreamPrincipal := auth.Principal{
+	}
+	base := t.Base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+// NewA2AAuthTransport creates an http.RoundTripper that injects upstream auth
+// headers for the specified agent.
+func NewA2AAuthTransport(authProvider auth.AuthProvider, agentRef types.NamespacedName) http.RoundTripper {
+	return &A2AAuthRoundTripper{
+		AuthProvider: authProvider,
+		UpstreamPrincipal: auth.Principal{
 			Agent: auth.Agent{
-				ID: types.NamespacedName{
-					Name:      agentNns.Name,
-					Namespace: agentNns.Namespace,
-				}.String(),
+				ID: agentRef.String(),
 			},
-		}
-
-		if session, ok := auth.AuthSessionFrom(ctx); ok {
-			if err := authProvider.UpstreamAuth(req, session, upstreamPrincipal); err != nil {
-				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
-			}
-		}
-
-		resp, err = client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("a2aClient.httpRequestHandler: http request failed: %w", err)
-		}
-
-		return resp, nil
+		},
 	}
 }

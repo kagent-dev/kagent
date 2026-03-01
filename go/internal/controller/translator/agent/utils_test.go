@@ -3,9 +3,9 @@ package agent_test
 import (
 	"testing"
 
+	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
@@ -18,7 +18,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 		wantName        string
 		wantDescription string
 		wantURL         string
-		wantSkills      []server.AgentSkill
+		wantSkills      []a2a.AgentSkill
 	}{
 		{
 			name: "declarative agent with a2a config and skills",
@@ -43,7 +43,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "test_agent",
 			wantDescription: "A test agent",
 			wantURL:         "http://test-agent.default:8080",
-			wantSkills:      []server.AgentSkill{{Name: "skill-1"}, {Name: "skill-2"}},
+			wantSkills:      []a2a.AgentSkill{{Name: "skill-1"}, {Name: "skill-2"}},
 		},
 		{
 			name: "declarative agent with nil declarative spec",
@@ -60,7 +60,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "nil_declarative",
 			wantDescription: "",
 			wantURL:         "http://nil-declarative.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2a.AgentSkill{},
 		},
 		{
 			name: "declarative agent with nil a2a config",
@@ -79,7 +79,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "no_a2a",
 			wantDescription: "",
 			wantURL:         "http://no-a2a.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2a.AgentSkill{},
 		},
 		{
 			name: "BYO agent",
@@ -95,7 +95,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "byo_agent",
 			wantDescription: "",
 			wantURL:         "http://byo-agent.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2a.AgentSkill{},
 		},
 	}
 
@@ -110,9 +110,9 @@ func TestGetA2AAgentCard(t *testing.T) {
 			assert.Equal(t, tt.wantSkills, card.Skills)
 			assert.Equal(t, []string{"text"}, card.DefaultInputModes)
 			assert.Equal(t, []string{"text"}, card.DefaultOutputModes)
-			assert.True(t, *card.Capabilities.Streaming)
-			assert.False(t, *card.Capabilities.PushNotifications)
-			assert.True(t, *card.Capabilities.StateTransitionHistory)
+			assert.True(t, card.Capabilities.Streaming)
+			assert.False(t, card.Capabilities.PushNotifications)
+			assert.True(t, card.Capabilities.StateTransitionHistory)
 		})
 	}
 }
