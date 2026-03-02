@@ -16,14 +16,32 @@ _FILTER_MESSAGE = r"\[EXPERIMENTAL\].*(RemoteA2aAgent|A2aAgentExecutor)"
 
 
 def _install_init_filter():
-    """Re-install the filter that kagent.adk.__init__ provides.
+    """Install the same warning filter that kagent.adk.__init__ registers.
 
-    The package-level ``__init__.py`` registers this filter at import time.
-    We reproduce it here so the tests can run without pulling in heavy
-    transitive dependencies (opentelemetry, google-adk, etc.) while still
-    validating the filter semantics using the same regex.
+    We reproduce the filter here (same regex and action) so the tests can
+    run without pulling in heavy transitive dependencies (opentelemetry,
+    google-adk, etc.). This validates the filter semantics but does NOT
+    import or exercise the actual package-level ``__init__.py``.
     """
     warnings.filterwarnings("once", message=_FILTER_MESSAGE, category=UserWarning)
+
+
+def _emit_experimental_warning_site_a():
+    """Emit an experimental warning (call site A)."""
+    warnings.warn(
+        "[EXPERIMENTAL] RemoteA2aAgent: ADK Implementation for A2A support...",
+        UserWarning,
+        stacklevel=1,
+    )
+
+
+def _emit_experimental_warning_site_b():
+    """Emit an experimental warning (call site B — different source location)."""
+    warnings.warn(
+        "[EXPERIMENTAL] RemoteA2aAgent: ADK Implementation for A2A support...",
+        UserWarning,
+        stacklevel=1,
+    )
 
 
 def test_experimental_warning_emitted_once():
@@ -32,16 +50,13 @@ def test_experimental_warning_emitted_once():
         # Baseline: surface every warning so we can verify suppression
         warnings.simplefilter("always")
 
-        # Re-install the filter from kagent.adk (validates the package-level code)
+        # Re-install the filter (mirrors the regex used in kagent.adk.__init__)
         _install_init_filter()
 
-        # Simulate multiple instantiations (same message, same location)
-        for _ in range(10):
-            warnings.warn(
-                "[EXPERIMENTAL] RemoteA2aAgent: ADK Implementation for A2A support...",
-                UserWarning,
-                stacklevel=1,
-            )
+        # Simulate multiple instantiations from different call sites
+        _emit_experimental_warning_site_a()
+        _emit_experimental_warning_site_b()
+        _emit_experimental_warning_site_a()
 
         experimental = [w for w in caught if "[EXPERIMENTAL]" in str(w.message)]
         assert len(experimental) == 1, f"Expected exactly 1 experimental warning, got {len(experimental)}"
@@ -53,7 +68,7 @@ def test_non_experimental_warnings_unaffected():
         # Baseline: surface every warning
         warnings.simplefilter("always")
 
-        # Re-install the filter from kagent.adk
+        # Re-install the filter (mirrors the regex used in kagent.adk.__init__)
         _install_init_filter()
 
         # Non-experimental warnings should still appear every time
@@ -70,7 +85,7 @@ def test_filter_only_matches_a2a_experimental():
         # Baseline: surface every warning
         warnings.simplefilter("always")
 
-        # Re-install the filter from kagent.adk
+        # Re-install the filter (mirrors the regex used in kagent.adk.__init__)
         _install_init_filter()
 
         # An [EXPERIMENTAL] warning NOT from A2A should repeat (not caught by filter)

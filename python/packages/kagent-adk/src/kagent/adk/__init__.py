@@ -10,6 +10,7 @@ warnings.filterwarnings(
     "once",
     message=r"\[EXPERIMENTAL\].*(RemoteA2aAgent|A2aAgentExecutor)",
     category=UserWarning,
+    append=True,
 )
 
 from ._a2a import KAgentApp  # noqa: E402
