@@ -12,7 +12,7 @@ import (
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,7 +46,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 
 	configs := make([]api.ModelConfigResponse, 0)
 	for _, config := range modelConfigs.Items {
-		modelParams := make(map[string]interface{})
+		modelParams := make(map[string]any)
 
 		if config.Spec.OpenAI != nil {
 			FlattenStructToMap(config.Spec.OpenAI, modelParams)
@@ -68,6 +68,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 			APIKeySecret:    config.Spec.APIKeySecret,
 			APIKeySecretKey: config.Spec.APIKeySecretKey,
 			ModelParams:     modelParams,
+			TLS:             config.Spec.TLS,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -118,7 +119,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		modelConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return
@@ -129,7 +130,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	log.V(1).Info("Constructing response object")
-	modelParams := make(map[string]interface{})
+	modelParams := make(map[string]any)
 	if modelConfig.Spec.OpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.OpenAI, modelParams)
 	}
@@ -150,6 +151,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 		APIKeySecret:    modelConfig.Spec.APIKeySecret,
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		ModelParams:     modelParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.Info("Successfully retrieved and formatted ModelConfig")
@@ -224,7 +226,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		log.Info("ModelConfig already exists")
 		w.RespondWithError(errors.NewConflictError("ModelConfig already exists", nil))
 		return
-	} else if !k8serrors.IsNotFound(err) {
+	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "Failed to check if ModelConfig exists")
 		w.RespondWithError(errors.NewInternalServerError("Failed to check if ModelConfig exists", err))
 		return
@@ -408,7 +410,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		modelConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return
@@ -525,7 +527,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	updatedParams := make(map[string]interface{})
+	updatedParams := make(map[string]any)
 	if modelConfig.Spec.OpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
 	} else if modelConfig.Spec.Anthropic != nil {
@@ -543,6 +545,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
 		Model:           modelConfig.Spec.Model,
 		ModelParams:     updatedParams,
+		TLS:             modelConfig.Spec.TLS,
 	}
 
 	log.V(1).Info("Successfully updated ModelConfig")
@@ -589,7 +592,7 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 		existingConfig,
 	)
 	if err != nil {
-		if k8serrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
 			w.RespondWithError(errors.NewNotFoundError("ModelConfig not found", nil))
 			return

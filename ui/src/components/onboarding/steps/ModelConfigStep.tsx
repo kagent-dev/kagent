@@ -27,7 +27,7 @@ import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 
 const modelConfigSchema = z.object({
-    providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
+    providerName: z.enum(modelProviders, { message: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
     configNamespace: z.string().optional(),
     modelName: z.string().min(1, "Model name is required."),

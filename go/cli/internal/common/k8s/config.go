@@ -43,8 +43,8 @@ func GetCurrentKindClusterName() (string, error) {
 	}
 
 	const kindPrefix = "kind-"
-	if strings.HasPrefix(currentContext.Cluster, kindPrefix) {
-		return strings.TrimPrefix(currentContext.Cluster, kindPrefix), nil
+	if after, ok0 := strings.CutPrefix(currentContext.Cluster, kindPrefix); ok0 {
+		return after, nil
 	}
 
 	return "", fmt.Errorf("current cluster %q is not a kind cluster", currentContext.Cluster)

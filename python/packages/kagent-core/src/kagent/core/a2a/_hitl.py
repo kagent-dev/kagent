@@ -7,8 +7,15 @@ human-in-the-loop workflows in kagent agent executors using A2A protocol primiti
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
+
+try:
+    from datetime import UTC  # Python 3.11+
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
 
 from a2a.server.events.event_queue import EventQueue
 from a2a.server.tasks import TaskStore

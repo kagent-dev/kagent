@@ -38,6 +38,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/internal/a2a"
 	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/internal/metrics"
 
 	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
@@ -51,6 +52,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/kagent-dev/kagent/go/pkg/auth"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"github.com/kagent-dev/kagent/go/pkg/mcp_translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -125,9 +127,11 @@ type Config struct {
 	WatchNamespaces    string
 	A2ABaseUrl         string
 	Database           struct {
-		Type string
-		Path string
-		Url  string
+		Type          string
+		Path          string
+		Url           string
+		UrlFile       string
+		VectorEnabled bool
 	}
 }
 
@@ -158,6 +162,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Type, "database-type", "sqlite", "The type of the database to use. Supported values: sqlite, postgres.")
 	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
+	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
+	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable vector database features (requires pgvector extension).")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -175,6 +181,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -196,10 +206,11 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 }
 
 type BootstrapConfig struct {
-	Ctx     context.Context
-	Manager manager.Manager
-	Router  *mux.Router
-	Config  *Config
+	Ctx      context.Context
+	Manager  manager.Manager
+	Router   *mux.Router
+	DbClient dbpkg.Client
+  Config  *Config
 }
 
 type CtrlManagerConfigFunc func(manager.Manager) error
@@ -351,11 +362,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	// Initialize database
 	dbManager, err := database.NewManager(&database.Config{
 		DatabaseType: database.DatabaseType(cfg.Database.Type),
-		SqliteConfig: &database.SqliteConfig{
-			DatabasePath: cfg.Database.Path,
-		},
 		PostgresConfig: &database.PostgresConfig{
-			URL: cfg.Database.Url,
+			URL:           cfg.Database.Url,
+			URLFile:       cfg.Database.UrlFile,
+			VectorEnabled: cfg.Database.VectorEnabled,
+		},
+		SqliteConfig: &database.SqliteConfig{
+			DatabasePath:  cfg.Database.Path,
+			VectorEnabled: cfg.Database.VectorEnabled,
 		},
 	})
 	if err != nil {
@@ -372,10 +386,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	dbClient := database.NewClient(dbManager)
 	router := mux.NewRouter()
 	extensionCfg, err := getExtensionConfig(BootstrapConfig{
-		Ctx:     ctx,
-		Manager: mgr,
-		Router:  router,
-		Config:  &cfg,
+		Ctx:      ctx,
+		Manager:  mgr,
+		Router:   router,
+		DbClient: dbClient,
+    Config:  &cfg,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to get start config")
@@ -394,6 +409,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
+		watchNamespacesList,
 	)
 
 	if err := (&controller.ServiceController{
@@ -429,6 +445,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	if err = (&controller.ModelProviderConfigController{
+		Scheme:     mgr.GetScheme(),
+		Reconciler: rcnclr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ModelProviderConfig")
+		os.Exit(1)
+	}
+
 	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
@@ -456,6 +480,17 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		cfg.Streaming.Timeout,
 	)); err != nil {
 		setupLog.Error(err, "unable to set up a2a registrar")
+		os.Exit(1)
+	}
+
+	// Create MCP handler that bridges to A2A
+	mcpHandler, err := mcp.NewMCPHandler(
+		mgr.GetClient(),
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		extensionCfg.Authenticator,
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create MCP handler")
 		os.Exit(1)
 	}
 
@@ -495,11 +530,13 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		BindAddr:          cfg.HttpServerAddr,
 		KubeClient:        mgr.GetClient(),
 		A2AHandler:        a2aHandler,
+		MCPHandler:        mcpHandler,
 		WatchedNamespaces: watchNamespacesList,
 		DbClient:          dbClient,
 		Authorizer:        extensionCfg.Authorizer,
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
+		Reconciler:        rcnclr,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -507,6 +544,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
+		os.Exit(1)
+	}
+
+	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
+	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
+		setupLog.Error(err, "unable to set up memory cleanup runnable")
 		os.Exit(1)
 	}
 

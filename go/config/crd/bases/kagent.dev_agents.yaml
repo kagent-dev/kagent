@@ -884,7 +884,7 @@ spec:
                                     resources:
                                       description: |-
                                         resources represents the minimum resources the volume should have.
-                                        If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                        Users are allowed to specify resource requirements
                                         that are lower than previous value but must still be higher than capacity recorded in the
                                         status field of the claim.
                                         More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -1765,6 +1765,24 @@ spec:
                                         description: Kubelet's generated CSRs will
                                           be addressed to this signer.
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        description: |-
+                                          userAnnotations allow pod authors to pass additional information to
+                                          the signer implementation.  Kubernetes does not restrict or validate this
+                                          metadata in any way.
+
+                                          These values are copied verbatim into the `spec.unverifiedUserAnnotations` field of
+                                          the PodCertificateRequest objects that Kubelet creates.
+
+                                          Entries are subject to the same validation as object metadata annotations,
+                                          with the addition that all keys must be domain-prefixed. No restrictions
+                                          are placed on values, except an overall size limitation on the entire field.
+
+                                          Signers should document the keys and values they support. Signers should
+                                          deny requests that contain keys they do not recognize.
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -2377,6 +2395,79 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
+              allowedNamespaces:
+                description: |-
+                  AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+                  This follows the Gateway API pattern for cross-namespace route attachments.
+                  If not specified, only Agents in the same namespace can reference this Agent as a tool.
+                  This field only applies when this Agent is used as a tool by another Agent.
+                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+                properties:
+                  from:
+                    default: Same
+                    description: |-
+                      From indicates where references to this resource can originate.
+                      Possible values are:
+                      * All: References from all namespaces are allowed.
+                      * Same: Only references from the same namespace are allowed (default).
+                      * Selector: References from namespaces matching the selector are allowed.
+                    enum:
+                    - All
+                    - Same
+                    - Selector
+                    type: string
+                  selector:
+                    description: |-
+                      Selector is a label selector for namespaces that are allowed to reference this resource.
+                      Only used when From is set to "Selector".
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+                x-kubernetes-validations:
+                - message: selector must be specified when from is Selector
+                  rule: '!(self.from == ''Selector'' && !has(self.selector))'
               byo:
                 properties:
                   deployment:
@@ -3506,6 +3597,242 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      podSecurityContext:
+                        description: |-
+                          PodSecurityContext holds pod-level security attributes and common container settings.
+                          Some fields are also present in container.securityContext.  Field values of
+                          container.securityContext take precedence over field values of PodSecurityContext.
+                        properties:
+                          appArmorProfile:
+                            description: |-
+                              appArmorProfile is the AppArmor options to use by the containers in this pod.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile loaded on the node that should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must match the loaded name of the profile.
+                                  Must be set if and only if type is "Localhost".
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of AppArmor profile will be applied.
+                                  Valid options are:
+                                    Localhost - a profile pre-loaded on the node.
+                                    RuntimeDefault - the container runtime's default profile.
+                                    Unconfined - no AppArmor enforcement.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          fsGroup:
+                            description: |-
+                              A special supplemental group that applies to all containers in a pod.
+                              Some volume types allow the Kubelet to change the ownership of that volume
+                              to be owned by the pod:
+
+                              1. The owning GID will be the FSGroup
+                              2. The setgid bit is set (new files created in the volume will be owned by FSGroup)
+                              3. The permission bits are OR'd with rw-rw----
+
+                              If unset, the Kubelet will not modify the ownership and permissions of any volume.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          fsGroupChangePolicy:
+                            description: |-
+                              fsGroupChangePolicy defines behavior of changing ownership and permission of the volume
+                              before being exposed inside Pod. This field will only apply to
+                              volume types which support fsGroup based ownership(and permissions).
+                              It will have no effect on ephemeral volume types such as: secret, configmaps
+                              and emptydir.
+                              Valid values are "OnRootMismatch" and "Always". If not specified, "Always" is used.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          runAsGroup:
+                            description: |-
+                              The GID to run the entrypoint of the container process.
+                              Uses runtime default if unset.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence
+                              for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          runAsNonRoot:
+                            description: |-
+                              Indicates that the container must run as a non-root user.
+                              If true, the Kubelet will validate the image at runtime to ensure that it
+                              does not run as UID 0 (root) and fail to start the container if it does.
+                              If unset or false, no such validation will be performed.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                            type: boolean
+                          runAsUser:
+                            description: |-
+                              The UID to run the entrypoint of the container process.
+                              Defaults to user specified in image metadata if unspecified.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence
+                              for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          seLinuxChangePolicy:
+                            description: |-
+                              seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.
+                              It has no effect on nodes that do not support SELinux or to volumes does not support SELinux.
+                              Valid values are "MountOption" and "Recursive".
+
+                              "Recursive" means relabeling of all files on all Pod volumes by the container runtime.
+                              This may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.
+
+                              "MountOption" mounts all eligible Pod volumes with `-o context` mount option.
+                              This requires all Pods that share the same volume to use the same SELinux label.
+                              It is not possible to share the same volume among privileged and unprivileged Pods.
+                              Eligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes
+                              whose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their
+                              CSIDriver instance. Other volumes are always re-labelled recursively.
+                              "MountOption" value is allowed only when SELinuxMount feature gate is enabled.
+
+                              If not specified and SELinuxMount feature gate is enabled, "MountOption" is used.
+                              If not specified and SELinuxMount feature gate is disabled, "MountOption" is used for ReadWriteOncePod volumes
+                              and "Recursive" for all other volumes.
+
+                              This field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.
+
+                              All Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          seLinuxOptions:
+                            description: |-
+                              The SELinux context to be applied to all containers.
+                              If unspecified, the container runtime will allocate a random SELinux context for each
+                              container.  May also be set in SecurityContext.  If set in
+                              both SecurityContext and PodSecurityContext, the value specified in SecurityContext
+                              takes precedence for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              level:
+                                description: Level is SELinux level label that applies
+                                  to the container.
+                                type: string
+                              role:
+                                description: Role is a SELinux role label that applies
+                                  to the container.
+                                type: string
+                              type:
+                                description: Type is a SELinux type label that applies
+                                  to the container.
+                                type: string
+                              user:
+                                description: User is a SELinux user label that applies
+                                  to the container.
+                                type: string
+                            type: object
+                          seccompProfile:
+                            description: |-
+                              The seccomp options to use by the containers in this pod.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile defined in a file on the node should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                                  Must be set if type is "Localhost". Must NOT be set for any other type.
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of seccomp profile will be applied.
+                                  Valid options are:
+
+                                  Localhost - a profile defined in a file on the node should be used.
+                                  RuntimeDefault - the container runtime default profile should be used.
+                                  Unconfined - no profile should be applied.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          supplementalGroups:
+                            description: |-
+                              A list of groups applied to the first process run in each container, in
+                              addition to the container's primary GID and fsGroup (if specified).  If
+                              the SupplementalGroupsPolicy feature is enabled, the
+                              supplementalGroupsPolicy field determines whether these are in addition
+                              to or instead of any group memberships defined in the container image.
+                              If unspecified, no additional groups are added, though group memberships
+                              defined in the container image may still be used, depending on the
+                              supplementalGroupsPolicy field.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            items:
+                              format: int64
+                              type: integer
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          supplementalGroupsPolicy:
+                            description: |-
+                              Defines how supplemental groups of the first container processes are calculated.
+                              Valid values are "Merge" and "Strict". If not specified, "Merge" is used.
+                              (Alpha) Using the field requires the SupplementalGroupsPolicy feature gate to be enabled
+                              and the container runtime must implement support for this feature.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          sysctls:
+                            description: |-
+                              Sysctls hold a list of namespaced sysctls used for the pod. Pods with unsupported
+                              sysctls (by the container runtime) might fail to launch.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            items:
+                              description: Sysctl defines a kernel parameter to be
+                                set
+                              properties:
+                                name:
+                                  description: Name of a property to set
+                                  type: string
+                                value:
+                                  description: Value of a property to set
+                                  type: string
+                              required:
+                              - name
+                              - value
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          windowsOptions:
+                            description: |-
+                              The Windows specific settings applied to all containers.
+                              If unspecified, the options within a container's SecurityContext will be used.
+                              If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is linux.
+                            properties:
+                              gmsaCredentialSpec:
+                                description: |-
+                                  GMSACredentialSpec is where the GMSA admission webhook
+                                  (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                                  GMSA credential spec named by the GMSACredentialSpecName field.
+                                type: string
+                              gmsaCredentialSpecName:
+                                description: GMSACredentialSpecName is the name of
+                                  the GMSA credential spec to use.
+                                type: string
+                              hostProcess:
+                                description: |-
+                                  HostProcess determines if a container should be run as a 'Host Process' container.
+                                  All of a Pod's containers must have the same effective HostProcess value
+                                  (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                                  In addition, if HostProcess is true then HostNetwork must also be set to true.
+                                type: boolean
+                              runAsUserName:
+                                description: |-
+                                  The UserName in Windows to run the entrypoint of the container process.
+                                  Defaults to the user specified in image metadata if unspecified.
+                                  May also be set in PodSecurityContext. If set in both SecurityContext and
+                                  PodSecurityContext, the value specified in SecurityContext takes precedence.
+                                type: string
+                            type: object
+                        type: object
                       replicas:
                         format: int32
                         type: integer
@@ -3569,6 +3896,223 @@ spec:
                               More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                             type: object
                         type: object
+                      securityContext:
+                        description: |-
+                          SecurityContext holds security configuration that will be applied to a container.
+                          Some fields are present in both SecurityContext and PodSecurityContext.  When both
+                          are set, the values in SecurityContext take precedence.
+                        properties:
+                          allowPrivilegeEscalation:
+                            description: |-
+                              AllowPrivilegeEscalation controls whether a process can gain more
+                              privileges than its parent process. This bool directly controls if
+                              the no_new_privs flag will be set on the container process.
+                              AllowPrivilegeEscalation is true always when the container is:
+                              1) run as Privileged
+                              2) has CAP_SYS_ADMIN
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          appArmorProfile:
+                            description: |-
+                              appArmorProfile is the AppArmor options to use by this container. If set, this profile
+                              overrides the pod's appArmorProfile.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile loaded on the node that should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must match the loaded name of the profile.
+                                  Must be set if and only if type is "Localhost".
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of AppArmor profile will be applied.
+                                  Valid options are:
+                                    Localhost - a profile pre-loaded on the node.
+                                    RuntimeDefault - the container runtime's default profile.
+                                    Unconfined - no AppArmor enforcement.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          capabilities:
+                            description: |-
+                              The capabilities to add/drop when running containers.
+                              Defaults to the default set of capabilities granted by the container runtime.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              add:
+                                description: Added capabilities
+                                items:
+                                  description: Capability represent POSIX capabilities
+                                    type
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              drop:
+                                description: Removed capabilities
+                                items:
+                                  description: Capability represent POSIX capabilities
+                                    type
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          privileged:
+                            description: |-
+                              Run container in privileged mode.
+                              Processes in privileged containers are essentially equivalent to root on the host.
+                              Defaults to false.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          procMount:
+                            description: |-
+                              procMount denotes the type of proc mount to use for the containers.
+                              The default value is Default which uses the container runtime defaults for
+                              readonly paths and masked paths.
+                              This requires the ProcMountType feature flag to be enabled.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          readOnlyRootFilesystem:
+                            description: |-
+                              Whether this container has a read-only root filesystem.
+                              Default is false.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          runAsGroup:
+                            description: |-
+                              The GID to run the entrypoint of the container process.
+                              Uses runtime default if unset.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          runAsNonRoot:
+                            description: |-
+                              Indicates that the container must run as a non-root user.
+                              If true, the Kubelet will validate the image at runtime to ensure that it
+                              does not run as UID 0 (root) and fail to start the container if it does.
+                              If unset or false, no such validation will be performed.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                            type: boolean
+                          runAsUser:
+                            description: |-
+                              The UID to run the entrypoint of the container process.
+                              Defaults to user specified in image metadata if unspecified.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          seLinuxOptions:
+                            description: |-
+                              The SELinux context to be applied to the container.
+                              If unspecified, the container runtime will allocate a random SELinux context for each
+                              container.  May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              level:
+                                description: Level is SELinux level label that applies
+                                  to the container.
+                                type: string
+                              role:
+                                description: Role is a SELinux role label that applies
+                                  to the container.
+                                type: string
+                              type:
+                                description: Type is a SELinux type label that applies
+                                  to the container.
+                                type: string
+                              user:
+                                description: User is a SELinux user label that applies
+                                  to the container.
+                                type: string
+                            type: object
+                          seccompProfile:
+                            description: |-
+                              The seccomp options to use by this container. If seccomp options are
+                              provided at both the pod & container level, the container options
+                              override the pod options.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile defined in a file on the node should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                                  Must be set if type is "Localhost". Must NOT be set for any other type.
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of seccomp profile will be applied.
+                                  Valid options are:
+
+                                  Localhost - a profile defined in a file on the node should be used.
+                                  RuntimeDefault - the container runtime default profile should be used.
+                                  Unconfined - no profile should be applied.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          windowsOptions:
+                            description: |-
+                              The Windows specific settings applied to all containers.
+                              If unspecified, the options from the PodSecurityContext will be used.
+                              If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is linux.
+                            properties:
+                              gmsaCredentialSpec:
+                                description: |-
+                                  GMSACredentialSpec is where the GMSA admission webhook
+                                  (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                                  GMSA credential spec named by the GMSACredentialSpecName field.
+                                type: string
+                              gmsaCredentialSpecName:
+                                description: GMSACredentialSpecName is the name of
+                                  the GMSA credential spec to use.
+                                type: string
+                              hostProcess:
+                                description: |-
+                                  HostProcess determines if a container should be run as a 'Host Process' container.
+                                  All of a Pod's containers must have the same effective HostProcess value
+                                  (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                                  In addition, if HostProcess is true then HostNetwork must also be set to true.
+                                type: boolean
+                              runAsUserName:
+                                description: |-
+                                  The UserName in Windows to run the entrypoint of the container process.
+                                  Defaults to the user specified in image metadata if unspecified.
+                                  May also be set in PodSecurityContext. If set in both SecurityContext and
+                                  PodSecurityContext, the value specified in SecurityContext takes precedence.
+                                type: string
+                            type: object
+                        type: object
+                      serviceAccountConfig:
+                        description: |-
+                          ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+                          This field can only be used when ServiceAccountName is not set.
+                          If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+                          is created, and this config will be applied to it.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
+                      serviceAccountName:
+                        description: |-
+                          ServiceAccountName specifies the name of an existing ServiceAccount to use.
+                          If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+                          This field is mutually exclusive with ServiceAccountConfig.
+                        type: string
                       tolerations:
                         items:
                           description: |-
@@ -3588,9 +4132,10 @@ spec:
                             operator:
                               description: |-
                                 Operator represents a key's relationship to the value.
-                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                                 Exists is equivalent to wildcard for value, so that a pod can
                                 tolerate all taints of a particular category.
+                                Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                               type: string
                             tolerationSeconds:
                               description: |-
@@ -4262,7 +4807,7 @@ spec:
                                         resources:
                                           description: |-
                                             resources represents the minimum resources the volume should have.
-                                            If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                            Users are allowed to specify resource requirements
                                             that are lower than previous value but must still be higher than capacity recorded in the
                                             status field of the claim.
                                             More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -5148,6 +5693,24 @@ spec:
                                             description: Kubelet's generated CSRs
                                               will be addressed to this signer.
                                             type: string
+                                          userAnnotations:
+                                            additionalProperties:
+                                              type: string
+                                            description: |-
+                                              userAnnotations allow pod authors to pass additional information to
+                                              the signer implementation.  Kubernetes does not restrict or validate this
+                                              metadata in any way.
+
+                                              These values are copied verbatim into the `spec.unverifiedUserAnnotations` field of
+                                              the PodCertificateRequest objects that Kubelet creates.
+
+                                              Entries are subject to the same validation as object metadata annotations,
+                                              with the addition that all keys must be domain-prefixed. No restrictions
+                                              are placed on values, except an overall size limitation on the entire field.
+
+                                              Signers should document the keys and values they support. Signers should
+                                              deny requests that contain keys they do not recognize.
+                                            type: object
                                         required:
                                         - keyType
                                         - signerName
@@ -5571,6 +6134,10 @@ spec:
                           type: object
                         type: array
                     type: object
+                    x-kubernetes-validations:
+                    - message: serviceAccountName and serviceAccountConfig are mutually
+                        exclusive
+                      rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                 type: object
               declarative:
                 properties:
@@ -5628,6 +6195,61 @@ spec:
                           type: object
                         minItems: 1
                         type: array
+                    type: object
+                  context:
+                    description: |-
+                      Context configures context management for this agent.
+                      This includes event compaction (compression) and context caching.
+                    properties:
+                      compaction:
+                        description: |-
+                          Compaction configures event history compaction.
+                          When enabled, older events in the conversation are compacted (compressed/summarized)
+                          to reduce context size while preserving key information.
+                        properties:
+                          compactionInterval:
+                            default: 5
+                            description: The number of *new* user-initiated invocations
+                              that, once fully represented in the session's events,
+                              will trigger a compaction.
+                            minimum: 1
+                            type: integer
+                          eventRetentionSize:
+                            description: EventRetentionSize is the number of most
+                              recent events to always retain.
+                            type: integer
+                          overlapSize:
+                            default: 2
+                            description: The number of preceding invocations to include
+                              from the end of the last compacted range. This creates
+                              an overlap between consecutive compacted summaries,
+                              maintaining context.
+                            minimum: 0
+                            type: integer
+                          summarizer:
+                            description: |-
+                              Summarizer configures an LLM-based summarizer for event compaction.
+                              If not specified, compacted events are dropped from the context without summarization.
+                            properties:
+                              modelConfig:
+                                description: |-
+                                  ModelConfig is the name of a ModelConfig resource to use for summarization.
+                                  Must be in the same namespace as the Agent.
+                                  If not specified, uses the agent's own model.
+                                type: string
+                              promptTemplate:
+                                description: |-
+                                  PromptTemplate is a custom prompt template for the summarizer.
+                                  See the ADK LlmEventSummarizer for template details:
+                                  https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
+                                type: string
+                            type: object
+                          tokenThreshold:
+                            description: |-
+                              Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+                              observed prompt token count meets or exceeds this threshold.
+                            type: integer
+                        type: object
                     type: object
                   deployment:
                     properties:
@@ -6748,6 +7370,242 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      podSecurityContext:
+                        description: |-
+                          PodSecurityContext holds pod-level security attributes and common container settings.
+                          Some fields are also present in container.securityContext.  Field values of
+                          container.securityContext take precedence over field values of PodSecurityContext.
+                        properties:
+                          appArmorProfile:
+                            description: |-
+                              appArmorProfile is the AppArmor options to use by the containers in this pod.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile loaded on the node that should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must match the loaded name of the profile.
+                                  Must be set if and only if type is "Localhost".
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of AppArmor profile will be applied.
+                                  Valid options are:
+                                    Localhost - a profile pre-loaded on the node.
+                                    RuntimeDefault - the container runtime's default profile.
+                                    Unconfined - no AppArmor enforcement.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          fsGroup:
+                            description: |-
+                              A special supplemental group that applies to all containers in a pod.
+                              Some volume types allow the Kubelet to change the ownership of that volume
+                              to be owned by the pod:
+
+                              1. The owning GID will be the FSGroup
+                              2. The setgid bit is set (new files created in the volume will be owned by FSGroup)
+                              3. The permission bits are OR'd with rw-rw----
+
+                              If unset, the Kubelet will not modify the ownership and permissions of any volume.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          fsGroupChangePolicy:
+                            description: |-
+                              fsGroupChangePolicy defines behavior of changing ownership and permission of the volume
+                              before being exposed inside Pod. This field will only apply to
+                              volume types which support fsGroup based ownership(and permissions).
+                              It will have no effect on ephemeral volume types such as: secret, configmaps
+                              and emptydir.
+                              Valid values are "OnRootMismatch" and "Always". If not specified, "Always" is used.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          runAsGroup:
+                            description: |-
+                              The GID to run the entrypoint of the container process.
+                              Uses runtime default if unset.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence
+                              for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          runAsNonRoot:
+                            description: |-
+                              Indicates that the container must run as a non-root user.
+                              If true, the Kubelet will validate the image at runtime to ensure that it
+                              does not run as UID 0 (root) and fail to start the container if it does.
+                              If unset or false, no such validation will be performed.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                            type: boolean
+                          runAsUser:
+                            description: |-
+                              The UID to run the entrypoint of the container process.
+                              Defaults to user specified in image metadata if unspecified.
+                              May also be set in SecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence
+                              for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          seLinuxChangePolicy:
+                            description: |-
+                              seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.
+                              It has no effect on nodes that do not support SELinux or to volumes does not support SELinux.
+                              Valid values are "MountOption" and "Recursive".
+
+                              "Recursive" means relabeling of all files on all Pod volumes by the container runtime.
+                              This may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.
+
+                              "MountOption" mounts all eligible Pod volumes with `-o context` mount option.
+                              This requires all Pods that share the same volume to use the same SELinux label.
+                              It is not possible to share the same volume among privileged and unprivileged Pods.
+                              Eligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes
+                              whose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their
+                              CSIDriver instance. Other volumes are always re-labelled recursively.
+                              "MountOption" value is allowed only when SELinuxMount feature gate is enabled.
+
+                              If not specified and SELinuxMount feature gate is enabled, "MountOption" is used.
+                              If not specified and SELinuxMount feature gate is disabled, "MountOption" is used for ReadWriteOncePod volumes
+                              and "Recursive" for all other volumes.
+
+                              This field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.
+
+                              All Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          seLinuxOptions:
+                            description: |-
+                              The SELinux context to be applied to all containers.
+                              If unspecified, the container runtime will allocate a random SELinux context for each
+                              container.  May also be set in SecurityContext.  If set in
+                              both SecurityContext and PodSecurityContext, the value specified in SecurityContext
+                              takes precedence for that container.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              level:
+                                description: Level is SELinux level label that applies
+                                  to the container.
+                                type: string
+                              role:
+                                description: Role is a SELinux role label that applies
+                                  to the container.
+                                type: string
+                              type:
+                                description: Type is a SELinux type label that applies
+                                  to the container.
+                                type: string
+                              user:
+                                description: User is a SELinux user label that applies
+                                  to the container.
+                                type: string
+                            type: object
+                          seccompProfile:
+                            description: |-
+                              The seccomp options to use by the containers in this pod.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile defined in a file on the node should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                                  Must be set if type is "Localhost". Must NOT be set for any other type.
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of seccomp profile will be applied.
+                                  Valid options are:
+
+                                  Localhost - a profile defined in a file on the node should be used.
+                                  RuntimeDefault - the container runtime default profile should be used.
+                                  Unconfined - no profile should be applied.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          supplementalGroups:
+                            description: |-
+                              A list of groups applied to the first process run in each container, in
+                              addition to the container's primary GID and fsGroup (if specified).  If
+                              the SupplementalGroupsPolicy feature is enabled, the
+                              supplementalGroupsPolicy field determines whether these are in addition
+                              to or instead of any group memberships defined in the container image.
+                              If unspecified, no additional groups are added, though group memberships
+                              defined in the container image may still be used, depending on the
+                              supplementalGroupsPolicy field.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            items:
+                              format: int64
+                              type: integer
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          supplementalGroupsPolicy:
+                            description: |-
+                              Defines how supplemental groups of the first container processes are calculated.
+                              Valid values are "Merge" and "Strict". If not specified, "Merge" is used.
+                              (Alpha) Using the field requires the SupplementalGroupsPolicy feature gate to be enabled
+                              and the container runtime must implement support for this feature.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          sysctls:
+                            description: |-
+                              Sysctls hold a list of namespaced sysctls used for the pod. Pods with unsupported
+                              sysctls (by the container runtime) might fail to launch.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            items:
+                              description: Sysctl defines a kernel parameter to be
+                                set
+                              properties:
+                                name:
+                                  description: Name of a property to set
+                                  type: string
+                                value:
+                                  description: Value of a property to set
+                                  type: string
+                              required:
+                              - name
+                              - value
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          windowsOptions:
+                            description: |-
+                              The Windows specific settings applied to all containers.
+                              If unspecified, the options within a container's SecurityContext will be used.
+                              If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is linux.
+                            properties:
+                              gmsaCredentialSpec:
+                                description: |-
+                                  GMSACredentialSpec is where the GMSA admission webhook
+                                  (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                                  GMSA credential spec named by the GMSACredentialSpecName field.
+                                type: string
+                              gmsaCredentialSpecName:
+                                description: GMSACredentialSpecName is the name of
+                                  the GMSA credential spec to use.
+                                type: string
+                              hostProcess:
+                                description: |-
+                                  HostProcess determines if a container should be run as a 'Host Process' container.
+                                  All of a Pod's containers must have the same effective HostProcess value
+                                  (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                                  In addition, if HostProcess is true then HostNetwork must also be set to true.
+                                type: boolean
+                              runAsUserName:
+                                description: |-
+                                  The UserName in Windows to run the entrypoint of the container process.
+                                  Defaults to the user specified in image metadata if unspecified.
+                                  May also be set in PodSecurityContext. If set in both SecurityContext and
+                                  PodSecurityContext, the value specified in SecurityContext takes precedence.
+                                type: string
+                            type: object
+                        type: object
                       replicas:
                         format: int32
                         type: integer
@@ -6811,6 +7669,223 @@ spec:
                               More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                             type: object
                         type: object
+                      securityContext:
+                        description: |-
+                          SecurityContext holds security configuration that will be applied to a container.
+                          Some fields are present in both SecurityContext and PodSecurityContext.  When both
+                          are set, the values in SecurityContext take precedence.
+                        properties:
+                          allowPrivilegeEscalation:
+                            description: |-
+                              AllowPrivilegeEscalation controls whether a process can gain more
+                              privileges than its parent process. This bool directly controls if
+                              the no_new_privs flag will be set on the container process.
+                              AllowPrivilegeEscalation is true always when the container is:
+                              1) run as Privileged
+                              2) has CAP_SYS_ADMIN
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          appArmorProfile:
+                            description: |-
+                              appArmorProfile is the AppArmor options to use by this container. If set, this profile
+                              overrides the pod's appArmorProfile.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile loaded on the node that should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must match the loaded name of the profile.
+                                  Must be set if and only if type is "Localhost".
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of AppArmor profile will be applied.
+                                  Valid options are:
+                                    Localhost - a profile pre-loaded on the node.
+                                    RuntimeDefault - the container runtime's default profile.
+                                    Unconfined - no AppArmor enforcement.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          capabilities:
+                            description: |-
+                              The capabilities to add/drop when running containers.
+                              Defaults to the default set of capabilities granted by the container runtime.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              add:
+                                description: Added capabilities
+                                items:
+                                  description: Capability represent POSIX capabilities
+                                    type
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              drop:
+                                description: Removed capabilities
+                                items:
+                                  description: Capability represent POSIX capabilities
+                                    type
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          privileged:
+                            description: |-
+                              Run container in privileged mode.
+                              Processes in privileged containers are essentially equivalent to root on the host.
+                              Defaults to false.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          procMount:
+                            description: |-
+                              procMount denotes the type of proc mount to use for the containers.
+                              The default value is Default which uses the container runtime defaults for
+                              readonly paths and masked paths.
+                              This requires the ProcMountType feature flag to be enabled.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: string
+                          readOnlyRootFilesystem:
+                            description: |-
+                              Whether this container has a read-only root filesystem.
+                              Default is false.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            type: boolean
+                          runAsGroup:
+                            description: |-
+                              The GID to run the entrypoint of the container process.
+                              Uses runtime default if unset.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          runAsNonRoot:
+                            description: |-
+                              Indicates that the container must run as a non-root user.
+                              If true, the Kubelet will validate the image at runtime to ensure that it
+                              does not run as UID 0 (root) and fail to start the container if it does.
+                              If unset or false, no such validation will be performed.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                            type: boolean
+                          runAsUser:
+                            description: |-
+                              The UID to run the entrypoint of the container process.
+                              Defaults to user specified in image metadata if unspecified.
+                              May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            format: int64
+                            type: integer
+                          seLinuxOptions:
+                            description: |-
+                              The SELinux context to be applied to the container.
+                              If unspecified, the container runtime will allocate a random SELinux context for each
+                              container.  May also be set in PodSecurityContext.  If set in both SecurityContext and
+                              PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              level:
+                                description: Level is SELinux level label that applies
+                                  to the container.
+                                type: string
+                              role:
+                                description: Role is a SELinux role label that applies
+                                  to the container.
+                                type: string
+                              type:
+                                description: Type is a SELinux type label that applies
+                                  to the container.
+                                type: string
+                              user:
+                                description: User is a SELinux user label that applies
+                                  to the container.
+                                type: string
+                            type: object
+                          seccompProfile:
+                            description: |-
+                              The seccomp options to use by this container. If seccomp options are
+                              provided at both the pod & container level, the container options
+                              override the pod options.
+                              Note that this field cannot be set when spec.os.name is windows.
+                            properties:
+                              localhostProfile:
+                                description: |-
+                                  localhostProfile indicates a profile defined in a file on the node should be used.
+                                  The profile must be preconfigured on the node to work.
+                                  Must be a descending path, relative to the kubelet's configured seccomp profile location.
+                                  Must be set if type is "Localhost". Must NOT be set for any other type.
+                                type: string
+                              type:
+                                description: |-
+                                  type indicates which kind of seccomp profile will be applied.
+                                  Valid options are:
+
+                                  Localhost - a profile defined in a file on the node should be used.
+                                  RuntimeDefault - the container runtime default profile should be used.
+                                  Unconfined - no profile should be applied.
+                                type: string
+                            required:
+                            - type
+                            type: object
+                          windowsOptions:
+                            description: |-
+                              The Windows specific settings applied to all containers.
+                              If unspecified, the options from the PodSecurityContext will be used.
+                              If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence.
+                              Note that this field cannot be set when spec.os.name is linux.
+                            properties:
+                              gmsaCredentialSpec:
+                                description: |-
+                                  GMSACredentialSpec is where the GMSA admission webhook
+                                  (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
+                                  GMSA credential spec named by the GMSACredentialSpecName field.
+                                type: string
+                              gmsaCredentialSpecName:
+                                description: GMSACredentialSpecName is the name of
+                                  the GMSA credential spec to use.
+                                type: string
+                              hostProcess:
+                                description: |-
+                                  HostProcess determines if a container should be run as a 'Host Process' container.
+                                  All of a Pod's containers must have the same effective HostProcess value
+                                  (it is not allowed to have a mix of HostProcess containers and non-HostProcess containers).
+                                  In addition, if HostProcess is true then HostNetwork must also be set to true.
+                                type: boolean
+                              runAsUserName:
+                                description: |-
+                                  The UserName in Windows to run the entrypoint of the container process.
+                                  Defaults to the user specified in image metadata if unspecified.
+                                  May also be set in PodSecurityContext. If set in both SecurityContext and
+                                  PodSecurityContext, the value specified in SecurityContext takes precedence.
+                                type: string
+                            type: object
+                        type: object
+                      serviceAccountConfig:
+                        description: |-
+                          ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+                          This field can only be used when ServiceAccountName is not set.
+                          If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+                          is created, and this config will be applied to it.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
+                      serviceAccountName:
+                        description: |-
+                          ServiceAccountName specifies the name of an existing ServiceAccount to use.
+                          If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+                          This field is mutually exclusive with ServiceAccountConfig.
+                        type: string
                       tolerations:
                         items:
                           description: |-
@@ -6830,9 +7905,10 @@ spec:
                             operator:
                               description: |-
                                 Operator represents a key's relationship to the value.
-                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                                 Exists is equivalent to wildcard for value, so that a pod can
                                 tolerate all taints of a particular category.
+                                Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                               type: string
                             tolerationSeconds:
                               description: |-
@@ -7504,7 +8580,7 @@ spec:
                                         resources:
                                           description: |-
                                             resources represents the minimum resources the volume should have.
-                                            If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                            Users are allowed to specify resource requirements
                                             that are lower than previous value but must still be higher than capacity recorded in the
                                             status field of the claim.
                                             More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -8390,6 +9466,24 @@ spec:
                                             description: Kubelet's generated CSRs
                                               will be addressed to this signer.
                                             type: string
+                                          userAnnotations:
+                                            additionalProperties:
+                                              type: string
+                                            description: |-
+                                              userAnnotations allow pod authors to pass additional information to
+                                              the signer implementation.  Kubernetes does not restrict or validate this
+                                              metadata in any way.
+
+                                              These values are copied verbatim into the `spec.unverifiedUserAnnotations` field of
+                                              the PodCertificateRequest objects that Kubelet creates.
+
+                                              Entries are subject to the same validation as object metadata annotations,
+                                              with the addition that all keys must be domain-prefixed. No restrictions
+                                              are placed on values, except an overall size limitation on the entire field.
+
+                                              Signers should document the keys and values they support. Signers should
+                                              deny requests that contain keys they do not recognize.
+                                            type: object
                                         required:
                                         - keyType
                                         - signerName
@@ -8813,30 +9907,89 @@ spec:
                           type: object
                         type: array
                     type: object
+                    x-kubernetes-validations:
+                    - message: serviceAccountName and serviceAccountConfig are mutually
+                        exclusive
+                      rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                   executeCodeBlocks:
                     description: |-
                       Allow code execution for python code blocks with this agent.
                       If true, the agent will automatically execute python code blocks in the LLM responses.
                       Code will be executed in a sandboxed environment.
+                      due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configuration for the agent.
+                    properties:
+                      modelConfig:
+                        description: |-
+                          ModelConfig is the name of the ModelConfig object whose embedding
+                          provider will be used to generate memory vectors.
+                        type: string
+                      ttlDays:
+                        description: |-
+                          TTLDays controls how many days a stored memory entry remains valid before
+                          it is eligible for pruning. Defaults to 15 days when unset or zero.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfig
+                    type: object
                   modelConfig:
                     description: |-
                       The name of the model config to use.
                       If not specified, the default value is "default-model-config".
                       Must be in the same namespace as the Agent.
                     type: string
+                  promptTemplate:
+                    description: |-
+                      PromptTemplate enables Go text/template processing on the systemMessage field.
+                      When set, systemMessage is treated as a Go template with access to the include function
+                      and agent context variables.
+                    properties:
+                      dataSources:
+                        description: |-
+                          DataSources defines the ConfigMaps whose keys can be included in the systemMessage
+                          using Go template syntax, e.g. include("alias/key") or include("name/key").
+                        items:
+                          description: |-
+                            PromptSource references a ConfigMap whose keys are available as prompt fragments.
+                            In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
+                            to insert the value of a specific key from this source.
+                          properties:
+                            alias:
+                              description: |-
+                                Alias is an optional short identifier for use in include directives.
+                                If set, use include("alias/key") instead of include("name/key").
+                              type: string
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                    type: object
                   stream:
                     description: |-
                       Whether to stream the response from the model.
-                      If not specified, the default value is true.
+                      If not specified, the default value is false.
                     type: boolean
                   systemMessage:
-                    description: SystemMessage is a string specifying the system message
-                      for the agent
+                    description: |-
+                      SystemMessage is a string specifying the system message for the agent.
+                      When PromptTemplate is set, this field is treated as a Go text/template
+                      with access to an include("source/key") function and agent context variables
+                      such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
                     type: string
                   systemMessageFrom:
-                    description: SystemMessageFrom is a reference to a ConfigMap or
-                      Secret containing the system message.
+                    description: |-
+                      SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+                      When PromptTemplate is set, the resolved value is treated as a Go text/template.
                     properties:
                       key:
                         description: The key of the ConfigMap or Secret.
@@ -8864,6 +10017,8 @@ spec:
                             kind:
                               type: string
                             name:
+                              type: string
+                            namespace:
                               type: string
                           required:
                           - name
@@ -8912,11 +10067,29 @@ spec:
                           type: array
                         mcpServer:
                           properties:
+                            allowedHeaders:
+                              description: |-
+                                AllowedHeaders specifies which headers from the A2A request should be
+                                propagated to MCP tool calls. Header names are case-insensitive.
+
+                                Authorization header behavior:
+                                - Authorization headers CAN be propagated if explicitly listed in allowedHeaders
+                                - When STS token propagation is enabled, STS-generated Authorization headers
+                                  will take precedence and replace any Authorization header from the A2A request
+                                - This is a security measure to prevent request headers from overwriting
+                                  authentication tokens generated by the STS integration
+
+                                Example: ["x-user-email", "x-tenant-id"]
+                              items:
+                                type: string
+                              type: array
                             apiGroup:
                               type: string
                             kind:
                               type: string
                             name:
+                              type: string
+                            namespace:
                               type: string
                             toolNames:
                               description: |-
@@ -8963,6 +10136,52 @@ spec:
                   Skills to load into the agent. They will be pulled from the specified container images.
                   and made available to the agent under the `/skills` folder.
                 properties:
+                  gitAuthSecretRef:
+                    description: |-
+                      Reference to a Secret containing git credentials.
+                      Applied to all gitRefs entries.
+                      The secret should contain a `token` key for HTTPS auth,
+                      or `ssh-privatekey` for SSH auth.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  gitRefs:
+                    description: Git repositories to fetch skills from.
+                    items:
+                      description: GitRepo specifies a single Git repository to fetch
+                        skills from.
+                      properties:
+                        name:
+                          description: Name for the skill directory under /skills.
+                            Defaults to the repo name.
+                          type: string
+                        path:
+                          description: Subdirectory within the repo to use as the
+                            skill root.
+                          type: string
+                        ref:
+                          default: main
+                          description: 'Git reference: branch name, tag, or commit
+                            SHA.'
+                          type: string
+                        url:
+                          description: URL of the git repository (HTTPS or SSH).
+                          type: string
+                      required:
+                      - url
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
                   insecureSkipVerify:
                     description: |-
                       Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).

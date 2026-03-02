@@ -33,6 +33,8 @@ export interface Provider {
   type: string;
   requiredParams: string[];
   optionalParams: string[];
+  source?: 'stock' | 'configured'; // Distinguishes between stock and configured providers
+  endpoint?: string; // Only present for configured providers
 }
 
 export type ProviderModel = {
@@ -42,6 +44,19 @@ export type ProviderModel = {
 
 // Define the type for the expected API response structure
 export type ProviderModelsResponse = Record<string, ProviderModel[]>;
+
+// ConfiguredModelProvider is the response from /api/modelproviderconfigs/configured
+export interface ConfiguredModelProvider {
+  name: string;
+  type: string;
+  endpoint: string;
+}
+
+// ConfiguredModelProviderModelsResponse is the response from /api/modelproviderconfigs/configured/{name}/models
+export interface ConfiguredModelProviderModelsResponse {
+  provider: string;
+  models: string[];
+}
 
 // Export OpenAIConfigPayload
 export interface OpenAIConfigPayload {
@@ -206,6 +221,7 @@ export interface TypedLocalReference {
   kind?: string;
   apiGroup?: string;
   name: string;
+  namespace?: string;
 }
 
 export interface McpServerTool extends TypedLocalReference {
@@ -213,11 +229,19 @@ export interface McpServerTool extends TypedLocalReference {
 }
 
 export type AgentType = "Declarative" | "BYO";
+
+export interface SkillForAgent {
+  insecureSkipVerify?: boolean;
+  refs?: string[];
+}
+
 export interface AgentSpec {
   type: AgentType;
   declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
   description: string;
+  skills?: SkillForAgent;
+  memory?: MemorySpec;
 }
 
 export interface DeclarativeAgentSpec {
@@ -227,6 +251,29 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  context?: ContextConfig;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval?: number;
+  overlapSize?: number;
+  summarizer?: ContextSummarizerConfig;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+}
+
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
+}
+
+export interface MemorySpec {
+  modelConfig: string;
+  ttlDays?: number;
 }
 
 export interface BYOAgentSpec {
@@ -384,4 +431,12 @@ export interface ToolServerCreateRequest {
 export interface DiscoveredTool {
   name: string;
   description: string;
+}
+
+export interface AgentMemory {
+  id: string;
+  content: string;
+  access_count: number;
+  created_at: string;
+  expires_at?: string;
 }

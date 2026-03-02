@@ -1,0 +1,68 @@
+operation: translateAgent
+targetObject: agent-with-security-context
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+        topP: "0.95"
+        reasoningEffort: "low"
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-security-context
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A test agent with securityContext to verify runAsUser is applied
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model
+        deployment:
+          # Pod-level security context
+          podSecurityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            supplementalGroups: [1000]
+          # Container-level security context
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []
+

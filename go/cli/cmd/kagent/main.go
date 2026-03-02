@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cli "github.com/kagent-dev/kagent/go/cli/internal/cli/agent"
+	"github.com/kagent-dev/kagent/go/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/cli/internal/cli/mcp"
 	"github.com/kagent-dev/kagent/go/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/cli/internal/profiles"
@@ -334,7 +335,7 @@ Examples:
 	// Add flags for deploy command
 	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
 	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
-	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "", "Kubernetes namespace to deploy to")
+	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", "kagent", "Kubernetes namespace to deploy to")
 	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
 	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
 
@@ -413,7 +414,7 @@ Examples:
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd())
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {
@@ -426,7 +427,6 @@ Examples:
 
 		os.Exit(1)
 	}
-
 }
 
 func runInteractive(cmd *cobra.Command, args []string) {

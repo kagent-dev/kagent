@@ -33,7 +33,7 @@ func ReconcileMCPServerStatus(ctx context.Context, kube client.Client, mcpServer
 func setAcceptedCondition(mcpServer *v1alpha1.MCPServer, err error) {
 	status := metav1.ConditionTrue
 	reason := v1alpha1.MCPServerReasonAccepted
-	message := "MCPServer has been accepted for processing"
+	message := "MCP server configuration accepted"
 
 	if err != nil {
 		status = metav1.ConditionFalse

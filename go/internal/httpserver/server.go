@@ -7,12 +7,15 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/internal/a2a"
+	"github.com/kagent-dev/kagent/go/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/handlers"
+	"github.com/kagent-dev/kagent/go/internal/mcp"
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/internal/version"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	dbpkg "github.com/kagent-dev/kagent/go/pkg/database"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -20,25 +23,26 @@ import (
 
 const (
 	// API Path constants
-	APIPathHealth          = "/health"
-	APIPathVersion         = "/version"
-	APIPathMe              = "/api/me"
-	APIPathModelConfig     = "/api/modelconfigs"
-	APIPathRuns            = "/api/runs"
-	APIPathSessions        = "/api/sessions"
-	APIPathTasks           = "/api/tasks"
-	APIPathTools           = "/api/tools"
-	APIPathToolServers     = "/api/toolservers"
-	APIPathToolServerTypes = "/api/toolservertypes"
-	APIPathAgents          = "/api/agents"
-	APIPathProviders       = "/api/providers"
-	APIPathModels          = "/api/models"
-	APIPathMemories        = "/api/memories"
-	APIPathNamespaces      = "/api/namespaces"
-	APIPathA2A             = "/api/a2a"
-	APIPathFeedback        = "/api/feedback"
-	APIPathLangGraph       = "/api/langgraph"
-	APIPathCrewAI          = "/api/crewai"
+	APIPathHealth               = "/health"
+	APIPathVersion              = "/version"
+  APIPathMe                   = "/api/me"
+	APIPathModelConfig          = "/api/modelconfigs"
+	APIPathRuns                 = "/api/runs"
+	APIPathSessions             = "/api/sessions"
+	APIPathTasks                = "/api/tasks"
+	APIPathTools                = "/api/tools"
+	APIPathToolServers          = "/api/toolservers"
+	APIPathToolServerTypes      = "/api/toolservertypes"
+	APIPathAgents               = "/api/agents"
+	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
+	APIPathModels               = "/api/models"
+	APIPathMemories             = "/api/memories"
+	APIPathNamespaces           = "/api/namespaces"
+	APIPathA2A                  = "/api/a2a"
+	APIPathMCP                  = "/mcp"
+	APIPathFeedback             = "/api/feedback"
+	APIPathLangGraph            = "/api/langgraph"
+	APIPathCrewAI               = "/api/crewai"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -52,10 +56,13 @@ type ServerConfig struct {
 	BindAddr          string
 	KubeClient        ctrl_client.Client
 	A2AHandler        a2a.A2AHandlerMux
+	MCPHandler        *mcp.MCPHandler
 	WatchedNamespaces []string
-	DbClient          database.Client
+	DbClient          dbpkg.Client
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
+	ProxyURL          string
+	Reconciler        reconciler.KagentReconciler
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -75,7 +82,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -119,6 +126,45 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// MemoryCleanupRunnable is a controller-runtime Runnable that periodically
+// prunes expired memory entries. It implements NeedLeaderElection so that
+// the sweep only runs on the elected leader, preventing duplicate deletes
+// when multiple replicas are deployed.
+type MemoryCleanupRunnable struct {
+	DbClient dbpkg.Client
+	Interval time.Duration
+}
+
+func (m *MemoryCleanupRunnable) NeedLeaderElection() bool { return true }
+
+// NewMemoryCleanupRunnable returns a MemoryCleanupRunnable with the given
+// database client. interval controls how often the cleanup runs; pass 0 to
+// use the default of 24 hours.
+func NewMemoryCleanupRunnable(dbClient dbpkg.Client, interval time.Duration) *MemoryCleanupRunnable {
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	return &MemoryCleanupRunnable{DbClient: dbClient, Interval: interval}
+}
+
+// Start runs the periodic cleanup loop until ctx is cancelled.
+func (m *MemoryCleanupRunnable) Start(ctx context.Context) error {
+	log := ctrllog.FromContext(ctx).WithName("memory-cleanup")
+	log.Info("Starting memory TTL cleanup loop", "interval", m.Interval)
+	ticker := time.NewTicker(m.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if err := m.DbClient.PruneExpiredMemories(); err != nil {
+				log.Error(err, "Failed to prune expired memories")
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // Stop stops the HTTP server
@@ -195,19 +241,21 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	// Providers
-	s.router.HandleFunc(APIPathProviders+"/models", adaptHandler(s.handlers.Provider.HandleListSupportedModelProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathProviders+"/memories", adaptHandler(s.handlers.Provider.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
+	// Model Provider Configs
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/memories", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured", adaptHandler(s.handlers.ModelProviderConfig.HandleListConfiguredProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured/{name}/models", adaptHandler(s.handlers.ModelProviderConfig.HandleGetProviderModels)).Methods(http.MethodGet)
 
 	// Models
 	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
 
 	// Memories
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleListMemories)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.HandleCreateMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleDeleteMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories+"/{namespace}/{name}", adaptHandler(s.handlers.Memory.HandleUpdateMemory)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/sessions/batch", adaptHandler(s.handlers.Memory.AddSessionBatch)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.List)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.Delete)).Methods(http.MethodDelete)
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
@@ -231,6 +279,11 @@ func (s *HTTPServer) setupRoutes() {
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
+
+	// MCP
+	if s.config.MCPHandler != nil {
+		s.router.PathPrefix(APIPathMCP).Handler(s.config.MCPHandler)
+	}
 
 	// Use middleware for common functionality
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))

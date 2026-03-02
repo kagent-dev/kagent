@@ -29,22 +29,25 @@ DOCKER_BUILDER ?= docker buildx
 DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
 
 KIND_CLUSTER_NAME ?= kagent
-KIND_IMAGE_VERSION ?= 1.34.0
+KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+SKILLS_INIT_IMAGE_NAME ?= skills-init
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -57,9 +60,9 @@ LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/internal/version.Version=$(VERSION) 
             -X github.com/$(DOCKER_REPO)/go/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.8.22
-TOOLS_BUN_VERSION ?= 1.2.22
-TOOLS_NODE_VERSION ?= 22.19.0
+TOOLS_UV_VERSION ?= 0.10.4
+TOOLS_BUN_VERSION ?= 1.3.9
+TOOLS_NODE_VERSION ?= 24.13.0
 TOOLS_PYTHON_VERSION ?= 3.13
 
 # build args
@@ -73,6 +76,31 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
+
+
+##@ General
+
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk command is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
+
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	
+##@ Git
+
+.PHONY: init-git-hooks
+init-git-hooks:  ## Use the tracked version of Git hooks from this repo
+	git config core.hooksPath .githooks
+	echo "Git hooks initialized"
 
 # KMCP 
 KMCP_ENABLED ?= true
@@ -128,6 +156,7 @@ check-api-key:
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
 	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx use $(BUILDX_BUILDER_NAME) || true
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
@@ -142,11 +171,12 @@ push-test-agent: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
-
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	
 .PHONY: push-test-skill
 push-test-skill: buildx-create
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab/Dockerfile ./go/test/e2e/testdata/skills/kebab
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/test/e2e/testdata/skills/kebab-maker
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
@@ -184,13 +214,13 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app
+build: buildx-create build-controller build-ui build-app build-skills-init
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
-	@echo "Tools Image: $(TOOLS_IMG)"
+	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: buildx-create
@@ -217,9 +247,6 @@ lint:
 	make -C go lint
 	make -C python lint
 
-.PHONY: push
-push: push-controller push-ui push-app push-kagent-adk
-
 .PHONY: controller-manifests
 controller-manifests:
 	make -C go manifests
@@ -240,6 +267,10 @@ build-kagent-adk: buildx-create
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+
+.PHONY: build-skills-init
+build-skills-init: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -316,6 +347,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
+		--set controller.loglevel=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
@@ -374,16 +406,16 @@ kagent-ui-port-forward: use-kind-cluster
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
-	#to test the kagent addons - installing istio, grafana, prometheus, metrics-server
+	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
-	kubectl apply -f contrib/addons/grafana.yaml
-	kubectl apply -f contrib/addons/prometheus.yaml
-	kubectl apply -f contrib/addons/metrics-server.yaml
-	#wait for pods to be ready
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana 	-n kagent --timeout=60s
-	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
-	#port forward grafana service
-	kubectl port-forward svc/grafana 3000:3000 -n kagent
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
+	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
+	# wait for pods to be ready
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
+	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
 open-dev-container:

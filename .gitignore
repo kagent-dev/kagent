@@ -156,7 +156,7 @@ celerybeat.pid
 # Environments
 python/.env
 .venv
-env/
+.env/
 venv/
 ENV/
 env.bak/
@@ -207,3 +207,7 @@ go/bin/
 /contrib/memory/doc2vec/bun.lock
 
 .cursor/
+
+## Test certificates
+python/packages/kagent-adk/tests/fixtures/certs/*.pem
+python/packages/kagent-adk/tests/fixtures/certs/*.srl

@@ -1,11 +1,22 @@
+"use client";
+
+import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
+import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +26,9 @@ interface AgentCardProps {
 
 export function AgentCard({ agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
   const router = useRouter();
+  const [memoriesOpen, setMemoriesOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
     agent.metadata.name || ''
@@ -60,20 +74,51 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           <KagentLogo className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">{agentRef}</span>
         </CardTitle>
-        <div className="flex items-center space-x-2 relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleEditClick}
-            aria-label="Edit Agent"
-            className="bg-background/80 hover:bg-background shadow-sm"
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <DeleteButton
-            agentName={agent.metadata.name}
-            namespace={agent.metadata.namespace || ''}
-          />
+        <div className="relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Agent options"
+                className="bg-background/80 hover:bg-background shadow-sm"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem
+                onClick={handleEditClick}
+                className="cursor-pointer"
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMemoriesOpen(true);
+                }}
+                className="cursor-pointer"
+              >
+                <Brain className="mr-2 h-4 w-4" />
+                View Memories
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDeleteOpen(true);
+                }}
+                className="cursor-pointer text-red-500 focus:text-red-500"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col justify-between h-32 relative z-10">
@@ -96,14 +141,33 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
           {statusInfo.message}
         </div>
       )}
+
     </Card>
   );
 
-  return isReady ? (
-    <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
-      {cardContent}
-    </Link>
-  ) : (
-    cardContent
+  return (
+    <>
+      {isReady ? (
+        <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
+          {cardContent}
+        </Link>
+      ) : (
+        cardContent
+      )}
+
+      <DeleteButton
+        agentName={agent.metadata.name}
+        namespace={agent.metadata.namespace || ''}
+        externalOpen={deleteOpen}
+        onExternalOpenChange={setDeleteOpen}
+      />
+
+      <MemoriesDialog
+        agentName={agent.metadata.name || ''}
+        namespace={agent.metadata.namespace || ''}
+        open={memoriesOpen}
+        onOpenChange={setMemoriesOpen}
+      />
+    </>
   );
 }

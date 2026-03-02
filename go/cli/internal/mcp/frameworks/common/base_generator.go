@@ -63,7 +63,6 @@ func (g *BaseGenerator) GenerateProject(config mcp.ProjectConfig) error {
 
 // GenerateTool generates a new tool for a project.
 func (g *BaseGenerator) GenerateTool(projectRoot string, config mcp.ToolConfig) error {
-
 	templateRoot, err := fs.Sub(g.TemplateFiles, "templates")
 	if err != nil {
 		return fmt.Errorf("failed to get templates subdirectory: %w", err)
@@ -106,7 +105,7 @@ func (g *BaseGenerator) GenerateToolFile(filePath string, config mcp.ToolConfig)
 	toolName := config.ToolName
 	toolNamePascalCase := cases.Title(language.English).String(toolName)
 	toolNameCamelCase := strcase.LowerCamelCase(toolName)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"ToolName":           toolName,
 		"ToolNameCamelCase":  toolNameCamelCase,
 		"ToolNameTitle":      cases.Title(language.English).String(toolName),

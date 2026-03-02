@@ -1,0 +1,48 @@
+operation: translateAgent
+targetObject: tls-agent-with-disabled-verify
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: tls-model-disabled-verify
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        baseUrl: https://dev-litellm.local
+        temperature: "0.7"
+        maxTokens: 1024
+      tls:
+        disableVerify: true
+        disableSystemCAs: false
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: tls-agent-with-disabled-verify
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: Agent with TLS verification disabled for development
+        systemMessage: You are a helpful assistant in a development environment.
+        modelConfig: tls-model-disabled-verify
+        deployment:
+          resources:
+            requests:
+              cpu: 200m
+              memory: 684Mi
+            limits:
+              cpu: 3000m
+              memory: 2Gi
+        tools: []

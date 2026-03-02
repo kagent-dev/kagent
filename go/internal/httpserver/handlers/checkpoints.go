@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -227,7 +227,6 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 	// Prepare writes
 	writes := make([]*database.LangGraphCheckpointWrite, len(req.Writes))
 	for i, writeReq := range req.Writes {
-
 		writes[i] = &database.LangGraphCheckpointWrite{
 			UserID:       userID,
 			ThreadID:     req.ThreadID,

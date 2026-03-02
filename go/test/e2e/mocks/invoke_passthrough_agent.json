@@ -1,0 +1,38 @@
+{
+  "openai": [
+    {
+      "name": "passthrough_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Hello from passthrough",
+          "role": "user"
+        },
+        "headers": [
+          {
+            "name": "Authorization",
+            "value": "Bearer passthrough-test-token-12345",
+            "match_type": "exact"
+          }
+        ]
+      },
+      "response": {
+        "id": "chatcmpl-passthrough-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "Token received successfully via passthrough.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

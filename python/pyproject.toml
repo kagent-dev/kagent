@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*"]
+members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai/*", "samples/openai/*"]
 
 [dependency-groups]
 dev = [
@@ -9,8 +9,17 @@ dev = [
   "authlib>=1.6.4"
 ]
 
+[tool.uv]
+constraint-dependencies = [
+    "cryptography>=46.0.5",
+    "jaraco-context>=6.1.0",
+    "wheel>=0.46.2",
+]
+
 [tool.uv.sources]
 kagent-adk = { workspace = true }
+agentsts-adk = { workspace = true }
+agentsts-core = { workspace = true }
 
 [tool.ruff]
 line-length = 120
@@ -19,7 +28,7 @@ exclude = [
   "notebooks/",
 ]
 
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -23,13 +23,14 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
   try {
     const response = await fetch(url, {
       ...options,
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
         ...authHeaders,
         ...options.headers,
       },
-      signal: AbortSignal.timeout(15000), // 15 second timeout
+      signal: AbortSignal.timeout(30000), // 30 second timeout
     });
 
     if (!response.ok) {

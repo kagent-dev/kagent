@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   pull_request:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   workflow_dispatch:
 
 env:
@@ -34,9 +34,27 @@ jobs:
   test-e2e:
     needs:
       - setup
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18-trixie
+        env:
+          POSTGRES_DB: kagent
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: kagent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,13 +70,13 @@ jobs:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
           platforms: linux/amd64,linux/arm64
-          use: 'true'
+          use: "true"
           driver-opts: network=host
 
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
-          version: v3.17.0
+          version: v3.18.0
 
       - name: Install Kind
         id: kind
@@ -81,6 +99,11 @@ jobs:
         run: |
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
+          if [ "${{ matrix.database }}" = "postgres" ]; then
+            HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
+            export KAGENT_HELM_EXTRA_ARGS="$KAGENT_HELM_EXTRA_ARGS --set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@${HOST_IP}:5432/kagent"
+            echo "Postgres URL: postgres://postgres:kagent@${HOST_IP}:5432/kagent"
+          fi
           make helm-install
           make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
@@ -91,15 +114,17 @@ jobs:
         working-directory: go
         run: |
           # Get the Kind network gateway IP that pods can reach
-          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
           echo "Detected Kind network gateway: $HOST_IP"
           export KAGENT_LOCAL_HOST=$HOST_IP
-          
+
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
-          go test -race -v github.com/kagent-dev/kagent/go/test/e2e
+          # no need to run e2e tests with race, as this will just apply to the test code.
+          # all objects created in e2e tests have a generated name, so they can run in parallel safely.
+          go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast -shuffle=on
       - name: fail print info
         if: failure()
         run: |
@@ -141,7 +166,7 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4.2.0
         with:
-          version: v3.17.0
+          version: v3.18.0
       # Install unittest plugin
       - name: Install unittest plugin
         run: |
@@ -164,12 +189,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: ui/package-lock.json
 
       - name: Install dependencies
         working-directory: ./ui
+        env:
+          CYPRESS_INSTALL_BINARY: 0 # Skip Cypress binary - not needed for lint/unit tests
         run: npm ci
 
       - name: Run lint
@@ -211,7 +238,7 @@ jobs:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           platforms: linux/amd64,linux/arm64
           version: ${{ env.BUILDX_VERSION }}
-          use: 'true'
+          use: "true"
           driver-opts: network=host
       - name: Run make build
         env:
@@ -240,15 +267,18 @@ jobs:
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5.0
+          version: v2.8.0
           working-directory: go
 
   python-test:
     env:
       OPENAI_API_KEY: fake
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -257,20 +287,22 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install python
-        run: uv python install 3.13
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Sync dependencies
         working-directory: ./python
-        run: |
-          uv sync --all-extras
+        run: uv sync --all-extras
+
+      - name: Generate test certificates
+        working-directory: ./python
+        run: make generate-test-certs
 
       - name: Run tests
         working-directory: ./python
-        run: uv run pytest ./packages/**/tests/
+        run: make test
 
   python-lint:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -279,12 +311,11 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install python
-        run: uv python install 3.13
+        run: uv python install 3.10
 
       - name: Sync dependencies
         working-directory: ./python
-        run: |
-          uv sync --all-extras
+        run: uv sync --all-extras
 
       - name: Run ruff linter
         working-directory: ./python
@@ -297,3 +328,34 @@ jobs:
             echo "Ruff formatting issues detected. Please run 'uv run ruff format' locally to fix formatting issues."
             exit 1
           fi
+
+  manifests-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Generate controller manifests
+        run: make controller-manifests
+
+      - name: Check for uncommitted changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Controller manifests are out of date!"
+            echo "::error::Please run 'make controller-manifests' and commit the changes."
+            echo ""
+            echo "The following files have differences:"
+            git diff --name-only
+            echo ""
+            echo "Diff details:"
+            git diff
+            exit 1
+          fi
+          echo "✓ Controller manifests are up to date"

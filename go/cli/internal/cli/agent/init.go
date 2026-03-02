@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/cli/internal/agent/frameworks"
@@ -24,6 +26,11 @@ type InitCfg struct {
 }
 
 func InitCmd(cfg *InitCfg) error {
+	// Validate agent name
+	if err := validateAgentName(cfg.AgentName); err != nil {
+		return err
+	}
+
 	// Validate framework and language
 	if cfg.Framework != "adk" {
 		return fmt.Errorf("unsupported framework: %s. Only 'adk' is supported", cfg.Framework)
@@ -96,4 +103,26 @@ func validateModelProvider(provider string) error {
 	default:
 		return fmt.Errorf("unsupported model provider: %s. Supported providers: OpenAI, Anthropic, Gemini", provider)
 	}
+}
+
+// validateAgentName checks if the agent name is a valid identifier.
+// The name must start with a letter or underscore and contain only letters, digits,
+// and underscores. This matches the Python identifier rules enforced by the ADK at runtime.
+func validateAgentName(name string) error {
+	if name == "" {
+		return fmt.Errorf("agent name cannot be empty")
+	}
+
+	first, _ := utf8.DecodeRuneInString(name)
+	if !unicode.IsLetter(first) && first != '_' {
+		return fmt.Errorf("invalid agent name %q: must start with a letter or underscore", name)
+	}
+
+	for i, c := range name {
+		if !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '_' {
+			return fmt.Errorf("invalid agent name %q: character %q at position %d is not allowed. Agent names must only contain letters, digits, and underscores", name, c, i)
+		}
+	}
+
+	return nil
 }

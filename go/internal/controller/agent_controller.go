@@ -142,6 +142,30 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		)
 
+	// Watch ConfigMaps referenced by agents via promptTemplates or systemMessageFrom.
+	// When a ConfigMap changes, re-reconcile any agents that reference it.
+	build = build.Watches(
+		&corev1.ConfigMap{},
+		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			requests := []reconcile.Request{}
+
+			for _, agent := range r.findAgentsReferencingConfigMap(ctx, mgr.GetClient(), types.NamespacedName{
+				Name:      obj.GetName(),
+				Namespace: obj.GetNamespace(),
+			}) {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      agent.Name,
+						Namespace: agent.Namespace,
+					},
+				})
+			}
+
+			return requests
+		}),
+		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+	)
+
 	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
 		build = build.Watches(
 			&v1alpha1.MCPServer{},
@@ -181,10 +205,6 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
 		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
@@ -198,11 +218,11 @@ func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl clien
 				continue
 			}
 
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, &agent)
 			}
 		}
-
 	}
 
 	return agents
@@ -230,11 +250,8 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 				return
 			}
 
-			if agent.Namespace != obj.Namespace {
-				continue
-			}
-
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, agent)
 				return
 			}
@@ -242,7 +259,6 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 	}
 
 	for _, agent := range agentsList.Items {
-		agent := agent
 		appendAgentIfUsesRemoteMCPServer(&agent)
 	}
 
@@ -250,8 +266,8 @@ func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl
 }
 
 func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-
 	var agentsList v1alpha2.AgentList
+
 	if err := cl.List(
 		ctx,
 		&agentsList,
@@ -262,10 +278,6 @@ func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl clie
 
 	var agents []*v1alpha2.Agent
 	for _, agent := range agentsList.Items {
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
 		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
 			continue
 		}
@@ -279,7 +291,8 @@ func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl clie
 				continue
 			}
 
-			if tool.McpServer.Name == obj.Name {
+			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
+			if mcpServerRef == obj {
 				agents = append(agents, &agent)
 			}
 		}
@@ -314,7 +327,45 @@ func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl cli
 		if agent.Spec.Declarative.ModelConfig == obj.Name {
 			agents = append(agents, agent)
 		}
+	}
 
+	return agents
+}
+
+func (r *AgentController) findAgentsReferencingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
+	var agentsList v1alpha2.AgentList
+	if err := cl.List(ctx, &agentsList); err != nil {
+		agentControllerLog.Error(err, "failed to list agents in order to reconcile ConfigMap update")
+		return nil
+	}
+
+	var agents []*v1alpha2.Agent
+	for i := range agentsList.Items {
+		agent := &agentsList.Items[i]
+		if agent.Namespace != obj.Namespace {
+			continue
+		}
+		if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
+			continue
+		}
+
+		// Check if systemMessageFrom references this ConfigMap.
+		if ref := agent.Spec.Declarative.SystemMessageFrom; ref != nil {
+			if ref.Type == v1alpha2.ConfigMapValueSource && ref.Name == obj.Name {
+				agents = append(agents, agent)
+				continue
+			}
+		}
+
+		// Check if any promptTemplate dataSources reference this ConfigMap.
+		if pt := agent.Spec.Declarative.PromptTemplate; pt != nil {
+			for _, ds := range pt.DataSources {
+				if ds.Name == obj.Name {
+					agents = append(agents, agent)
+					break
+				}
+			}
+		}
 	}
 
 	return agents

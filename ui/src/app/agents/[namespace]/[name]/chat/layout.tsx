@@ -1,16 +1,16 @@
-import React from "react";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { ErrorState } from "@/components/ErrorState";
 import { getAgent, getAgents } from "@/app/actions/agents";
 import { getServers } from "@/app/actions/servers";
 import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
+import { ErrorState } from "@/components/ErrorState";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { CSSProperties, ReactNode } from "react";
 
 async function getData(agentName: string, namespace: string) {
   try {
     const [agentResponse, agentsResponse, serversResponse] = await Promise.all([
       getAgent(agentName, namespace),
       getAgents(),
-      getServers()
+      getServers(),
     ]);
 
     if (agentResponse.error || !agentResponse.data) {
@@ -31,19 +31,31 @@ async function getData(agentName: string, namespace: string) {
       currentAgent,
       allAgents,
       allTools,
-      error: null
+      error: null,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "An unexpected server error occurred";
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "An unexpected server error occurred";
     console.error("Error fetching data for chat layout:", errorMessage);
     return { error: errorMessage };
   }
 }
 
-export default async function ChatLayout({ children, params }: { children: React.ReactNode, params: { name: string, namespace: string } }) {
-  const resolvedParams = await params;
-  const { name, namespace } = resolvedParams;
-  const { currentAgent, allAgents, allTools, error } = await getData(name, namespace);
+export default async function ChatLayout({
+  children,
+  params,
+}: {
+  children: ReactNode;
+  params: Promise<{ name: string; namespace: string }>; // Changed: params is now a Promise
+}) {
+  // Await the params
+  const { name, namespace } = await params;
+  const { currentAgent, allAgents, allTools, error } = await getData(
+    name,
+    namespace
+  );
 
   if (error || !currentAgent) {
     return (
@@ -54,10 +66,14 @@ export default async function ChatLayout({ children, params }: { children: React
   }
 
   return (
-    <SidebarProvider style={{
-      "--sidebar-width": "350px",
-      "--sidebar-width-mobile": "150px",
-    } as React.CSSProperties}>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "350px",
+          "--sidebar-width-mobile": "150px",
+        } as CSSProperties
+      }
+    >
       <ChatLayoutUI
         agentName={name}
         namespace={namespace}
@@ -69,4 +85,4 @@ export default async function ChatLayout({ children, params }: { children: React
       </ChatLayoutUI>
     </SidebarProvider>
   );
-} 
+}

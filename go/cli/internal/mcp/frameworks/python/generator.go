@@ -125,7 +125,7 @@ Do not edit manually - it will be overwritten when tools are loaded.
 
 	// Add import statements
 	for _, tool := range tools {
-		content.WriteString(fmt.Sprintf("from .%s import %s\n", tool, tool))
+		fmt.Fprintf(&content, "from .%s import %s\n", tool, tool)
 	}
 
 	// Add empty line
@@ -137,7 +137,7 @@ Do not edit manually - it will be overwritten when tools are loaded.
 		if i > 0 {
 			content.WriteString(", ")
 		}
-		content.WriteString(fmt.Sprintf(`"%s"`, tool))
+		fmt.Fprintf(&content, `"%s"`, tool)
 	}
 	content.WriteString("]\n")
 

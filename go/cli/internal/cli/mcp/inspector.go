@@ -18,14 +18,14 @@ func checkNpxInstalled() error {
 }
 
 // createMCPInspectorConfig creates an MCP inspector configuration file
-func createMCPInspectorConfig(serverName string, serverConfig map[string]interface{}, configPath string) error {
+func createMCPInspectorConfig(serverName string, serverConfig map[string]any, configPath string) error {
 	cfg, err := config.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
 	}
 
-	config := map[string]interface{}{
-		"mcpServers": map[string]interface{}{
+	config := map[string]any{
+		"mcpServers": map[string]any{
 			serverName: serverConfig,
 		},
 	}

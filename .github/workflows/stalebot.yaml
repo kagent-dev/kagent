@@ -1,0 +1,59 @@
+name: Stalebot
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Everyday at 10:00 UTC (05:00 EST / 06:00 EDT)
+    - cron: "0 10 * * *"
+
+env:
+  DAYS_BEFORE_ISSUE_STALE: 90
+  DAYS_BEFORE_ISSUE_CLOSE: 90
+  DAYS_BEFORE_PR_STALE: 15
+  DAYS_BEFORE_PR_CLOSE: 5
+
+jobs:
+  close-stale-issues:
+    name: Close Stale Issues
+    runs-on: ubuntu-22.04
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/stale@v9 # https://github.com/actions/stale
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-issue-stale: ${{ env.DAYS_BEFORE_ISSUE_STALE }}
+          days-before-issue-close: ${{ env.DAYS_BEFORE_ISSUE_CLOSE }}
+          stale-issue-message: >
+            This issue has been marked as stale because of no activity in the last ${{ env.DAYS_BEFORE_ISSUE_STALE }} days.
+            It will be closed in the next ${{ env.DAYS_BEFORE_ISSUE_CLOSE }} days unless it is tagged "no stalebot" or other activity occurs.
+          close-issue-message: >
+            This issue has been closed due to no activity in the last 12 months.
+          stale-issue-label: 'stale' # https://github.com/kagent-dev/kagent/labels/stale
+          exempt-issue-labels: 'no stalebot' # https://github.com/kagent-dev/kagent/labels/no%20stalebot
+          enable-statistics: true
+          operations-per-run: 1000
+          ascending: true # asc means oldest first
+
+  close-stale-prs:
+    name: Close Stale PRs
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/stale@v9 # https://github.com/actions/stale
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-pr-stale: ${{ env.DAYS_BEFORE_PR_STALE }}
+          days-before-pr-close: ${{ env.DAYS_BEFORE_PR_CLOSE }}
+          stale-pr-message: >
+            This pull request has been marked as stale because of no activity in the last ${{ env.DAYS_BEFORE_PR_STALE }} days.
+            It will be closed in the next ${{ env.DAYS_BEFORE_PR_CLOSE }} days unless it is tagged "no stalebot" or other activity occurs.
+          close-pr-message: >
+            This pull request has been closed after ${{ env.DAYS_BEFORE_PR_STALE }} days of inactivity and an additional ${{ env.DAYS_BEFORE_PR_CLOSE }} days after being marked as stale.
+          stale-pr-label: 'stale' # https://github.com/kagent-dev/kagent/labels/stale
+          exempt-pr-labels: 'no stalebot' # https://github.com/kagent-dev/kagent/labels/no%20stalebot
+          enable-statistics: true
+          operations-per-run: 1000
+          ascending: true # asc means oldest first

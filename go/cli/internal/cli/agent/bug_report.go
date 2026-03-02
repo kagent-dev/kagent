@@ -55,8 +55,8 @@ func BugReportCmd(cfg *config.Config) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting pod names: %v\n", err)
 	} else {
-		pods := strings.Split(string(output), "\n")
-		for _, pod := range pods {
+		pods := strings.SplitSeq(string(output), "\n")
+		for pod := range pods {
 			if pod == "" {
 				continue
 			}

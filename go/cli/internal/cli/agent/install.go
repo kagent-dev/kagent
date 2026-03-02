@@ -11,6 +11,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/version"
+	"github.com/kagent-dev/kagent/go/pkg/env"
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
@@ -119,7 +120,7 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	//if model provider is openai, check if the api key is set
+	// if model provider is openai, check if the api key is set
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
 
@@ -160,10 +161,10 @@ func setupHelmConfig(modelProvider v1alpha2.ModelProvider, apiKeyValue string) h
 		fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue),
 	}
 
-	//allow user to set the helm registry and version
-	helmRegistry := GetEnvVarWithDefault(KAGENT_HELM_REPO, DefaultHelmOciRegistry)
-	helmVersion := GetEnvVarWithDefault(KAGENT_HELM_VERSION, version.Version)
-	helmExtraArgs := GetEnvVarWithDefault(KAGENT_HELM_EXTRA_ARGS, "")
+	// allow user to set the helm registry and version
+	helmRegistry := GetEnvVarWithDefault(env.KagentHelmRepo.Name(), DefaultHelmOciRegistry)
+	helmVersion := GetEnvVarWithDefault(env.KagentHelmVersion.Name(), version.Version)
+	helmExtraArgs := GetEnvVarWithDefault(env.KagentHelmExtraArgs.Name(), "")
 
 	// split helmExtraArgs by "--set" to get additional values
 	extraValues := strings.Split(helmExtraArgs, "--set")
@@ -227,7 +228,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, mod
 
 	// Stop the spinner completely before printing the success message
 	s.Stop()
-	fmt.Fprintln(os.Stdout, "kagent installed successfully") //nolint:errcheck
+	fmt.Fprintln(os.Stdout, "kagent installed successfully")
 
 	pf, err := NewPortForward(ctx, cfg)
 	if err != nil {
@@ -253,11 +254,11 @@ func deleteCRDs(ctx context.Context) error {
 		if out, err := deleteCmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(out), "not found") {
 				errMsg := fmt.Sprintf("Error deleting CRD %s: %s", crd, string(out))
-				fmt.Fprintln(os.Stderr, errMsg) //nolint:errcheck
+				fmt.Fprintln(os.Stderr, errMsg)
 				deleteErrors = append(deleteErrors, errMsg)
 			}
 		} else {
-			fmt.Fprintf(os.Stdout, "Successfully deleted CRD %s\n", crd) //nolint:errcheck
+			fmt.Fprintf(os.Stdout, "Successfully deleted CRD %s\n", crd)
 		}
 	}
 
@@ -329,7 +330,7 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 	}
 
 	s.Stop()
-	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully") //nolint:errcheck
+	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully")
 }
 
 func checkHelmAvailable() error {

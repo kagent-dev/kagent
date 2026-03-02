@@ -1,0 +1,10 @@
+apiVersion: kagent.dev/v1alpha2
+kind: ModelProviderConfig
+metadata:
+  name: anthropic-prod
+  namespace: kagent
+spec:
+  type: Anthropic
+  endpoint: https://api.anthropic.com
+  secretRef:
+    name: anthropic-secret
