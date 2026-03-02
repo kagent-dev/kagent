@@ -1,3 +1,9 @@
+# Using npm instead of bun due to SIGILL crashes when building under Docker
+# with qemu cross-compilation (known bun issue: https://github.com/oven-sh/bun/issues/4890).
+# This was the root cause of kagent-dev/kagent#1331.
+# Upgrading bun (#1330) did not resolve the crash — it affects all bun versions on qemu.
+# npm aligns the Docker build with CI (ui-tests already uses npm).
+
 ### STAGE 1: Dependencies and Build
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG BUILDPLATFORM
@@ -10,35 +16,21 @@ ARG BUILDPLATFORM
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 npm \
+    && update-ca-certificates \
+    && node --version \
+    && npm --version
 
-ARG TOOLS_BUN_VERSION
 ARG TARGETARCH
 
 ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV BUN_INSTALL_CACHE_DIR=/cache/bun
-ENV BUN_INSTALL=/usr/local/bun
-ENV NODE_ENV=production
 ENV CYPRESS_INSTALL_BINARY=0
-ENV PATH=$BUN_INSTALL/bin:$PATH
-
-# Install Bun (uses official install script)
-# brew install oven-sh/bun/bun
-RUN --mount=type=cache,target=/cache/bun,rw \
-    mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
-    && bun --version
 
 WORKDIR /app/ui
 
-# Copy package files and install dependencies
+# Copy package files for layer caching
 COPY package*.json ./
-RUN --mount=type=cache,target=/cache/node_modules,rw \
-    bun install --frozen-lockfile \
-    && bun pm ls --all \
-    && bun pm hash
 
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
@@ -46,35 +38,27 @@ FROM --platform=$BUILDPLATFORM deps AS builder
 # Copy source files
 COPY . .
 
-# Build the application (native compilation for speed)
-RUN --mount=type=cache,target=/cache/node_modules,rw \
+# Install all dependencies (including devDependencies for next build) and build
+RUN --mount=type=cache,target=/root/.npm,rw \
     --mount=type=cache,target=/app/ui/.next/cache,rw \
-    export NEXT_TELEMETRY_DEBUG=1 \
-    && bun install --frozen-lockfile \
-    && bun run build \
+    npm ci \
+    && npm run build \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+ENV NODE_ENV=production
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
-RUN --mount=type=cache,target=/var/cache/apk,rw \
+RUN --mount=type=cache,id=apk-final,target=/var/cache/apk,rw \
     echo "Installing on $BUILDPLATFORM" \
     && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor \
-    && update-ca-certificates
-
-ARG TOOLS_BUN_VERSION
-ENV BUN_INSTALL=/usr/local/bun
-ENV PATH=$BUN_INSTALL/bin:$PATH
-# Install Bun in native arch for running (uses official install script)
-# brew install oven-sh/bun/bun
-RUN mkdir -p $BUN_INSTALL  \
-    && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
-    && bun --version
+    && apk add curl bash openssl unzip ca-certificates nginx supervisor nodejs-22 \
+    && update-ca-certificates \
+    && node --version
 
 RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
     && addgroup -g 1001 nginx                        \
