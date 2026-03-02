@@ -38,11 +38,13 @@ jest.mock("@/components/ui/scroll-area", () => ({
 function createMockTools(count: number): ToolsResponse[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `tool-${i}`,
-    name: `Tool ${i}`,
     description: `Description for tool ${i}`,
     server_name: `server-${i}`,
-    server_description: `Server ${i}`,
-  })) as unknown as ToolsResponse[];
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+    deleted_at: "",
+    group_kind: "tool",
+  }));
 }
 
 // Helper to create selected tools
