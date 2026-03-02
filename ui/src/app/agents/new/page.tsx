@@ -4,13 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
-import { ModelConfig, AgentType, ContextConfig } from "@/types";
+import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers, Globe } from "lucide-react";
+import { ModelConfig, AgentType, ContextConfig, AgentSkill } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
 import { ContextSection } from "@/components/create/ContextSection";
+import { A2ASkillsSection } from "@/components/create/A2ASkillsSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -36,6 +37,7 @@ interface ValidationErrors {
   skills?: string;
   memoryModel?: string;
   memoryTtl?: string;
+  a2aSkills?: string;
 }
 
 interface AgentPageContentProps {
@@ -75,6 +77,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     memoryTtlDays: string;
     selectedTools: Tool[];
     skillRefs: string[];
+    a2aSkills: AgentSkill[];
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
@@ -100,6 +103,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     memoryTtlDays: "",
     selectedTools: [],
     skillRefs: [""],
+    a2aSkills: [],
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -150,6 +154,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
+                  a2aSkills: agent.spec?.declarative?.a2aConfig?.skills || [],
                   stream: agent.spec?.declarative?.stream ?? false,
                   selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
@@ -253,6 +258,26 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       // If all refs are empty/whitespace, that's fine - no skills will be included
     }
 
+    if (state.agentType === "Declarative" && state.a2aSkills && state.a2aSkills.length > 0) {
+      for (const skill of state.a2aSkills) {
+        if (!skill.id.trim()) {
+          newErrors.a2aSkills = "All A2A skills must have an ID";
+          break;
+        }
+        if (!skill.name.trim()) {
+          newErrors.a2aSkills = "All A2A skills must have a name";
+          break;
+        }
+      }
+      if (!newErrors.a2aSkills) {
+        const ids = state.a2aSkills.map(s => s.id.trim().toLowerCase());
+        const duplicateIds = ids.filter((id, index) => ids.indexOf(id) !== index);
+        if (duplicateIds.length > 0) {
+          newErrors.a2aSkills = `Duplicate skill ID: ${duplicateIds[0]}`;
+        }
+      }
+    }
+
     setState(prev => ({ ...prev, errors: newErrors }));
     return Object.keys(newErrors).length === 0;
   };
@@ -334,6 +359,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           }
           : undefined,
         context: state.agentType === "Declarative" ? state.contextConfig : undefined,
+        a2aSkills: state.agentType === "Declarative" ? (state.a2aSkills || []).filter(s => s.id.trim() && s.name.trim()) : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -801,6 +827,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                         )}
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Globe className="h-5 w-5 text-green-500" />
+                      A2A Configuration
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <A2ASkillsSection
+                      skills={state.a2aSkills}
+                      onChange={(skills) => setState(prev => ({ ...prev, a2aSkills: skills, errors: { ...prev.errors, a2aSkills: undefined } }))}
+                      disabled={state.isSubmitting || state.isLoading}
+                      error={state.errors.a2aSkills}
+                    />
                   </CardContent>
                 </Card>
               </>

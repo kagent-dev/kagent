@@ -125,11 +125,16 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">
           {agent.spec.description}
         </p>
-        <div className="mt-4 flex items-center text-xs text-muted-foreground">
+        <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
           {isBYO ? (
             <span title={byoImage} className="truncate">Image: {byoImage}</span>
           ) : (
             <span className="truncate">{modelProvider} ({model})</span>
+          )}
+          {!isBYO && agent.spec?.declarative?.a2aConfig?.skills && agent.spec.declarative.a2aConfig.skills.length > 0 && (
+            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400 shrink-0">
+              A2A
+            </span>
           )}
         </div>
       </CardContent>
