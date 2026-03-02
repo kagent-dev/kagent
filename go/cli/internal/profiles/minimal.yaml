@@ -21,3 +21,6 @@ agents:
     enabled: false
   cilium-debug-agent:
     enabled: false
+
+kmcp:
+  enabled: false
