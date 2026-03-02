@@ -58,7 +58,7 @@ RUN --mount=type=cache,target=/cache/node_modules,rw \
     export NEXT_TELEMETRY_DEBUG=1 \
     && bun install --frozen-lockfile \
     && { bun run build; BUN_EXIT=$?; } \
-    && if [ $BUN_EXIT -ne 0 ] && [ ! -d /app/ui/.next/standalone ]; then exit $BUN_EXIT; fi \
+    && if [ "$BUN_EXIT" -ne 0 ] && { [ ! -d /app/ui/.next/standalone ] || [ ! -f /app/ui/.next/standalone/server.js ]; }; then exit "$BUN_EXIT"; fi \
     && mkdir -p /app/ui/public
 
 ### STAGE 3: Runtime
