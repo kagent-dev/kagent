@@ -330,3 +330,109 @@ describe('dual-prefix integration', () => {
     expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
   });
 });
+
+describe('kagent_author metadata forwarding', () => {
+  test('kagent_author survives streaming conversion for function_call', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setTokenStats: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'root-agent' },
+    });
+
+    // Simulate a status-update with kagent_author on the event metadata
+    const statusUpdateCall: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      metadata: { kagent_author: 'k8s-agent' },
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'data', data: { id: 'call_auth', name: 'kagent__NS__k8s-agent', args: { cmd: 'list pods' } }, metadata: { kagent_type: 'function_call' } },
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateCall);
+
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[0].metadata as any).kagent_author).toBe('k8s-agent');
+  });
+
+  test('kagent_author survives streaming conversion for function_response', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setTokenStats: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'root-agent' },
+    });
+
+    const statusUpdateResp: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      metadata: { kagent_author: 'k8s-agent' },
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'data', data: { id: 'call_auth', name: 'kagent__NS__k8s-agent', response: { result: '3 pods running' } }, metadata: { kagent_type: 'function_response' } },
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateResp);
+
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('ToolCallExecutionEvent');
+    expect((emitted[0].metadata as any).kagent_author).toBe('k8s-agent');
+  });
+
+  test('kagent_author absent when event has no author metadata', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setTokenStats: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'root-agent' },
+    });
+
+    const statusUpdateCall: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'data', data: { id: 'call_no_auth', name: 'some_tool', args: {} }, metadata: { kagent_type: 'function_call' } },
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateCall);
+
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).kagent_author).toBeUndefined();
+  });
+});
