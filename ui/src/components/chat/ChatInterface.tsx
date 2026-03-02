@@ -74,12 +74,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
-  const [shortcutKey, setShortcutKey] = useState("Ctrl");
-  useEffect(() => {
-    if (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) {
-      setShortcutKey("⌘");
-    }
-  }, []);
+  const [shortcutKey] = useState(() =>
+    /Mac|iPhone|iPad|iPod/.test(
+      typeof navigator !== "undefined" ? navigator.userAgent : ""
+    )
+      ? "⌘"
+      : "Ctrl"
+  );
 
   const { handleMessageEvent } = createMessageHandlers({
     setMessages: setStreamingMessages,
