@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Server, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare } from "lucide-react";
+import { Server, Trash2, ChevronDown, ChevronRight, MoreHorizontal, Plus, FunctionSquare, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ToolServerResponse, ToolServerCreateRequest } from "@/types";
+import { ToolServerResponse, ToolServerCreateRequest, ToolServerDetailResponse } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { createServer, deleteServer, getServers, getToolServerTypes } from "../actions/servers";
+import { createServer, deleteServer, getServers, getServer, updateServer, getToolServerTypes } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import Link from "next/link";
@@ -25,6 +25,14 @@ export default function ServersPage() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
+  const [editServerData, setEditServerData] = useState<{
+    name: string;
+    namespace: string;
+    groupKind: string;
+    type: "RemoteMCPServer" | "MCPServer";
+    remoteMCPServer?: ToolServerDetailResponse["remoteMCPServer"];
+    mcpServer?: ToolServerDetailResponse["mcpServer"];
+  } | null>(null);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -125,6 +133,67 @@ export default function ServersPage() {
     }
   };
 
+  // Handle editing a server - fetch full details and open dialog
+  const handleEditServer = async (serverRef: string, groupKind: string) => {
+    try {
+      setIsLoading(true);
+      const response = await getServer(serverRef, groupKind);
+
+      if (response.error || !response.data) {
+        toast.error(response.error || "Failed to fetch server details");
+        return;
+      }
+
+      const detail = response.data;
+      const [namespace, ...nameParts] = detail.ref.split("/");
+      const name = nameParts.join("/");
+
+      const serverType = detail.groupKind === "MCPServer.kagent.dev" ? "MCPServer" as const : "RemoteMCPServer" as const;
+
+      setEditServerData({
+        name,
+        namespace,
+        groupKind: detail.groupKind,
+        type: serverType,
+        remoteMCPServer: detail.remoteMCPServer,
+        mcpServer: detail.mcpServer,
+      });
+      setShowAddServer(true);
+    } catch (error) {
+      console.error("Error fetching server details:", error);
+      toast.error("Failed to fetch server details");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle submitting an edit
+  const handleUpdateServer = async (serverRequest: ToolServerCreateRequest) => {
+    if (!editServerData) return;
+
+    try {
+      setIsLoading(true);
+      const serverRef = `${editServerData.namespace}/${editServerData.name}`;
+      const response = await updateServer(serverRef, editServerData.groupKind, serverRequest);
+
+      if (response.error) {
+        throw new Error(response.error || "Failed to update server");
+      }
+
+      toast.success("Server updated successfully");
+      setShowAddServer(false);
+      setEditServerData(null);
+      fetchServers();
+    } catch (error) {
+      console.error("Error updating server:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`Failed to update server: ${errorMessage}`);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const toggleServer = (serverName: string) => {
     setExpandedServers(prev => {
       const newSet = new Set(prev);
@@ -197,7 +266,17 @@ export default function ServersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                           <DropdownMenuItem 
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              handleEditServer(serverName, server.groupKind);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit MCP Server
+                          </DropdownMenuItem>
+                           <DropdownMenuItem
                              className="text-red-600 focus:text-red-700 focus:bg-red-50"
                              onSelect={(e) => {
                                e.preventDefault();
@@ -258,12 +337,17 @@ export default function ServersPage() {
         </div>
       )}
 
-      {/* Add server dialog */}
-      <AddServerDialog 
-        open={showAddServer} 
+      {/* Add/Edit server dialog */}
+      <AddServerDialog
+        open={showAddServer}
         supportedToolServerTypes={toolServerTypes}
-        onOpenChange={setShowAddServer} 
-        onAddServer={handleAddServer}
+        onOpenChange={(open) => {
+          setShowAddServer(open);
+          if (!open) setEditServerData(null);
+        }}
+        onAddServer={editServerData ? handleUpdateServer : handleAddServer}
+        editMode={!!editServerData}
+        editServerData={editServerData ?? undefined}
       />
 
       {/* Confirm delete dialog */}

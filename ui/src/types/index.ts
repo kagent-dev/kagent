@@ -428,6 +428,15 @@ export interface ToolServerCreateRequest {
   mcpServer?: MCPServer;
 }
 
+// Tool server detail response (includes full spec for editing)
+export interface ToolServerDetailResponse {
+  ref: string;
+  groupKind: string;
+  discoveredTools: DiscoveredTool[];
+  remoteMCPServer?: RemoteMCPServer;
+  mcpServer?: MCPServer;
+}
+
 
 export interface DiscoveredTool {
   name: string;
