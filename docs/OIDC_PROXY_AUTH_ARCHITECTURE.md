@@ -97,7 +97,7 @@ flowchart TB
 
 The system supports two authentication modes, configured via the `auth-mode` flag / `AUTH_MODE` environment variable:
 
-1. **`proxy`** (new): Trust oauth2-proxy to handle authentication, extract identity from JWT
+1. **`trusted-proxy`** (new): Trust oauth2-proxy to handle authentication, extract identity from JWT
 2. **`unsecure`** (existing): No authentication, for development/testing
 
 ## Configuration
@@ -106,7 +106,7 @@ Only two configuration options are needed:
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure` or `proxy` |
+| `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure` or `trusted-proxy` |
 | `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | `sub` | JWT claim name for user identity |
 
 ### Raw Claims Passthrough

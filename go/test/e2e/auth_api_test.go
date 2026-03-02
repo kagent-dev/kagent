@@ -15,7 +15,7 @@ import (
 )
 
 // makeTestJWT builds a minimal unsigned JWT (alg:none) with the given claims.
-// This is sufficient for proxy mode testing where the oauth2-proxy has already
+// This is sufficient for trusted-proxy mode testing where the oauth2-proxy has already
 // validated the token and the backend only parses claims without verification.
 func makeTestJWT(claims map[string]any) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
@@ -33,10 +33,10 @@ func kagentURL() string {
 	return "http://localhost:8083"
 }
 
-// detectAuthMode probes /api/me to determine if the deployment is in proxy or unsecure mode.
-// Sends a JWT Bearer token; in proxy mode the backend parses the JWT and returns the sub claim.
+// detectAuthMode probes /api/me to determine if the deployment is in trusted-proxy or unsecure mode.
+// Sends a JWT Bearer token; in trusted-proxy mode the backend parses the JWT and returns the sub claim.
 // In unsecure mode the backend ignores the Bearer token and returns the default user.
-// Returns "proxy" if proxy mode, "unsecure" otherwise.
+// Returns "trusted-proxy" if trusted-proxy mode, "unsecure" otherwise.
 func detectAuthMode(t *testing.T) string {
 	t.Helper()
 
@@ -58,7 +58,7 @@ func detectAuthMode(t *testing.T) string {
 		require.NoError(t, err)
 
 		if sub, _ := userResp["sub"].(string); sub == "probe-user" {
-			return "proxy"
+			return "trusted-proxy"
 		}
 	}
 	return "unsecure"
@@ -117,8 +117,8 @@ func parseUserResponse(t *testing.T, body []byte) map[string]any {
 
 func TestE2EAuthUnsecureMode(t *testing.T) {
 	// Skip if deployment is in proxy mode
-	if detectAuthMode(t) == "proxy" {
-		t.Skip("Skipping unsecure mode tests - deployment is in proxy mode")
+	if detectAuthMode(t) == "trusted-proxy" {
+		t.Skip("Skipping unsecure mode tests - deployment is in trusted-proxy mode")
 	}
 
 	t.Run("default_user", func(t *testing.T) {
@@ -168,9 +168,9 @@ func TestE2EAuthUnsecureMode(t *testing.T) {
 }
 
 func TestE2EAuthProxyMode(t *testing.T) {
-	// Skip if deployment is not in proxy mode
-	if detectAuthMode(t) != "proxy" {
-		t.Skip("Skipping proxy mode tests - deployment is in unsecure mode")
+	// Skip if deployment is not in trusted-proxy mode
+	if detectAuthMode(t) != "trusted-proxy" {
+		t.Skip("Skipping trusted-proxy mode tests - deployment is in unsecure mode")
 	}
 
 	t.Run("full_claims", func(t *testing.T) {

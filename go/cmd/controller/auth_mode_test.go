@@ -24,13 +24,13 @@ func TestGetAuthenticator(t *testing.T) {
 			wantType: "*auth.UnsecureAuthenticator",
 		},
 		{
-			name:     "proxy mode uses ProxyAuthenticator",
-			authCfg:  struct{ Mode, UserIDClaim string }{"proxy", ""},
+			name:     "trusted-proxy mode uses ProxyAuthenticator",
+			authCfg:  struct{ Mode, UserIDClaim string }{"trusted-proxy", ""},
 			wantType: "*auth.ProxyAuthenticator",
 		},
 		{
-			name:     "proxy mode with custom claim",
-			authCfg:  struct{ Mode, UserIDClaim string }{"proxy", "user_id"},
+			name:     "trusted-proxy mode with custom claim",
+			authCfg:  struct{ Mode, UserIDClaim string }{"trusted-proxy", "user_id"},
 			wantType: "*auth.ProxyAuthenticator",
 		},
 	}

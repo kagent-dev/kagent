@@ -64,9 +64,9 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
-  # Authentication mode: "unsecure" (default) or "proxy"
+  # Authentication mode: "unsecure" (default) or "trusted-proxy"
   # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
-  # - proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
+  # - trusted-proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
   auth:
     mode: unsecure
     # JWT claim for user identity (default: "sub")
@@ -393,7 +393,7 @@ querydoc:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Requires controller.auth.mode: proxy
+# Requires controller.auth.mode: trusted-proxy
 
 oauth2-proxy:
   enabled: false
