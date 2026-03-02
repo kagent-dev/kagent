@@ -17,6 +17,10 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
   const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null); // Use null to indicate loading state
   const pathname = usePathname();
 
+  useEffect(() => {
+    setIsOnboarding(getInitialOnboardingState());
+  }, []);
+
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
     setIsOnboarding(false);
