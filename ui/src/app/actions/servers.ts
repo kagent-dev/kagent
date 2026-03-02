@@ -2,6 +2,7 @@
 import { RemoteMCPServer, MCPServer, ToolServerCreateRequest, ToolServerResponse } from "@/types";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/types";
+import { revalidatePath } from "next/cache";
 
 /**
  * Fetches all tool servers
@@ -35,6 +36,7 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
       method: "DELETE",
     });
 
+    revalidatePath("/servers");
     return {
       message: "MCP server deleted successfully",
     };
@@ -57,7 +59,8 @@ export async function createServer(serverData: ToolServerCreateRequest): Promise
       },
       body: JSON.stringify(serverData),
     });
-    
+
+    revalidatePath("/servers");
     return response;
   } catch (error) {
     return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating MCP server");

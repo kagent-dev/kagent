@@ -34,9 +34,10 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o manager cmd/controller/main.go
 
 ### STAGE 2: final image
-# Use distroless as minimal base image to package the manager binary
+# Use distroless/cc-debian12 which includes C/C++ runtime libraries
+# This is required for turso-go's purego library loading
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot
 ARG TARGETPLATFORM
 
 WORKDIR /

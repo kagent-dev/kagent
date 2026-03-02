@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	commonfs "github.com/kagent-dev/kagent/go/cli/internal/common/fs"
@@ -119,10 +120,8 @@ func validateToolName(name string) error {
 
 	// Check for reserved names
 	reservedNames := []string{"server", "main", "core", "utils", "init", "test"}
-	for _, reserved := range reservedNames {
-		if strings.ToLower(name) == reserved {
-			return fmt.Errorf("'%s' is a reserved name", name)
-		}
+	if slices.Contains(reservedNames, strings.ToLower(name)) {
+		return fmt.Errorf("'%s' is a reserved name", name)
 	}
 
 	return nil

@@ -3,12 +3,15 @@ package fake
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"math"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/database"
+	"github.com/kagent-dev/kagent/go/pkg/database"
+	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -29,6 +32,7 @@ type InMemoryFakeClient struct {
 	checkpointWrites  map[string][]*database.LangGraphCheckpointWrite // key: user_id:thread_id:checkpoint_ns:checkpoint_id
 	crewaiMemory      map[string][]*database.CrewAIAgentMemory        // key: user_id:thread_id:agent_id
 	crewaiFlowStates  map[string]*database.CrewAIFlowState            // key: user_id:thread_id
+	memories          map[string]*database.Memory                     // key: user_id:thread_id:agent_id
 	nextFeedbackID    int
 }
 
@@ -48,6 +52,7 @@ func NewClient() database.Client {
 		checkpointWrites:  make(map[string][]*database.LangGraphCheckpointWrite),
 		crewaiMemory:      make(map[string][]*database.CrewAIAgentMemory),
 		crewaiFlowStates:  make(map[string]*database.CrewAIFlowState),
+		memories:          make(map[string]*database.Memory),
 		nextFeedbackID:    1,
 	}
 }
@@ -72,7 +77,6 @@ func (c *InMemoryFakeClient) GetPushNotification(taskID string, configID string)
 }
 
 func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
-
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -89,7 +93,6 @@ func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
 }
 
 func (c *InMemoryFakeClient) DeleteTask(taskID string) error {
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -104,10 +107,10 @@ func (c *InMemoryFakeClient) StoreFeedback(feedback *database.Feedback) error {
 
 	// Copy the feedback and assign an ID
 	newFeedback := *feedback
-	newFeedback.ID = uint(c.nextFeedbackID)
+	newFeedback.MessageID = uint(c.nextFeedbackID)
 	c.nextFeedbackID++
 
-	key := fmt.Sprintf("%d", newFeedback.ID)
+	key := fmt.Sprintf("%d", newFeedback.MessageID)
 	c.feedback[key] = &newFeedback
 	return nil
 }
@@ -326,8 +329,8 @@ func (c *InMemoryFakeClient) ListSessions(userID string) ([]database.Session, er
 			result = append(result, *session)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+	slices.SortStableFunc(result, func(i, j database.Session) int {
+		return strings.Compare(i.ID, j.ID)
 	})
 	return result, nil
 }
@@ -343,8 +346,8 @@ func (c *InMemoryFakeClient) ListSessionsForAgent(agentID string, userID string)
 			result = append(result, *session)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ID < result[j].ID
+	slices.SortStableFunc(result, func(i, j database.Session) int {
+		return strings.Compare(i.ID, j.ID)
 	})
 	return result, nil
 }
@@ -358,7 +361,9 @@ func (c *InMemoryFakeClient) ListAgents() ([]database.Agent, error) {
 	for _, agent := range c.agents {
 		result = append(result, *agent)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	slices.SortStableFunc(result, func(i, j database.Agent) int {
+		return strings.Compare(i.ID, j.ID)
+	})
 	return result, nil
 }
 
@@ -371,8 +376,8 @@ func (c *InMemoryFakeClient) ListToolServers() ([]database.ToolServer, error) {
 	for _, server := range c.toolServers {
 		result = append(result, *server)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return (result[i].Name + result[i].GroupKind) < (result[j].Name + result[j].GroupKind)
+	slices.SortStableFunc(result, func(i, j database.ToolServer) int {
+		return strings.Compare(i.Name+i.GroupKind, j.Name+j.GroupKind)
 	})
 	return result, nil
 }
@@ -386,8 +391,8 @@ func (c *InMemoryFakeClient) ListTools() ([]database.Tool, error) {
 	for _, tool := range c.tools {
 		result = append(result, *tool)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return (result[i].ServerName + result[i].ID) < (result[j].ServerName + result[j].ID)
+	slices.SortStableFunc(result, func(i, j database.Tool) int {
+		return strings.Compare(i.ServerName+i.ID, j.ServerName+j.ID)
 	})
 	return result, nil
 }
@@ -409,8 +414,8 @@ func (c *InMemoryFakeClient) ListToolsForServer(serverName string, groupKind str
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return (result[i].ServerName + result[i].ID) < (result[j].ServerName + result[j].ID)
+	slices.SortStableFunc(result, func(i, j database.Tool) int {
+		return strings.Compare(i.ServerName+i.ID, j.ServerName+j.ID)
 	})
 	return result, nil
 }
@@ -437,7 +442,18 @@ func (c *InMemoryFakeClient) ListEventsForSession(sessionID, userID string, opti
 		return nil, nil
 	}
 
-	return events, nil
+	// Make a copy to avoid mutating the stored slice
+	result := make([]*database.Event, len(events))
+	copy(result, events)
+
+	if !options.OrderAsc {
+		// Default is DESC (newest first), reverse the insertion-order slice
+		for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+			result[i], result[j] = result[j], result[i]
+		}
+	}
+
+	return result, nil
 }
 
 // RefreshToolsForServer refreshes a tool server
@@ -534,6 +550,7 @@ func (c *InMemoryFakeClient) Clear() {
 	c.pushNotifications = make(map[string]*protocol.TaskPushNotificationConfig)
 	c.checkpoints = make(map[string]*database.LangGraphCheckpoint)
 	c.checkpointWrites = make(map[string][]*database.LangGraphCheckpointWrite)
+	c.memories = make(map[string]*database.Memory)
 	c.nextFeedbackID = 1
 }
 
@@ -740,10 +757,10 @@ func (c *InMemoryFakeClient) StoreCrewAIMemory(memory *database.CrewAIAgentMemor
 	if c.crewaiMemory == nil {
 		c.crewaiMemory = make(map[string][]*database.CrewAIAgentMemory)
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", memory.UserID, memory.ThreadID)
 	c.crewaiMemory[key] = append(c.crewaiMemory[key], memory)
-	
+
 	return nil
 }
 
@@ -755,16 +772,16 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 	if c.crewaiMemory == nil {
 		return []*database.CrewAIAgentMemory{}, nil
 	}
-	
+
 	var allMemories []*database.CrewAIAgentMemory
-	
+
 	// Search across all agents for this user/thread
 	for key, memories := range c.crewaiMemory {
 		// Key format is "user_id:thread_id"
 		if strings.HasPrefix(key, userID+":"+threadID) {
 			for _, memory := range memories {
 				// Parse the JSON memory data and search for task_description
-				var memoryData map[string]interface{}
+				var memoryData map[string]any
 				if err := json.Unmarshal([]byte(memory.MemoryData), &memoryData); err == nil {
 					if taskDesc, ok := memoryData["task_description"].(string); ok {
 						if strings.Contains(strings.ToLower(taskDesc), strings.ToLower(taskDescription)) {
@@ -779,38 +796,48 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 			}
 		}
 	}
-	
+
 	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
-	sort.Slice(allMemories, func(i, j int) bool {
+	slices.SortStableFunc(allMemories, func(i, j *database.CrewAIAgentMemory) int {
 		// First sort by created_at DESC (most recent first)
-		if !allMemories[i].CreatedAt.Equal(allMemories[j].CreatedAt) {
-			return allMemories[i].CreatedAt.After(allMemories[j].CreatedAt)
+		if !i.CreatedAt.Equal(j.CreatedAt) {
+			if i.CreatedAt.After(j.CreatedAt) {
+				return -1
+			} else {
+				return 1
+			}
 		}
-		
+
 		// If created_at is equal, sort by score ASC
 		var scoreI, scoreJ float64
-		var memoryDataI, memoryDataJ map[string]interface{}
-		
-		if err := json.Unmarshal([]byte(allMemories[i].MemoryData), &memoryDataI); err == nil {
+		var memoryDataI, memoryDataJ map[string]any
+
+		if err := json.Unmarshal([]byte(i.MemoryData), &memoryDataI); err == nil {
 			if score, ok := memoryDataI["score"].(float64); ok {
 				scoreI = score
 			}
 		}
-		
-		if err := json.Unmarshal([]byte(allMemories[j].MemoryData), &memoryDataJ); err == nil {
+
+		if err := json.Unmarshal([]byte(j.MemoryData), &memoryDataJ); err == nil {
 			if score, ok := memoryDataJ["score"].(float64); ok {
 				scoreJ = score
 			}
 		}
-		
-		return scoreI < scoreJ
+
+		if scoreI < scoreJ {
+			return -1
+		} else if scoreI > scoreJ {
+			return 1
+		} else {
+			return 0
+		}
 	})
-	
+
 	// Apply limit
 	if limit > 0 && len(allMemories) > limit {
 		allMemories = allMemories[:limit]
 	}
-	
+
 	return allMemories, nil
 }
 
@@ -822,7 +849,7 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 	if c.crewaiMemory == nil {
 		return nil
 	}
-	
+
 	// Find and delete all memory entries for this user/thread combination
 	keysToDelete := make([]string, 0)
 	for key := range c.crewaiMemory {
@@ -831,12 +858,12 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 			keysToDelete = append(keysToDelete, key)
 		}
 	}
-	
+
 	// Delete the entries
 	for _, key := range keysToDelete {
 		delete(c.crewaiMemory, key)
 	}
-	
+
 	return nil
 }
 
@@ -848,10 +875,10 @@ func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowStat
 	if c.crewaiFlowStates == nil {
 		c.crewaiFlowStates = make(map[string]*database.CrewAIFlowState)
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", state.UserID, state.ThreadID)
 	c.crewaiFlowStates[key] = state
-	
+
 	return nil
 }
 
@@ -863,9 +890,155 @@ func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*datab
 	if c.crewaiFlowStates == nil {
 		return nil, nil
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", userID, threadID)
 	state := c.crewaiFlowStates[key]
-	
+
 	return state, nil
+}
+
+// memoryKey creates a unique key for a memory record
+func (c *InMemoryFakeClient) memoryKey(agentName, userID, id string) string {
+	return fmt.Sprintf("%s:%s:%s", agentName, userID, id)
+}
+
+// StoreAgentMemory stores agent memory
+func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if memory.ID == "" {
+		memory.ID = fmt.Sprintf("%d", len(c.memories)+1)
+	}
+	key := c.memoryKey(memory.AgentName, memory.UserID, memory.ID)
+	c.memories[key] = memory
+	return nil
+}
+
+// StoreAgentMemories stores multiple agent memories
+func (c *InMemoryFakeClient) StoreAgentMemories(memories []*database.Memory) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, memory := range memories {
+		if memory.ID == "" {
+			memory.ID = fmt.Sprintf("%d", len(c.memories)+1)
+		}
+		key := c.memoryKey(memory.AgentName, memory.UserID, memory.ID)
+		c.memories[key] = memory
+	}
+	return nil
+}
+
+// cosineSimilarity computes the cosine similarity between two float32 slices.
+// Returns 0 if either vector has zero magnitude.
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		ai := float64(a[i])
+		bi := float64(b[i])
+		dot += ai * bi
+		normA += ai * ai
+		normB += bi * bi
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// SearchAgentMemory searches agent memory by vector similarity
+func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	queryVec := embedding.Slice()
+	now := time.Now()
+
+	var results []database.AgentMemorySearchResult
+	for _, memory := range c.memories {
+		if memory.AgentName != agentName || memory.UserID != userID {
+			continue
+		}
+		// Skip expired memories
+		if memory.ExpiresAt != nil && memory.ExpiresAt.Before(now) {
+			continue
+		}
+		score := cosineSimilarity(queryVec, memory.Embedding.Slice())
+		results = append(results, database.AgentMemorySearchResult{
+			Memory: *memory,
+			Score:  score,
+		})
+	}
+
+	// Sort by score descending
+	slices.SortStableFunc(results, func(i, j database.AgentMemorySearchResult) int {
+		if i.Score > j.Score {
+			return -1
+		} else if i.Score < j.Score {
+			return 1
+		}
+		return 0
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+// ListAgentMemories lists agent memories ordered by access count descending
+func (c *InMemoryFakeClient) ListAgentMemories(agentName, userID string) ([]database.Memory, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Memory
+	for _, memory := range c.memories {
+		if memory.AgentName == agentName && memory.UserID == userID {
+			result = append(result, *memory)
+		}
+	}
+
+	// Sort by access_count DESC
+	slices.SortStableFunc(result, func(i, j database.Memory) int {
+		if i.AccessCount > j.AccessCount {
+			return -1
+		} else if i.AccessCount < j.AccessCount {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+// DeleteAgentMemory deletes all agent memory for a given agent and user
+func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for key, memory := range c.memories {
+		if memory.AgentName == agentName && memory.UserID == userID {
+			delete(c.memories, key)
+		}
+	}
+	return nil
+}
+
+// PruneExpiredMemories removes all memories whose ExpiresAt is in the past
+func (c *InMemoryFakeClient) PruneExpiredMemories() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for key, memory := range c.memories {
+		if memory.ExpiresAt != nil && memory.ExpiresAt.Before(now) {
+			delete(c.memories, key)
+		}
+	}
+	return nil
 }

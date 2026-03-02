@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
-from ..artifacts import get_session_path
+from kagent.skills import execute_command, get_bash_description, get_session_path
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -31,26 +29,7 @@ class BashTool(BaseTool):
     def __init__(self, skills_directory: str | Path):
         super().__init__(
             name="bash",
-            description=(
-                "Execute bash commands in the skills environment with sandbox protection.\n\n"
-                "Working Directory & Structure:\n"
-                "- Commands run in a temporary session directory: /tmp/kagent/{session_id}/\n"
-                "- /skills -> All skills are available here (read-only).\n"
-                "- Your current working directory is added to PYTHONPATH.\n\n"
-                "Python Imports (CRITICAL):\n"
-                "- To import from a skill, use the full path from the 'skills' root.\n"
-                "  Example: from skills.skills_name.module import function\n\n"
-                "- If the skills name contains a dash '-', you need to use importlib to import it.\n"
-                "  Example:\n"
-                "    import importlib\n"
-                "    skill_module = importlib.import_module('skills.skill-name.module')\n\n"
-                "For file operations:\n"
-                "- Use read_file, write_file, and edit_file for interacting with the filesystem.\n\n"
-                "Timeouts:\n"
-                "- pip install: 120s\n"
-                "- python scripts: 60s\n"
-                "- other commands: 30s\n"
-            ),
+            description=get_bash_description(),
         )
         self.skills_directory = Path(skills_directory).resolve()
         if not self.skills_directory.exists():
@@ -85,99 +64,11 @@ class BashTool(BaseTool):
             return "Error: No command provided"
 
         try:
-            result = await self._execute_command_with_srt(command, tool_context)
+            working_dir = get_session_path(session_id=tool_context.session.id)
+            result = await execute_command(command, working_dir)
             logger.info(f"Executed bash command: {command}, description: {description}")
             return result
         except Exception as e:
             error_msg = f"Error executing command '{command}': {e}"
             logger.error(error_msg)
             return error_msg
-
-    async def _execute_command_with_srt(self, command: str, tool_context: ToolContext) -> str:
-        """Execute a bash command safely using the Anthropic Sandbox Runtime.
-
-        The srt (Sandbox Runtime) wraps the command in a secure sandbox that enforces
-        filesystem and network restrictions at the OS level.
-
-        The working directory is a temporary session path, which contains:
-        - uploads/: staged user files
-        - outputs/: location for generated files
-        The /skills directory is available at the root and on the PYTHONPATH.
-        """
-        # Get session working directory (initialized by SkillsPlugin)
-        working_dir = get_session_path(session_id=tool_context.session.id)
-
-        # Determine timeout based on command
-        timeout = self._get_command_timeout_seconds(command)
-
-        # Prepare environment with PYTHONPATH including skills directory
-        # This allows imports like: from skills.slack_gif_creator.core import something
-        env = os.environ.copy()
-        # Add root for 'from skills...' and working_dir for local scripts
-        pythonpath_additions = [str(working_dir), "/"]
-        if "PYTHONPATH" in env:
-            pythonpath_additions.append(env["PYTHONPATH"])
-        env["PYTHONPATH"] = ":".join(pythonpath_additions)
-
-        # Use the separate bash tool venv instead of the app's venv
-        bash_venv_path = os.environ.get("BASH_VENV_PATH", "/.kagent/sandbox-venv")
-        bash_venv_bin = os.path.join(bash_venv_path, "bin")
-        # Prepend bash venv to PATH so its python and pip are used
-        env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
-        env["VIRTUAL_ENV"] = bash_venv_path
-
-        # Execute with sandbox runtime
-        sandboxed_command = f'srt "{command}"'
-
-        try:
-            process = await asyncio.create_subprocess_shell(
-                sandboxed_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=working_dir,
-                env=env,  # Pass the modified environment
-            )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                return f"Error: Command timed out after {timeout}s"
-
-            stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
-            stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
-
-            # Handle command failure
-            if process.returncode != 0:
-                error_msg = f"Command failed with exit code {process.returncode}"
-                if stderr_str:
-                    error_msg += f":\n{stderr_str}"
-                elif stdout_str:
-                    error_msg += f":\n{stdout_str}"
-                return error_msg
-
-            # Return output
-            output = stdout_str
-            if stderr_str and "WARNING" not in stderr_str:
-                output += f"\n{stderr_str}"
-
-            return output.strip() if output.strip() else "Command completed successfully."
-
-        except Exception as e:
-            logger.error(f"Error executing command: {e}")
-            return f"Error: {e}"
-
-    def _get_command_timeout_seconds(self, command: str) -> float:
-        """Determine appropriate timeout for command in seconds.
-
-        Based on the command string, determine the timeout. srt timeout is in milliseconds,
-        so we return seconds for asyncio compatibility.
-        """
-        # Check for keywords in the command to determine timeout
-        if "pip install" in command or "pip3 install" in command:
-            return 120.0  # 2 minutes for package installations
-        elif "python " in command or "python3 " in command:
-            return 60.0  # 1 minute for python scripts
-        else:
-            return 30.0  # 30 seconds for other commands

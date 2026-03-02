@@ -9,7 +9,12 @@ import json
 import logging
 import random
 from collections.abc import AsyncIterator, Iterator, Sequence
-from typing import Any, cast, override
+from typing import Any, cast
+
+try:
+    from typing import override  # Python 3.12+
+except ImportError:
+    from typing_extensions import override
 
 import httpx
 from langchain_core.runnables import RunnableConfig

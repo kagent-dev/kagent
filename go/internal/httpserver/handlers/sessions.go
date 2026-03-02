@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/internal/database"
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	"github.com/kagent-dev/kagent/go/pkg/database"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -184,6 +184,9 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 
 	queryOptions := database.QueryOptions{
 		Limit: 0,
+	}
+	if r.URL.Query().Get("order") == "asc" {
+		queryOptions.OrderAsc = true
 	}
 	after := r.URL.Query().Get("after")
 	if after != "" {

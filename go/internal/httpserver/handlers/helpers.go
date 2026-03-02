@@ -24,7 +24,7 @@ type ErrorResponseWriter interface {
 	Flush()
 }
 
-func RespondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+func RespondWithJSON(w http.ResponseWriter, code int, payload any) {
 	log := ctrllog.Log.WithName("http-helpers")
 
 	response, err := json.Marshal(payload)
@@ -126,14 +126,14 @@ func GetIntPathParam(r *http.Request, name string) (int, error) {
 }
 
 // DecodeJSONBody decodes a JSON request body into the provided struct
-func DecodeJSONBody(r *http.Request, target interface{}) error {
+func DecodeJSONBody(r *http.Request, target any) error {
 	log := ctrllog.Log.WithName("http-helpers")
 
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		log.Info("Failed to decode JSON request body", "error", err.Error())
 		return err
 	}
-	defer r.Body.Close() //nolint:errcheck
+	defer r.Body.Close()
 
 	log.V(2).Info("Successfully decoded JSON request body")
 	return nil
@@ -141,7 +141,7 @@ func DecodeJSONBody(r *http.Request, target interface{}) error {
 
 // flattenStructToMap uses reflection to add fields of a struct to a map,
 // using json tags as keys.
-func FlattenStructToMap(data interface{}, targetMap map[string]interface{}) {
+func FlattenStructToMap(data any, targetMap map[string]any) {
 	val := reflect.ValueOf(data)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()

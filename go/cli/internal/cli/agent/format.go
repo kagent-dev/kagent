@@ -17,16 +17,16 @@ const (
 	OutputFormatTable OutputFormat = "table"
 )
 
-func printOutput(data interface{}, tableHeaders []string, tableRows [][]string) error {
+func printOutput(data any, tableHeaders []string, tableRows [][]string) error {
 	format := OutputFormat(viper.GetString("output_format"))
 
 	tw := table.NewWriter()
-	headers := slices.Collect(utils.Map(slices.Values(tableHeaders), func(header string) interface{} {
+	headers := slices.Collect(utils.Map(slices.Values(tableHeaders), func(header string) any {
 		return header
 	}))
 	tw.AppendHeader(headers)
 	rows := slices.Collect(utils.Map(slices.Values(tableRows), func(row []string) table.Row {
-		return slices.Collect(utils.Map(slices.Values(row), func(cell string) interface{} {
+		return slices.Collect(utils.Map(slices.Values(row), func(cell string) any {
 			return cell
 		}))
 	}))
@@ -43,7 +43,7 @@ func printOutput(data interface{}, tableHeaders []string, tableRows [][]string) 
 	}
 }
 
-func printJSON(data interface{}) error {
+func printJSON(data any) error {
 	output, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error formatting JSON: %w", err)

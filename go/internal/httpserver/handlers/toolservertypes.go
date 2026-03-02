@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
@@ -40,12 +41,13 @@ func (t ToolServerTypes) Join(sep string) string {
 		return string(t[0])
 	}
 
-	joined := string(t[0])
+	var joined strings.Builder
+	joined.WriteString(string(t[0]))
 	for _, s := range t[1:] {
-		joined += sep + string(s)
+		joined.WriteString(sep + string(s))
 	}
 
-	return joined
+	return joined.String()
 }
 
 const (

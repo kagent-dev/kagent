@@ -1,0 +1,27 @@
+operation: translateAgent
+targetObject: passthrough-agent
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: passthrough-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeyPassthrough: true
+      openAI:
+        temperature: "0.7"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: passthrough-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent that uses API key passthrough
+        systemMessage: You are a helpful assistant.
+        modelConfig: passthrough-model
+        tools: []

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ interface SelectToolsDialogProps {
   onToolsSelected: (tools: Tool[]) => void;
   availableAgents: AgentResponse[];
   loadingAgents: boolean;
+  currentAgentNamespace: string;
 }
 
 
@@ -65,17 +66,23 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   }
 };
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents }) => {
+export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents, currentAgentNamespace }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [localSelectedTools, setLocalSelectedTools] = useState<Tool[]>([]);
   const [categories, setCategories] = useState<Set<string>>(new Set());
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
+  
+  // Track previous open state to detect when dialog just opened
+  const wasOpenRef = useRef(open);
 
-  // Initialize the state when dialog opens
-  useEffect(() => {
-    if (open) {
+  // Initialize the state when dialog opens (only on transition from closed to open)
+  // This is a legitimate synchronization effect for dialog state reset
+  useLayoutEffect(() => {
+    if (open && !wasOpenRef.current) {
+      // Dialog just opened - reset state
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- legitimate sync on dialog open
       setLocalSelectedTools(selectedTools);
       setSearchTerm("");
 
@@ -86,7 +93,6 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           const category = getToolResponseCategory(tool);
           uniqueCategories.add(category);
           categoryCollapseState[category] = true;
-
       });
 
       if (availableAgents.length > 0) {
@@ -99,6 +105,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       setExpandedCategories(categoryCollapseState);
       setShowFilters(false);
     }
+    wasOpenRef.current = open;
   }, [open, selectedTools, availableTools, availableAgents]);
 
   const actualSelectedCount = useMemo(() => {
@@ -174,11 +181,25 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   const isItemSelected = (item: ToolsResponse | AgentResponse): boolean => {
     if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
-      const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
+
+      // "item" is an agent but called item to here so as not to confuse
+      // variables with the agent to which the tool is being added
+      const itemNamespace = agentResp.agent.metadata.namespace || "";
+      const itemName = agentResp.agent.metadata.name;
       
       return localSelectedTools.some(tool => {
         if (!isAgentTool(tool)) return false;
-        return tool.agent?.name === agentRef || tool.agent?.name === agentResp.agent.metadata.name;
+        
+        const toolName = tool.agent?.name;
+        const toolNamespace = tool.agent?.namespace;
+        
+        // Match by name and namespace
+        if (toolNamespace) {
+          return toolNamespace === itemNamespace && toolName === itemName;
+        }
+
+        // If no namespace in tool, match by name only
+        return toolName === itemName;
       });
     } else {
       const toolItem = item as ToolsResponse;
@@ -208,11 +229,14 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
-      const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
+      const agentNamespace = agentResp.agent.metadata.namespace || "";
+      const agentName = agentResp.agent.metadata.name;
+      
       toolToAdd = {
         type: "Agent",
         agent: {
-          name: agentRef,
+          name: agentName,
+          namespace: agentNamespace,
           kind: "Agent",
           apiGroup: "kagent.dev",
         }
@@ -480,12 +504,18 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         );
                         const specificDescription = foundTool?.description || "Description not available";
                         
+                        // Show server name with namespace for consistency
+                        const serverName = tool.mcpServer?.name || "";
+                        const serverNamespace = tool.mcpServer?.namespace || currentAgentNamespace;
+                        const serverDisplayName = `${serverNamespace}/${serverName}`;
+                        const displayName = `${toolName} (${serverDisplayName})`;
+                        
                         return (
                         <div key={`${tool.mcpServer?.name}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
                           <div className="flex items-center gap-2 flex-1 overflow-hidden">
                             <FunctionSquare className="h-4 w-4 flex-shrink-0 text-blue-400" />
                             <div className="flex-1 overflow-hidden">
-                              <p className="text-sm font-medium truncate">{toolName}</p>
+                              <p className="text-sm font-medium truncate">{displayName}</p>
                               <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
                             </div>
                           </div>
@@ -519,8 +549,16 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                     } else {
                       const matchedAgent = isAgentTool(tool)
                         ? availableAgents.find(a => {
-                            const ref = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
-                            return ref === tool.agent?.name || a.agent.metadata.name === tool.agent?.name;
+                            const agentName = tool.agent?.name;
+                            const agentNamespace = tool.agent?.namespace;
+                            
+                            // Match by name and namespace (if namespace is specified)
+                            if (agentNamespace) {
+                              return a.agent.metadata.namespace === agentNamespace && 
+                                     a.agent.metadata.name === agentName;
+                            }
+                            // If no namespace specified, match by name only
+                            return a.agent.metadata.name === agentName;
                           })
                         : undefined;
 

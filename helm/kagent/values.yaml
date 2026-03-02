@@ -7,7 +7,6 @@
 tag: ""
 registry: "cr.kagent.dev"
 
-
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
 
@@ -53,9 +52,14 @@ nodeSelector: {}
 database:
   type: sqlite
   sqlite:
+    vectorEnabled: true
     databaseName: kagent.db
   postgres:
+    vectorEnabled: true
     url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
+    # Path to a file containing the database URL.
+    # Takes precedence over url when set.
+    urlFile: ""
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -78,6 +82,12 @@ controller:
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
+  # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
+  skillsInitImage:
+    registry: ""
+    repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
   streaming: # Streaming buffer size for A2A communication
@@ -185,6 +195,9 @@ providers:
     model: "llama3.2"
     config:
       host: host.docker.internal:11434
+      options:
+        num_ctx: "64000"
+
   anthropic:
     provider: Anthropic
     model: "claude-3-5-haiku-20241022"
@@ -218,9 +231,6 @@ kmcp:
   nameOverride: "kmcp"
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
-  image:
-    tag: "0.2.2" # Required until https://github.com/kagent-dev/kmcp/issues/74 is resolved
-  # See https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml for chart values
 
 # ==============================================================================
 # BUILT-IN TOOLS
@@ -363,7 +373,9 @@ tools:
 grafana-mcp:
   grafana:
     url: "grafana.kagent:3000/api"
-    apiKey: "-"
+    serviceAccountToken: ""
+    # apiKey: "" # Deprecated - use serviceAccountToken instead.
+    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
   resources:
     requests:
       cpu: 100m
@@ -491,13 +503,13 @@ otel:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""
         timeout: 15
         insecure: true

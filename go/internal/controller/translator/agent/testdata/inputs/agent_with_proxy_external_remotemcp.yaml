@@ -1,0 +1,49 @@
+operation: translateAgent
+targetObject: agent-with-proxy-external
+namespace: test
+proxyURL: http://proxy.kagent.svc.cluster.local:8080
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: RemoteMCPServer
+    metadata:
+      name: external-mcp-server
+      namespace: test
+    spec:
+      url: https://external-mcp.example.com/mcp
+      description: "External MCP Server"
+      protocol: STREAMABLE_HTTP
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-proxy-external
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent with proxy configuration and external RemoteMCPServer
+        systemMessage: You are an agent that uses proxies.
+        modelConfig: default-model
+        tools:
+          - type: MCPServer
+            mcpServer:
+              name: external-mcp-server
+              kind: RemoteMCPServer
+              toolNames:
+                - test-tool

@@ -69,13 +69,14 @@ export const TruncatableText = memo(({ content, isJson = false, className = "", 
 
     return (
       <div className="relative">
-        <ReactMarkdown
-          className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`}
-          components={components}
-          remarkPlugins={[gfm]}
-          rehypePlugins={[[rehypeExternalLinks, {target: '_blank'}]]}>
-          {content.trim()}
-        </ReactMarkdown>
+        <div className={`prose-md prose max-w-none dark:prose-invert dark:text-primary-foreground ${isStreaming ? "streaming-content" : ""}`}>
+          <ReactMarkdown
+            components={components}
+            remarkPlugins={[gfm]}
+            rehypePlugins={[[rehypeExternalLinks, {target: '_blank'}]]}>
+            {content.trim()}
+          </ReactMarkdown>
+        </div>
 
         {isStreaming && (
           <div className="inline-flex items-center ml-2">

@@ -6,15 +6,16 @@ import { OnboardingWizard } from './onboarding/OnboardingWizard';
 
 const LOCAL_STORAGE_KEY = 'kagent-onboarding';
 
+// Helper to safely read localStorage (returns null during SSR)
+const getInitialOnboardingState = (): boolean | null => {
+  if (typeof window === 'undefined') return null;
+  const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY);
+  return hasOnboarded !== 'true';
+};
+
 export function AppInitializer({ children }: { children: React.ReactNode }) {
   const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null); // Use null to indicate loading state
   const pathname = usePathname();
-
-  useEffect(() => {
-    // localStorage is only available in the browser
-    const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY);
-    setIsOnboarding(hasOnboarded !== 'true');
-  }, []);
 
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
