@@ -31,7 +31,7 @@ def make_approval_callback(
         tool: BaseTool,
         args: dict[str, Any],
         tool_context: ToolContext,
-    ) -> dict | None:
+    ) -> str | dict | None:
         tool_name = tool.name
         if tool_name not in tools_requiring_approval:
             return None  # No approval needed, proceed normally
@@ -42,9 +42,18 @@ def make_approval_callback(
                 logger.debug("Tool %s approved by user, proceeding", tool_name)
                 return None  # Approved — proceed with tool execution
             logger.debug("Tool %s rejected by user", tool_name)
-            return {"status": "rejected", "message": "Tool call was rejected by user."}
+            # Check for an optional rejection reason in the payload
+            # (the key "rejection_reason" is set by _agent_executor._process_hitl_decision)
+            payload = tool_context.tool_confirmation.payload or {}
+            reason = payload.get("rejection_reason", "") if isinstance(payload, dict) else ""
+            # __build_response_event wraps it as {"result": "..."} that LLM adapters expect
+            # ADK will skip executing the function if the before tool callback returns a response
+            if reason:
+                return f"Tool call was rejected by user. Reason: {reason}"
+            return "Tool call was rejected by user."
 
         # First invocation — request confirmation and block execution
+        # # This response is never sent to the LLM
         logger.debug("Tool %s requires approval, requesting confirmation", tool_name)
         tool_context.request_confirmation(
             hint=f"Tool '{tool_name}' requires approval before execution.",

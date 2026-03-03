@@ -12,11 +12,13 @@ from google.genai import types as genai_types
 from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
 from kagent.core.a2a import (
+    KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
     KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
     KAGENT_HITL_DECISIONS_KEY,
+    KAGENT_HITL_REJECTION_REASONS_KEY,
 )
 
 
@@ -91,14 +93,14 @@ class TestMakeApprovalCallback:
         assert result is None  # Tool proceeds
 
     def test_rejected_confirmation_blocks_execution(self):
-        """When tool_confirmation.confirmed is False, tool returns rejection."""
+        """When tool_confirmation.confirmed is False, tool returns rejection string."""
         callback = make_approval_callback({"delete_file"})
         tool = MockBaseTool("delete_file")
         confirmation = ToolConfirmation(confirmed=False)
         ctx = MockToolContext(tool_confirmation=confirmation)
         result = callback(tool, {"path": "/tmp"}, ctx)
-        assert result is not None
-        assert result["status"] == "rejected"
+        assert isinstance(result, str)
+        assert "rejected" in result
 
     def test_multiple_tools_mixed(self):
         """Only tools in the set request confirmation, others proceed."""
@@ -239,12 +241,23 @@ def test_find_pending_confirmations_missing_original_id():
     assert pending == {"fc1": None}
 
 
+def _make_simple_message(parts=None) -> Message:
+    """Create a minimal real Message for testing."""
+    return Message(
+        role=Role.user,
+        message_id="test-msg",
+        task_id="test-task",
+        context_id="test-ctx",
+        parts=parts or [],
+    )
+
+
 def test_process_hitl_decision_no_pending():
     executor = A2aAgentExecutor(runner=MagicMock())
     session = MagicMock(spec=Session)
     session.events = []
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, MagicMock(spec=Message))
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, _make_simple_message())
     assert parts is None
 
 
@@ -263,8 +276,7 @@ def test_process_hitl_decision_uniform_approve():
         )
     ]
 
-    message = MagicMock(spec=Message)
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, message)
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, _make_simple_message())
 
     assert parts is not None
     assert len(parts) == 1
@@ -291,8 +303,7 @@ def test_process_hitl_decision_uniform_deny():
         )
     ]
 
-    message = MagicMock(spec=Message)
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_REJECT, message)
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_REJECT, _make_simple_message())
 
     assert parts is not None
     assert len(parts) == 1
@@ -356,3 +367,181 @@ def test_process_hitl_decision_batch():
     fr2 = parts_by_id["fc2"]
     resp2 = json.loads(fr2.response["response"])
     assert resp2["confirmed"] is False
+
+
+def test_process_hitl_decision_uniform_deny_with_reason():
+    """Uniform deny with a rejection_reason populates ToolConfirmation.payload."""
+    executor = A2aAgentExecutor(runner=MagicMock())
+    session = MagicMock(spec=Session)
+    session.events = [
+        MockEvent(
+            function_calls=[
+                MockFunctionCall(
+                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                    "fc1",
+                    args={"originalFunctionCall": {"id": "orig123"}},
+                )
+            ]
+        )
+    ]
+
+    message = Message(
+        role=Role.user,
+        message_id="msg1",
+        task_id="task1",
+        context_id="ctx1",
+        parts=[
+            Part(
+                DataPart(
+                    data={
+                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT,
+                        "rejection_reason": "Too risky",
+                    }
+                )
+            )
+        ],
+    )
+
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_REJECT, message)
+
+    assert parts is not None
+    assert len(parts) == 1
+    fr = parts[0].function_response
+    resp = json.loads(fr.response["response"])
+    assert resp["confirmed"] is False
+    assert resp["payload"]["rejection_reason"] == "Too risky"
+
+
+def test_process_hitl_decision_batch_with_per_tool_reason():
+    """Batch deny with per-tool rejection reasons populates ToolConfirmation.payload for denied tools."""
+    executor = A2aAgentExecutor(runner=MagicMock())
+    session = MagicMock(spec=Session)
+    session.events = [
+        MockEvent(
+            function_calls=[
+                MockFunctionCall(
+                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                    "fc1",
+                    args={"originalFunctionCall": {"id": "orig123"}},
+                ),
+                MockFunctionCall(
+                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                    "fc2",
+                    args={"originalFunctionCall": {"id": "orig456"}},
+                ),
+            ]
+        )
+    ]
+
+    message = Message(
+        role=Role.user,
+        message_id="msg1",
+        task_id="task1",
+        context_id="ctx1",
+        parts=[
+            Part(
+                DataPart(
+                    data={
+                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
+                        KAGENT_HITL_DECISIONS_KEY: {
+                            "orig123": KAGENT_HITL_DECISION_TYPE_APPROVE,
+                            "orig456": KAGENT_HITL_DECISION_TYPE_REJECT,
+                        },
+                        KAGENT_HITL_REJECTION_REASONS_KEY: {
+                            "orig456": "Wrong environment",
+                        },
+                    }
+                )
+            )
+        ],
+    )
+
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_BATCH, message)
+
+    assert parts is not None
+    assert len(parts) == 2
+
+    parts_by_id = {p.function_response.id: p.function_response for p in parts}
+
+    # Approved tool — no payload
+    fr1 = parts_by_id["fc1"]
+    resp1 = json.loads(fr1.response["response"])
+    assert resp1["confirmed"] is True
+    assert resp1.get("payload") is None
+
+    # Denied tool — reason in payload
+    fr2 = parts_by_id["fc2"]
+    resp2 = json.loads(fr2.response["response"])
+    assert resp2["confirmed"] is False
+    assert resp2["payload"]["rejection_reason"] == "Wrong environment"
+
+
+def test_approval_callback_rejection_with_reason():
+    """Rejected callback with a reason in payload returns a result containing that reason."""
+    callback = make_approval_callback({"delete_file"})
+    tool = MockBaseTool("delete_file")
+    confirmation = ToolConfirmation(confirmed=False, payload={"rejection_reason": "Dangerous path"})
+    ctx = MockToolContext(tool_confirmation=confirmation)
+    result = callback(tool, {"path": "/tmp"}, ctx)
+    assert result is not None
+    assert "Dangerous path" in result
+
+
+def test_approval_callback_rejection_without_reason():
+    """Rejected callback without a reason returns generic rejection message in result key."""
+    callback = make_approval_callback({"delete_file"})
+    tool = MockBaseTool("delete_file")
+    confirmation = ToolConfirmation(confirmed=False)
+    ctx = MockToolContext(tool_confirmation=confirmation)
+    result = callback(tool, {"path": "/tmp"}, ctx)
+    assert result is not None
+    assert result == "Tool call was rejected by user."
+
+
+# ---------------------------------------------------------------------------
+# Ask-user tests
+# ---------------------------------------------------------------------------
+
+
+def test_process_hitl_decision_ask_user_answers():
+    """Ask-user answers produce an approved ToolConfirmation with answers payload."""
+    executor = A2aAgentExecutor(runner=MagicMock())
+    session = MagicMock(spec=Session)
+    session.events = [
+        MockEvent(
+            function_calls=[
+                MockFunctionCall(
+                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                    "fc1",
+                    args={"originalFunctionCall": {"id": "ask123"}},
+                )
+            ]
+        )
+    ]
+
+    answers = [{"answer": ["PostgreSQL"]}, {"answer": ["Auth", "Caching"]}]
+    message = Message(
+        role=Role.user,
+        message_id="msg1",
+        task_id="task1",
+        context_id="ctx1",
+        parts=[
+            Part(
+                DataPart(
+                    data={
+                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE,
+                        KAGENT_ASK_USER_ANSWERS_KEY: answers,
+                    }
+                )
+            )
+        ],
+    )
+
+    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, message)
+
+    assert parts is not None
+    assert len(parts) == 1
+    fr = parts[0].function_response
+    resp = json.loads(fr.response["response"])
+    assert resp["confirmed"] is True
+    assert resp["payload"]["answers"] == answers

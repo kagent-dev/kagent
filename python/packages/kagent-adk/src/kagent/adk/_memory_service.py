@@ -333,6 +333,8 @@ class KagentMemoryService(BaseMemoryService):
                 litellm_model = f"ollama/{model_name}"
             elif provider == "vertex_ai":
                 litellm_model = f"vertex_ai/{model_name}"
+            elif provider == "gemini":
+                litellm_model = f"gemini/{model_name}"
 
         try:
             is_batch = isinstance(input_data, list)

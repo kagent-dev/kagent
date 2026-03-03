@@ -13,12 +13,14 @@ from a2a.types import (
 )
 
 from ._consts import (
+    KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
     KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
     KAGENT_HITL_DECISIONS_KEY,
+    KAGENT_HITL_REJECTION_REASONS_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,5 +138,79 @@ def extract_batch_decisions_from_message(message: Message | None) -> dict[str, D
                             call_id,
                         )
                 return filtered or None
+
+    return None
+
+
+def extract_rejection_reasons_from_message(message: Message | None) -> dict[str, str] | None:
+    """Extract per-tool rejection reasons from A2A message.
+
+    For uniform denials, the reason is extracted from the top-level
+    ``rejection_reason`` key and returned mapped to the sentinel key ``"*"``.
+    For batch denials, reasons are extracted from the ``rejection_reasons``
+    dict (mapping original tool call IDs → reason strings).
+
+    Args:
+        message: A2A message from user
+
+    Returns:
+        Dict mapping original tool call IDs (or ``"*"`` for uniform) to
+        reason strings, or None if no reasons found.
+    """
+    if not message or not message.parts:
+        return None
+
+    for part in message.parts:
+        if not hasattr(part, "root"):
+            continue
+
+        inner = part.root
+
+        if isinstance(inner, DataPart):
+            data = inner.data
+            decision = data.get(KAGENT_HITL_DECISION_TYPE_KEY)
+
+            if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
+                reasons = data.get(KAGENT_HITL_REJECTION_REASONS_KEY)
+                if isinstance(reasons, dict):
+                    filtered: dict[str, str] = {}
+                    for call_id, reason in reasons.items():
+                        if isinstance(call_id, str) and isinstance(reason, str) and reason:
+                            filtered[call_id] = reason
+                    return filtered or None
+            elif decision in (KAGENT_HITL_DECISION_TYPE_DENY, KAGENT_HITL_DECISION_TYPE_REJECT):
+                reason = data.get("rejection_reason")
+                if isinstance(reason, str) and reason:
+                    return {"*": reason}
+
+    return None
+
+
+def extract_ask_user_answers_from_message(message: Message | None) -> list[dict] | None:
+    """Extract ask-user answers from A2A message.
+
+    When the UI sends an ask-user response, the DataPart contains an
+    ``ask_user_answers`` list of ``{answer: [...]}`` dicts.
+
+    Args:
+        message: A2A message from user
+
+    Returns:
+        List of answer dicts, or None if this is not an ask-user response.
+    """
+    if not message or not message.parts:
+        return None
+
+    for part in message.parts:
+        if not hasattr(part, "root"):
+            continue
+
+        inner = part.root
+
+        if isinstance(inner, DataPart):
+            data = inner.data
+            answers = data.get(KAGENT_ASK_USER_ANSWERS_KEY)
+            if isinstance(answers, list):
+                return answers
 
     return None
