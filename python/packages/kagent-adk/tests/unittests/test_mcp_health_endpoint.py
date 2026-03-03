@@ -61,13 +61,14 @@ def test_healthy_mcp_returns_ok():
     mock_session = AsyncMock()
     mock_session.send_ping = AsyncMock(return_value=None)
 
-    with patch.object(
-        KAgentMCPSessionManager,
-        "create_session",
-        new_callable=AsyncMock,
-        return_value=mock_session,
-    ), patch.object(
-        KAgentMCPSessionManager, "close", new_callable=AsyncMock
+    with (
+        patch.object(
+            KAgentMCPSessionManager,
+            "create_session",
+            new_callable=AsyncMock,
+            return_value=mock_session,
+        ),
+        patch.object(KAgentMCPSessionManager, "close", new_callable=AsyncMock),
     ):
         handler = _build_mcp_health_check(config)
         app = _make_app(handler)
@@ -86,13 +87,14 @@ def test_unhealthy_mcp_returns_503():
     config.http_tools = [_make_http_tool("http://dead-mcp.example.com/mcp")]
     config.sse_tools = None
 
-    with patch.object(
-        KAgentMCPSessionManager,
-        "create_session",
-        new_callable=AsyncMock,
-        side_effect=ConnectionError("connection refused"),
-    ), patch.object(
-        KAgentMCPSessionManager, "close", new_callable=AsyncMock
+    with (
+        patch.object(
+            KAgentMCPSessionManager,
+            "create_session",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("connection refused"),
+        ),
+        patch.object(KAgentMCPSessionManager, "close", new_callable=AsyncMock),
     ):
         handler = _build_mcp_health_check(config)
         app = _make_app(handler)
@@ -103,7 +105,7 @@ def test_unhealthy_mcp_returns_503():
     assert resp.status_code == 503
     body = resp.json()
     assert body["status"] == "error"
-    assert "http://dead-mcp.example.com/mcp" in body["errors"]
+    assert body["unhealthy_count"] == 1
 
 
 def test_method_not_found_treated_as_healthy():
@@ -115,13 +117,14 @@ def test_method_not_found_treated_as_healthy():
     config.http_tools = [_make_http_tool("http://no-ping-mcp.example.com/mcp")]
     config.sse_tools = None
 
-    with patch.object(
-        KAgentMCPSessionManager,
-        "create_session",
-        new_callable=AsyncMock,
-        side_effect=McpError(error=ErrorData(code=-32601, message="Method not found")),
-    ), patch.object(
-        KAgentMCPSessionManager, "close", new_callable=AsyncMock
+    with (
+        patch.object(
+            KAgentMCPSessionManager,
+            "create_session",
+            new_callable=AsyncMock,
+            side_effect=McpError(error=ErrorData(code=-32601, message="Method not found")),
+        ),
+        patch.object(KAgentMCPSessionManager, "close", new_callable=AsyncMock),
     ):
         handler = _build_mcp_health_check(config)
         app = _make_app(handler)

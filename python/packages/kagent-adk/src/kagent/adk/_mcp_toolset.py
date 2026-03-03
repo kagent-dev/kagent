@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 from google.adk.tools import BaseTool
 from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
@@ -43,29 +43,20 @@ class KAgentMCPSessionManager(MCPSessionManager):
     session is torn down and a brand-new one is created transparently.
     """
 
-    async def create_session(
-        self, headers: Optional[Dict[str, str]] = None
-    ) -> ClientSession:
+    async def create_session(self, headers: dict[str, str] | None = None) -> ClientSession:
         session = await super().create_session(headers)
 
         try:
-            await asyncio.wait_for(
-                session.send_ping(), timeout=_PING_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(session.send_ping(), timeout=_PING_TIMEOUT_SECONDS)
             return session
         except Exception as exc:
             if _is_server_alive_error(exc):
                 return session
-            logger.warning(
-                "MCP session failed ping validation, "
-                "invalidating cached session and creating a fresh one"
-            )
+            logger.warning("MCP session failed ping validation, invalidating cached session and creating a fresh one")
             try:
                 await self.close()
             except Exception as close_exc:
-                logger.debug(
-                    "Non-fatal error while closing stale session: %s", close_exc
-                )
+                logger.debug("Non-fatal error while closing stale session: %s", close_exc)
             return await super().create_session(headers)
 
 
