@@ -94,7 +94,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
-	
+
 ##@ Git
 
 .PHONY: init-git-hooks
@@ -102,7 +102,7 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 	echo "Git hooks initialized"
 
-# KMCP 
+# KMCP
 KMCP_ENABLED ?= true
 KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
@@ -172,7 +172,7 @@ push-test-agent: buildx-create build-kagent-adk
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	
+
 .PHONY: push-test-skill
 push-test-skill: buildx-create
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
@@ -241,6 +241,7 @@ build-img-versions:
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
+	@echo skills-init=$(SKILLS_INIT_IMG)
 
 .PHONY: lint
 lint:
@@ -451,3 +452,4 @@ report/image-cve: audit build
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
+	grype docker:$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv

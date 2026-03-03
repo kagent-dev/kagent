@@ -28,6 +28,7 @@ jobs:
           - controller
           - ui
           - app
+          - skills-init
     runs-on: ubuntu-latest
     services:
       registry:
