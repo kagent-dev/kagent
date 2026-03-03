@@ -377,6 +377,7 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 	return result, nil
 }
 
+// +kubebuilder:validation:XValidation:message="each RequireApproval entry must also appear in ToolNames",rule="!has(self.requireApproval) || self.requireApproval.all(x, has(self.toolNames) && x in self.toolNames)"
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// +optional
@@ -385,7 +386,16 @@ type McpServerTool struct {
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
+	// +kubebuilder:validation:MaxItems=50
 	ToolNames []string `json:"toolNames,omitempty"`
+
+	// RequireApproval lists tool names that require human approval before
+	// execution. Each name must also appear in ToolNames. When a tool in
+	// this list is invoked by the agent, execution pauses and the user is
+	// prompted to approve or reject the call.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	RequireApproval []string `json:"requireApproval,omitempty"`
 
 	// AllowedHeaders specifies which headers from the A2A request should be
 	// propagated to MCP tool calls. Header names are case-insensitive.
