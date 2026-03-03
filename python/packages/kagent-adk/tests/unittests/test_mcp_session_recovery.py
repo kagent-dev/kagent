@@ -172,7 +172,9 @@ async def test_create_session_recovers_even_when_close_raises():
             side_effect=_parent_create,
         ),
         patch.object(
-            mgr, "close", new_callable=AsyncMock,
+            mgr,
+            "close",
+            new_callable=AsyncMock,
             side_effect=RuntimeError("cancel scope in different task"),
         ),
     ):
