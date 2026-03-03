@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { FunctionCall } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { convertToUserFriendlyName } from "@/lib/utils";
-import { ChevronDown, ChevronUp, MessageSquare, Loader2, AlertCircle, CheckCircle } from "lucide-react";
+import { MessageSquare, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import KagentLogo from "../kagent-logo";
+import { SmartContent, parseContentString } from "./SmartContent";
+import { CollapsibleSection } from "./CollapsibleSection";
 
 export type AgentCallStatus = "requested" | "executing" | "completed";
 
@@ -17,12 +20,21 @@ interface AgentCallDisplayProps {
   isError?: boolean;
 }
 
+const AGENT_TOOL_NAME_RE = /^(.+)__NS__(.+)$/;
+
+
+
 const AgentCallDisplay = ({ call, result, status = "requested", isError = false }: AgentCallDisplayProps) => {
   const [areInputsExpanded, setAreInputsExpanded] = useState(false);
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
 
   const agentDisplay = useMemo(() => convertToUserFriendlyName(call.name), [call.name]);
   const hasResult = result !== undefined;
+
+  const agentMatch = call.name.match(AGENT_TOOL_NAME_RE);
+  const functionCallLink = agentMatch
+    ? `/agents/${agentMatch[1].replace(/_/g, "-")}/${agentMatch[2].replace(/_/g, "-")}/function-calls/${call.id}`
+    : null;
 
   const getStatusDisplay = () => {
     if (isError && status === "executing") {
@@ -68,6 +80,12 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false 
     }
   };
 
+  const parsedResult = hasResult && result?.content ? parseContentString(result.content) : null;
+  const argsContent = <SmartContent data={call.args} />;
+  const resultContent = parsedResult !== null
+    ? <SmartContent data={parsedResult} className={isError ? "text-red-600 dark:text-red-400" : ""} />
+    : null;
+
   return (
     <Card className={`w-full mx-auto my-1 min-w-full ${isError ? 'border-red-300' : ''}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -76,55 +94,48 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false 
             <KagentLogo className="w-4 h-4 mr-2" />
             {agentDisplay}
           </div>
-          <div className="font-light">{call.id}</div>
+          <div className="font-light">
+            {functionCallLink ? (
+              <Link href={functionCallLink} className="text-blue-500 hover:underline">
+                {call.id}
+              </Link>
+            ) : (
+              call.id
+            )}
+          </div>
         </CardTitle>
         <div className="flex justify-center items-center text-xs">
           {getStatusDisplay()}
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-2 mt-2">
-          <button className="text-xs flex items-center gap-2" onClick={() => setAreInputsExpanded(!areInputsExpanded)}>
-            <MessageSquare className="w-4 h-4" />
-            <span>Input</span>
-            {areInputsExpanded ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-          </button>
-          {areInputsExpanded && (
-            <div className="mt-2 bg-muted/50 p-3 rounded">
-              <pre className="text-sm whitespace-pre-wrap break-words">{JSON.stringify(call.args, null, 2)}</pre>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 w-full">
-          {status === "executing" && !hasResult && (
-            <div className="flex items-center gap-2 py-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">{agentDisplay} is responding...</span>
-            </div>
-          )}
-          {hasResult && result?.content && (
-            <div className="space-y-2">
-              <button className="text-xs flex items-center gap-2" onClick={() => setAreResultsExpanded(!areResultsExpanded)}>
-                <MessageSquare className="w-4 h-4" />
-                <span>Output</span>
-                {areResultsExpanded ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-              </button>
-              {areResultsExpanded && (
-                <div className={`mt-2 ${isError ? 'bg-red-50 dark:bg-red-950/10' : 'bg-muted/50'} p-3 rounded`}>
-                  <pre className={`text-sm whitespace-pre-wrap break-words ${isError ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    {result?.content}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+      <CardContent className="space-y-1 pt-0">
+        <CollapsibleSection
+          icon={MessageSquare}
+          expanded={areInputsExpanded}
+          onToggle={() => setAreInputsExpanded(!areInputsExpanded)}
+          previewContent={argsContent}
+          expandedContent={argsContent}
+        />
+        {status === "executing" && !hasResult && (
+          <div className="flex items-center gap-2 py-1">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">{agentDisplay} is responding...</span>
+          </div>
+        )}
+        {hasResult && resultContent && (
+          <CollapsibleSection
+            icon={MessageSquare}
+            expanded={areResultsExpanded}
+            onToggle={() => setAreResultsExpanded(!areResultsExpanded)}
+            previewContent={resultContent}
+            expandedContent={resultContent}
+            errorStyle={isError}
+          />
+        )}
       </CardContent>
     </Card>
   );
 };
 
 export default AgentCallDisplay;
-
 
