@@ -61,7 +61,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [pendingDecisions, setPendingDecisions] = useState<Record<string, "approve" | "deny">>({});
   const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
-  const [pendingRejectionReasons, setPendingRejectionReasons] = useState<Record<string, string>>({});
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
 
   const {
@@ -97,7 +96,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setStreamingMessages([]);
       setPendingDecisions({});
       pendingDecisionsRef.current = {};
-      setPendingRejectionReasons({});
       pendingRejectionReasonsRef.current = {};
 
       // Skip completely if this is a first message session creation flow
@@ -193,7 +191,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setStreamingContent(""); // Reset streaming content for new message
     setPendingDecisions({});
     pendingDecisionsRef.current = {};
-    setPendingRejectionReasons({});
     pendingRejectionReasonsRef.current = {};
 
     // For new sessions or when no stored messages exist, show the user message immediately
@@ -456,7 +453,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         setStreamingContent("");
         setPendingDecisions({});
         pendingDecisionsRef.current = {};
-        setPendingRejectionReasons({});
         pendingRejectionReasonsRef.current = {};
         // Only reset "thinking" → "ready".  Do NOT reset "input_required" —
         // handleMessageEvent may have already set it for the next HITL cycle
@@ -481,17 +477,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         { decision_type: "approve" },
         "Approved",
       );
-    } else if (allDeny) {
-      // Uniform deny — include rejection_reason if all tools share one reason
-      // (use the first non-empty reason, or omit if none)
-      const reasonValues = Object.values(reasons).filter(Boolean);
-      const uniformReason = reasonValues.length > 0 ? reasonValues[0] : undefined;
-      const decisionData: Record<string, unknown> = { decision_type: "deny" };
-      if (uniformReason) {
-        decisionData.rejection_reason = uniformReason;
-      }
+    } else if (allDeny && Object.values(reasons).length === 0) {
+      // Uniform deny without reason, otherwise fall through to batch
       sendApprovalDecision(
-        decisionData,
+        { decision_type: "deny" },
         "Rejected",
       );
     } else {
@@ -523,7 +512,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     if (decision === "deny" && reason) {
       const updatedReasons = { ...pendingRejectionReasonsRef.current, [toolCallId]: reason };
       pendingRejectionReasonsRef.current = updatedReasons;
-      setPendingRejectionReasons(updatedReasons);
     }
 
     // Check if all pending tools now have a decision

@@ -491,7 +491,7 @@ some while rejecting others:
 ## Enhancement: Rejection Reasons
 
 Add an optional free-text reason to rejections. The reason travels through
-the existing HITL plumbing using `ToolConfirmation.payload` from the `DataPart` from frotnend.
+the existing HITL plumbing using `ToolConfirmation.payload` from the `DataPart` from frontend.
 
 Currently we use two custom keys to indicate rejection reason in the frontend payload and the ADK payload.
 This handles parallel tool call rejection as well using the batch flow described above.

@@ -53,7 +53,7 @@ def make_approval_callback(
             return "Tool call was rejected by user."
 
         # First invocation — request confirmation and block execution
-        # # This response is never sent to the LLM
+        # This response is never sent to the LLM
         logger.debug("Tool %s requires approval, requesting confirmation", tool_name)
         tool_context.request_confirmation(
             hint=f"Tool '{tool_name}' requires approval before execution.",
