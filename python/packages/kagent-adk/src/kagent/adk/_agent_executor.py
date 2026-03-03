@@ -28,12 +28,23 @@ from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutorConfig as UpstreamA2aAgentExecutorConfig,
 )
 from google.adk.events import Event, EventActions
+from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.runners import Runner
+from google.adk.sessions import Session
+from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.utils.context_utils import Aclosing
+from google.genai import types as genai_types
 from pydantic import BaseModel
 from typing_extensions import override
 
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
+from kagent.core.a2a import (
+    KAGENT_HITL_DECISION_TYPE_APPROVE,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
+    TaskResultAggregator,
+    extract_batch_decisions_from_message,
+    extract_decision_from_message,
+    get_kagent_metadata_key,
+)
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -98,6 +109,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         *,
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
+        task_store=None,
     ):
         # Build upstream config with kagent's custom converters
         upstream_config = UpstreamA2aAgentExecutorConfig(
@@ -108,6 +120,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         )
         super().__init__(runner=runner, config=upstream_config)
         self._kagent_config = config
+        self._task_store = task_store
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -329,6 +342,96 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 raise
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
+    @staticmethod
+    def _find_pending_confirmations(session: Session) -> dict[str, str | None]:
+        """Find pending adk_request_confirmation calls and their original tool call IDs.
+
+        Scans session events backwards for the most recent adk_request_confirmation
+        FunctionCall events that haven't been responded to yet.
+
+        Returns:
+            Dict mapping confirmation function_call_id to the original tool call ID
+            (from args.originalFunctionCall.id), or None if not available.
+        """
+        pending: dict[str, str | None] = {}
+        responded_ids: set[str] = set()
+
+        for event in reversed(session.events or []):
+            # Collect responded confirmation IDs
+            for fr in event.get_function_responses():
+                if fr.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fr.id is not None:
+                    responded_ids.add(fr.id)
+
+            # Collect requested confirmation IDs and extract original tool call ID
+            for fc in event.get_function_calls():
+                if fc.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fc.id is not None:
+                    # Extract original tool call ID from args.originalFunctionCall.id
+                    original_id = None
+                    if fc.args and isinstance(fc.args, dict):
+                        orig_fc = fc.args.get("originalFunctionCall")
+                        if isinstance(orig_fc, dict):
+                            original_id = orig_fc.get("id")
+                    pending[fc.id] = original_id
+
+            # Stop scanning once we find confirmation requests (they're recent)
+            if pending:
+                break
+
+        # Remove the ones that have already been responded to
+        for responded_id in responded_ids:
+            pending.pop(responded_id, None)
+
+        return pending
+
+    def _process_hitl_decision(
+        self, session: Session, decision: str, message: Message
+    ) -> list[genai_types.Part] | None:
+        """Process a HITL decision from a message and return the corresponding FunctionResponse parts."""
+        pending_confirmations = self._find_pending_confirmations(session)
+        if not pending_confirmations:
+            return None
+
+        logger.info(
+            "HITL continuation detected: decision=%s, pending_confirmations=%d",
+            decision,
+            len(pending_confirmations),
+        )
+
+        if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
+            # Batch mode: per-tool decisions
+            batch_decisions = extract_batch_decisions_from_message(message) or {}
+            parts = []
+            for fc_id, original_id in pending_confirmations.items():
+                # Look up the per-tool decision using the original tool call ID
+                tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
+                confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+                confirmation = ToolConfirmation(confirmed=confirmed)
+                # Append a response for each tool call
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                            id=fc_id,
+                            response={"response": confirmation.model_dump_json()},
+                        )
+                    )
+                )
+            return parts
+        else:
+            # Uniform mode: same decision for all pending tools
+            confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+            confirmation = ToolConfirmation(confirmed=confirmed)
+            return [
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                        id=fc_id,
+                        response={"response": confirmation.model_dump_json()},
+                    )
+                )
+                for fc_id in pending_confirmations
+            ]
+
     async def _handle_request(
         self,
         context: RequestContext,
@@ -339,20 +442,28 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
-        # set request headers to session state
-        headers = context.call_context.state.get("headers", {})
-        state_changes = {
-            "headers": headers,
-        }
+        # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
+        decision = extract_decision_from_message(context.message)
+        if decision:
+            parts = self._process_hitl_decision(session, decision, context.message)
+            if parts:
+                run_args["new_message"] = genai_types.Content(role="user", parts=parts)
+            # Fall through to normal execution with the constructed FunctionResponse
+        else:
+            # Normal flow: set request headers to session state
+            headers = context.call_context.state.get("headers", {})
+            state_changes = {
+                "headers": headers,
+            }
 
-        actions_with_update = EventActions(state_delta=state_changes)
-        system_event = Event(
-            invocation_id="header_update",
-            author="system",
-            actions=actions_with_update,
-        )
+            actions_with_update = EventActions(state_delta=state_changes)
+            system_event = Event(
+                invocation_id="header_update",
+                author="system",
+                actions=actions_with_update,
+            )
 
-        await runner.session_service.append_event(session, system_event)
+            await runner.session_service.append_event(session, system_event)
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
@@ -395,6 +506,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if event_inv_id and not real_invocation_id:
                     real_invocation_id = event_inv_id
                     run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
@@ -403,6 +515,10 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     if not adk_event.partial:
                         task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
+
+                # Break on confirmation events that use long running tools
+                if getattr(adk_event, "long_running_tool_ids", None):
+                    break
 
         # publish the task result event - this is final
         if (

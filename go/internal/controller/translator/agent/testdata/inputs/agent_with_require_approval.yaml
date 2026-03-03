@@ -1,0 +1,58 @@
+operation: translateAgent
+targetObject: agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: test-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A file management agent
+        systemMessage: You help users manage files.
+        modelConfig: test-model
+        tools:
+          - type: MCPServer
+            mcpServer:
+              name: toolserver
+              kind: Service
+              toolNames:
+                - read_file
+                - write_file
+                - delete_file
+              requireApproval:
+                - delete_file
+                - write_file
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: toolserver
+      annotations:
+        kagent.dev/mcp-service-path: "/mcp"
+      namespace: test
+    spec:
+      ports:
+      - name: mcp
+        port: 8084
+        targetPort: 8084
+        protocol: TCP
+        appProtocol: mcp

@@ -10091,6 +10091,16 @@ spec:
                               type: string
                             namespace:
                               type: string
+                            requireApproval:
+                              description: |-
+                                RequireApproval lists tool names that require human approval before
+                                execution. Each name must also appear in ToolNames. When a tool in
+                                this list is invoked by the agent, execution pauses and the user is
+                                prompted to approve or reject the call.
+                              items:
+                                type: string
+                              maxItems: 50
+                              type: array
                             toolNames:
                               description: |-
                                 The names of the tools to be provided by the ToolServer
@@ -10098,10 +10108,16 @@ spec:
                                 the client can query the status of the ToolServer object after it has been created
                               items:
                                 type: string
+                              maxItems: 50
                               type: array
                           required:
                           - name
                           type: object
+                          x-kubernetes-validations:
+                          - message: each RequireApproval entry must also appear in
+                              ToolNames
+                            rule: '!has(self.requireApproval) || self.requireApproval.all(x,
+                              has(self.toolNames) && x in self.toolNames)'
                         type:
                           allOf:
                           - enum:
