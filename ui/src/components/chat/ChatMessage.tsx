@@ -1,6 +1,7 @@
 import { Message, TextPart } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
+import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { useState } from "react";
@@ -17,11 +18,12 @@ interface ChatMessageProps {
     agentName: string;
   };
   onApprove?: (toolCallId: string) => void;
-  onReject?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
+  onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, pendingDecisions }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -83,6 +85,22 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   // Also check for streaming tool calls via originalType (fallback for streaming messages)
   const isStreamingToolCall = originalType === "ToolCallRequestEvent" || originalType === "ToolCallExecutionEvent";
+
+  // Ask-user requests get their own dedicated display component
+  if (originalType === "AskUserRequest") {
+    const askUserData = metadata?.askUserData as { id: string; questions: AskUserQuestion[] } | undefined;
+    const resolvedAnswers = metadata?.askUserAnswers as Array<{ answer: string[] }> | null | undefined;
+    const isResolved = !!metadata?.approvalDecision;
+    const questions: AskUserQuestion[] = askUserData?.questions ?? [];
+    return (
+      <AskUserDisplay
+        questions={questions}
+        isResolved={isResolved}
+        resolvedAnswers={resolvedAnswers ?? null}
+        onSubmit={(answers) => onAskUserSubmit?.(answers)}
+      />
+    );
+  }
 
   // Tool approval requests get routed to ToolCallDisplay with approval callbacks
   if (originalType === "ToolApprovalRequest") {

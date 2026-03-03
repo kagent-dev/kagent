@@ -10,7 +10,7 @@ interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
   onApprove?: (toolCallId: string) => void;
-  onReject?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
@@ -314,7 +314,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             isError={toolCall.result?.is_error}
             isDecided={isDecided}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
-            onReject={showButtons && onReject ? () => onReject(toolCall.id) : undefined}
+            onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
           />
         );
       })}

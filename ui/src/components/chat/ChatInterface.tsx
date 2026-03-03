@@ -60,6 +60,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
   const [pendingDecisions, setPendingDecisions] = useState<Record<string, "approve" | "deny">>({});
   const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
+  /** Per-tool rejection reasons collected as the user rejects individual tools. */
+  const [pendingRejectionReasons, setPendingRejectionReasons] = useState<Record<string, string>>({});
+  const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
 
   const {
     isListening,
@@ -94,6 +97,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setStreamingMessages([]);
       setPendingDecisions({});
       pendingDecisionsRef.current = {};
+      setPendingRejectionReasons({});
+      pendingRejectionReasonsRef.current = {};
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -188,6 +193,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setStreamingContent(""); // Reset streaming content for new message
     setPendingDecisions({});
     pendingDecisionsRef.current = {};
+    setPendingRejectionReasons({});
+    pendingRejectionReasonsRef.current = {};
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
@@ -449,6 +456,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         setStreamingContent("");
         setPendingDecisions({});
         pendingDecisionsRef.current = {};
+        setPendingRejectionReasons({});
+        pendingRejectionReasonsRef.current = {};
         // Only reset "thinking" → "ready".  Do NOT reset "input_required" —
         // handleMessageEvent may have already set it for the next HITL cycle
         // during this same stream.
@@ -464,6 +473,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
     const allDeny = values.every(v => v !== "approve");
+    const reasons = pendingRejectionReasonsRef.current;
 
     if (allApprove) {
       // Uniform approve — no need for batch
@@ -472,24 +482,49 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         "Approved",
       );
     } else if (allDeny) {
-      // Uniform deny
+      // Uniform deny — include rejection_reason if all tools share one reason
+      // (use the first non-empty reason, or omit if none)
+      const reasonValues = Object.values(reasons).filter(Boolean);
+      const uniformReason = reasonValues.length > 0 ? reasonValues[0] : undefined;
+      const decisionData: Record<string, unknown> = { decision_type: "deny" };
+      if (uniformReason) {
+        decisionData.rejection_reason = uniformReason;
+      }
       sendApprovalDecision(
-        { decision_type: "deny" },
+        decisionData,
         "Rejected",
       );
     } else {
       // Mixed decisions — use batch mode with per-tool decisions
+      const decisionData: Record<string, unknown> = { decision_type: "batch", decisions };
+      // Include per-tool rejection reasons for denied tools (if any)
+      const deniedReasons: Record<string, string> = {};
+      for (const [toolId, decision] of Object.entries(decisions)) {
+        if (decision === "deny" && reasons[toolId]) {
+          deniedReasons[toolId] = reasons[toolId];
+        }
+      }
+      if (Object.keys(deniedReasons).length > 0) {
+        decisionData.rejection_reasons = deniedReasons;
+      }
       sendApprovalDecision(
-        { decision_type: "batch", decisions },
+        decisionData,
         `Batch decision: ${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
       );
     }
   };
 
-  const recordDecision = (toolCallId: string, decision: "approve" | "deny") => {
+  const recordDecision = (toolCallId: string, decision: "approve" | "deny", reason?: string) => {
     const updated = { ...pendingDecisionsRef.current, [toolCallId]: decision };
     pendingDecisionsRef.current = updated;
     setPendingDecisions(updated);
+
+    // Track rejection reason (if any)
+    if (decision === "deny" && reason) {
+      const updatedReasons = { ...pendingRejectionReasonsRef.current, [toolCallId]: reason };
+      pendingRejectionReasonsRef.current = updatedReasons;
+      setPendingRejectionReasons(updatedReasons);
+    }
 
     // Check if all pending tools now have a decision
     const { toolIds } = getPendingApprovalToolIds();
@@ -504,8 +539,67 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     recordDecision(toolCallId, "approve");
   };
 
-  const handleReject = (toolCallId: string) => {
-    recordDecision(toolCallId, "deny");
+  const handleReject = (toolCallId: string, reason?: string) => {
+    recordDecision(toolCallId, "deny", reason);
+  };
+
+  /**
+   * Handle ask_user answers submitted by the user. Sends an "approve" decision
+   * with the answers payload attached, routed to the pending ask_user task.
+   */
+  const handleAskUserSubmit = (answers: Array<{ answer: string[] }>) => {
+    const currentSessionId = session?.id || sessionId;
+    setChatStatus("thinking");
+    setStreamingContent("");
+
+    // Find the taskId from the pending AskUserRequest message
+    let askUserTaskId: string | undefined;
+    const allCurrentMessages = [...storedMessages, ...streamingMessages];
+    for (const msg of allCurrentMessages) {
+      const meta = msg.metadata as ADKMetadata | undefined;
+      if (meta?.originalType === "AskUserRequest" && !meta?.approvalDecision) {
+        askUserTaskId = msg.taskId;
+        break;
+      }
+    }
+
+    // Stamp the ask-user message as resolved so we don't show the form again
+    const stampAskUser = (msgs: Message[]) => msgs.map(m => {
+      const meta = m.metadata as Record<string, unknown> | undefined;
+      if (meta?.originalType === "AskUserRequest" && !meta.approvalDecision) {
+        return { ...m, metadata: { ...meta, approvalDecision: "approve", askUserAnswers: answers } };
+      }
+      return m;
+    });
+    setStreamingMessages(stampAskUser);
+    setStoredMessages(stampAskUser);
+
+    const messageId = uuidv4();
+    const a2aMessage: Message = {
+      kind: "message",
+      messageId,
+      role: "user",
+      parts: [
+        {
+          kind: "data",
+          data: { decision_type: "approve", ask_user_answers: answers },
+          metadata: {},
+        } as DataPart,
+        { kind: "text", text: "Answered questions" },
+      ],
+      contextId: currentSessionId,
+      taskId: askUserTaskId,
+      metadata: { timestamp: Date.now() },
+    };
+
+    streamA2AMessage(a2aMessage, {
+      errorLabel: "Ask user response failed",
+      onFinally: () => {
+        setIsStreaming(false);
+        setStreamingContent("");
+        setChatStatus(prev => prev === "thinking" ? "ready" : prev);
+      },
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -564,6 +658,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     }}
                     onApprove={handleApprove}
                     onReject={handleReject}
+                    onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -578,9 +673,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                       namespace: selectedNamespace,
                       agentName: selectedAgentName
                     }}
-
                     onApprove={handleApprove}
                     onReject={handleReject}
+                    onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
