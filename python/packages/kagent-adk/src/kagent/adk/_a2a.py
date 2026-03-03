@@ -77,9 +77,7 @@ def _build_mcp_health_check(agent_config: Optional[AgentConfig]):
         url = getattr(params, "url", "unknown")
         mgr = KAgentMCPSessionManager(connection_params=params)
         try:
-            await asyncio.wait_for(
-                mgr.create_session(), timeout=_MCP_HEALTH_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(mgr.create_session(), timeout=_MCP_HEALTH_TIMEOUT_SECONDS)
             return url, None
         except Exception as exc:
             if _is_server_alive_error(exc):
@@ -95,19 +93,17 @@ def _build_mcp_health_check(agent_config: Optional[AgentConfig]):
         if not connection_params_list:
             return JSONResponse({"status": "ok", "servers": 0})
 
-        results = await asyncio.gather(
-            *(_check_one(p) for p in connection_params_list)
-        )
+        results = await asyncio.gather(*(_check_one(p) for p in connection_params_list))
         errors = {url: err for url, err in results if err is not None}
 
         if errors:
+            for url, err in errors.items():
+                logger.warning("MCP health check failed: %s: %s", url, err)
             return JSONResponse(
-                {"status": "error", "errors": errors},
+                {"status": "error", "unhealthy_count": len(errors)},
                 status_code=503,
             )
-        return JSONResponse(
-            {"status": "ok", "servers": len(connection_params_list)}
-        )
+        return JSONResponse({"status": "ok", "servers": len(connection_params_list)})
 
     return mcp_health
 
