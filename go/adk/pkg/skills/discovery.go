@@ -124,7 +124,7 @@ func GenerateSkillsToolDescription(skills []Skill) string {
 	desc.WriteString("Discover and load skill instructions. Available skills:\n\n")
 
 	for _, skill := range skills {
-		desc.WriteString(fmt.Sprintf("- %s: %s\n", skill.Name, skill.Description))
+		fmt.Fprintf(&desc, "- %s: %s\n", skill.Name, skill.Description)
 	}
 
 	desc.WriteString("\nCall this tool with command='<skill-name>' to load the full skill instructions.")

@@ -7,9 +7,9 @@ import (
 	"slices"
 	"text/template"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/internal/utils"
-	"github.com/kagent-dev/kagent/go/pkg/adk"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

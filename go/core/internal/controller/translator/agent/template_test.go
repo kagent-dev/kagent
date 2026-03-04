@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/pkg/adk"
 )
 
 func TestExecuteSystemMessageTemplate(t *testing.T) {

@@ -25,7 +25,6 @@
         "overlap_size": 2,
         "prompt_template": "Summarize the following conversation events concisely.",
         "summarizer_model": {
-          "base_url": "",
           "model": "claude-3-haiku",
           "type": "anthropic"
         },
@@ -33,7 +32,7 @@
       }
     },
     "description": "Agent with context management",
-    "http_tools": null,
+    "execute_code": false,
     "instruction": "You are a helpful assistant with context management enabled.",
     "model": {
       "base_url": "",
@@ -45,8 +44,6 @@
       "temperature": 0.7,
       "type": "openai"
     },
-    "remote_agents": null,
-    "sse_tools": null,
     "stream": false
   },
   "manifest": [
@@ -76,7 +73,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_context\",\"description\":\"Agent with context management\",\"url\":\"http://agent-with-context.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"Agent with context management\",\"instruction\":\"You are a helpful assistant with context management enabled.\",\"http_tools\":null,\"sse_tools\":null,\"remote_agents\":null,\"stream\":false,\"context_config\":{\"compaction\":{\"compaction_interval\":5,\"overlap_size\":2,\"summarizer_model\":{\"type\":\"anthropic\",\"model\":\"claude-3-haiku\",\"base_url\":\"\"},\"prompt_template\":\"Summarize the following conversation events concisely.\",\"token_threshold\":50000,\"event_retention_size\":10}}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"Agent with context management\",\"instruction\":\"You are a helpful assistant with context management enabled.\",\"execute_code\":false,\"stream\":false,\"context_config\":{\"compaction\":{\"compaction_interval\":5,\"overlap_size\":2,\"summarizer_model\":{\"type\":\"anthropic\",\"model\":\"claude-3-haiku\"},\"prompt_template\":\"Summarize the following conversation events concisely.\",\"token_threshold\":50000,\"event_retention_size\":10}}}"
       }
     },
     {
@@ -145,7 +142,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "17601359945003571731"
+              "kagent.dev/config-hash": "18434524115056509532"
             },
             "labels": {
               "app": "kagent",

@@ -8,7 +8,7 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	translator "github.com/kagent-dev/kagent/go/internal/controller/translator/agent"
+	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 )
 
 func TestGetA2AAgentCard(t *testing.T) {

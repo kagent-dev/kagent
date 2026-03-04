@@ -36,28 +36,28 @@ MODULES := api core adk
 
 .PHONY: fmt
 fmt: ## Run go fmt against all modules.
-	@for m in $(MODULES); do echo "fmt $$m"; cd $$m && go fmt ./... && cd ..; done
+	@for m in $(MODULES); do echo "fmt $$m"; (cd $$m && go fmt ./...); done
 
 .PHONY: vet
 vet: ## Run go vet against all modules.
-	@for m in $(MODULES); do echo "vet $$m"; cd $$m && go vet ./... && cd ..; done
+	@for m in $(MODULES); do echo "vet $$m"; (cd $$m && go vet ./...); done
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint against all modules.
-	@for m in $(MODULES); do echo "lint $$m"; cd $$m && $(GOLANGCI_LINT) run && cd ..; done
+	@for m in $(MODULES); do echo "lint $$m"; (cd $$m && $(GOLANGCI_LINT) run) || exit 1; done
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix against all modules.
-	@for m in $(MODULES); do echo "lint-fix $$m"; cd $$m && $(GOLANGCI_LINT) run --fix && cd ..; done
+	@for m in $(MODULES); do echo "lint-fix $$m"; (cd $$m && $(GOLANGCI_LINT) run --fix) || exit 1; done
 
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration.
-	@for m in $(MODULES); do echo "lint-config $$m"; cd $$m && $(GOLANGCI_LINT) config verify && cd ..; done
+	@for m in $(MODULES); do echo "lint-config $$m"; (cd $$m && $(GOLANGCI_LINT) config verify) || exit 1; done
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck against all modules.
 	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
-	@for m in $(MODULES); do echo "govulncheck $$m"; cd $$m && go mod tidy -v && ../bin/govulncheck-latest ./... && cd ..; done
+	@for m in $(MODULES); do echo "govulncheck $$m"; (cd $$m && go mod tidy -v && ../bin/govulncheck-latest ./...) || exit 1; done
 
 ##@ Build (core module — CLI binaries)
 

@@ -373,8 +373,8 @@ func TestAgentConfig_UnmarshalJSON_Minimal(t *testing.T) {
 	if cfg.Instruction != "be helpful" {
 		t.Errorf("Instruction = %q, want %q", cfg.Instruction, "be helpful")
 	}
-	if !cfg.Stream {
-		t.Error("Stream = false, want true")
+	if cfg.Stream == nil || !*cfg.Stream {
+		t.Error("Stream = false/nil, want true")
 	}
 	if cfg.Memory != nil {
 		t.Error("Memory should be nil")
@@ -527,8 +527,8 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}, BaseUrl: "https://api.openai.com"},
 		Description: "test",
 		Instruction: "be helpful",
-		Stream:      true,
-		ExecuteCode: true,
+		Stream:      boolPtr(true),
+		ExecuteCode: boolPtr(true),
 		HttpTools: []HttpMcpServerConfig{
 			{
 				Params: StreamableHTTPConnectionParams{Url: "http://localhost:8080"},
@@ -571,10 +571,10 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 	if parsed.Description != original.Description {
 		t.Errorf("Description = %q, want %q", parsed.Description, original.Description)
 	}
-	if parsed.Stream != original.Stream {
+	if (parsed.Stream == nil) != (original.Stream == nil) || (parsed.Stream != nil && *parsed.Stream != *original.Stream) {
 		t.Errorf("Stream = %v, want %v", parsed.Stream, original.Stream)
 	}
-	if parsed.ExecuteCode != original.ExecuteCode {
+	if (parsed.ExecuteCode == nil) != (original.ExecuteCode == nil) || (parsed.ExecuteCode != nil && *parsed.ExecuteCode != *original.ExecuteCode) {
 		t.Errorf("ExecuteCode = %v, want %v", parsed.ExecuteCode, original.ExecuteCode)
 	}
 
@@ -850,7 +850,7 @@ func TestAgentConfig_ScanAndValue(t *testing.T) {
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},
 		Description: "test",
 		Instruction: "be helpful",
-		Stream:      true,
+		Stream:      boolPtr(true),
 	}
 
 	// Test Value (driver.Valuer)
