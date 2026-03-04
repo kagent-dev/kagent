@@ -100,12 +100,12 @@ func TestMarshalJSON_OmitemptyFields(t *testing.T) {
 
 func TestMarshalJSON_BaseModelFields(t *testing.T) {
 	base := BaseModel{
-		Model:               "test-model",
-		Headers:             map[string]string{"X-Custom": "value"},
-		TLSDisableVerify:    boolPtr(true),
-		TLSCACertPath:       stringPtr("/etc/ssl/ca.crt"),
-		TLSDisableSystemCAs: boolPtr(false),
-		APIKeyPassthrough:   true,
+		Model:                 "test-model",
+		Headers:               map[string]string{"X-Custom": "value"},
+		TLSInsecureSkipVerify: boolPtr(true),
+		TLSCACertPath:         stringPtr("/etc/ssl/ca.crt"),
+		TLSDisableSystemCAs:   boolPtr(false),
+		APIKeyPassthrough:     true,
 	}
 
 	tests := []struct {
@@ -146,8 +146,8 @@ func TestMarshalJSON_BaseModelFields(t *testing.T) {
 				t.Errorf("headers[X-Custom] = %v, want %q", headers["X-Custom"], "value")
 			}
 
-			if raw["tls_disable_verify"] != true {
-				t.Errorf("tls_disable_verify = %v, want true", raw["tls_disable_verify"])
+			if raw["tls_insecure_skip_verify"] != true {
+				t.Errorf("tls_insecure_skip_verify = %v, want true", raw["tls_insecure_skip_verify"])
 			}
 			if raw["tls_ca_cert_path"] != "/etc/ssl/ca.crt" {
 				t.Errorf("tls_ca_cert_path = %v, want %q", raw["tls_ca_cert_path"], "/etc/ssl/ca.crt")
@@ -307,7 +307,7 @@ func TestParseModel_Roundtrip(t *testing.T) {
 		{
 			name: "Bedrock roundtrip",
 			model: &Bedrock{
-				BaseModel: BaseModel{Model: "claude-v2", TLSDisableVerify: boolPtr(true)},
+				BaseModel: BaseModel{Model: "claude-v2", TLSInsecureSkipVerify: boolPtr(true)},
 				Region:    "us-west-2",
 			},
 			wantType: ModelTypeBedrock,

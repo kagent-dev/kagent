@@ -34,6 +34,25 @@ type AnthropicModel struct {
 	Logger logr.Logger
 }
 
+// createAnthropicHTTPClient creates an HTTP client with timeout and custom headers.
+// This is shared across all Anthropic model constructors to avoid duplication.
+func createAnthropicHTTPClient(config *AnthropicConfig) *http.Client {
+	timeout := defaultTimeout
+	if config.Timeout != nil {
+		timeout = time.Duration(*config.Timeout) * time.Second
+	}
+	httpClient := &http.Client{Timeout: timeout}
+
+	if len(config.Headers) > 0 {
+		httpClient.Transport = &headerTransport{
+			base:    http.DefaultTransport,
+			headers: config.Headers,
+		}
+	}
+
+	return httpClient
+}
+
 // NewAnthropicModelWithLogger creates a new Anthropic model instance with a logger
 func NewAnthropicModelWithLogger(config *AnthropicConfig, logger logr.Logger) (*AnthropicModel, error) {
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
@@ -53,22 +72,10 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
 
-	// Set timeout
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
-	}
-	httpClient := &http.Client{Timeout: timeout}
-
-	// Add custom headers if provided
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-		}
-		if logger.GetSink() != nil {
-			logger.Info("Setting default headers for Anthropic client", "headersCount", len(config.Headers))
-		}
+	// Create HTTP client with timeout and custom headers
+	httpClient := createAnthropicHTTPClient(config)
+	if len(config.Headers) > 0 && logger.GetSink() != nil {
+		logger.Info("Setting default headers for Anthropic client", "headersCount", len(config.Headers))
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
@@ -92,17 +99,8 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 		vertex.WithGoogleAuth(ctx, region, projectID),
 	}
 
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
-	}
-	httpClient := &http.Client{Timeout: timeout}
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-		}
-	}
+	// Create HTTP client with timeout and custom headers
+	httpClient := createAnthropicHTTPClient(config)
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
@@ -129,17 +127,8 @@ func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicCo
 		),
 	}
 
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
-	}
-	httpClient := &http.Client{Timeout: timeout}
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-		}
-	}
+	// Create HTTP client with timeout and custom headers
+	httpClient := createAnthropicHTTPClient(config)
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)

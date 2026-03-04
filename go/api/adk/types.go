@@ -14,9 +14,9 @@ type StreamableHTTPConnectionParams struct {
 	SseReadTimeout   *float64          `json:"sse_read_timeout,omitempty"`
 	TerminateOnClose *bool             `json:"terminate_on_close,omitempty"`
 	// TLS configuration for self-signed certificates
-	TlsDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
-	TlsCaCertPath       *string `json:"tls_ca_cert_path,omitempty"`
-	TlsDisableSystemCas *bool   `json:"tls_disable_system_cas,omitempty"`
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 }
 
 type HttpMcpServerConfig struct {
@@ -32,9 +32,9 @@ type SseConnectionParams struct {
 	Timeout        *float64          `json:"timeout,omitempty"`
 	SseReadTimeout *float64          `json:"sse_read_timeout,omitempty"`
 	// TLS configuration for self-signed certificates
-	TlsDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
-	TlsCaCertPath       *string `json:"tls_ca_cert_path,omitempty"`
-	TlsDisableSystemCas *bool   `json:"tls_disable_system_cas,omitempty"`
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 }
 
 type SseMcpServerConfig struct {
@@ -54,9 +54,9 @@ type BaseModel struct {
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// TLS/SSL configuration (applies to all model types)
-	TLSDisableVerify    *bool   `json:"tls_disable_verify,omitempty"`
-	TLSCACertPath       *string `json:"tls_ca_cert_path,omitempty"`
-	TLSDisableSystemCAs *bool   `json:"tls_disable_system_cas,omitempty"`
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 
 	// APIKeyPassthrough enables forwarding the Bearer token from incoming requests
 	// as the LLM API key instead of using a static secret.

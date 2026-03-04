@@ -19,6 +19,13 @@ import (
 	"google.golang.org/genai"
 )
 
+// Default model names used when not specified in configuration
+const (
+	DefaultGeminiModel    = "gemini-2.0-flash"
+	DefaultAnthropicModel = "claude-sonnet-4-20250514"
+	DefaultOllamaModel    = "llama3.2"
+)
+
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // Toolsets are passed in directly (created by mcp.CreateToolsets).
 // agentName is used as the ADK agent identity (appears in event Author field).
@@ -116,7 +123,7 @@ func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "gemini-2.0-flash"
+			modelName = DefaultGeminiModel
 		}
 		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{APIKey: apiKey})
 
@@ -131,7 +138,7 @@ func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "gemini-2.0-flash"
+			modelName = DefaultGeminiModel
 		}
 		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
 			Backend:  genai.BackendVertexAI,
@@ -142,7 +149,7 @@ func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 	case *adk.Anthropic:
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "claude-sonnet-4-20250514"
+			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
 			Model:       modelName,
@@ -167,7 +174,7 @@ func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "llama3.2"
+			modelName = DefaultOllamaModel
 		}
 		return models.NewOpenAICompatibleModelWithLogger(baseURL, modelName, extractHeaders(m.Headers), "", log)
 
@@ -202,7 +209,7 @@ func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		modelName := m.Model
 		if modelName == "" {
-			modelName = "claude-sonnet-4-20250514"
+			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
 			Model:   modelName,

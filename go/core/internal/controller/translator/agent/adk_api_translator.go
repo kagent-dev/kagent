@@ -584,7 +584,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Description: agent.Spec.Description,
 		Instruction: rawSystemMessage,
 		Model:       model,
-		ExecuteCode: ptr.To(false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false)), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
+		ExecuteCode: agent.Spec.Declarative.ExecuteCodeBlocks,
 		Stream:      ptr.To(agent.Spec.Declarative.Stream),
 	}
 
@@ -751,7 +751,7 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) 
 	}
 
 	// Set TLS configuration fields in BaseModel
-	baseModel.TLSDisableVerify = &tlsConfig.DisableVerify
+	baseModel.TLSInsecureSkipVerify = &tlsConfig.DisableVerify
 	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
 
 	// Set CA cert path if Secret and key are both specified

@@ -1169,7 +1169,6 @@ You are {{.AgentName}}, operating in {{.AgentNamespace}}.
 }
 
 func TestE2EIAgentRunsCode(t *testing.T) {
-	t.Skip("see issue.. TODO add issue here")
 	// Setup mock server
 	baseURL, stopServer := setupMockServer(t, "mocks/run_code.json")
 	defer stopServer()

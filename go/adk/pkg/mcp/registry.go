@@ -24,14 +24,14 @@ const (
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
-	URL                 string
-	Headers             map[string]string
-	ServerType          string // "http" or "sse"
-	Timeout             *float64
-	SseReadTimeout      *float64
-	TLSDisableVerify    *bool
-	TLSCACertPath       *string
-	TLSDisableSystemCAs *bool
+	URL                   string
+	Headers               map[string]string
+	ServerType            string // "http" or "sse"
+	Timeout               *float64
+	SseReadTimeout        *float64
+	TLSInsecureSkipVerify *bool
+	TLSCACertPath         *string
+	TLSDisableSystemCAs   *bool
 }
 
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
@@ -44,14 +44,14 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
 	for i, httpTool := range httpTools {
 		params := mcpServerParams{
-			URL:                 httpTool.Params.Url,
-			Headers:             httpTool.Params.Headers,
-			ServerType:          "http",
-			Timeout:             httpTool.Params.Timeout,
-			SseReadTimeout:      httpTool.Params.SseReadTimeout,
-			TLSDisableVerify:    httpTool.Params.TlsDisableVerify,
-			TLSCACertPath:       httpTool.Params.TlsCaCertPath,
-			TLSDisableSystemCAs: httpTool.Params.TlsDisableSystemCas,
+			URL:                   httpTool.Params.Url,
+			Headers:               httpTool.Params.Headers,
+			ServerType:            "http",
+			Timeout:               httpTool.Params.Timeout,
+			SseReadTimeout:        httpTool.Params.SseReadTimeout,
+			TLSInsecureSkipVerify: httpTool.Params.TLSInsecureSkipVerify,
+			TLSCACertPath:         httpTool.Params.TLSCACertPath,
+			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
 		}
 		ts, err := addToolset(ctx, log, params, httpTool.Tools, "HTTP", i+1)
 		if err != nil {
@@ -63,14 +63,14 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 	log.Info("Processing SSE MCP tools", "sseToolsCount", len(sseTools))
 	for i, sseTool := range sseTools {
 		params := mcpServerParams{
-			URL:                 sseTool.Params.Url,
-			Headers:             sseTool.Params.Headers,
-			ServerType:          "sse",
-			Timeout:             sseTool.Params.Timeout,
-			SseReadTimeout:      sseTool.Params.SseReadTimeout,
-			TLSDisableVerify:    sseTool.Params.TlsDisableVerify,
-			TLSCACertPath:       sseTool.Params.TlsCaCertPath,
-			TLSDisableSystemCAs: sseTool.Params.TlsDisableSystemCas,
+			URL:                   sseTool.Params.Url,
+			Headers:               sseTool.Params.Headers,
+			ServerType:            "sse",
+			Timeout:               sseTool.Params.Timeout,
+			SseReadTimeout:        sseTool.Params.SseReadTimeout,
+			TLSInsecureSkipVerify: sseTool.Params.TLSInsecureSkipVerify,
+			TLSCACertPath:         sseTool.Params.TLSCACertPath,
+			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
 		}
 		ts, err := addToolset(ctx, log, params, sseTool.Tools, "SSE", i+1)
 		if err != nil {
@@ -131,7 +131,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 
 	baseTransport := &http.Transport{}
 
-	if params.TLSDisableVerify != nil && *params.TLSDisableVerify {
+	if params.TLSInsecureSkipVerify != nil && *params.TLSInsecureSkipVerify {
 		log.Info("WARNING: TLS certificate verification disabled for MCP server - this is insecure and not recommended for production", "url", params.URL)
 		baseTransport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
