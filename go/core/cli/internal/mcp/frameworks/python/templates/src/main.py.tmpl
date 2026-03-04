@@ -7,13 +7,16 @@ Each tool file should contain a function decorated with @mcp.tool().
 Usage Examples:
   # Stdio mode (default MCP transport)
   python src/main.py
-  
+
   # HTTP mode with MCP protocol over HTTP
   python src/main.py --transport http
-  
+
   # Custom host/port
   python src/main.py --transport http --host localhost --port 8080
-  
+
+  # Stateless HTTP mode
+  python src/main.py --transport http --stateless-http
+
   # Environment variable mode
   MCP_TRANSPORT_MODE=http python src/main.py
 """
@@ -52,6 +55,13 @@ def main() -> None:
         help="Port to bind to in HTTP mode (default: 3000)"
     )
 
+    parser.add_argument(
+        "--stateless-http",
+        type=bool,
+        default=bool(os.getenv("MCP_STATELESS_HTTP", "false").lower() == "true"),
+        help="Enable stateless HTTP mode (default: false)"
+    )
+
     args = parser.parse_args()
 
     # Check environment variable for transport mode
@@ -78,8 +88,11 @@ def main() -> None:
 
         if transport_mode not in ["http", "stdio"]:
             raise ValueError(f"Invalid transport mode: {transport_mode}. Must be one of: http, or stdio")
-        
-        server.run(transport_mode=transport_mode, host=args.host, port=args.port)
+
+        server.run(transport_mode=transport_mode,
+                   host=args.host,
+                   port=args.port,
+                   stateless_http=args.stateless_http)
 
     except KeyboardInterrupt:
         print("\nShutting down server...")
