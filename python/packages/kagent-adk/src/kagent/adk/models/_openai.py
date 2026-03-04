@@ -49,7 +49,7 @@ def _convert_role_to_openai(role: Optional[str]) -> str:
 
 
 def _convert_content_to_openai_messages(
-        contents: list[types.Content], system_instruction: Optional[str] = None
+    contents: list[types.Content], system_instruction: Optional[str] = None
 ) -> list[ChatCompletionMessageParam]:
     """Convert google.genai Content list to OpenAI messages format."""
     messages: list[ChatCompletionMessageParam] = []
@@ -389,7 +389,7 @@ class BaseOpenAI(BaseLlm):
         )
 
     async def generate_content_async(
-            self, llm_request: LlmRequest, stream: bool = False
+        self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         """Generate content using OpenAI API."""
 

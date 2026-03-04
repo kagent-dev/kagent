@@ -140,7 +140,8 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
             converted[key] = value
 
     return converted
-=======
+
+
 # Flag to track if we've monkey-patched MCPSessionManager
 _MCP_SESSION_MANAGER_PATCHED = False
 
@@ -188,7 +189,7 @@ def _patch_mcp_session_manager_for_tls():
 
 
 def _apply_mcp_tls_config(
-        connection_params: Union[StreamableHTTPConnectionParams, SseConnectionParams]
+    connection_params: Union[StreamableHTTPConnectionParams, SseConnectionParams],
 ) -> Union[StreamableHTTPConnectionParams, SseConnectionParams]:
     """Apply TLS configuration (including client certificates) to connection params.
 
@@ -239,9 +240,9 @@ def _apply_mcp_tls_config(
     # so we use object.__setattr__ to set it
     # The closure will automatically capture ssl_context and client_cert from the outer scope
     def create_tls_httpx_client(
-            headers: dict[str, str] | None = None,
-            timeout: httpx.Timeout | None = None,
-            auth: httpx.Auth | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
         """Create httpx client with TLS configuration including client certificates.
 
@@ -279,7 +280,7 @@ def _apply_mcp_tls_config(
 
 def _extract_and_set_tls_fields(obj: dict, instance: BaseModel) -> None:
     """Extract TLS fields from JSON and set them on params object.
-    
+
     Helper function to avoid code duplication between HttpMcpServerConfig and SseMcpServerConfig.
     """
     params = obj.get("params") if isinstance(obj, dict) else None
@@ -289,7 +290,6 @@ def _extract_and_set_tls_fields(obj: dict, instance: BaseModel) -> None:
         if tls_client_cert_path is not None or insecure_tls_verify is not None:
             instance.params.tls_client_cert_path = tls_client_cert_path
             instance.params.insecure_tls_verify = insecure_tls_verify
->>>>>>> ca7b2aad (feat: support customized TLS configuration to mcpserver)
 
 
 class HttpMcpServerConfig(BaseModel):
