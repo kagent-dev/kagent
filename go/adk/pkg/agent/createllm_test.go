@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,21 +34,21 @@ func startMock(t *testing.T, mockFile string) string {
 
 // loadConfig reads a config JSON from testdata, replaces {{BASE_URL}} with the
 // mock server address, and returns the parsed AgentConfig.
-func loadConfig(t *testing.T, path string, baseURL string) *config.AgentConfig {
+func loadConfig(t *testing.T, path string, baseURL string) *adk.AgentConfig {
 	t.Helper()
 	data, err := testdata.ReadFile(path)
 	require.NoError(t, err)
 
 	raw := strings.ReplaceAll(string(data), "{{BASE_URL}}", baseURL)
 
-	var cfg config.AgentConfig
+	var cfg adk.AgentConfig
 	require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
 	return &cfg
 }
 
 // runAgent creates an agent from config, sends a prompt through the full
 // runner pipeline, and returns all text from the response events.
-func runAgent(t *testing.T, agentCfg *config.AgentConfig, prompt string) string {
+func runAgent(t *testing.T, agentCfg *adk.AgentConfig, prompt string) string {
 	t.Helper()
 	ctx := logr.NewContext(t.Context(), logr.Discard())
 
@@ -74,7 +74,7 @@ func runAgent(t *testing.T, agentCfg *config.AgentConfig, prompt string) string 
 		Parts: []*genai.Part{{Text: prompt}},
 	}
 
-	var text string
+	var sb strings.Builder
 	for ev, err := range r.Run(ctx, "user", sess.Session.ID(), content, adkagent.RunConfig{}) {
 		require.NoError(t, err)
 		if ev == nil || ev.Content == nil {
@@ -82,11 +82,11 @@ func runAgent(t *testing.T, agentCfg *config.AgentConfig, prompt string) string 
 		}
 		for _, p := range ev.Content.Parts {
 			if p != nil && p.Text != "" {
-				text += p.Text
+				sb.WriteString(p.Text)
 			}
 		}
 	}
-	return text
+	return sb.String()
 }
 
 func TestAgent_OpenAI(t *testing.T) {

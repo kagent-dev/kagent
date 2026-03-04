@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func TestValidateAgentConfigUsage_NilConfig(t *testing.T) {
@@ -16,7 +18,7 @@ func TestValidateAgentConfigUsage_NilConfig(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_MissingModel(t *testing.T) {
-	config := &AgentConfig{
+	config := &adk.AgentConfig{
 		Instruction: "test",
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -29,8 +31,8 @@ func TestValidateAgentConfigUsage_MissingModel(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
-	config := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Instruction: "You are helpful.",
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -40,11 +42,11 @@ func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
-	config := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Instruction: "test",
-		HttpTools: []HttpMcpServerConfig{
-			{Params: StreamableHTTPConnectionParams{Url: ""}},
+		HttpTools: []adk.HttpMcpServerConfig{
+			{Params: adk.StreamableHTTPConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -57,11 +59,11 @@ func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
-	config := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Instruction: "test",
-		SseTools: []SseMcpServerConfig{
-			{Params: SseConnectionParams{Url: ""}},
+		SseTools: []adk.SseMcpServerConfig{
+			{Params: adk.SseConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -74,10 +76,10 @@ func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
-	config := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Instruction: "test",
-		RemoteAgents: []RemoteAgentConfig{
+		RemoteAgents: []adk.RemoteAgentConfig{
 			{Name: "agent1", Url: ""},
 		},
 	}
@@ -91,10 +93,10 @@ func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingName(t *testing.T) {
-	config := &AgentConfig{
-		Model:       &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Instruction: "test",
-		RemoteAgents: []RemoteAgentConfig{
+		RemoteAgents: []adk.RemoteAgentConfig{
 			{Name: "", Url: "http://example.com"},
 		},
 	}
@@ -115,13 +117,13 @@ func TestGetAgentConfigSummary_Nil(t *testing.T) {
 }
 
 func TestGetAgentConfigSummary_WithModel(t *testing.T) {
-	config := &AgentConfig{
-		Model:        &OpenAI{BaseModel: BaseModel{Type: ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &adk.AgentConfig{
+		Model:        &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
 		Description:  "Test agent",
 		Instruction:  "Be helpful",
-		HttpTools:    []HttpMcpServerConfig{},
-		SseTools:     []SseMcpServerConfig{},
-		RemoteAgents: []RemoteAgentConfig{},
+		HttpTools:    []adk.HttpMcpServerConfig{},
+		SseTools:     []adk.SseMcpServerConfig{},
+		RemoteAgents: []adk.RemoteAgentConfig{},
 	}
 	s := GetAgentConfigSummary(config)
 	if !strings.Contains(s, "openai") {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 // AgentConfigUsage documents how Agent.yaml spec fields map to AgentConfig and are used
@@ -40,7 +41,7 @@ import (
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly
-func ValidateAgentConfigUsage(config *AgentConfig) error {
+func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
 	var logger logr.Logger
 	return ValidateAgentConfigUsageWithLogger(config, logger)
 }
@@ -48,7 +49,7 @@ func ValidateAgentConfigUsage(config *AgentConfig) error {
 // ValidateAgentConfigUsageWithLogger validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly
 // If logger is the zero value (no sink), validation will proceed without logging
-func ValidateAgentConfigUsageWithLogger(config *AgentConfig, logger logr.Logger) error {
+func ValidateAgentConfigUsageWithLogger(config *adk.AgentConfig, logger logr.Logger) error {
 	if config == nil {
 		return fmt.Errorf("agent config is nil")
 	}
@@ -100,7 +101,7 @@ func ValidateAgentConfigUsageWithLogger(config *AgentConfig, logger logr.Logger)
 }
 
 // GetAgentConfigSummary returns a summary of the agent configuration
-func GetAgentConfigSummary(config *AgentConfig) string {
+func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	if config == nil {
 		return "AgentConfig: nil"
 	}
@@ -122,21 +123,21 @@ func GetAgentConfigSummary(config *AgentConfig) string {
 	return summary
 }
 
-func getModelName(m Model) string {
+func getModelName(m adk.Model) string {
 	switch m := m.(type) {
-	case *OpenAI:
+	case *adk.OpenAI:
 		return m.Model
-	case *AzureOpenAI:
+	case *adk.AzureOpenAI:
 		return m.Model
-	case *Anthropic:
+	case *adk.Anthropic:
 		return m.Model
-	case *GeminiVertexAI:
+	case *adk.GeminiVertexAI:
 		return m.Model
-	case *GeminiAnthropic:
+	case *adk.GeminiAnthropic:
 		return m.Model
-	case *Ollama:
+	case *adk.Ollama:
 		return m.Model
-	case *Gemini:
+	case *adk.Gemini:
 		return m.Model
 	default:
 		return "unknown"

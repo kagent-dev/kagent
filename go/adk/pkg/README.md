@@ -8,7 +8,7 @@ Shared types, interfaces, and implementations for the Kagent Go ADK.
 - **agent/** - Google ADK agent creation from `AgentConfig`
 - **app/** - Application lifecycle (server startup, shutdown, task store wiring)
 - **auth/** - KAgent API token management
-- **config/** - Agent configuration loading, validation, and type re-exports from `go/api/adk`
+- **config/** - Agent configuration loading and validation
 - **mcp/** - MCP client toolset creation from HTTP/SSE server configs
 - **models/** - LLM model adapters (OpenAI, Anthropic) implementing Google ADK's `model.LLM`
 - **runner/** - Google ADK `runner.Config` creation from `AgentConfig`
@@ -30,10 +30,3 @@ KAgentExecutor.Execute(ctx, reqCtx, queue)
   -> ConvertADKEventToA2AEvents -> queue.Write
   -> inline aggregation -> final status/artifact
 ```
-
-## Type Deduplication
-
-Model and config types (e.g. `Model`, `AgentConfig`, `OpenAI`, `Anthropic`) are defined
-canonically in `go/api/adk/` and re-exported via type aliases in `config/types.go`.
-This avoids duplication while keeping the `config.` package qualifier that existing
-code uses.

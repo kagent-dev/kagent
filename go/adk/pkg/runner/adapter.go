@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 )
@@ -20,7 +20,7 @@ func agentNameFromAppName(appName string) string {
 }
 
 // CreateRunnerConfig creates a runner.Config suitable for use with adka2a.Executor.
-func CreateRunnerConfig(ctx context.Context, agentConfig *config.AgentConfig, sessionService session.SessionService, appName string) (runner.Config, error) {
+func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessionService session.SessionService, appName string) (runner.Config, error) {
 	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName))
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)

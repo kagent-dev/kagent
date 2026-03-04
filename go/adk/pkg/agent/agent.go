@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	adkmodel "google.golang.org/adk/model"
@@ -22,7 +22,7 @@ import (
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // Toolsets are passed in directly (created by mcp.CreateToolsets).
 // agentName is used as the ADK agent identity (appears in event Author field).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *config.AgentConfig, agentName string) (agent.Agent, error) {
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -79,9 +79,9 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *config.AgentConfig, 
 }
 
 // createLLM creates an adkmodel.LLM from the model configuration.
-func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.LLM, error) {
+func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM, error) {
 	switch m := m.(type) {
-	case *config.OpenAI:
+	case *adk.OpenAI:
 		cfg := &models.OpenAIConfig{
 			Model:            m.Model,
 			BaseUrl:          m.BaseUrl,
@@ -98,7 +98,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return models.NewOpenAIModelWithLogger(cfg, log)
 
-	case *config.AzureOpenAI:
+	case *adk.AzureOpenAI:
 		cfg := &models.AzureOpenAIConfig{
 			Model:   m.Model,
 			Headers: extractHeaders(m.Headers),
@@ -106,7 +106,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return models.NewAzureOpenAIModelWithLogger(cfg, log)
 
-	case *config.Gemini:
+	case *adk.Gemini:
 		apiKey := os.Getenv("GOOGLE_API_KEY")
 		if apiKey == "" {
 			apiKey = os.Getenv("GEMINI_API_KEY")
@@ -120,7 +120,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{APIKey: apiKey})
 
-	case *config.GeminiVertexAI:
+	case *adk.GeminiVertexAI:
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
 		location := os.Getenv("GOOGLE_CLOUD_LOCATION")
 		if location == "" {
@@ -139,7 +139,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 			Location: location,
 		})
 
-	case *config.Anthropic:
+	case *adk.Anthropic:
 		modelName := m.Model
 		if modelName == "" {
 			modelName = "claude-sonnet-4-20250514"
@@ -156,7 +156,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return models.NewAnthropicModelWithLogger(cfg, log)
 
-	case *config.Ollama:
+	case *adk.Ollama:
 		baseURL := os.Getenv("OLLAMA_API_BASE")
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
@@ -171,7 +171,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return models.NewOpenAICompatibleModelWithLogger(baseURL, modelName, extractHeaders(m.Headers), "", log)
 
-	case *config.Bedrock:
+	case *adk.Bedrock:
 		region := m.Region
 		if region == "" {
 			region = os.Getenv("AWS_REGION")
@@ -189,7 +189,7 @@ func createLLM(ctx context.Context, m config.Model, log logr.Logger) (adkmodel.L
 		}
 		return models.NewAnthropicBedrockModelWithLogger(ctx, cfg, region, log)
 
-	case *config.GeminiAnthropic:
+	case *adk.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
 		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/mcptoolset"
@@ -37,7 +37,7 @@ type mcpServerParams struct {
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
 // returning the accumulated toolsets. Errors on individual servers are logged
 // and skipped.
-func CreateToolsets(ctx context.Context, httpTools []config.HttpMcpServerConfig, sseTools []config.SseMcpServerConfig) []tool.Toolset {
+func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, sseTools []adk.SseMcpServerConfig) []tool.Toolset {
 	log := logr.FromContextOrDiscard(ctx)
 	var toolsets []tool.Toolset
 

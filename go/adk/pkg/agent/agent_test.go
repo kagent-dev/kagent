@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -23,7 +23,7 @@ func TestConfigDeserialization_OpenAI(t *testing.T) {
 		"instruction": "you are helpful"
 	}`
 
-	var cfg config.AgentConfig
+	var cfg adk.AgentConfig
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
@@ -36,9 +36,9 @@ func TestConfigDeserialization_OpenAI(t *testing.T) {
 		t.Errorf("model type = %q, want %q", cfg.Model.GetType(), "openai")
 	}
 
-	openai, ok := cfg.Model.(*config.OpenAI)
+	openai, ok := cfg.Model.(*adk.OpenAI)
 	if !ok {
-		t.Fatalf("model is %T, want *config.OpenAI", cfg.Model)
+		t.Fatalf("model is %T, want *adk.OpenAI", cfg.Model)
 	}
 
 	if openai.Model != "gpt-4o" {
@@ -62,14 +62,14 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 		"instruction": "you are helpful"
 	}`
 
-	var cfg config.AgentConfig
+	var cfg adk.AgentConfig
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
-	anthropic, ok := cfg.Model.(*config.Anthropic)
+	anthropic, ok := cfg.Model.(*adk.Anthropic)
 	if !ok {
-		t.Fatalf("model is %T, want *config.Anthropic", cfg.Model)
+		t.Fatalf("model is %T, want *adk.Anthropic", cfg.Model)
 	}
 
 	if anthropic.Model != "claude-sonnet-4-20250514" {
@@ -140,7 +140,7 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			configJSON := `{"model":` + tt.json + `,"description":"test","instruction":"test"}`
 
-			var cfg config.AgentConfig
+			var cfg adk.AgentConfig
 			if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 				t.Fatalf("failed to unmarshal: %v", err)
 			}
@@ -159,7 +159,7 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 				t.Fatalf("failed to marshal model: %v", err)
 			}
 
-			var base config.BaseModel
+			var base adk.BaseModel
 			if err := json.Unmarshal(modelJSON, &base); err != nil {
 				t.Fatalf("failed to unmarshal base: %v", err)
 			}
@@ -185,14 +185,14 @@ func TestCreateLLMConfig_OpenAI(t *testing.T) {
 		"instruction": "test"
 	}`
 
-	var cfg config.AgentConfig
+	var cfg adk.AgentConfig
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	openai, ok := cfg.Model.(*config.OpenAI)
+	openai, ok := cfg.Model.(*adk.OpenAI)
 	if !ok {
-		t.Fatalf("model is %T, want *config.OpenAI", cfg.Model)
+		t.Fatalf("model is %T, want *adk.OpenAI", cfg.Model)
 	}
 
 	// This is what createLLM does: it reads m.Model for the OpenAIConfig
@@ -265,14 +265,14 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 		"instruction": "you are helpful"
 	}`
 
-	var cfg config.AgentConfig
+	var cfg adk.AgentConfig
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
-	br, ok := cfg.Model.(*config.Bedrock)
+	br, ok := cfg.Model.(*adk.Bedrock)
 	if !ok {
-		t.Fatalf("model is %T, want *config.Bedrock", cfg.Model)
+		t.Fatalf("model is %T, want *adk.Bedrock", cfg.Model)
 	}
 
 	if br.Model != "anthropic.claude-3-sonnet-20240229-v1:0" {
