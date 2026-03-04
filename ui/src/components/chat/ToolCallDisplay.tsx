@@ -10,7 +10,7 @@ interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
   onApprove?: (toolCallId: string) => void;
-  onReject?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
@@ -76,8 +76,12 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
         const data = part.data as unknown as FunctionCall;
-        // Skip ADK internal function calls (confirmation/auth) — not real tool calls
-        if (data.name === "adk_request_confirmation" || data.name === "adk_request_credential") {
+        // Skip ADK internal function calls (confirmation/auth) and ask_user (has its own display)
+        if (
+          data.name === "adk_request_confirmation" ||
+          data.name === "adk_request_credential" ||
+          data.name === "ask_user"
+        ) {
           continue;
         }
         functionCalls.push({
@@ -102,7 +106,13 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
     // Tool call data might be stored as JSON in content or metadata
     const metadata = message.metadata as ADKMetadata;
     const toolCallData = metadata?.toolCallData || JSON.parse(content || "[]");
-    return Array.isArray(toolCallData) ? toolCallData : [];
+    return Array.isArray(toolCallData)
+      ? toolCallData.filter(tc =>
+          tc.name !== "adk_request_confirmation" &&
+          tc.name !== "adk_request_credential" &&
+          tc.name !== "ask_user"
+        )
+      : [];
   } catch {
     return [];
   }
@@ -314,7 +324,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             isError={toolCall.result?.is_error}
             isDecided={isDecided}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
-            onReject={showButtons && onReject ? () => onReject(toolCall.id) : undefined}
+            onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
           />
         );
       })}

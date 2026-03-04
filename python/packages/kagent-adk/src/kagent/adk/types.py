@@ -18,6 +18,7 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
+from kagent.adk.tools.ask_user_tool import AskUserTool
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -376,6 +377,9 @@ class AgentConfig(BaseModel):
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
+
+        # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
+        tools.append(AskUserTool())
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
