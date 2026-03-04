@@ -125,6 +125,10 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         ttlDays: agentFormData.memory.ttlDays,
       };
     }
+
+    if (agentFormData.context) {
+      base.spec!.declarative!.context = agentFormData.context;
+    }
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {

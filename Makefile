@@ -245,6 +245,7 @@ build-img-versions:
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
+	@echo skills-init=$(SKILLS_INIT_IMG)
 
 .PHONY: lint
 lint:
@@ -463,3 +464,4 @@ report/image-cve: audit build
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
+	grype docker:$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv

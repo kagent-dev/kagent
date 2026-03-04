@@ -21,6 +21,7 @@ jobs:
           - ui
           - app
           - golang-adk
+          - skills-init
     runs-on: ubuntu-latest
     permissions:
       contents: read

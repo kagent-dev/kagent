@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
@@ -27,17 +28,29 @@ from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutorConfig as UpstreamA2aAgentExecutorConfig,
 )
 from google.adk.events import Event, EventActions
+from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.runners import Runner
+from google.adk.sessions import Session
+from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.utils.context_utils import Aclosing
+from google.genai import types as genai_types
 from pydantic import BaseModel
 from typing_extensions import override
 
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
+from kagent.core.a2a import (
+    KAGENT_HITL_DECISION_TYPE_APPROVE,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
+    TaskResultAggregator,
+    extract_batch_decisions_from_message,
+    extract_decision_from_message,
+    get_kagent_metadata_key,
+)
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
 
+from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import convert_event_to_a2a_events
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
@@ -96,6 +109,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         *,
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
+        task_store=None,
     ):
         # Build upstream config with kagent's custom converters
         upstream_config = UpstreamA2aAgentExecutorConfig(
@@ -106,6 +120,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         )
         super().__init__(runner=runner, config=upstream_config)
         self._kagent_config = config
+        self._task_store = task_store
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -153,6 +168,40 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         * Converts the ADK output events into A2A task updates
         * Publishes the updates back to A2A server via event queue
         """
+        try:
+            await self._execute_impl(context, event_queue)
+        except asyncio.CancelledError as e:
+            # anyio cancel scope corruption (from MCP session cleanup in a
+            # different task context) calls Task.cancel() on the current
+            # task. CancelledError can escape from multiple places: the
+            # outer try body, the inner except handler (if the task's
+            # cancellation counter > 1), or the finally block's
+            # _safe_close_runner (which re-raises CancelledError).
+            # This top-level guard ensures CancelledError never propagates
+            # to _run_event_stream in the A2A SDK, which would produce a
+            # 500 Internal Server Error.
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                # Clear all pending cancellation requests so subsequent
+                # awaits (e.g. publishing the failure event) don't re-raise.
+                while current_task.uncancel() > 0:
+                    pass
+            logger.error(
+                "CancelledError escaped execute, converting to failed status: %s",
+                e,
+                exc_info=True,
+            )
+            await self._publish_failed_status_event(
+                context,
+                event_queue,
+                str(e) or "A2A request execution was cancelled.",
+            )
+
+    async def _execute_impl(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
@@ -224,7 +273,46 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             # and the mcptoolsets are not shared between requests
             # this is necessary to gracefully handle mcp toolset connections
             if runner is not None:
-                await runner.close()
+                await self._safe_close_runner(runner)
+
+    async def _safe_close_runner(self, runner: Runner):
+        """Close the runner in an isolated task to prevent cancel scope
+        corruption from propagating to the caller.
+
+        MCP session cleanup can trigger anyio CancelScope violations when
+        cancel scopes are entered in one task context but exited in another
+        (e.g. via asyncio.wait_for creating a subtask). Running the cleanup
+        in a separate task and collecting exceptions via asyncio.gather
+        ensures cleanup runs in a separate task context. We only suppress
+        the known non-fatal anyio cross-task cancel scope cleanup error and
+        re-raise everything else.
+
+        See: https://github.com/kagent-dev/kagent/issues/1276
+        """
+        cleanup_task = asyncio.create_task(runner.close())
+        try:
+            results = await asyncio.gather(cleanup_task, return_exceptions=True)
+        except asyncio.CancelledError:
+            cleanup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
+            raise
+
+        for result in results:
+            if not isinstance(result, BaseException):
+                continue
+            if isinstance(result, (KeyboardInterrupt, SystemExit)):
+                raise result
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if is_anyio_cross_task_cancel_scope_error(result):
+                logger.warning(
+                    "Non-fatal anyio cancel scope error during runner cleanup: %s: %s",
+                    type(result).__name__,
+                    result,
+                )
+                continue
+            raise result
 
     async def _publish_failed_status_event(
         self,
@@ -249,8 +337,100 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     final=True,
                 )
             )
-        except Exception as enqueue_error:
+        except BaseException as enqueue_error:
+            if isinstance(enqueue_error, (KeyboardInterrupt, SystemExit)):
+                raise
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+
+    @staticmethod
+    def _find_pending_confirmations(session: Session) -> dict[str, str | None]:
+        """Find pending adk_request_confirmation calls and their original tool call IDs.
+
+        Scans session events backwards for the most recent adk_request_confirmation
+        FunctionCall events that haven't been responded to yet.
+
+        Returns:
+            Dict mapping confirmation function_call_id to the original tool call ID
+            (from args.originalFunctionCall.id), or None if not available.
+        """
+        pending: dict[str, str | None] = {}
+        responded_ids: set[str] = set()
+
+        for event in reversed(session.events or []):
+            # Collect responded confirmation IDs
+            for fr in event.get_function_responses():
+                if fr.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fr.id is not None:
+                    responded_ids.add(fr.id)
+
+            # Collect requested confirmation IDs and extract original tool call ID
+            for fc in event.get_function_calls():
+                if fc.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fc.id is not None:
+                    # Extract original tool call ID from args.originalFunctionCall.id
+                    original_id = None
+                    if fc.args and isinstance(fc.args, dict):
+                        orig_fc = fc.args.get("originalFunctionCall")
+                        if isinstance(orig_fc, dict):
+                            original_id = orig_fc.get("id")
+                    pending[fc.id] = original_id
+
+            # Stop scanning once we find confirmation requests (they're recent)
+            if pending:
+                break
+
+        # Remove the ones that have already been responded to
+        for responded_id in responded_ids:
+            pending.pop(responded_id, None)
+
+        return pending
+
+    def _process_hitl_decision(
+        self, session: Session, decision: str, message: Message
+    ) -> list[genai_types.Part] | None:
+        """Process a HITL decision from a message and return the corresponding FunctionResponse parts."""
+        pending_confirmations = self._find_pending_confirmations(session)
+        if not pending_confirmations:
+            return None
+
+        logger.info(
+            "HITL continuation detected: decision=%s, pending_confirmations=%d",
+            decision,
+            len(pending_confirmations),
+        )
+
+        if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
+            # Batch mode: per-tool decisions
+            batch_decisions = extract_batch_decisions_from_message(message) or {}
+            parts = []
+            for fc_id, original_id in pending_confirmations.items():
+                # Look up the per-tool decision using the original tool call ID
+                tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
+                confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+                confirmation = ToolConfirmation(confirmed=confirmed)
+                # Append a response for each tool call
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                            id=fc_id,
+                            response={"response": confirmation.model_dump_json()},
+                        )
+                    )
+                )
+            return parts
+        else:
+            # Uniform mode: same decision for all pending tools
+            confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+            confirmation = ToolConfirmation(confirmed=confirmed)
+            return [
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                        id=fc_id,
+                        response={"response": confirmation.model_dump_json()},
+                    )
+                )
+                for fc_id in pending_confirmations
+            ]
 
     async def _handle_request(
         self,
@@ -262,20 +442,28 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
-        # set request headers to session state
-        headers = context.call_context.state.get("headers", {})
-        state_changes = {
-            "headers": headers,
-        }
+        # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
+        decision = extract_decision_from_message(context.message)
+        if decision:
+            parts = self._process_hitl_decision(session, decision, context.message)
+            if parts:
+                run_args["new_message"] = genai_types.Content(role="user", parts=parts)
+            # Fall through to normal execution with the constructed FunctionResponse
+        else:
+            # Normal flow: set request headers to session state
+            headers = context.call_context.state.get("headers", {})
+            state_changes = {
+                "headers": headers,
+            }
 
-        actions_with_update = EventActions(state_delta=state_changes)
-        system_event = Event(
-            invocation_id="header_update",
-            author="system",
-            actions=actions_with_update,
-        )
+            actions_with_update = EventActions(state_delta=state_changes)
+            system_event = Event(
+                invocation_id="header_update",
+                author="system",
+                actions=actions_with_update,
+            )
 
-        await runner.session_service.append_event(session, system_event)
+            await runner.session_service.append_event(session, system_event)
 
         # create invocation context
         invocation_context = runner._new_invocation_context(
@@ -318,6 +506,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if event_inv_id and not real_invocation_id:
                     real_invocation_id = event_inv_id
                     run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
                 ):
@@ -326,6 +515,10 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     if not adk_event.partial:
                         task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
+
+                # Break on confirmation events that use long running tools
+                if getattr(adk_event, "long_running_tool_ids", None):
+                    break
 
         # publish the task result event - this is final
         if (

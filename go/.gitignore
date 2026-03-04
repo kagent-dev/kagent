@@ -24,4 +24,6 @@ Dockerfile.cross
 *.swp
 *.swo
 *~
-file::memory:
+
+# turso
+file::*

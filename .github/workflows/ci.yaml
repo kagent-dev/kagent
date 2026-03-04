@@ -220,6 +220,7 @@ jobs:
           - app
           - cli
           - golang-adk
+          - skills-init
     runs-on: ubuntu-latest
     services:
       registry:

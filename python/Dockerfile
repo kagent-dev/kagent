@@ -94,9 +94,11 @@ RUN --mount=type=cache,target=/root/.npm \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install && \
-    npm install minimatch@3.1.3 && \
     npm run build && \
-    npm install -g
+    # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
+    # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.
+    npm prune --omit=dev && \
+    npm install -g --ignore-scripts
 
 # Ensure the sandbox runtime binaries are on PATH
 ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
