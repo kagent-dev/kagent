@@ -524,15 +524,6 @@ func (a *adkApiTranslator) buildManifest(
 							TimeoutSeconds:      15,
 							PeriodSeconds:       15,
 						},
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/healthz/mcp", Port: intstr.FromString("http")},
-							},
-							InitialDelaySeconds: 30,
-							PeriodSeconds:       30,
-							TimeoutSeconds:      10,
-							FailureThreshold:    3,
-						},
 						SecurityContext: securityContext,
 						VolumeMounts:    volumeMounts,
 					}},
