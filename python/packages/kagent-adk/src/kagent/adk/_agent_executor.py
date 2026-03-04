@@ -41,8 +41,10 @@ from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
     TaskResultAggregator,
+    extract_ask_user_answers_from_message,
     extract_batch_decisions_from_message,
     extract_decision_from_message,
+    extract_rejection_reasons_from_message,
     get_kagent_metadata_key,
 )
 from kagent.core.tracing._span_processor import (
@@ -397,6 +399,28 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             len(pending_confirmations),
         )
 
+        # Check for ask-user answers — if present, build a single approved
+        # ToolConfirmation with the answers payload regardless of decision_type.
+        # The tool will use the payload and construct the user answer to the agent
+        ask_user_answers = extract_ask_user_answers_from_message(message)
+        if ask_user_answers is not None:
+            parts = []
+            for fc_id in pending_confirmations:
+                confirmation = ToolConfirmation(confirmed=True, payload={"answers": ask_user_answers})
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                            id=fc_id,
+                            response={"response": confirmation.model_dump_json()},
+                        )
+                    )
+                )
+            return parts
+
+        # Extract optional rejection reasons from the message.
+        rejection_reasons = extract_rejection_reasons_from_message(message)
+
         if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
             # Batch mode: per-tool decisions
             batch_decisions = extract_batch_decisions_from_message(message) or {}
@@ -405,7 +429,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 # Look up the per-tool decision using the original tool call ID
                 tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
                 confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
-                confirmation = ToolConfirmation(confirmed=confirmed)
+                # Attach rejection reason if provided for this specific tool
+                payload: dict | None = None
+                if not confirmed and rejection_reasons:
+                    reason = rejection_reasons.get(original_id) if original_id else None
+                    if reason:
+                        payload = {"rejection_reason": reason}
+                confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
                 # Append a response for each tool call
                 parts.append(
                     genai_types.Part(
@@ -420,7 +450,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         else:
             # Uniform mode: same decision for all pending tools
             confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
-            confirmation = ToolConfirmation(confirmed=confirmed)
+            # Attach rejection reason if provided (uniform denial uses "*" sentinel)
+            payload = None
+            if not confirmed and rejection_reasons:
+                reason = rejection_reasons.get("*")
+                if reason:
+                    payload = {"rejection_reason": reason}
+            confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
             return [
                 genai_types.Part(
                     function_response=genai_types.FunctionResponse(

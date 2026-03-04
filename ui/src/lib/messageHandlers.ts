@@ -1,4 +1,4 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart, TaskStatus } from "@a2a-js/sdk";
+import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
@@ -50,7 +50,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
-/** Returns true if the message is a user HITL decision (approve/deny). */
+/** Returns true if the message is a user HITL decision (approve/deny) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
   if (message.role !== "user" || !message.parts) return false;
   return message.parts.some((p: Part) => {
@@ -146,8 +146,13 @@ function resolveToolDecision(
   return decisionType; // "approve" | "deny"
 }
 
-/** Build a ToolApprovalRequest message from a confirmation DataPart. */
-function buildApprovalMessage(
+/**
+ * Build a confirmation message from an adk_request_confirmation DataPart.
+ * Branches on the original function call name:
+ *   - "ask_user" → AskUserRequest message
+ *   - everything else → ToolApprovalRequest message
+ */
+export function buildApprovalMessage(
   confPart: DataPart,
   contextId: string | undefined,
   taskId: string | undefined,
@@ -160,6 +165,28 @@ function buildApprovalMessage(
   };
   const origFc = data.args.originalFunctionCall;
   const toolId = origFc.id || data.id;
+
+  // ask_user tool uses a dedicated UI card
+  if (origFc.name === "ask_user") {
+    // Resolve the user's previous answers (if already resolved)
+    const askUserAnswers = decisionData?.ask_user_answers as Array<{ answer: string[] }> | undefined;
+    return createMessage("", "agent", {
+      originalType: "AskUserRequest",
+      contextId,
+      taskId,
+      additionalMetadata: {
+        askUserData: {
+          id: toolId,
+          questions: (origFc.args as { questions?: unknown }).questions || [],
+        },
+        // If already resolved, store the answers so the card can show them read-only.
+        askUserAnswers: askUserAnswers || null,
+        // Track the decision type so we know it was resolved
+        approvalDecision: decisionData?.decision_type ? "approve" : undefined,
+      },
+    });
+  }
+
   const toolCallContent: ProcessedToolCallData[] = [{
     id: toolId,
     name: origFc.name,
@@ -207,7 +234,8 @@ export type OriginalMessageType =
   | "ToolCallRequestEvent"
   | "ToolCallExecutionEvent"
   | "ToolCallSummaryMessage"
-  | "ToolApprovalRequest";
+  | "ToolApprovalRequest"
+  | "AskUserRequest";
 
 export interface ADKMetadata {
   kagent_app_name?: string;
@@ -567,10 +595,11 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
 
             } else if (partType === "function_response") {
-              // Skip the initial confirmation_requested marker from the before_tool_callback
+              // Skip internal HITL markers: the before_tool_callback stub and
+              // the ask_user first-invocation pending stub.
               const responseData = (data as { response?: Record<string, unknown> })?.response;
               const responseStatus = responseData?.status as string | undefined;
-              if (responseStatus === "confirmation_requested") {
+              if (responseStatus === "confirmation_requested" || responseStatus === "pending") {
                 continue;
               }
               const toolData = data as unknown as ToolResponseData;

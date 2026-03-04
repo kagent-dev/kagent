@@ -485,3 +485,131 @@ some while rejecting others:
    to the next LLM step without pausing.
 7. The LLM receives the mixed results and generates an appropriate text
    response (e.g., summarising what succeeded and what was rejected).
+
+---
+
+## Enhancement: Rejection Reasons
+
+Add an optional free-text reason to rejections. The reason travels through
+the existing HITL plumbing using `ToolConfirmation.payload` from the `DataPart` from frontend.
+
+Currently we use two custom keys to indicate rejection reason in the frontend payload and the ADK payload.
+This handles parallel tool call rejection as well using the batch flow described above.
+
+In the before-tool callback (`_approval.py`) we will check if payload exists.
+If so, we will append the rejection reason to the callback response to tell the model.
+
+---
+
+## Enhancement: Ask-User Tool
+
+Discussed in issue #1415.
+Why this is a good idea: https://www.atcyrus.com/stories/claude-code-ask-user-question-tool-guide
+
+### Design
+
+A built-in `ask_user` tool that:
+- Lets the model pose **one or more questions** in a single call (batched).
+- Each question can include **predefined choices** and a flag for whether
+  multiple selections are allowed.
+- The user always has the option to **type a free-text answer** alongside
+  (or instead of) the predefined choices.
+- Uses the **same `request_confirmation` HITL plumbing** as tool approval —
+  no new executor logic, event converter changes, or A2A protocol extensions.
+
+The tool is added **unconditionally** to every agent as a built-in tool,
+similar to how memory tools are added.
+
+### Tool Schema
+
+```python
+ask_user(questions=[
+    {
+        "question": "Which database should I use?",
+        "choices": ["PostgreSQL", "MySQL", "SQLite"],
+        "multiple": False                         # single-select (default)
+    },
+    {
+        "question": "Which features do you want?",
+        "choices": ["Auth", "Logging", "Caching"],
+        "multiple": True                          # multi-select
+    },
+    {
+        "question": "Any additional requirements?",
+        "choices": [],                            # free-text only
+        "multiple": False
+    }
+])
+```
+
+### Tool Result (returned to model)
+
+```python
+[
+    {"question": "Which database should I use?", "answer": ["PostgreSQL"]},
+    {"question": "Which features do you want?", "answer": ["Auth", "Caching"]},
+    {"question": "Any additional requirements?", "answer": ["Add rate limiting"]}
+]
+```
+
+### Data Flow
+
+- A special path to process ask user result is added to agent executor and HITL converter
+- UI will be updated to recognize and display this
+- This tool will be added to every agent by default
+
+```plaintext
+LLM generates function call: ask_user(questions=[...])
+  ▼
+AskUserTool.run_async (first invocation)
+  │ tool_context.tool_confirmation is None
+  │ Calls tool_context.request_confirmation(hint=<question summary>)
+  │ Returns {"status": "pending", "questions": [...]}
+  ▼
+ADK generates adk_request_confirmation event (built-in)
+  │ originalFunctionCall = {name: "ask_user", args: {questions: [...]}, id: ...}
+  │ long_running_tool_ids set
+  ▼
+Event converter (existing, unchanged)
+  │ Converts to DataPart: {type: "function_call", is_long_running: true}
+  │ Sets TaskState.input_required
+  ▼
+Executor event loop
+  │ Breaks on long_running_tool_ids (existing logic)
+  ▼
+UI detects input_required + adk_request_confirmation
+  │ Sees originalFunctionCall.name === "ask_user"
+  │ Renders AskUserDisplay instead of ToolApprovalRequest card
+  ▼
+AskUserDisplay renders:
+  │ For each question:
+  │   - Header (bold, short) + question text
+  │   - Choice buttons as toggleable chips (single or multi-select)
+  │   - Free-text input always visible below choices
+  │ Single Submit button at the bottom
+  ▼
+User selects choices / types answers, clicks Submit
+  │ UI sends DataPart:
+  │   {decision_type: "approve",
+  │    ask_user_answers: [
+  │      {answer: ["PostgreSQL"]},
+  │      {answer: ["Auth", "Caching"]},
+  │      {answer: ["Add rate limiting"]}
+  │    ]}
+  ▼
+Executor resume path
+  │ Sees decision_type: "approve" + ask_user_answers present
+  │ Constructs ToolConfirmation(confirmed=True,
+  │   payload={"answers": [...]})
+  ▼
+ADK replays ask_user tool call
+  ▼
+AskUserTool.run_async (second invocation)
+  │ tool_context.tool_confirmation.confirmed is True
+  │ Reads payload["answers"]
+  │ Zips answers with original questions
+  │ Returns JSON: [{question: "...", answer: [...]}, ...]
+  ▼
+LLM receives the answers as the function response
+  │ Continues execution with user's input
+```
