@@ -21,8 +21,6 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from starlette.responses import JSONResponse
-
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -31,15 +29,12 @@ from kagent.core.a2a import (
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
-from ._mcp_toolset import KAgentMCPSessionManager, _is_server_alive_error
 from ._memory_service import KagentMemoryService
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 from .types import AgentConfig
 
 logger = logging.getLogger(__name__)
-
-_MCP_HEALTH_TIMEOUT_SECONDS = 5.0
 
 
 def health_check(request: Request) -> PlainTextResponse:
@@ -53,59 +48,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         faulthandler.dump_traceback(file=tmp, all_threads=True)
         tmp.seek(0)
         return PlainTextResponse(tmp.read())
-
-
-def _build_mcp_health_check(agent_config: Optional[AgentConfig]):
-    """Return a request handler that pings every configured MCP server.
-
-    Returns 200 with ``{"status": "ok"}`` when all servers respond to ping,
-    or 503 with per-server error details when any fail.  When the agent has
-    no MCP tools configured the endpoint always returns 200.
-
-    Checks run concurrently so that one slow server does not block others
-    or cause the liveness probe to time out.
-    """
-    connection_params_list: list[Any] = []
-    if agent_config:
-        for cfg in agent_config.http_tools or []:
-            connection_params_list.append(cfg.params)
-        for cfg in agent_config.sse_tools or []:
-            connection_params_list.append(cfg.params)
-
-    async def _check_one(params: Any) -> tuple[str, Optional[str]]:
-        """Return (url, error_string | None) for a single MCP server."""
-        url = getattr(params, "url", "unknown")
-        mgr = KAgentMCPSessionManager(connection_params=params)
-        try:
-            await asyncio.wait_for(mgr.create_session(), timeout=_MCP_HEALTH_TIMEOUT_SECONDS)
-            return url, None
-        except Exception as exc:
-            if _is_server_alive_error(exc):
-                return url, None
-            return url, str(exc)
-        finally:
-            try:
-                await mgr.close()
-            except Exception:
-                pass
-
-    async def mcp_health(request: Request):
-        if not connection_params_list:
-            return JSONResponse({"status": "ok", "servers": 0})
-
-        results = await asyncio.gather(*(_check_one(p) for p in connection_params_list))
-        errors = {url: err for url, err in results if err is not None}
-
-        if errors:
-            for url, err in errors.items():
-                logger.warning("MCP health check failed: %s: %s", url, err)
-            return JSONResponse(
-                {"status": "error", "unhealthy_count": len(errors)},
-                status_code=503,
-            )
-        return JSONResponse({"status": "ok", "servers": len(connection_params_list)})
-
-    return mcp_health
 
 
 kagent_url_override = os.getenv("KAGENT_URL")
@@ -228,9 +170,6 @@ class KAgentApp:
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-
-        mcp_health = _build_mcp_health_check(self.agent_config)
-        app.add_route("/healthz/mcp", methods=["GET"], route=mcp_health)
 
         a2a_app.add_routes_to_app(app)
 
