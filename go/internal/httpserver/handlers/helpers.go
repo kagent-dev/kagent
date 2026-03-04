@@ -54,10 +54,8 @@ func GetUserID(r *http.Request) (string, error) {
 }
 
 func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *errors.APIError {
-	principal, err := GetPrincipal(r)
-	if err != nil {
-		return errors.NewBadRequestError("Failed to get user ID", err)
-	}
+	log := ctrllog.Log.WithName("http-helpers")
+
 	var verb auth.Verb
 	switch r.Method {
 	case http.MethodGet:
@@ -72,9 +70,23 @@ func Check(authorizer auth.Authorizer, r *http.Request, res auth.Resource) *erro
 		return errors.NewBadRequestError("Unsupported HTTP method", fmt.Errorf("method %s not supported", r.Method))
 	}
 
-	err = authorizer.Check(r.Context(), principal, verb, res)
+	var claims map[string]any
+	if session, ok := auth.AuthSessionFrom(r.Context()); ok {
+		claims = session.Claims()
+	}
+
+	decision, err := authorizer.Check(r.Context(), auth.AuthzRequest{
+		Claims:   claims,
+		Resource: res,
+		Action:   verb,
+	})
 	if err != nil {
-		return errors.NewForbiddenError("Not authorized", err)
+		// Fail-open: log the error but allow access
+		log.Error(err, "authorization check failed, allowing access (fail-open)")
+		return nil
+	}
+	if decision != nil && !decision.Allowed {
+		return errors.NewForbiddenError(decision.Reason, fmt.Errorf("access denied: %s", decision.Reason))
 	}
 	return nil
 }

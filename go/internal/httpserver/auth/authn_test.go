@@ -49,9 +49,14 @@ func TestAuthnMiddleware(t *testing.T) {
 				if session == nil || session.Principal().User.ID != tt.expectedUser {
 					t.Fatalf("Expected user %s but got %v", tt.expectedUser, session)
 				}
+				// Claims() should be nil for default SimpleSession (no JWT context)
+				if session.Claims() != nil {
+					t.Fatalf("Expected nil claims for default session but got %v", session.Claims())
+				}
 			} else if session != nil {
 				t.Fatalf("Expected no session but got %v", session)
 			}
 		})
 	}
 }
+
