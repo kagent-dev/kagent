@@ -13,6 +13,7 @@ from mcp.shared.exceptions import McpError
 logger = logging.getLogger("kagent_adk." + __name__)
 
 _PING_TIMEOUT_SECONDS = 2.0
+_SESSION_REVALIDATE_TIMEOUT_SECONDS = 5.0
 _JSONRPC_METHOD_NOT_FOUND = -32601
 
 
@@ -28,8 +29,17 @@ def _is_server_alive_error(exc: Exception) -> bool:
     return False
 
 
+def _is_session_invalid_error(exc: Exception) -> bool:
+    """Return True if the error indicates the MCP session is no longer valid (e.g. 404)."""
+    parts = [str(exc)]
+    if isinstance(exc, McpError) and exc.error.message:
+        parts.append(exc.error.message)
+    msg = " ".join(parts).lower()
+    return "404" in msg or "session terminated" in msg
+
+
 class KAgentMCPSessionManager(MCPSessionManager):
-    """Session manager that validates cached sessions via ping before reuse.
+    """Session manager that validates cached sessions via ping and list_tools before reuse.
 
     The upstream ``MCPSessionManager`` checks ``_read_stream._closed`` /
     ``_write_stream._closed`` to decide whether a cached session is still
@@ -38,9 +48,10 @@ class KAgentMCPSessionManager(MCPSessionManager):
     stale ``mcp-session-id`` is sent to the new server, which replies
     with HTTP 404 → ``"Session terminated"``.
 
-    This subclass adds a lightweight ``send_ping()`` probe after the
-    parent returns a cached session.  If the ping fails the cached
-    session is torn down and a brand-new one is created transparently.
+    This subclass: (1) runs ``send_ping()`` after the parent returns a cached
+    session; (2) then revalidates the session with ``list_tools()`` so that
+    if the server restarted and the session id is invalid (404), we prune
+    the session from the cache and create a new one.
     """
 
     async def create_session(self, headers: dict[str, str] | None = None) -> ClientSession:
@@ -48,16 +59,31 @@ class KAgentMCPSessionManager(MCPSessionManager):
 
         try:
             await asyncio.wait_for(session.send_ping(), timeout=_PING_TIMEOUT_SECONDS)
-            return session
         except Exception as exc:
             if _is_server_alive_error(exc):
-                return session
-            logger.warning("MCP session failed ping validation, invalidating cached session and creating a fresh one")
-            try:
-                await self.close()
-            except Exception as close_exc:
-                logger.debug("Non-fatal error while closing stale session: %s", close_exc)
-            return await super().create_session(headers)
+                pass
+            else:
+                logger.warning(
+                    "MCP session failed ping validation, invalidating cached session and creating a fresh one"
+                )
+                try:
+                    await self.close()
+                except Exception as close_exc:
+                    logger.debug("Non-fatal error while closing stale session: %s", close_exc)
+                return await super().create_session(headers)
+
+        try:
+            await asyncio.wait_for(session.list_tools(), timeout=_SESSION_REVALIDATE_TIMEOUT_SECONDS)
+            return session
+        except Exception as exc:
+            if _is_session_invalid_error(exc):
+                logger.warning("MCP session invalid (e.g. 404), pruning from cache and creating a fresh one")
+                try:
+                    await self.close()
+                except Exception as close_exc:
+                    logger.debug("Non-fatal error while closing stale session: %s", close_exc)
+                return await super().create_session(headers)
+            raise
 
 
 def _enrich_cancelled_error(error: BaseException) -> asyncio.CancelledError:
