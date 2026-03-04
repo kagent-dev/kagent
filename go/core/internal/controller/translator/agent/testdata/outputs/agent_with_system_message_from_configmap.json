@@ -19,7 +19,6 @@
   },
   "config": {
     "description": "",
-    "execute_code": false,
     "instruction": "Speak in the style of Shakespeare.",
     "model": {
       "base_url": "",
@@ -55,7 +54,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_configmap_system_message\",\"description\":\"\",\"url\":\"http://agent-with-configmap-system-message.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"execute_code\":false,\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"stream\":false}"
       }
     },
     {
@@ -124,7 +123,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11736989813116587723"
+              "kagent.dev/config-hash": "15254651913286798412"
             },
             "labels": {
               "app": "kagent",

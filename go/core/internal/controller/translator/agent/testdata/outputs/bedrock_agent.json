@@ -19,7 +19,6 @@
   },
   "config": {
     "description": "",
-    "execute_code": false,
     "instruction": "You are a helpful AI assistant running on AWS Bedrock.",
     "model": {
       "model": "us.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -55,7 +54,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"execute_code\":false,\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"stream\":false}"
       }
     },
     {
@@ -124,7 +123,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2298511231359156800"
+              "kagent.dev/config-hash": "2506162027043564572"
             },
             "labels": {
               "app": "kagent",
