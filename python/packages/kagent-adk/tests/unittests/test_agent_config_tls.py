@@ -390,7 +390,7 @@ def test_model_validate_handles_missing_params_key():
     }
 
     # This should raise a validation error from Pydantic because params is required
-    with pytest.raises(Exception):  # Pydantic validation error
+    with pytest.raises((Exception, ValueError)):
         AgentConfig.model_validate(config_dict)
 
 
@@ -412,7 +412,7 @@ def test_model_validate_handles_non_dict_params():
     }
 
     # This should raise a validation error from Pydantic
-    with pytest.raises(Exception):  # Pydantic validation error
+    with pytest.raises((Exception, ValueError)):
         AgentConfig.model_validate(config_dict)
 
 

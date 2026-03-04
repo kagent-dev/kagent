@@ -464,7 +464,7 @@ def test_e2e_client_certificate_with_ca_cert_integration(temp_cert_file):
         with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
             with mock.patch("kagent.adk.models._openai.load_client_certificate") as mock_load_client_cert:
                 with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
-                    with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+                    with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                         mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
                         mock_create_ssl.return_value = mock_ssl_context
                         mock_load_client_cert.return_value = (str(cert_file), str(key_file), None)
