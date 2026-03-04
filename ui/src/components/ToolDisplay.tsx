@@ -3,6 +3,7 @@ import { FunctionCall } from "@/types";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
 import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loader2, Text, Check, Copy, AlertCircle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval" | "approved" | "rejected";
@@ -18,7 +19,7 @@ interface ToolDisplayProps {
   /** When true, the card is in a "decided but not yet submitted" state (batch flow). */
   isDecided?: boolean;
   onApprove?: () => void;
-  onReject?: () => void;
+  onReject?: (reason?: string) => void;
 }
 
 const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, onApprove, onReject }: ToolDisplayProps) => {
@@ -26,6 +27,8 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const hasResult = result !== undefined;
 
@@ -47,12 +50,25 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
     onApprove();
   };
 
-  const handleReject = async () => {
+  /** Show the rejection reason form instead of immediately rejecting. */
+  const handleRejectClick = () => {
+    setShowRejectForm(true);
+  };
+
+  /** Confirm rejection — submits with optional reason. */
+  const handleRejectConfirm = async () => {
     if (!onReject) {
       return;
     }
+    setShowRejectForm(false);
     setIsSubmitting(true);
-    onReject();
+    onReject(rejectionReason.trim() || undefined);
+  };
+
+  /** Cancel the rejection form — go back to Approve/Reject buttons. */
+  const handleRejectCancel = () => {
+    setShowRejectForm(false);
+    setRejectionReason("");
   };
 
   // Define UI elements based on status
@@ -165,7 +181,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
         </div>
 
         {/* Approval buttons — hidden when decided (batch) or submitting */}
-        {status === "pending_approval" && !isSubmitting && !isDecided && (
+        {status === "pending_approval" && !isSubmitting && !isDecided && !showRejectForm && (
           <div className="mt-4 space-y-2">
             <div className="flex gap-2">
               <Button
@@ -178,9 +194,38 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={handleReject}
+                onClick={handleRejectClick}
               >
                 Reject
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Rejection reason form — shown after clicking Reject */}
+        {status === "pending_approval" && !isSubmitting && !isDecided && showRejectForm && (
+          <div className="mt-4 space-y-2">
+            <Textarea
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              placeholder="Why are you rejecting this? (optional)"
+              className="min-h-[60px] resize-none text-sm"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleRejectConfirm}
+              >
+                Reject
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRejectCancel}
+              >
+                Cancel
               </Button>
             </div>
           </div>

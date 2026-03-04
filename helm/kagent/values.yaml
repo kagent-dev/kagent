@@ -223,8 +223,8 @@ kmcp:
 # ==============================================================================
 
 kagent-tools:
-  fullnameOverride: kagent-tools
   enabled: true
+  nameOverride: tools
   replicaCount: 1
   resources:
     requests:
