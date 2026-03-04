@@ -19,6 +19,7 @@ package main
 import (
 	"github.com/kagent-dev/kagent/go/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/pkg/app"
+	pkgauth "github.com/kagent-dev/kagent/go/pkg/auth"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -28,8 +29,8 @@ import (
 //nolint:gocyclo
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
-	authenticator := &auth.UnsecureAuthenticator{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
+		authenticator := getAuthenticator(bootstrap.Config.Auth)
 		return &app.ExtensionConfig{
 			Authenticator:    authenticator,
 			Authorizer:       authorizer,
@@ -37,4 +38,13 @@ func main() {
 			MCPServerPlugins: nil,
 		}, nil
 	})
+}
+
+func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthProvider {
+	switch authCfg.Mode {
+	case "trusted-proxy":
+		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
+	default:
+		return &auth.UnsecureAuthenticator{}
+	}
 }

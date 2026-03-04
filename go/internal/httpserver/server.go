@@ -25,6 +25,7 @@ const (
 	// API Path constants
 	APIPathHealth               = "/health"
 	APIPathVersion              = "/version"
+  APIPathMe                   = "/api/me"
 	APIPathModelConfig          = "/api/modelconfigs"
 	APIPathRuns                 = "/api/runs"
 	APIPathSessions             = "/api/sessions"
@@ -193,6 +194,11 @@ func (s *HTTPServer) setupRoutes() {
 			BuildDate:     version.BuildDate,
 		}
 		handlers.RespondWithJSON(erw, http.StatusOK, versionResponse)
+	})).Methods(http.MethodGet)
+
+	// Current user
+	s.router.HandleFunc(APIPathMe, adaptHandler(func(erw handlers.ErrorResponseWriter, r *http.Request) {
+		s.handlers.CurrentUser.HandleGetCurrentUser(erw, r)
 	})).Methods(http.MethodGet)
 
 	// Model configs

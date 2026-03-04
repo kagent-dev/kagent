@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { OnboardingWizard } from './onboarding/OnboardingWizard';
 
 const LOCAL_STORAGE_KEY = 'kagent-onboarding';
@@ -13,7 +14,12 @@ const getInitialOnboardingState = (): boolean | null => {
 };
 
 export function AppInitializer({ children }: { children: React.ReactNode }) {
-  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(getInitialOnboardingState);
+  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null); // Use null to indicate loading state
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setIsOnboarding(getInitialOnboardingState());
+  }, []);
 
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');
@@ -27,10 +33,11 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
   };
 
   if (isOnboarding === null) {
-    return null; 
+    return null;
   }
 
-  if (isOnboarding) {
+  // Don't show the wizard on the login page
+  if (isOnboarding && pathname !== '/login') {
     return <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />;
   }
 

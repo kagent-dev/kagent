@@ -10,7 +10,7 @@ import { getDiscoveredToolDisplayName, getDiscoveredToolDescription, getDiscover
 import { RemoteMCPServerResponse, DiscoveredTool } from "@/types";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getServers } from "../actions/servers";
+import { getServers } from "@/app/actions/servers";
 import Link from "next/link";
 import CategoryFilter from "@/components/tools/CategoryFilter";
 
