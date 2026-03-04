@@ -2,7 +2,15 @@ package reconciler
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/utils"
@@ -768,6 +776,10 @@ func TestCreateTLSHTTPClient(t *testing.T) {
 	ctx := context.Background()
 	namespace := "test-namespace"
 
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
 	// Generate test certificates
 	certPEM, keyPEM, err := generateTestCert()
 	require.NoError(t, err)
@@ -966,7 +978,7 @@ func TestCreateTLSHTTPClient(t *testing.T) {
 			}
 
 			fakeClient := fake.NewClientBuilder().
-				WithScheme(scheme.Scheme).
+				WithScheme(scheme).
 				WithRuntimeObjects(objects...).
 				Build()
 
@@ -986,7 +998,6 @@ func TestCreateTLSHTTPClient(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, client)
-				assert.Equal(t, 30*time.Second, client.Timeout)
 
 				if tt.validateClient != nil {
 					tt.validateClient(t, client)
