@@ -22,7 +22,10 @@ from google.genai.types import Content, Part
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 
 from kagent.adk.models import OpenAI
-from kagent.adk.models._openai import _convert_tools_to_openai
+from kagent.adk.models._openai import (
+    _convert_content_to_openai_messages,
+    _convert_tools_to_openai,
+)
 
 
 @pytest.fixture
@@ -739,3 +742,107 @@ def test_openai_client_with_base_url_and_tls():
 
                 # Verify DefaultAsyncHttpxClient was created with SSL context
                 mock_httpx.assert_called_once()
+
+
+class TestConvertContentToOpenaiMessages:
+    """Tests for _convert_content_to_openai_messages with MCP tool results."""
+
+    def _make_contents_with_tool_response(self, response: dict | str) -> list[Content]:
+        """Helper to create Contents with a function call and response."""
+        tool_call_id = "call_abc123"
+        return [
+            Content(
+                role="model",
+                parts=[
+                    Part(
+                        function_call=types.FunctionCall(
+                            id=tool_call_id,
+                            name="test_tool",
+                            args={"query": "test"},
+                        )
+                    )
+                ],
+            ),
+            Content(
+                role="user",
+                parts=[
+                    Part(
+                        function_response=types.FunctionResponse(
+                            id=tool_call_id,
+                            name="test_tool",
+                            response=response,
+                        )
+                    )
+                ],
+            ),
+        ]
+
+    def test_mcp_tool_result_multiple_text_content_items(self):
+        """Test that multiple TextContent items are joined with newlines.
+
+        MCP tools can return CallToolResult with multiple TextContent
+        items (e.g. a summary + full JSON data). All items must be
+        included in the OpenAI tool message, not just the first one.
+        """
+        response = {
+            "content": [
+                {"type": "text", "text": "Summary of results"},
+                {"type": "text", "text": '{"data": "full payload"}'},
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == 'Summary of results\n{"data": "full payload"}'
+
+    def test_mcp_tool_result_single_text_content_item(self):
+        """Test that a single TextContent item is returned as-is."""
+        response = {
+            "content": [
+                {"type": "text", "text": "single item result"},
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == "single item result"
+
+    def test_mcp_tool_result_filters_non_text_content(self):
+        """Test that non-text content items (e.g. image) are skipped."""
+        response = {
+            "content": [
+                {"type": "text", "text": "text part"},
+                {"type": "image", "data": "base64data"},
+                {"type": "text", "text": "another text part"},
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == "text part\nanother text part"
+
+    def test_mcp_tool_result_empty_content_list(self):
+        """Test that an empty content list produces empty string."""
+        response = {"content": []}
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == ""
+
+    def test_tool_result_with_result_key(self):
+        """Test that response with 'result' key is handled."""
+        response = {"result": "result value"}
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == "result value"

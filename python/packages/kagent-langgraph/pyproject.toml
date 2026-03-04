@@ -29,7 +29,7 @@ dev = [
 kagent-core = {workspace = true}
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel>=0.46.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]

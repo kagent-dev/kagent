@@ -17,6 +17,10 @@ data:
   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry  | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
+  SKILLS_INIT_IMAGE_PULL_POLICY: {{ .Values.controller.skillsInitImage.pullPolicy | default .Values.imagePullPolicy | quote }}
+  SKILLS_INIT_IMAGE_REGISTRY: {{ .Values.controller.skillsInitImage.registry | default .Values.registry | quote }}
+  SKILLS_INIT_IMAGE_REPOSITORY: {{ .Values.controller.skillsInitImage.repository | quote }}
+  SKILLS_INIT_IMAGE_TAG: {{ coalesce .Values.controller.skillsInitImage.tag .Values.tag .Chart.Version | quote }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
@@ -48,12 +52,14 @@ data:
   {{- end }}
   {{- if eq .Values.database.type "sqlite" }}
   SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}
   {{- else if eq .Values.database.type "postgres" }}
   {{- if not (eq .Values.database.postgres.urlFile "") }}
   POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
   {{- else if not (eq .Values.database.postgres.url "") }}
   POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
   {{- end }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | default true | quote }}
   {{- end }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}

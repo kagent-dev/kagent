@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/pgvector/pgvector-go"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -70,4 +71,12 @@ type Client interface {
 	ResetCrewAIMemory(userID, threadID string) error
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
+
+	// Agent memory (vector search) methods
+	StoreAgentMemory(memory *Memory) error
+	StoreAgentMemories(memories []*Memory) error
+	SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error)
+	ListAgentMemories(agentName, userID string) ([]Memory, error)
+	DeleteAgentMemory(agentName, userID string) error
+	PruneExpiredMemories() error
 }

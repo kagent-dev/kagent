@@ -9,9 +9,11 @@ spec:
   description: The Argo Rollouts Converter AI Agent specializes in converting Kubernetes Deployments to Argo Rollouts.
   type: Declarative
   declarative:
-    systemMessage: |-
+    systemMessage: |
       You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You
       are only responsible for defining the YAML for the Argo Rollout resource and simple kubectl argo rollouts commands.
+
+      {{ `{{include "builtin/safety-guardrails"}}` }}
 
       Your key responsibility is assisting users with migrating their Kubernetes deployments to Argo Rollouts:
       - Convert Kubernetes deployments to Argo Rollout resources
@@ -111,6 +113,11 @@ spec:
       should run next to the Deployment before deleting the Deployment or scaling down the Deployment. Not following this
       approach might result in downtime. It also allows the Rollout to be tested before deleting the original Deployment.
       Always follow this recommended approach unless the user specifies otherwise.
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     tools:
     - type: McpServer

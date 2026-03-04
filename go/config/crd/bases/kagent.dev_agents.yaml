@@ -6196,6 +6196,61 @@ spec:
                         minItems: 1
                         type: array
                     type: object
+                  context:
+                    description: |-
+                      Context configures context management for this agent.
+                      This includes event compaction (compression) and context caching.
+                    properties:
+                      compaction:
+                        description: |-
+                          Compaction configures event history compaction.
+                          When enabled, older events in the conversation are compacted (compressed/summarized)
+                          to reduce context size while preserving key information.
+                        properties:
+                          compactionInterval:
+                            default: 5
+                            description: The number of *new* user-initiated invocations
+                              that, once fully represented in the session's events,
+                              will trigger a compaction.
+                            minimum: 1
+                            type: integer
+                          eventRetentionSize:
+                            description: EventRetentionSize is the number of most
+                              recent events to always retain.
+                            type: integer
+                          overlapSize:
+                            default: 2
+                            description: The number of preceding invocations to include
+                              from the end of the last compacted range. This creates
+                              an overlap between consecutive compacted summaries,
+                              maintaining context.
+                            minimum: 0
+                            type: integer
+                          summarizer:
+                            description: |-
+                              Summarizer configures an LLM-based summarizer for event compaction.
+                              If not specified, compacted events are dropped from the context without summarization.
+                            properties:
+                              modelConfig:
+                                description: |-
+                                  ModelConfig is the name of a ModelConfig resource to use for summarization.
+                                  Must be in the same namespace as the Agent.
+                                  If not specified, uses the agent's own model.
+                                type: string
+                              promptTemplate:
+                                description: |-
+                                  PromptTemplate is a custom prompt template for the summarizer.
+                                  See the ADK LlmEventSummarizer for template details:
+                                  https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
+                                type: string
+                            type: object
+                          tokenThreshold:
+                            description: |-
+                              Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+                              observed prompt token count meets or exceeds this threshold.
+                            type: integer
+                        type: object
+                    type: object
                   deployment:
                     properties:
                       affinity:
@@ -9863,24 +9918,78 @@ spec:
                       Code will be executed in a sandboxed environment.
                       due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
                     type: boolean
+                  memory:
+                    description: Memory configuration for the agent.
+                    properties:
+                      modelConfig:
+                        description: |-
+                          ModelConfig is the name of the ModelConfig object whose embedding
+                          provider will be used to generate memory vectors.
+                        type: string
+                      ttlDays:
+                        description: |-
+                          TTLDays controls how many days a stored memory entry remains valid before
+                          it is eligible for pruning. Defaults to 15 days when unset or zero.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfig
+                    type: object
                   modelConfig:
                     description: |-
                       The name of the model config to use.
                       If not specified, the default value is "default-model-config".
                       Must be in the same namespace as the Agent.
                     type: string
+                  promptTemplate:
+                    description: |-
+                      PromptTemplate enables Go text/template processing on the systemMessage field.
+                      When set, systemMessage is treated as a Go template with access to the include function
+                      and agent context variables.
+                    properties:
+                      dataSources:
+                        description: |-
+                          DataSources defines the ConfigMaps whose keys can be included in the systemMessage
+                          using Go template syntax, e.g. include("alias/key") or include("name/key").
+                        items:
+                          description: |-
+                            PromptSource references a ConfigMap whose keys are available as prompt fragments.
+                            In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
+                            to insert the value of a specific key from this source.
+                          properties:
+                            alias:
+                              description: |-
+                                Alias is an optional short identifier for use in include directives.
+                                If set, use include("alias/key") instead of include("name/key").
+                              type: string
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                    type: object
                   stream:
                     description: |-
                       Whether to stream the response from the model.
                       If not specified, the default value is false.
                     type: boolean
                   systemMessage:
-                    description: SystemMessage is a string specifying the system message
-                      for the agent
+                    description: |-
+                      SystemMessage is a string specifying the system message for the agent.
+                      When PromptTemplate is set, this field is treated as a Go text/template
+                      with access to an include("source/key") function and agent context variables
+                      such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
                     type: string
                   systemMessageFrom:
-                    description: SystemMessageFrom is a reference to a ConfigMap or
-                      Secret containing the system message.
+                    description: |-
+                      SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+                      When PromptTemplate is set, the resolved value is treated as a Go text/template.
                     properties:
                       key:
                         description: The key of the ConfigMap or Secret.
@@ -9982,6 +10091,16 @@ spec:
                               type: string
                             namespace:
                               type: string
+                            requireApproval:
+                              description: |-
+                                RequireApproval lists tool names that require human approval before
+                                execution. Each name must also appear in ToolNames. When a tool in
+                                this list is invoked by the agent, execution pauses and the user is
+                                prompted to approve or reject the call.
+                              items:
+                                type: string
+                              maxItems: 50
+                              type: array
                             toolNames:
                               description: |-
                                 The names of the tools to be provided by the ToolServer
@@ -9989,10 +10108,16 @@ spec:
                                 the client can query the status of the ToolServer object after it has been created
                               items:
                                 type: string
+                              maxItems: 50
                               type: array
                           required:
                           - name
                           type: object
+                          x-kubernetes-validations:
+                          - message: each RequireApproval entry must also appear in
+                              ToolNames
+                            rule: '!has(self.requireApproval) || self.requireApproval.all(x,
+                              has(self.toolNames) && x in self.toolNames)'
                         type:
                           allOf:
                           - enum:
@@ -10027,6 +10152,52 @@ spec:
                   Skills to load into the agent. They will be pulled from the specified container images.
                   and made available to the agent under the `/skills` folder.
                 properties:
+                  gitAuthSecretRef:
+                    description: |-
+                      Reference to a Secret containing git credentials.
+                      Applied to all gitRefs entries.
+                      The secret should contain a `token` key for HTTPS auth,
+                      or `ssh-privatekey` for SSH auth.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  gitRefs:
+                    description: Git repositories to fetch skills from.
+                    items:
+                      description: GitRepo specifies a single Git repository to fetch
+                        skills from.
+                      properties:
+                        name:
+                          description: Name for the skill directory under /skills.
+                            Defaults to the repo name.
+                          type: string
+                        path:
+                          description: Subdirectory within the repo to use as the
+                            skill root.
+                          type: string
+                        ref:
+                          default: main
+                          description: 'Git reference: branch name, tag, or commit
+                            SHA.'
+                          type: string
+                        url:
+                          description: URL of the git repository (HTTPS or SSH).
+                          type: string
+                      required:
+                      - url
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
                   insecureSkipVerify:
                     description: |-
                       Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).

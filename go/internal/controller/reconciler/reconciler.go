@@ -123,6 +123,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	} else {
 		status = metav1.ConditionTrue
 		reason = "Reconciled"
+		message = "Agent configuration accepted"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
@@ -320,6 +321,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	} else {
 		status = metav1.ConditionTrue
 		reason = "ModelConfigReconciled"
+		message = "Model configuration accepted"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
@@ -468,6 +470,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	} else {
 		status = metav1.ConditionTrue
 		reason = "Reconciled"
+		message = "Remote MCP server configuration accepted"
 	}
 	conditionChanged := meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeAccepted,
@@ -523,7 +526,7 @@ func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context,
 // This includes:
 //  1. Checking that target namespaces are watched by the controller
 //  2. Checking that the target Agent allows references from the agent's namespace
-func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedLocalReference) error {
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedReference) error {
 	agentRef := ref.NamespacedName(sourceNamespace)
 
 	// Same namespace references are always allowed

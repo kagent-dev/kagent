@@ -82,7 +82,7 @@ func BuildWhereClause(clauses ...Clause) string {
 		if idx > 0 {
 			clausesStr.WriteString(" AND ")
 		}
-		clausesStr.WriteString(fmt.Sprintf("%s = %v", clause.Key, clause.Value))
+		fmt.Fprintf(&clausesStr, "%s = %v", clause.Key, clause.Value)
 	}
 	return clausesStr.String()
 }

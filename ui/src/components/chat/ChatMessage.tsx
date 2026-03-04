@@ -16,9 +16,12 @@ interface ChatMessageProps {
     namespace: string;
     agentName: string;
   };
+  onApprove?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string) => void;
+  pendingDecisions?: Record<string, "approve" | "deny">;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -81,8 +84,25 @@ export default function ChatMessage({ message, allMessages, agentContext }: Chat
   // Also check for streaming tool calls via originalType (fallback for streaming messages)
   const isStreamingToolCall = originalType === "ToolCallRequestEvent" || originalType === "ToolCallExecutionEvent";
 
+  // Tool approval requests get routed to ToolCallDisplay with approval callbacks
+  if (originalType === "ToolApprovalRequest") {
+    return <ToolCallDisplay
+      currentMessage={message}
+      allMessages={allMessages}
+      onApprove={onApprove}
+      onReject={onReject}
+      pendingDecisions={pendingDecisions}
+    />;
+  }
+
   if (hasToolCallParts || isStreamingToolCall) {
-    return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;
+    return <ToolCallDisplay
+      currentMessage={message}
+      allMessages={allMessages}
+      onApprove={onApprove}
+      onReject={onReject}
+      pendingDecisions={pendingDecisions}
+    />;
   }
 
   if (originalType === "ToolCallSummaryMessage") {

@@ -196,7 +196,7 @@
                 ],
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/.well-known/agent.json",
+                    "path": "/.well-known/agent-card.json",
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,
@@ -235,20 +235,12 @@
             ],
             "initContainers": [
               {
-                "args": [
-                  "foo:latest"
-                ],
                 "command": [
-                  "kagent-adk",
-                  "pull-skills"
+                  "/bin/sh",
+                  "-c",
+                  "set -e\n_image=\"$(cat \u003c\u003c'ENDVAL'\nfoo:latest\nENDVAL\n)\"\n_dest=\"$(cat \u003c\u003c'ENDVAL'\n/skills/foo\nENDVAL\n)\"\necho \"Exporting OCI image ${_image} into ${_dest}\"\nkrane export \"$_image\" '/tmp/oci-skill.tar'\nmkdir -p \"$_dest\"\ntar xf '/tmp/oci-skill.tar' -C \"$_dest\"\nrm -f '/tmp/oci-skill.tar'\n"
                 ],
-                "env": [
-                  {
-                    "name": "KAGENT_SKILLS_FOLDER",
-                    "value": "/skills"
-                  }
-                ],
-                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
                 "resources": {},
                 "volumeMounts": [

@@ -43,19 +43,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           namespace = agentNamespace;
         }
 
-        let kind = mcpServer.kind;
-        // Special handling for kagent-querydoc - always ensure correct apiGroup
-        if (mcpServer.name.toLocaleLowerCase().includes("kagent-querydoc")) {
-          mcpServer.apiGroup = "";
-          kind = "Service";
-        }
-
         return {
           type: "McpServer",
           mcpServer: {
             name,
             namespace,
-            kind,
+            kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
           },
@@ -120,6 +113,21 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.skills = {
         refs: agentFormData.skillRefs,
       };
+    }
+
+    if (agentFormData.memory?.modelConfig) {
+      const memoryModel = agentFormData.memory.modelConfig;
+      const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
+        ? k8sRefUtils.fromRef(memoryModel).name
+        : memoryModel;
+      base.spec!.memory = {
+        modelConfig: memoryModelName,
+        ttlDays: agentFormData.memory.ttlDays,
+      };
+    }
+
+    if (agentFormData.context) {
+      base.spec!.declarative!.context = agentFormData.context;
     }
   } else if (type === "BYO") {
     base.spec!.byo = {

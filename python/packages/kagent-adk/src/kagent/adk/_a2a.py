@@ -13,7 +13,8 @@ from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
-from google.adk.apps import App
+from google.adk.apps import App, ResumabilityConfig
+from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
@@ -28,8 +29,10 @@ from kagent.core.a2a import (
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
+from ._memory_service import KagentMemoryService
 from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
+from .types import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +61,9 @@ class KAgentApp:
         kagent_url: str,
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
-        plugins: List[BasePlugin] = None,
+        plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
+        agent_config: Optional[AgentConfig] = None,
     ):
         """Initialize the KAgent application.
 
@@ -71,6 +75,7 @@ class KAgentApp:
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
+            agent_config: Optional agent configuration
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
@@ -79,11 +84,14 @@ class KAgentApp:
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
+        self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
         session_service = InMemorySessionService()
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None
+        memory_service = None
+
         if not local:
             token_service = KAgentTokenService(self.app_name)
             http_client = httpx.AsyncClient(
@@ -93,14 +101,37 @@ class KAgentApp:
             )
             session_service = KAgentSessionService(http_client)
 
+            if self.agent_config and self.agent_config.memory is not None:
+                memory_service = KagentMemoryService(
+                    agent_name=self.app_name,
+                    http_client=http_client,
+                    embedding_config=self.agent_config.memory.embedding,
+                    ttl_days=self.agent_config.memory.ttl_days,
+                )
+
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
-            adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
+
+            # Build ADK context config objects from agent config
+            events_compaction_config: EventsCompactionConfig | None = None
+            if self.agent_config and self.agent_config.context_config is not None:
+                from .types import build_adk_context_configs
+
+                events_compaction_config, _ = build_adk_context_configs(self.agent_config.context_config)
+
+            adk_app = App(
+                name=self.app_name,
+                root_agent=root_agent,
+                plugins=self.plugins,
+                events_compaction_config=events_compaction_config,
+                resumability_config=ResumabilityConfig(is_resumable=True),
+            )
 
             return Runner(
                 app=adk_app,
                 session_service=session_service,
                 artifact_service=InMemoryArtifactService(),
+                memory_service=memory_service,
             )
 
         task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
@@ -110,6 +141,7 @@ class KAgentApp:
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
             config=A2aAgentExecutorConfig(stream=self.stream),
+            task_store=task_store,
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)

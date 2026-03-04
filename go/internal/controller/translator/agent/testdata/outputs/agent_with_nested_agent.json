@@ -193,7 +193,7 @@
                 ],
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/.well-known/agent.json",
+                    "path": "/.well-known/agent-card.json",
                     "port": "http"
                   },
                   "initialDelaySeconds": 15,

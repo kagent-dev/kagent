@@ -93,7 +93,7 @@
             "index": 0,
             "role": "assistant",
             "message": {
-              "content": "I have made a kebab. pick it up around the corner",
+              "content": "I have made a kebab. Pick it up from around the corner",
               "role": "assistant"
             }
           }

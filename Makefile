@@ -35,6 +35,7 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+SKILLS_INIT_IMAGE_NAME ?= skills-init
 KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
 GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
 
@@ -42,6 +43,7 @@ CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
 GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
 
@@ -49,6 +51,7 @@ CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(C
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
 GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
 
@@ -217,13 +220,13 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app
+build: buildx-create build-controller build-ui build-app build-skills-init
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
-	@echo "Tools Image: $(TOOLS_IMG)"
+	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: buildx-create
@@ -281,6 +284,10 @@ build-gitrepo-mcp: buildx-create
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+
+.PHONY: build-skills-init
+build-skills-init: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
 
 .PHONY: helm-cleanup
 helm-cleanup:

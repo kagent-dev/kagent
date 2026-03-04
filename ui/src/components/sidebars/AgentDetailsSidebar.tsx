@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit } from "lucide-react";
+import { ChevronRight, Edit, ShieldAlert } from "lucide-react";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
@@ -58,6 +58,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
     displayName,
     providerTooltip,
     description,
+    requiresApproval,
     isExpanded,
     onToggleExpansion,
   }: {
@@ -65,6 +66,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
     displayName: string;
     providerTooltip: string;
     description: string;
+    requiresApproval?: boolean;
     isExpanded: boolean;
     onToggleExpansion: () => void;
   }) => {
@@ -80,18 +82,26 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
             <SidebarMenuButton tooltip={providerTooltip} className="w-full">
               <div className="flex items-center justify-between w-full">
                 <span className="truncate max-w-[200px]">{displayName}</span>
-                <ChevronRight
-                  className={cn(
-                    "h-4 w-4 transition-transform duration-200",
-                    isExpanded && "rotate-90"
+                <div className="flex items-center gap-1">
+                  {requiresApproval && (
+                    <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   )}
-                />
+                  <ChevronRight
+                    className={cn(
+                      "h-4 w-4 transition-transform duration-200",
+                      isExpanded && "rotate-90"
+                    )}
+                  />
+                </div>
               </div>
             </SidebarMenuButton>
           </CollapsibleTrigger>
           <CollapsibleContent className="px-2 py-1">
             <div className="rounded-md bg-muted/50 p-2">
               <p className="text-sm text-muted-foreground">{description}</p>
+              {requiresApproval && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Requires approval before execution</p>
+              )}
             </div>
           </CollapsibleContent>
         </SidebarMenuItem>
@@ -175,6 +185,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
             const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
+            const approvalSet = new Set(tool.mcpServer.requireApproval || []);
 
             return tool.mcpServer.toolNames.map((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
@@ -189,6 +200,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
                   displayName={displayName}
                   providerTooltip={mcpProviderNameTooltip}
                   description={description}
+                  requiresApproval={approvalSet.has(mcpToolName)}
                   isExpanded={isExpanded}
                   onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
                 />

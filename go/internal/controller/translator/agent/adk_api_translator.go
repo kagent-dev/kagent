@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -11,8 +13,11 @@ import (
 	"maps"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -80,12 +85,26 @@ type ImageConfig struct {
 	Repository string `json:"repository,omitempty"`
 }
 
+// Image returns the fully qualified image reference (registry/repository:tag).
+func (c ImageConfig) Image() string {
+	return fmt.Sprintf("%s/%s:%s", c.Registry, c.Repository, c.Tag)
+}
+
 var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
+}
+
+// DefaultSkillsInitImageConfig is the image config for the skills-init container
+// that clones skill repositories from Git and pulls OCI skill images.
+var DefaultSkillsInitImageConfig = ImageConfig{
+	Registry:   "cr.kagent.dev",
+	Tag:        version.Get().Version,
+	PullPolicy: string(corev1.PullIfNotPresent),
+	Repository: "kagent-dev/kagent/skills-init",
 }
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
@@ -371,9 +390,14 @@ func (a *adkApiTranslator) buildManifest(
 	)
 
 	var skills []string
-	if agent.Spec.Skills != nil && len(agent.Spec.Skills.Refs) != 0 {
+	var gitRefs []v1alpha2.GitRepo
+	var gitAuthSecretRef *corev1.LocalObjectReference
+	if agent.Spec.Skills != nil {
 		skills = agent.Spec.Skills.Refs
+		gitRefs = agent.Spec.Skills.GitRefs
+		gitAuthSecretRef = agent.Spec.Skills.GitAuthSecretRef
 	}
+	hasSkills := len(skills) > 0 || len(gitRefs) > 0
 
 	// Build Deployment
 	volumes := append(secretVol, dep.Volumes...)
@@ -382,32 +406,13 @@ func (a *adkApiTranslator) buildManifest(
 
 	var initContainers []corev1.Container
 
-	if len(skills) > 0 {
+	// Add shared skills volume and env var when any skills (OCI or git) are present
+	if hasSkills {
 		skillsEnv := corev1.EnvVar{
 			Name:  env.KagentSkillsFolder.Name(),
 			Value: "/skills",
 		}
 		needSandbox = true
-		insecure := agent.Spec.Skills.InsecureSkipVerify
-		command := []string{"kagent-adk", "pull-skills"}
-		if insecure {
-			command = append(command, "--insecure")
-		}
-		initContainerSecurityContext := dep.SecurityContext
-		if initContainerSecurityContext != nil {
-			initContainerSecurityContext = initContainerSecurityContext.DeepCopy()
-		}
-		initContainers = append(initContainers, corev1.Container{
-			Name:    "skills-init",
-			Image:   dep.Image,
-			Command: command,
-			Args:    skills,
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "kagent-skills", MountPath: "/skills"},
-			},
-			Env:             []corev1.EnvVar{skillsEnv},
-			SecurityContext: initContainerSecurityContext,
-		})
 		volumes = append(volumes, corev1.Volume{
 			Name: "kagent-skills",
 			VolumeSource: corev1.VolumeSource{
@@ -420,6 +425,14 @@ func (a *adkApiTranslator) buildManifest(
 			ReadOnly:  true,
 		})
 		sharedEnv = append(sharedEnv, skillsEnv)
+
+		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
+		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build skills init container: %w", err)
+		}
+		initContainers = append(initContainers, container)
+		volumes = append(volumes, skillsVolumes...)
 	}
 
 	// Token volume
@@ -505,7 +518,7 @@ func (a *adkApiTranslator) buildManifest(
 						Env:             env,
 						ReadinessProbe: &corev1.Probe{
 							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent.json", Port: intstr.FromString("http")},
+								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
 							},
 							InitialDelaySeconds: 15,
 							TimeoutSeconds:      15,
@@ -561,17 +574,80 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		return nil, nil, nil, err
 	}
 
-	systemMessage, err := a.resolveSystemMessage(ctx, agent)
+	// Resolve the raw system message (template processing happens after tools are translated).
+	rawSystemMessage, err := a.resolveRawSystemMessage(ctx, agent)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
 		Description: agent.Spec.Description,
-		Instruction: systemMessage,
+		Instruction: rawSystemMessage,
 		Model:       model,
 		ExecuteCode: false && ptr.Deref(agent.Spec.Declarative.ExecuteCodeBlocks, false), //ignored due to this issue https://github.com/google/adk-python/issues/3921.
 		Stream:      agent.Spec.Declarative.Stream,
+	}
+
+	// Translate context management configuration
+	if agent.Spec.Declarative.Context != nil {
+		contextCfg := &adk.AgentContextConfig{}
+
+		if agent.Spec.Declarative.Context.Compaction != nil {
+			comp := agent.Spec.Declarative.Context.Compaction
+			compCfg := &adk.AgentCompressionConfig{
+				CompactionInterval: comp.CompactionInterval,
+				OverlapSize:        comp.OverlapSize,
+				TokenThreshold:     comp.TokenThreshold,
+				EventRetentionSize: comp.EventRetentionSize,
+			}
+
+			if comp.Summarizer != nil {
+				if comp.Summarizer.PromptTemplate != nil {
+					compCfg.PromptTemplate = *comp.Summarizer.PromptTemplate
+				}
+
+				summarizerModelName := ""
+				if comp.Summarizer.ModelConfig != nil {
+					summarizerModelName = *comp.Summarizer.ModelConfig
+				}
+
+				if summarizerModelName == "" || summarizerModelName == agent.Spec.Declarative.ModelConfig {
+					compCfg.SummarizerModel = model
+				} else {
+					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, summarizerModelName)
+					if err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
+					}
+					compCfg.SummarizerModel = summarizerModel
+					mergeDeploymentData(mdd, summarizerMdd)
+					if len(summarizerSecretHash) > 0 {
+						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
+					}
+				}
+			}
+
+			contextCfg.Compaction = compCfg
+		}
+
+		cfg.ContextConfig = contextCfg
+	}
+
+	// Handle Memory Configuration: presence of Memory field enables it.
+	if agent.Spec.Declarative.Memory != nil {
+		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+		}
+
+		cfg.Memory = &adk.MemoryConfig{
+			TTLDays:   agent.Spec.Declarative.Memory.TTLDays,
+			Embedding: embCfg,
+		}
+
+		mergeDeploymentData(mdd, embMdd)
+		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
+			secretHashBytes = append(secretHashBytes, embHash...)
+		}
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {
@@ -629,10 +705,29 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Apply prompt template processing after tools are translated, so tool names
+	// from the config are available as template variables.
+	if agent.Spec.Declarative.PromptTemplate != nil && len(agent.Spec.Declarative.PromptTemplate.DataSources) > 0 {
+		lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptTemplate.DataSources)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to resolve prompt sources: %w", err)
+		}
+
+		tplCtx := buildTemplateContext(agent, cfg)
+
+		resolved, err := executeSystemMessageTemplate(cfg.Instruction, lookup, tplCtx)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
+		}
+		cfg.Instruction = resolved
+	}
+
 	return cfg, mdd, secretHashBytes, nil
 }
 
-func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
+// resolveRawSystemMessage gets the raw system message string from the agent spec
+// without applying any template processing.
+func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
 	if agent.Spec.Declarative.SystemMessageFrom != nil {
 		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
 	}
@@ -695,6 +790,20 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			ReadOnly:  true,
 		})
 	}
+}
+
+// translateEmbeddingConfig resolves the embedding ModelConfig and returns the
+// EmbeddingConfig for the Python config JSON, the deployment data for the
+// embedding model, and the raw secret hash bytes (caller decides whether to
+// include them). The caller should use mergeDeploymentData to combine the
+// returned deployment data with the existing deployment data.
+func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
+	embModel, embMdd, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return adk.ModelToEmbeddingConfig(embModel), embMdd, embHash, nil
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
@@ -1065,9 +1174,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
+	default:
+		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
-
-	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
@@ -1228,9 +1337,10 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
-			Params:         *tool,
-			Tools:          mcpServerTool.ToolNames,
-			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Params:          *tool,
+			Tools:           mcpServerTool.ToolNames,
+			AllowedHeaders:  mcpServerTool.AllowedHeaders,
+			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	default:
 		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -1238,9 +1348,10 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return err
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
-			Params:         *tool,
-			Tools:          mcpServerTool.ToolNames,
-			AllowedHeaders: mcpServerTool.AllowedHeaders,
+			Params:          *tool,
+			Tools:           mcpServerTool.ToolNames,
+			AllowedHeaders:  mcpServerTool.AllowedHeaders,
+			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	}
 	return nil
@@ -1320,6 +1431,47 @@ func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	return binary.BigEndian.Uint64(hash[:8])
 }
 
+// mergeDeploymentData adds env vars, volumes, and volume mounts from src into dst,
+// skipping any that already exist in dst (by name for env/volumes, by mount path for mounts).
+func mergeDeploymentData(dst, src *modelDeploymentData) {
+	for _, se := range src.EnvVars {
+		found := false
+		for _, e := range dst.EnvVars {
+			if e.Name == se.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.EnvVars = append(dst.EnvVars, se)
+		}
+	}
+	for _, sv := range src.Volumes {
+		found := false
+		for _, v := range dst.Volumes {
+			if v.Name == sv.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.Volumes = append(dst.Volumes, sv)
+		}
+	}
+	for _, sm := range src.VolumeMounts {
+		found := false
+		for _, m := range dst.VolumeMounts {
+			if m.MountPath == sm.MountPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.VolumeMounts = append(dst.VolumeMounts, sm)
+		}
+	}
+}
+
 func collectOtelEnvFromProcess() []corev1.EnvVar {
 	envVars := slices.Collect(utils.Map(
 		utils.Filter(
@@ -1343,6 +1495,220 @@ func collectOtelEnvFromProcess() []corev1.EnvVar {
 	})
 
 	return envVars
+}
+
+// isCommitSHA returns true if ref looks like a full 40-character hex commit SHA.
+var commitSHARegex = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+
+func isCommitSHA(ref string) bool {
+	return commitSHARegex.MatchString(ref)
+}
+
+// gitSkillName returns the directory name for a git skill ref.
+// If Name is set, it is used; otherwise the last path segment of the repo URL
+// (with any .git suffix stripped) is used.
+// Query parameters and fragments are stripped before extracting the base name.
+func gitSkillName(ref v1alpha2.GitRepo) string {
+	if ref.Name != "" {
+		return ref.Name
+	}
+	// Parse the URL to strip query params and fragments
+	u := ref.URL
+	if parsed, err := url.Parse(u); err == nil {
+		u = parsed.Path
+		// If the path is empty (e.g. just a host), fall back to the raw URL
+		if u == "" {
+			u = ref.URL
+		}
+	}
+	u = strings.TrimSuffix(u, ".git")
+	return path.Base(u)
+}
+
+// validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
+func validateSubPath(p string) error {
+	if p == "" {
+		return nil
+	}
+	if path.IsAbs(p) {
+		return fmt.Errorf("skill subPath must be relative, got %q", p)
+	}
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		return fmt.Errorf("skill subPath must not contain '..', got %q", p)
+	}
+	return nil
+}
+
+// skillsInitData holds the template data for the unified skills-init script.
+type skillsInitData struct {
+	AuthMountPath string       // "/git-auth" or "" (for git auth)
+	GitRefs       []gitRefData // git repos to clone
+	OCIRefs       []ociRefData // OCI images to pull
+	InsecureOCI   bool         // --insecure flag for krane
+}
+
+// gitRefData holds pre-computed fields for each git skill ref, used by the script template.
+type gitRefData struct {
+	URL      string
+	Ref      string
+	Dest     string // e.g. /skills/my-skill
+	IsCommit bool   // true if Ref is a 40-char hex SHA
+	SubPath  string // Path with trailing slash stripped
+}
+
+// ociRefData holds pre-computed fields for each OCI skill ref, used by the script template.
+type ociRefData struct {
+	Image string // full image ref e.g. ghcr.io/org/skill:v1
+	Dest  string // /skills/<name>
+}
+
+//go:embed skills-init.sh.tmpl
+var skillsInitScriptTmpl string
+
+// skillsScriptTemplate is the shell script template for fetching skills from Git and OCI.
+var skillsScriptTemplate = template.Must(template.New("skills-init").Parse(skillsInitScriptTmpl))
+
+// buildSkillsScript renders the unified skills-init shell script.
+func buildSkillsScript(data skillsInitData) (string, error) {
+	var buf bytes.Buffer
+	if err := skillsScriptTemplate.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render skills init script: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// ociSkillName extracts a skill directory name from an OCI image reference.
+// It takes the last path component of the repo (stripped of tag/digest).
+func ociSkillName(imageRef string) string {
+	ref := imageRef
+	// Strip digest
+	if i := strings.LastIndex(ref, "@"); i != -1 {
+		ref = ref[:i]
+	}
+	// Strip tag (colon after the last slash is a tag, not a port)
+	if i := strings.LastIndex(ref, ":"); i != -1 {
+		if j := strings.LastIndex(ref, "/"); i > j {
+			ref = ref[:i]
+		}
+	}
+	return path.Base(ref)
+}
+
+// prepareSkillsInitData converts CRD values to the template-ready data struct.
+// It validates subPaths and detects duplicate skill directory names.
+func prepareSkillsInitData(
+	gitRefs []v1alpha2.GitRepo,
+	authSecretRef *corev1.LocalObjectReference,
+	ociRefs []string,
+	insecureOCI bool,
+) (skillsInitData, error) {
+	data := skillsInitData{
+		InsecureOCI: insecureOCI,
+	}
+
+	if authSecretRef != nil {
+		data.AuthMountPath = "/git-auth"
+	}
+
+	seen := make(map[string]bool)
+
+	for _, ref := range gitRefs {
+		subPath := strings.TrimSuffix(ref.Path, "/")
+		if err := validateSubPath(subPath); err != nil {
+			return skillsInitData{}, err
+		}
+
+		gitRef := ref.Ref
+		if gitRef == "" {
+			gitRef = "main"
+		}
+		ref.Ref = gitRef
+
+		name := gitSkillName(ref)
+		if seen[name] {
+			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+		}
+		seen[name] = true
+
+		data.GitRefs = append(data.GitRefs, gitRefData{
+			URL:      ref.URL,
+			Ref:      gitRef,
+			Dest:     "/skills/" + name,
+			IsCommit: isCommitSHA(gitRef),
+			SubPath:  subPath,
+		})
+	}
+
+	for _, imageRef := range ociRefs {
+		name := ociSkillName(imageRef)
+		if seen[name] {
+			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+		}
+		seen[name] = true
+
+		data.OCIRefs = append(data.OCIRefs, ociRefData{
+			Image: imageRef,
+			Dest:  "/skills/" + name,
+		})
+	}
+
+	return data, nil
+}
+
+// buildSkillsInitContainer creates the unified init container and associated volumes
+// for fetching skills from both Git repositories and OCI registries.
+// If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
+func buildSkillsInitContainer(
+	gitRefs []v1alpha2.GitRepo,
+	authSecretRef *corev1.LocalObjectReference,
+	ociRefs []string,
+	insecureOCI bool,
+	securityContext *corev1.SecurityContext,
+) (container corev1.Container, volumes []corev1.Volume, err error) {
+	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	if err != nil {
+		return corev1.Container{}, nil, err
+	}
+	script, err := buildSkillsScript(data)
+	if err != nil {
+		return corev1.Container{}, nil, err
+	}
+
+	initSecCtx := securityContext
+	if initSecCtx != nil {
+		initSecCtx = initSecCtx.DeepCopy()
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{Name: "kagent-skills", MountPath: "/skills"},
+	}
+
+	// Mount single auth secret if provided
+	if authSecretRef != nil {
+		volumes = append(volumes, corev1.Volume{
+			Name: "git-auth",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: authSecretRef.Name,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "git-auth",
+			MountPath: "/git-auth",
+			ReadOnly:  true,
+		})
+	}
+
+	container = corev1.Container{
+		Name:            "skills-init",
+		Image:           DefaultSkillsInitImageConfig.Image(),
+		Command:         []string{"/bin/sh", "-c", script},
+		VolumeMounts:    volumeMounts,
+		SecurityContext: initSecCtx,
+	}
+
+	return container, volumes, nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error {

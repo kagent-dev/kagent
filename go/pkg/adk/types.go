@@ -16,9 +16,10 @@ type StreamableHTTPConnectionParams struct {
 }
 
 type HttpMcpServerConfig struct {
-	Params         StreamableHTTPConnectionParams `json:"params"`
-	Tools          []string                       `json:"tools"`
-	AllowedHeaders []string                       `json:"allowed_headers,omitempty"`
+	Params          StreamableHTTPConnectionParams `json:"params"`
+	Tools           []string                       `json:"tools"`
+	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
+	RequireApproval []string                       `json:"require_approval,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -29,9 +30,10 @@ type SseConnectionParams struct {
 }
 
 type SseMcpServerConfig struct {
-	Params         SseConnectionParams `json:"params"`
-	Tools          []string            `json:"tools"`
-	AllowedHeaders []string            `json:"allowed_headers,omitempty"`
+	Params          SseConnectionParams `json:"params"`
+	Tools           []string            `json:"tools"`
+	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
+	RequireApproval []string            `json:"require_approval,omitempty"`
 }
 
 type Model interface {
@@ -296,26 +298,140 @@ type RemoteAgentConfig struct {
 	Description string            `json:"description,omitempty"`
 }
 
+// EmbeddingConfig is the embedding model config for memory tools.
+// JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
+type EmbeddingConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	BaseUrl  string `json:"base_url,omitempty"`
+}
+
+func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Type     string `json:"type"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		BaseUrl  string `json:"base_url"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	e.Model = tmp.Model
+	e.BaseUrl = tmp.BaseUrl
+	if tmp.Provider != "" {
+		e.Provider = tmp.Provider
+	} else {
+		e.Provider = tmp.Type
+	}
+	return nil
+}
+
+// ModelToEmbeddingConfig converts a Model (e.g. from translateModel) to EmbeddingConfig
+// so serialized AgentConfig has embedding.provider for Python EmbeddingConfig validation.
+func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
+	if m == nil {
+		return nil
+	}
+	e := &EmbeddingConfig{Provider: m.GetType()}
+	switch v := m.(type) {
+	case *OpenAI:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *AzureOpenAI:
+		e.Model = v.Model
+	case *Anthropic:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *GeminiVertexAI:
+		e.Model = v.Model
+	case *GeminiAnthropic:
+		e.Model = v.Model
+	case *Ollama:
+		e.Model = v.Model
+	case *Gemini:
+		e.Model = v.Model
+	case *Bedrock:
+		e.Model = v.Model
+	default:
+		e.Model = ""
+	}
+	return e
+}
+
+// MemoryConfig groups all memory-related configuration.
+type MemoryConfig struct {
+	TTLDays   int              `json:"ttl_days,omitempty"`
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+}
+
+// AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
+type AgentContextConfig struct {
+	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
+}
+
+// AgentCompressionConfig maps to Python's ContextCompressionSettings.
+type AgentCompressionConfig struct {
+	CompactionInterval *int   `json:"compaction_interval,omitempty"`
+	OverlapSize        *int   `json:"overlap_size,omitempty"`
+	SummarizerModel    Model  `json:"summarizer_model,omitempty"`
+	PromptTemplate     string `json:"prompt_template,omitempty"`
+	TokenThreshold     *int   `json:"token_threshold,omitempty"`
+	EventRetentionSize *int   `json:"event_retention_size,omitempty"`
+}
+
+func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		CompactionInterval *int            `json:"compaction_interval,omitempty"`
+		OverlapSize        *int            `json:"overlap_size,omitempty"`
+		SummarizerModel    json.RawMessage `json:"summarizer_model,omitempty"`
+		PromptTemplate     string          `json:"prompt_template,omitempty"`
+		TokenThreshold     *int            `json:"token_threshold,omitempty"`
+		EventRetentionSize *int            `json:"event_retention_size,omitempty"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	c.CompactionInterval = tmp.CompactionInterval
+	c.OverlapSize = tmp.OverlapSize
+	c.PromptTemplate = tmp.PromptTemplate
+	c.TokenThreshold = tmp.TokenThreshold
+	c.EventRetentionSize = tmp.EventRetentionSize
+	if len(tmp.SummarizerModel) > 0 && string(tmp.SummarizerModel) != "null" {
+		model, err := ParseModel(tmp.SummarizerModel)
+		if err != nil {
+			return fmt.Errorf("failed to parse summarizer model: %w", err)
+		}
+		c.SummarizerModel = model
+	}
+	return nil
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model        Model                 `json:"model"`
-	Description  string                `json:"description"`
-	Instruction  string                `json:"instruction"`
-	HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-	SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-	RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
-	ExecuteCode  bool                  `json:"execute_code,omitempty"`
-	Stream       bool                  `json:"stream"`
+	Model         Model                 `json:"model"`
+	Description   string                `json:"description"`
+	Instruction   string                `json:"instruction"`
+	HttpTools     []HttpMcpServerConfig `json:"http_tools"`
+	SseTools      []SseMcpServerConfig  `json:"sse_tools"`
+	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
+	ExecuteCode   bool                  `json:"execute_code,omitempty"`
+	Stream        bool                  `json:"stream"`
+	Memory        *MemoryConfig         `json:"memory,omitempty"`
+	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model        json.RawMessage       `json:"model"`
-		Description  string                `json:"description"`
-		Instruction  string                `json:"instruction"`
-		HttpTools    []HttpMcpServerConfig `json:"http_tools"`
-		SseTools     []SseMcpServerConfig  `json:"sse_tools"`
-		RemoteAgents []RemoteAgentConfig   `json:"remote_agents"`
+		Model         json.RawMessage       `json:"model"`
+		Description   string                `json:"description"`
+		Instruction   string                `json:"instruction"`
+		HttpTools     []HttpMcpServerConfig `json:"http_tools"`
+		SseTools      []SseMcpServerConfig  `json:"sse_tools"`
+		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents"`
+		ExecuteCode   bool                  `json:"execute_code,omitempty"`
+		Stream        bool                  `json:"stream"`
+		Memory        json.RawMessage       `json:"memory"`
+		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -324,12 +440,26 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	var memory *MemoryConfig
+	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
+		var m MemoryConfig
+		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
+			return err
+		}
+		memory = &m
+	}
+
 	a.Model = model
 	a.Description = tmp.Description
 	a.Instruction = tmp.Instruction
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
+	a.ExecuteCode = tmp.ExecuteCode
+	a.Stream = tmp.Stream
+	a.Memory = memory
+	a.ContextConfig = tmp.ContextConfig
 	return nil
 }
 

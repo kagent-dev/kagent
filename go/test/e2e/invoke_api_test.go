@@ -92,12 +92,25 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 	return cli
 }
 
-// setupModelConfig creates and returns a model config resource
+// setupModelConfig creates and returns a model config resource for chat (LLM) use.
 func setupModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
-	modelCfg := generateModelCfg(baseURL + "/v1")
+	modelCfg := generateModelCfg(baseURL+"/v1", "gpt-4.1-mini")
 	err := cli.Create(t.Context(), modelCfg)
 	if err != nil {
 		t.Fatalf("failed to create model config: %v", err)
+	}
+	cleanup(t, cli, modelCfg)
+	return modelCfg
+}
+
+// setupEmbeddingModelConfig creates a ModelConfig for embedding (memory) use.
+// text-embedding-3-small is NOT actually used since we have MockLLM, but LiteLLM complains if it's not a proper
+func setupEmbeddingModelConfig(t *testing.T, cli client.Client, baseURL string) *v1alpha2.ModelConfig {
+	modelCfg := generateModelCfg(baseURL+"/v1", "text-embedding-3-small")
+	modelCfg.GenerateName = "test-embedding-model-config-"
+	err := cli.Create(t.Context(), modelCfg)
+	if err != nil {
+		t.Fatalf("failed to create embedding model config: %v", err)
 	}
 	cleanup(t, cli, modelCfg)
 	return modelCfg
@@ -121,12 +134,14 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
-	Name          string
-	SystemMessage string
-	Stream        bool
-	Env           []corev1.EnvVar
-	Skills        *v1alpha2.SkillForAgent
-	ExecuteCode   *bool
+	Name           string
+	SystemMessage  string
+	Stream         bool
+	Env            []corev1.EnvVar
+	Skills         *v1alpha2.SkillForAgent
+	ExecuteCode    *bool
+	Memory         *v1alpha2.MemorySpec
+	PromptTemplate *v1alpha2.PromptTemplateSpec
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -338,14 +353,15 @@ func waitForEndpoint(t *testing.T, namespace, name string) {
 	require.NoError(t, pollErr, "timed out waiting for endpoint %s", url)
 }
 
-func generateModelCfg(baseURL string) *v1alpha2.ModelConfig {
+// generateModelCfg creates a ModelConfig with the given base URL and model name.
+func generateModelCfg(baseURL, model string) *v1alpha2.ModelConfig {
 	return &v1alpha2.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "test-model-config-",
 			Namespace:    "kagent",
 		},
 		Spec: v1alpha2.ModelConfigSpec{
-			Model:           "gpt-4.1-mini",
+			Model:           model,
 			APIKeySecret:    "kagent-openai",
 			APIKeySecretKey: "OPENAI_API_KEY",
 			Provider:        v1alpha2.ModelProviderOpenAI,
@@ -398,6 +414,14 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if len(opts.Env) > 0 {
 		agent.Spec.Declarative.Deployment.Env = append(agent.Spec.Declarative.Deployment.Env, opts.Env...)
+	}
+
+	if opts.Memory != nil {
+		agent.Spec.Declarative.Memory = opts.Memory
+	}
+
+	if opts.PromptTemplate != nil {
+		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
 	}
 
 	return agent
@@ -453,7 +477,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "RemoteMCPServer",
 					Name:     "kagent-tool-server",
@@ -493,7 +517,7 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "RemoteMCPServer",
 					Name:     "kagent-tool-server",
@@ -554,7 +578,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
@@ -821,7 +845,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		{
 			Type: v1alpha2.ToolProviderType_McpServer,
 			McpServer: &v1alpha2.McpServerTool{
-				TypedLocalReference: v1alpha2.TypedLocalReference{
+				TypedReference: v1alpha2.TypedReference{
 					ApiGroup: "kagent.dev",
 					Kind:     "MCPServer",
 					Name:     mcpServer.Name,
@@ -958,6 +982,151 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	// If passthrough is broken, mockllm returns 404 and the test fails.
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough", nil)
+	})
+}
+
+// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
+// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
+// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+func TestE2EMemoryWithAgent(t *testing.T) {
+	llmURL, stopLLM := setupMockServer(t, "mocks/invoke_memory_agent.json")
+	defer stopLLM()
+
+	cli := setupK8sClient(t, false)
+
+	llmModelCfg := setupModelConfig(t, cli, llmURL)
+	embeddingModelCfg := setupEmbeddingModelConfig(t, cli, llmURL)
+
+	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, AgentOptions{
+		Name: "memory-test-agent",
+		Memory: &v1alpha2.MemorySpec{
+			ModelConfig: embeddingModelCfg.Name,
+		},
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	var saveResult *protocol.Task
+	t.Run("save_memory", func(t *testing.T) {
+		saveResult = runSyncTest(t, a2aClient,
+			"Remember that I prefer dark mode and Go over Python",
+			"saved your preferences to memory",
+			nil,
+		)
+	})
+
+	t.Run("load_memory", func(t *testing.T) {
+		runSyncTest(t, a2aClient,
+			"What are my preferences?",
+			"dark mode",
+			nil,
+			saveResult.ContextID,
+		)
+	})
+}
+
+func TestE2EInvokeAgentWithPromptTemplate(t *testing.T) {
+	// Setup mock server — reuses the inline agent mock since the system prompt
+	// content doesn't affect mock matching; the test verifies that the controller
+	// correctly resolves promptTemplate and the agent reaches Ready state.
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+
+	// Create a ConfigMap with prompt fragments
+	promptConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "test-prompt-templates-",
+			Namespace:    "kagent",
+		},
+		Data: map[string]string{
+			"preamble": "You are a helpful Kubernetes assistant. Always explain your reasoning.",
+			"safety":   "Never delete resources without explicit user confirmation.",
+		},
+	}
+	err := cli.Create(t.Context(), promptConfigMap)
+	require.NoError(t, err)
+	cleanup(t, cli, promptConfigMap)
+
+	// Define tools
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedReference: v1alpha2.TypedReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	// Create agent with promptTemplate using include directives and variable interpolation
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
+		Name: "prompt-tpl-test",
+		SystemMessage: `{{include "prompts/preamble"}}
+
+You are {{.AgentName}}, operating in {{.AgentNamespace}}.
+
+{{include "prompts/safety"}}`,
+		PromptTemplate: &v1alpha2.PromptTemplateSpec{
+			DataSources: []v1alpha2.PromptSource{
+				{
+					TypedLocalReference: v1alpha2.TypedLocalReference{
+						Kind: "ConfigMap",
+						Name: promptConfigMap.Name,
+					},
+					Alias: "prompts",
+				},
+			},
+		},
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+	})
+
+	// Test that updating the ConfigMap triggers re-reconciliation
+	t.Run("configmap_update_triggers_rereconcile", func(t *testing.T) {
+		// Update the ConfigMap
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			cm := &corev1.ConfigMap{}
+			if err := cli.Get(t.Context(), client.ObjectKeyFromObject(promptConfigMap), cm); err != nil {
+				return err
+			}
+			cm.Data["preamble"] = "You are an updated Kubernetes assistant."
+			return cli.Update(t.Context(), cm)
+		})
+		require.NoError(t, err)
+
+		// Wait for agent to re-reconcile by checking that it remains Ready
+		// (the controller watches ConfigMaps and re-reconciles referencing agents)
+		time.Sleep(5 * time.Second)
+		updatedAgent := &v1alpha2.Agent{}
+		err = cli.Get(t.Context(), client.ObjectKeyFromObject(agent), updatedAgent)
+		require.NoError(t, err)
+
+		// Verify agent is still accepted and ready after ConfigMap update
+		for _, cond := range updatedAgent.Status.Conditions {
+			if cond.Type == v1alpha2.AgentConditionTypeAccepted {
+				require.Equal(t, string(metav1.ConditionTrue), string(cond.Status),
+					"Agent should remain Accepted after ConfigMap update, got: %s", cond.Message)
+			}
+		}
+
+		// Verify the agent still responds correctly
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
 	})
 }
 

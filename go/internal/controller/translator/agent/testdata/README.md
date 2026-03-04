@@ -38,7 +38,7 @@ objects: # List of Kubernetes objects needed for the test
 
 1. **basic_agent.yaml** - A basic agent with OpenAI model and no tools
 2. **agent_with_builtin_tools.yaml** - Agent with builtin tools (Prometheus and Docs tools)
-3. **agent_with_memory.yaml** - Agent with Pinecone vector memory
+3. **agent_with_memory.yaml** - Agent with long-term memory (embedding model + vector storage)
 4. **anthropic_agent.yaml** - Agent using Anthropic Claude model
 5. **ollama_agent.yaml** - Agent using Ollama local model
 6. **agent_with_nested_agent.yaml** - Agent with nested agent tools
@@ -83,7 +83,7 @@ The golden tests cover various scenarios:
 
 - **Model Providers**: OpenAI, Anthropic, Ollama
 - **Tools**: Builtin tools (with model client injection and API key injection), nested agent tools
-- **Memory**: Pinecone vector memory
+- **Memory**: Long-term memory with dedicated embedding model config
 - **Configuration**: Various model parameters, environment variables, secrets, system messages
 
 ## Notes

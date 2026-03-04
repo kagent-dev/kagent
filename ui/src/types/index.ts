@@ -487,3 +487,11 @@ export interface GitRepoSearchRequest {
   limit?: number;
   contextLines?: number;
 }
+
+export interface AgentMemory {
+  id: string;
+  content: string;
+  access_count: number;
+  created_at: string;
+  expires_at?: string;
+}
