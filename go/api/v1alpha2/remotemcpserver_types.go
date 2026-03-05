@@ -35,6 +35,38 @@ const (
 	RemoteMCPServerProtocolStreamableHttp RemoteMCPServerProtocol = "STREAMABLE_HTTP"
 )
 
+// PluginUISpec defines optional UI metadata for MCP servers that provide a web interface.
+type PluginUISpec struct {
+	// Enabled indicates this MCP server provides a web UI.
+	// +optional
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// PathPrefix is the URL path segment used for routing: /plugins/{pathPrefix}/
+	// Must be a valid URL path segment (lowercase alphanumeric + hyphens).
+	// Defaults to the RemoteMCPServer name if not specified.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9-]*[a-z0-9]$`
+	// +kubebuilder:validation:MaxLength=63
+	PathPrefix string `json:"pathPrefix,omitempty"`
+
+	// DisplayName is the human-readable name shown in the sidebar.
+	// Defaults to the RemoteMCPServer name if not specified.
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+
+	// Icon is a lucide-react icon name (e.g., "kanban", "git-fork", "database").
+	// +optional
+	// +kubebuilder:default="puzzle"
+	Icon string `json:"icon,omitempty"`
+
+	// Section is the sidebar section where this plugin appears.
+	// +optional
+	// +kubebuilder:default="PLUGINS"
+	// +kubebuilder:validation:Enum=OVERVIEW;AGENTS;RESOURCES;ADMIN;PLUGINS
+	Section string `json:"section,omitempty"`
+}
+
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 type RemoteMCPServerSpec struct {
 	Description string `json:"description"`
@@ -59,6 +91,11 @@ type RemoteMCPServerSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
+	// UI defines optional web UI metadata for this MCP server.
+	// When ui.enabled is true, the server's UI is accessible at /plugins/{ui.pathPrefix}/
+	// +optional
+	UI *PluginUISpec `json:"ui,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
