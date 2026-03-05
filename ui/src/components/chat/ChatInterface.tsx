@@ -627,7 +627,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
                 <div className="bg-card p-6 rounded-lg shadow-sm border max-w-md text-center">
-                  <h3 className="text-lg font-medium mb-2">{headline || "Start a conversation"}</h3>
+                  <h3 className="text-lg font-medium mb-2">{headline ?? "Start a conversation"}</h3>
                   <p className="text-muted-foreground">
                     To begin chatting with the agent, type your message in the input box below.
                   </p>
