@@ -25,6 +25,10 @@ class KAgentMcpToolset(McpToolset):
     implementation may not catch and propagate without enough context.
     """
 
+    def __init__(self, *, sts_audience: str | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.sts_audience = sts_audience
+
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         try:
             return await super().get_tools(readonly_context)

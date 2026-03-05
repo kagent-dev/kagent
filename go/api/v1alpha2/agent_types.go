@@ -413,6 +413,13 @@ type McpServerTool struct {
 	// Example: ["x-user-email", "x-tenant-id"]
 	// +optional
 	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
+
+	// STSAudience overrides the audience value for STS token exchange when
+	// calling this MCP tool server from this agent. If not set, falls back
+	// to the audience configured on the RemoteMCPServer. If neither is set,
+	// no audience is passed in the token exchange request.
+	// +optional
+	STSAudience *string `json:"stsAudience,omitempty"`
 }
 
 type TypedLocalReference struct {

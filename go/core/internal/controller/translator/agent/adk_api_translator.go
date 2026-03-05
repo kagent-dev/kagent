@@ -1330,6 +1330,14 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 }
 
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
+	// Resolve STS audience: McpServerTool override > RemoteMCPServer default
+	stsAudience := ""
+	if mcpServerTool.STSAudience != nil && *mcpServerTool.STSAudience != "" {
+		stsAudience = *mcpServerTool.STSAudience
+	} else if remoteMcpServer.Spec.STSAudience != nil {
+		stsAudience = *remoteMcpServer.Spec.STSAudience
+	}
+
 	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -1341,6 +1349,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Tools:           mcpServerTool.ToolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
 			RequireApproval: mcpServerTool.RequireApproval,
+			STSAudience:     stsAudience,
 		})
 	default:
 		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -1352,6 +1361,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			Tools:           mcpServerTool.ToolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
 			RequireApproval: mcpServerTool.RequireApproval,
+			STSAudience:     stsAudience,
 		})
 	}
 	return nil
