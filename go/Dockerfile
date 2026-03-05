@@ -15,6 +15,8 @@ COPY go.work .
 COPY api/go.mod api/go.sum api/
 COPY core/go.mod core/go.sum core/
 COPY adk/go.mod adk/go.sum adk/
+COPY plugins/kanban-mcp/go.mod plugins/kanban-mcp/go.sum plugins/kanban-mcp/
+COPY plugins/gitrepo-mcp/go.mod plugins/gitrepo-mcp/go.sum plugins/gitrepo-mcp/
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
@@ -24,6 +26,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 COPY api/ api/
 COPY core/ core/
 COPY adk/ adk/
+COPY plugins/ plugins/
 
 # Build
 ARG LDFLAGS

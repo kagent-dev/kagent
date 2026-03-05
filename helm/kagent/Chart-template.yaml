@@ -20,6 +20,14 @@ dependencies:
     version: ${VERSION}
     repository: file://../tools/querydoc
     condition: tools.querydoc.enabled
+  - name: kanban-mcp
+    version: ${VERSION}
+    repository: file://../tools/kanban-mcp
+    condition: tools.kanban-mcp.enabled
+  - name: gitrepo-mcp
+    version: ${VERSION}
+    repository: file://../tools/gitrepo-mcp
+    condition: tools.gitrepo-mcp.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s

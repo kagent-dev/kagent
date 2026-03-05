@@ -22,11 +22,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <TooltipProvider>
-      <AgentsProvider>
-        <NamespaceProvider>
-          <html lang="en" className="">
-            <body className={`${geistSans.className} flex h-screen overflow-hidden`}>
+    <html lang="en" className="">
+      <body className={`${geistSans.className} flex h-screen overflow-hidden`}>
+        <TooltipProvider>
+          <AgentsProvider>
+            <NamespaceProvider>
               <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
                 <AppInitializer>
                   <SidebarProvider>
@@ -37,12 +37,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     </SidebarInset>
                   </SidebarProvider>
                 </AppInitializer>
-                <Toaster richColors/>
+                <Toaster richColors />
               </ThemeProvider>
-            </body>
-          </html>
-        </NamespaceProvider>
-      </AgentsProvider>
-    </TooltipProvider>
+            </NamespaceProvider>
+          </AgentsProvider>
+        </TooltipProvider>
+      </body>
+    </html>
   );
 }

@@ -120,7 +120,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
         ? k8sRefUtils.fromRef(memoryModel).name
         : memoryModel;
-      base.spec!.memory = {
+      base.spec!.declarative!.memory = {
         modelConfig: memoryModelName,
         ttlDays: agentFormData.memory.ttlDays,
       };

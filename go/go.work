@@ -4,4 +4,6 @@ use (
 	./api
 	./core
 	./adk
+	./plugins/kanban-mcp
+	./plugins/gitrepo-mcp
 )

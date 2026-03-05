@@ -227,6 +227,7 @@ export interface TypedLocalReference {
 
 export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
+  requireApproval?: string[];
 }
 
 export type AgentType = "Declarative" | "BYO";
@@ -244,6 +245,28 @@ export interface AgentSpec {
   skills?: SkillForAgent;
 }
 
+export interface MemorySpec {
+  modelConfig: string;
+  ttlDays?: number;
+}
+
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
+}
+
+export interface ContextCompressionConfig {
+  compactionInterval?: number;
+  overlapSize?: number;
+  summarizer?: ContextSummarizerConfig;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+}
+
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
+}
+
 export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
@@ -251,6 +274,8 @@ export interface DeclarativeAgentSpec {
   modelConfig: string;
   stream?: boolean;
   a2aConfig?: A2AConfig;
+  memory?: MemorySpec;
+  context?: ContextConfig;
 }
 
 export interface BYOAgentSpec {

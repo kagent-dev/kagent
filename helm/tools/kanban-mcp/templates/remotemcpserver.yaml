@@ -1,0 +1,14 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "kanban-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kanban-mcp.labels" . | nindent 4 }}
+spec:
+  description: Kanban task board MCP server
+  protocol: STREAMABLE_HTTP
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  timeout: 30s
+  url: {{ include "kanban-mcp.serverUrl" . }}

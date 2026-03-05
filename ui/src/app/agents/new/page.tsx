@@ -139,7 +139,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               };
               // v1alpha2: read type and split specs
               if (agent.spec.type === "Declarative") {
-                const memorySpec = agent.spec?.memory;
+                const memorySpec = agent.spec?.declarative?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
