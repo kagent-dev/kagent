@@ -14,6 +14,7 @@ from google.adk.sessions import BaseSessionService
 from google.adk.sessions.session import Session
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
+from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from google.adk.tools.tool_context import ToolContext
 from typing_extensions import override
@@ -40,7 +41,18 @@ class ADKSTSIntegration(STSIntegrationBase):
 
 
 class ADKTokenPropagationPlugin(BasePlugin):
-    """Plugin for propagating STS tokens to ADK tools."""
+    """Plugin for propagating STS tokens to ADK tools.
+
+    Token exchange lifecycle:
+    1. before_run_callback: extracts the subject token from request headers
+       and stores it for the duration of the invocation.
+    2. before_tool_callback: when an MCP tool is about to be called and STS
+       is configured, exchanges the subject token (async) and caches the
+       access token so header_provider can read it.
+    3. header_provider (sync): returns cached access token as Authorization
+       header -- called by McpToolset/McpTool during MCP session setup.
+    4. after_run_callback: cleans up all cached state.
+    """
 
     def __init__(self, sts_integration: Optional[STSIntegrationBase] = None):
         """Initialize the token propagation plugin.
@@ -51,6 +63,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         super().__init__("ADKTokenPropagationPlugin")
         self.sts_integration = sts_integration
         self.token_cache: Dict[str, str] = {}
+        self._subject_tokens: Dict[str, str] = {}
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -70,7 +83,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug("Updated tool connection params to include access token from STS server")
 
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access save token
         access_token = self.token_cache.get(self.cache_key(readonly_context._invocation_context), "")
         if not access_token:
             return {}
@@ -85,25 +97,58 @@ class ADKTokenPropagationPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
-        """Propagate token to model before execution."""
+        """Extract and store the subject token for later exchange."""
         headers = invocation_context.session.state.get(HEADERS_KEY, None)
         subject_token = _extract_jwt_from_headers(headers)
         if not subject_token:
             logger.debug("No subject token found in headers for token propagation")
             return None
-        if self.sts_integration:
-            try:
-                subject_token = await self.sts_integration.exchange_token(
-                    subject_token=subject_token,
-                    subject_token_type=TokenType.JWT,
-                    actor_token=self.sts_integration._actor_token,
-                    actor_token_type=TokenType.JWT if self.sts_integration._actor_token else None,
-                )
-            except Exception as e:
-                logger.warning(f"STS token exchange failed: {e}")
-                return None
-        # no sts, just propagate the subject token upstream
-        self.token_cache[self.cache_key(invocation_context)] = subject_token
+        key = self.cache_key(invocation_context)
+        self._subject_tokens[key] = subject_token
+        if not self.sts_integration:
+            # No STS -- propagate the subject token directly so
+            # header_provider can return it on the first tool call.
+            self.token_cache[key] = subject_token
+        return None
+
+    @override
+    async def before_tool_callback(
+        self,
+        *,
+        tool: BaseTool,
+        tool_args: dict[str, Any],
+        tool_context: ToolContext,
+    ) -> Optional[dict]:
+        """Exchange the subject token via STS before each MCP tool call."""
+        if not self.sts_integration:
+            return None
+        # Only exchange tokens for MCP tool calls. Other tool types
+        # (memory tools, AgentTool, etc.) don't use header_provider and
+        # have their own auth mechanisms, so exchanging here would be a
+        # wasted HTTP round-trip to the STS.
+        if not isinstance(tool, McpTool):
+            return None
+
+        key = self.cache_key(tool_context._invocation_context)
+        # Already exchanged for this session
+        if key in self.token_cache:
+            return None
+
+        subject_token = self._subject_tokens.get(key)
+        if not subject_token:
+            return None
+
+        try:
+            access_token = await self.sts_integration.exchange_token(
+                subject_token=subject_token,
+                subject_token_type=TokenType.JWT,
+                actor_token=self.sts_integration._actor_token,
+                actor_token_type=TokenType.JWT if self.sts_integration._actor_token else None,
+            )
+            self.token_cache[key] = access_token
+        except Exception as e:
+            logger.warning(f"STS token exchange failed: {e}")
+
         return None
 
     def cache_key(self, invocation_context: InvocationContext) -> str:
@@ -116,8 +161,9 @@ class ADKTokenPropagationPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
-        # delete token after run
-        self.token_cache.pop(self.cache_key(invocation_context), None)
+        key = self.cache_key(invocation_context)
+        self.token_cache.pop(key, None)
+        self._subject_tokens.pop(key, None)
         return None
 
 

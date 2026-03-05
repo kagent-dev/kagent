@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
@@ -30,6 +31,16 @@ class TestADKTokenPropagationPlugin:
         readonly_context = Mock()
         readonly_context._invocation_context = invocation_context
         return readonly_context
+
+    def _make_tool_context(self, invocation_context):
+        tool_context = Mock()
+        tool_context._invocation_context = invocation_context
+        return tool_context
+
+    def _make_mcp_tool(self):
+        tool = Mock(spec=McpTool)
+        tool.name = "test_tool"
+        return tool
 
     def test_init(self):
         mock_sts_integration = Mock()
@@ -77,48 +88,101 @@ class TestADKTokenPropagationPlugin:
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_success(self):
-        """Case: STS integration exchanges token -> access token cached and returned by header provider."""
+        """Case: STS integration -- before_run stores subject token, before_tool_callback exchanges it."""
         sts = Mock(spec=ADKSTSIntegration)
         sts._actor_token = "actor-token"
         sts.exchange_token = AsyncMock(return_value="access-token-XYZ")
         plugin = ADKTokenPropagationPlugin(sts)
         ic = self._make_invocation_context("sess-3", headers={"Authorization": "Bearer original-subject"})
-        with patch("agentsts.adk._base.logger") as mock_logger:
-            result = await plugin.before_run_callback(invocation_context=ic)
-            assert result is None
-            sts.exchange_token.assert_called_once_with(
-                subject_token="original-subject",
-                subject_token_type=TokenType.JWT,
-                actor_token="actor-token",
-                actor_token_type=TokenType.JWT,
-            )
-            # optional debug log length check
-            mock_logger.debug.assert_called()  # at least one debug log
+
+        # before_run_callback should store the subject token but NOT exchange
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        sts.exchange_token.assert_not_called()
+        assert "sess-3" not in plugin.token_cache
+        assert plugin._subject_tokens["sess-3"] == "original-subject"
+
+        # before_tool_callback should exchange on first MCP tool call
+        tool = self._make_mcp_tool()
+        tc = self._make_tool_context(ic)
+        result = await plugin.before_tool_callback(tool=tool, tool_args={}, tool_context=tc)
+        assert result is None
+        sts.exchange_token.assert_called_once_with(
+            subject_token="original-subject",
+            subject_token_type=TokenType.JWT,
+            actor_token="actor-token",
+            actor_token_type=TokenType.JWT,
+        )
         assert plugin.token_cache["sess-3"] == "access-token-XYZ"
 
+        # header_provider should return the exchanged token
         ro_ctx = self._make_readonly_context(ic)
         headers = plugin.header_provider(ro_ctx)
         assert headers == {"Authorization": "Bearer access-token-XYZ"}
 
+        # second tool call should not exchange again (cached)
+        sts.exchange_token.reset_mock()
+        result = await plugin.before_tool_callback(tool=tool, tool_args={}, tool_context=tc)
+        assert result is None
+        sts.exchange_token.assert_not_called()
+
         await plugin.after_run_callback(invocation_context=ic)
         assert "sess-3" not in plugin.token_cache
+        assert "sess-3" not in plugin._subject_tokens
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_failure(self):
-        """Case: STS exchange raises -> no cache entry, graceful warning."""
+        """Case: STS exchange raises in before_tool_callback -> no cache entry, graceful warning."""
         sts = Mock(spec=ADKSTSIntegration)
         sts._actor_token = "actor-token"
         sts.exchange_token = AsyncMock(side_effect=Exception("boom"))
         plugin = ADKTokenPropagationPlugin(sts)
         ic = self._make_invocation_context("sess-4", headers={"Authorization": "Bearer original-subject"})
+
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin._subject_tokens["sess-4"] == "original-subject"
+
+        tool = self._make_mcp_tool()
+        tc = self._make_tool_context(ic)
         with patch("agentsts.adk._base.logger") as mock_logger:
-            result = await plugin.before_run_callback(invocation_context=ic)
+            result = await plugin.before_tool_callback(tool=tool, tool_args={}, tool_context=tc)
             assert result is None
             mock_logger.warning.assert_called_once()
         assert "sess-4" not in plugin.token_cache
+
         # header provider should yield empty dict
         ro_ctx = self._make_readonly_context(ic)
         assert plugin.header_provider(ro_ctx) == {}
+
+    @pytest.mark.asyncio
+    async def test_before_tool_callback_skips_non_mcp_tools(self):
+        """Case: before_tool_callback ignores non-MCP tools."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="access-token")
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context("sess-7", headers={"Authorization": "Bearer subj"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        non_mcp_tool = Mock()  # not a McpTool
+        tc = self._make_tool_context(ic)
+        result = await plugin.before_tool_callback(tool=non_mcp_tool, tool_args={}, tool_context=tc)
+        assert result is None
+        sts.exchange_token.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_before_tool_callback_no_sts(self):
+        """Case: before_tool_callback is a no-op without STS integration."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-8", headers={"Authorization": "Bearer subj"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        tool = self._make_mcp_tool()
+        tc = self._make_tool_context(ic)
+        result = await plugin.before_tool_callback(tool=tool, tool_args={}, tool_context=tc)
+        assert result is None
+        # token_cache should still have the subject token from before_run
+        assert plugin.token_cache["sess-8"] == "subj"
 
     def test_header_provider_no_entry(self):
         """Case: header_provider called with no cached token -> returns empty dict."""
@@ -131,13 +195,15 @@ class TestADKTokenPropagationPlugin:
 
     @pytest.mark.asyncio
     async def test_after_run_callback_removes_token(self):
-        """Case: after_run_callback removes cached token."""
+        """Case: after_run_callback removes cached token and subject token."""
         plugin = ADKTokenPropagationPlugin()
         ic = self._make_invocation_context("sess-6", headers={"Authorization": "Bearer AAA"})
         await plugin.before_run_callback(invocation_context=ic)
         assert "sess-6" in plugin.token_cache
+        assert "sess-6" in plugin._subject_tokens
         await plugin.after_run_callback(invocation_context=ic)
         assert "sess-6" not in plugin.token_cache
+        assert "sess-6" not in plugin._subject_tokens
 
     def test_extract_jwt_from_headers_success(self):
         """Test successful JWT extraction from headers."""
