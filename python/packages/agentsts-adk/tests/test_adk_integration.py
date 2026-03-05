@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool import MCPTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
@@ -97,14 +96,6 @@ class TestADKTokenPropagationPlugin:
         assert plugin._subject_tokens["sess-2"] == "subj-token-123"
         # Without STS, subject token is directly cached under session key
         assert plugin.token_cache["sess-2"] == "subj-token-123"
-
-        # propagate toolset
-        mcp_toolset = Mock(spec=MCPToolset)
-        agent = Mock(spec=LlmAgent)
-        agent.tools = [mcp_toolset]
-        plugin.add_to_agent(agent)
-        # The toolset._header_provider should be callable
-        assert callable(mcp_toolset._header_provider)
 
         # header provider should return subject token
         ro_ctx = self._make_readonly_context(ic)

@@ -178,7 +178,7 @@ func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	accessToken, err := m.generateMockAccessToken(req.SubjectToken)
+	accessToken, err := m.generateMockAccessToken(req.SubjectToken, req.Audience)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating mock access token: %v", err), http.StatusBadRequest)
 		return
@@ -200,7 +200,7 @@ func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Reque
 	m.requests = append(m.requests, req)
 }
 
-func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, error) {
+func (m *MockSTSServer) generateMockAccessToken(subjectToken string, audience string) (string, error) {
 	// Try to parse JWT token to extract subject claim
 	subject, err := extractSubjectFromJWT(subjectToken)
 	if err != nil {
@@ -217,6 +217,10 @@ func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, er
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iss":   "mock-sts-server",
+	}
+
+	if audience != "" {
+		tokenData["aud"] = audience
 	}
 
 	// For testing purposes, we'll return a simple JSON string

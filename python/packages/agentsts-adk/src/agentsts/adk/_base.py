@@ -3,15 +3,9 @@
 import logging
 from typing import Any, Dict, Optional
 
-from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.auth.auth_credential import AuthCredential, AuthCredentialTypes, HttpAuth, HttpCredentials
-from google.adk.events.event import Event
 from google.adk.plugins.base_plugin import BasePlugin
-from google.adk.runners import Runner
-from google.adk.sessions import BaseSessionService
-from google.adk.sessions.session import Session
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
@@ -66,23 +60,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
         """
         if audience and hasattr(toolset, "_mcp_session_manager"):
             self._audience_map[id(toolset._mcp_session_manager)] = audience
-
-    def add_to_agent(self, agent: BaseAgent):
-        """
-        Add the plugin to an ADK LLM agent by updating its MCP toolset
-        Call this once when setting up the agent; do not call it at runtime.
-        """
-        if not isinstance(agent, LlmAgent):
-            return
-
-        if not agent.tools:
-            return
-
-        for tool in agent.tools:
-            if isinstance(tool, MCPToolset):
-                mcp_toolset = tool
-                mcp_toolset._header_provider = self.header_provider
-                logger.debug("Updated tool connection params to include access token from STS server")
 
     def header_provider(
         self, readonly_context: Optional[ReadonlyContext], audience: Optional[str] = None
