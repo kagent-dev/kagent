@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/kagent-dev/kagent/go/core/internal/tracecontext"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -81,7 +82,7 @@ func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
 			if ts := r.Header.Get("tracestate"); ts != "" {
 				traceHeaders.Set("tracestate", ts)
 			}
-			r = r.WithContext(auth.TraceHeadersTo(r.Context(), traceHeaders))
+			r = r.WithContext(tracecontext.HeadersTo(r.Context(), traceHeaders))
 		}
 		authn.ServeHTTP(w, r)
 	})
@@ -122,7 +123,7 @@ func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.Namespaced
 		}
 
 		// Propagate W3C trace context headers captured from the incoming request.
-		if traceHeaders, ok := auth.TraceHeadersFrom(ctx); ok {
+		if traceHeaders, ok := tracecontext.HeadersFrom(ctx); ok {
 			for key, values := range traceHeaders {
 				for _, v := range values {
 					req.Header.Set(key, v)
