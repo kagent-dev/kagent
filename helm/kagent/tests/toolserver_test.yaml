@@ -60,3 +60,22 @@ tests:
       - equal:
           path: kind
           value: RemoteMCPServer
+
+  - it: should use kagent-tools fullnameOverride when set
+    set:
+      kagent-tools.fullnameOverride: "custom-tools"
+    asserts:
+      - equal:
+          path: spec.url
+          value: http://custom-tools.NAMESPACE:8084/mcp
+
+  - it: should respect release name when fullnameOverride is not set
+    set:
+      kagent-tools.fullnameOverride: null
+      kagent-tools.nameOverride: "tools"
+    release:
+      name: my-release
+    asserts:
+      - equal:
+          path: spec.url
+          value: http://my-release-tools.NAMESPACE:8084/mcp
