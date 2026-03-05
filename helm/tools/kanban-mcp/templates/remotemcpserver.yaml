@@ -12,3 +12,9 @@ spec:
   terminateOnClose: true
   timeout: 30s
   url: {{ include "kanban-mcp.serverUrl" . }}
+  ui:
+    enabled: true
+    pathPrefix: "kanban"
+    displayName: "Kanban Board"
+    icon: "kanban"
+    section: "AGENTS"

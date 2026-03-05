@@ -24,6 +24,24 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
   }
 
+  html.light {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #f8fafc;
+    --card-foreground: #0f172a;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #475569;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #7c3aed;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
@@ -639,6 +657,36 @@
 
   fetchBoard();
   connectSSE();
+
+  // kagent plugin bridge integration
+  var kagent = {
+    _listeners: {},
+    connect: function() {
+      var self = this;
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data.type === "kagent:context") {
+          var ctx = event.data.payload;
+          self._emit("context", ctx);
+        }
+      });
+      window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+    },
+    onContext: function(fn) { (this._listeners["context"] = this._listeners["context"] || []).push(fn); },
+    setBadge: function(count, label) {
+      window.parent.postMessage({ type: "kagent:badge", payload: { count: count, label: label } }, "*");
+    },
+    _emit: function(event, data) { (this._listeners[event] || []).forEach(function(fn) { fn(data); }); }
+  };
+
+  kagent.onContext(function(ctx) {
+    if (ctx.theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+  });
+
+  kagent.connect();
 })();
 </script>
 </body>
