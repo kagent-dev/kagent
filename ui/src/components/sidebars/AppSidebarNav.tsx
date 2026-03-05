@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,14 +9,15 @@ import {
   Bot,
   GitBranch,
   Clock,
-  Kanban,
   Brain,
   Wrench,
   Server,
   GitFork,
   Building2,
   Network,
+  Puzzle,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   SidebarGroup,
@@ -23,6 +25,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuBadge,
 } from "@/components/ui/sidebar";
 
 interface NavItem {
@@ -34,6 +37,31 @@ interface NavItem {
 interface NavSection {
   label: string;
   items: NavItem[];
+}
+
+interface PluginNav {
+  name: string;
+  pathPrefix: string;
+  displayName: string;
+  icon: string;
+  section: string;
+}
+
+interface PluginBadge {
+  count?: number;
+  label?: string;
+}
+
+interface NavItemWithBadge extends NavItem {
+  badge?: PluginBadge;
+}
+
+function getIconByName(name: string): LucideIcon {
+  const pascalCase = name
+    .split("-")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join("");
+  return (LucideIcons as Record<string, LucideIcon>)[pascalCase] ?? Puzzle;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -50,7 +78,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "My Agents", href: "/agents", icon: Bot },
       { label: "Workflows", href: "/workflows", icon: GitBranch },
       { label: "Cron Jobs", href: "/cronjobs", icon: Clock },
-      { label: "Kanban", href: "/kanban", icon: Kanban },
     ],
   },
   {
@@ -73,17 +100,72 @@ export const NAV_SECTIONS: NavSection[] = [
 
 export function AppSidebarNav() {
   const pathname = usePathname();
+  const [plugins, setPlugins] = useState<PluginNav[]>([]);
+  const [badges, setBadges] = useState<Record<string, PluginBadge>>({});
+
+  // Fetch plugins on mount
+  useEffect(() => {
+    fetch("/api/plugins")
+      .then((r) => r.json())
+      .then((res) => setPlugins(res.data ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Listen for badge updates from plugin iframes
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { plugin, count, label } = (e as CustomEvent).detail;
+      setBadges((prev) => ({ ...prev, [plugin]: { count, label } }));
+    };
+    window.addEventListener("kagent:plugin-badge", handler);
+    return () => window.removeEventListener("kagent:plugin-badge", handler);
+  }, []);
+
+  // Merge plugins into sections
+  const knownSections = NAV_SECTIONS.map((s) => s.label);
+  const sections: { label: string; items: NavItemWithBadge[] }[] = NAV_SECTIONS.map((section) => {
+    const pluginItems: NavItemWithBadge[] = plugins
+      .filter((p) => p.section === section.label)
+      .map((p) => ({
+        label: p.displayName,
+        href: `/plugins/${p.pathPrefix}`,
+        icon: getIconByName(p.icon),
+        badge: badges[p.pathPrefix],
+      }));
+    return {
+      ...section,
+      items: [
+        ...section.items.map((i) => ({ ...i, badge: undefined as PluginBadge | undefined })),
+        ...pluginItems,
+      ],
+    };
+  });
+
+  // Add PLUGINS section for plugins that specify a section not in NAV_SECTIONS
+  const pluginsSection = plugins.filter((p) => !knownSections.includes(p.section));
+  if (pluginsSection.length > 0) {
+    sections.push({
+      label: "PLUGINS",
+      items: pluginsSection.map((p) => ({
+        label: p.displayName,
+        href: `/plugins/${p.pathPrefix}`,
+        icon: getIconByName(p.icon),
+        badge: badges[p.pathPrefix],
+      })),
+    });
+  }
 
   return (
     <>
-      {NAV_SECTIONS.map((section) => {
+      {sections.map((section) => {
+        if (section.items.length === 0) return null;
         const sectionId = `nav-section-${section.label.toLowerCase()}`;
         return (
           <SidebarGroup key={section.label} role="group" aria-labelledby={sectionId}>
             <SidebarGroupLabel id={sectionId}>{section.label}</SidebarGroupLabel>
             <SidebarMenu>
               {section.items.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
@@ -96,6 +178,9 @@ export function AppSidebarNav() {
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {item.badge?.count != null && (
+                      <SidebarMenuBadge>{item.badge.count}</SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 );
               })}
