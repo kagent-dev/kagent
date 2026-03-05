@@ -171,6 +171,13 @@ spec:
                 type: string
               sseReadTimeout:
                 type: string
+              stsAudience:
+                description: |-
+                  STSAudience specifies the audience value to include in STS token exchange
+                  requests when this MCP server is called. This scopes the issued token to
+                  this specific service. If not set, no audience is passed in the token
+                  exchange request. Can be overridden per-agent via McpServerTool.stsAudience.
+                type: string
               terminateOnClose:
                 default: true
                 type: boolean

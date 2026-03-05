@@ -24,6 +24,7 @@ type HttpMcpServerConfig struct {
 	Tools           []string                       `json:"tools"`
 	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
 	RequireApproval []string                       `json:"require_approval,omitempty"`
+	STSAudience     string                         `json:"sts_audience,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -42,6 +43,7 @@ type SseMcpServerConfig struct {
 	Tools           []string            `json:"tools"`
 	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
 	RequireApproval []string            `json:"require_approval,omitempty"`
+	STSAudience     string              `json:"sts_audience,omitempty"`
 }
 
 type Model interface {

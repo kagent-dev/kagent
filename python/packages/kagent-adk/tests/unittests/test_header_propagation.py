@@ -74,7 +74,7 @@ class TestCreateHeaderProvider:
     def test_combines_sts_and_allowed_headers(self):
         """Test that STS headers and allowed headers are combined."""
 
-        def mock_sts_provider(ctx):
+        def mock_sts_provider(ctx, audience=None):
             return {"Authorization": "Bearer token123"}
 
         provider = create_header_provider(
@@ -105,7 +105,7 @@ class TestCreateHeaderProvider:
         for header names to verify case-insensitive handling.
         """
 
-        def mock_sts_provider(ctx):
+        def mock_sts_provider(ctx, audience=None):
             # STS returns "Authorization" with capital A
             return {"Authorization": "Bearer sts-token"}
 
@@ -135,7 +135,7 @@ class TestCreateHeaderProvider:
     def test_sts_only_when_no_allowed_headers(self):
         """Test that only STS headers are returned when no allowed headers."""
 
-        def mock_sts_provider(ctx):
+        def mock_sts_provider(ctx, audience=None):
             return {"Authorization": "Bearer token123"}
 
         provider = create_header_provider(sts_header_provider=mock_sts_provider)
@@ -161,6 +161,43 @@ class TestCreateHeaderProvider:
 
         headers = provider(None)
         assert headers == {}
+
+
+    def test_sts_audience_forwarded_to_provider(self):
+        """Test that sts_audience is forwarded to the STS header provider."""
+        received_audiences = []
+
+        def mock_sts_provider(ctx, audience=None):
+            received_audiences.append(audience)
+            return {"Authorization": f"Bearer token-for-{audience}"}
+
+        provider = create_header_provider(
+            sts_header_provider=mock_sts_provider,
+            sts_audience="https://my-service.example.com",
+        )
+        assert provider is not None
+
+        context = MockReadonlyContext(state={"headers": {}})
+        headers = provider(context)
+        assert headers == {"Authorization": "Bearer token-for-https://my-service.example.com"}
+        assert received_audiences == ["https://my-service.example.com"]
+
+    def test_sts_audience_none_when_not_specified(self):
+        """Test that audience is None when not specified."""
+        received_audiences = []
+
+        def mock_sts_provider(ctx, audience=None):
+            received_audiences.append(audience)
+            return {"Authorization": "Bearer token"}
+
+        provider = create_header_provider(
+            sts_header_provider=mock_sts_provider,
+        )
+        assert provider is not None
+
+        context = MockReadonlyContext(state={"headers": {}})
+        provider(context)
+        assert received_audiences == [None]
 
 
 class TestMcpServerConfigAllowedHeaders:
@@ -195,3 +232,33 @@ class TestMcpServerConfigAllowedHeaders:
             params=SseConnectionParams(url="http://localhost:8080"),
         )
         assert config.allowed_headers is None
+
+    def test_http_mcp_config_has_sts_audience(self):
+        """Test that HttpMcpServerConfig has sts_audience field."""
+        config = HttpMcpServerConfig(
+            params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
+            sts_audience="https://my-service.example.com",
+        )
+        assert config.sts_audience == "https://my-service.example.com"
+
+    def test_http_mcp_config_sts_audience_default_none(self):
+        """Test that sts_audience defaults to None."""
+        config = HttpMcpServerConfig(
+            params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
+        )
+        assert config.sts_audience is None
+
+    def test_sse_mcp_config_has_sts_audience(self):
+        """Test that SseMcpServerConfig has sts_audience field."""
+        config = SseMcpServerConfig(
+            params=SseConnectionParams(url="http://localhost:8080"),
+            sts_audience="https://my-service.example.com",
+        )
+        assert config.sts_audience == "https://my-service.example.com"
+
+    def test_sse_mcp_config_sts_audience_default_none(self):
+        """Test that sts_audience defaults to None."""
+        config = SseMcpServerConfig(
+            params=SseConnectionParams(url="http://localhost:8080"),
+        )
+        assert config.sts_audience is None

@@ -3,15 +3,9 @@
 import logging
 from typing import Any, Dict, Optional
 
-from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.auth.auth_credential import AuthCredential, AuthCredentialTypes, HttpAuth, HttpCredentials
-from google.adk.events.event import Event
 from google.adk.plugins.base_plugin import BasePlugin
-from google.adk.runners import Runner
-from google.adk.sessions import BaseSessionService
-from google.adk.sessions.session import Session
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
@@ -40,7 +34,11 @@ class ADKSTSIntegration(STSIntegrationBase):
 
 
 class ADKTokenPropagationPlugin(BasePlugin):
-    """Plugin for propagating STS tokens to ADK tools."""
+    """Plugin for propagating STS tokens to ADK tools.
+
+    Supports audience-scoped token exchange: each MCP toolset can declare
+    an STS audience so the exchanged token is scoped to that specific service.
+    """
 
     def __init__(self, sts_integration: Optional[STSIntegrationBase] = None):
         """Initialize the token propagation plugin.
@@ -50,28 +48,30 @@ class ADKTokenPropagationPlugin(BasePlugin):
         """
         super().__init__("ADKTokenPropagationPlugin")
         self.sts_integration = sts_integration
-        self.token_cache: Dict[str, str] = {}
+        self.token_cache: Dict[str, str] = {}  # cache_key -> access_token
+        self._subject_tokens: Dict[str, str] = {}  # session_id -> subject_token
+        self._audience_map: Dict[int, str] = {}  # id(session_manager) -> audience
 
-    def add_to_agent(self, agent: BaseAgent):
+    def register_toolset(self, toolset: MCPToolset, audience: Optional[str]) -> None:
+        """Register a toolset's session manager -> audience mapping.
+
+        Called during agent setup (to_agent) so the before_tool_callback
+        can resolve the audience for each MCP tool at runtime.
         """
-        Add the plugin to an ADK LLM agent by updating its MCP toolset
-        Call this once when setting up the agent; do not call it at runtime.
+        if audience and hasattr(toolset, "_mcp_session_manager"):
+            self._audience_map[id(toolset._mcp_session_manager)] = audience
+
+    def header_provider(
+        self, readonly_context: Optional[ReadonlyContext], audience: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Return cached access token as an Authorization header.
+
+        Args:
+            readonly_context: ADK readonly context with invocation info.
+            audience: Optional audience to look up the correct scoped token.
         """
-        if not isinstance(agent, LlmAgent):
-            return
-
-        if not agent.tools:
-            return
-
-        for tool in agent.tools:
-            if isinstance(tool, MCPToolset):
-                mcp_toolset = tool
-                mcp_toolset._header_provider = self.header_provider
-                logger.debug("Updated tool connection params to include access token from STS server")
-
-    def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access save token
-        access_token = self.token_cache.get(self.cache_key(readonly_context._invocation_context), "")
+        key = self.cache_key(readonly_context._invocation_context, audience)
+        access_token = self.token_cache.get(key, "")
         if not access_token:
             return {}
 
@@ -85,30 +85,82 @@ class ADKTokenPropagationPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
-        """Propagate token to model before execution."""
+        """Extract and store the subject token from request headers.
+
+        Token exchange is deferred to before_tool_callback so each tool
+        can exchange with its own audience.
+        """
         headers = invocation_context.session.state.get(HEADERS_KEY, None)
         subject_token = _extract_jwt_from_headers(headers)
         if not subject_token:
             logger.debug("No subject token found in headers for token propagation")
             return None
-        if self.sts_integration:
-            try:
-                subject_token = await self.sts_integration.exchange_token(
-                    subject_token=subject_token,
-                    subject_token_type=TokenType.JWT,
-                    actor_token=self.sts_integration._actor_token,
-                    actor_token_type=TokenType.JWT if self.sts_integration._actor_token else None,
-                )
-            except Exception as e:
-                logger.warning(f"STS token exchange failed: {e}")
-                return None
-        # no sts, just propagate the subject token upstream
-        self.token_cache[self.cache_key(invocation_context)] = subject_token
+
+        key = self.cache_key(invocation_context)
+        self._subject_tokens[key] = subject_token
+
+        # When there is no STS integration, propagate the subject token
+        # directly under the empty-audience cache key (backward compat).
+        if not self.sts_integration:
+            self.token_cache[key] = subject_token
+
         return None
 
-    def cache_key(self, invocation_context: InvocationContext) -> str:
-        """Generate a cache key based on the session ID."""
-        return invocation_context.session.id
+    @override
+    async def before_tool_callback(
+        self,
+        *,
+        tool: BaseTool,
+        tool_args: dict[str, Any],
+        tool_context: ToolContext,
+    ) -> Optional[dict]:
+        """Exchange token with audience scoping on first MCP tool call.
+
+        Only fires for MCPTool instances. Looks up the audience from the
+        tool's session manager and exchanges (or reuses) a scoped token.
+        """
+        if not self.sts_integration:
+            return None
+        if not isinstance(tool, MCPTool):
+            return None
+
+        invocation_context = tool_context._invocation_context
+        audience = self._resolve_audience(tool)
+        key = self.cache_key(invocation_context, audience)
+
+        if key in self.token_cache:
+            return None  # already exchanged for this (session, audience)
+
+        subject_token = self._subject_tokens.get(self.cache_key(invocation_context))
+        if not subject_token:
+            return None
+
+        try:
+            access_token = await self.sts_integration.exchange_token(
+                subject_token=subject_token,
+                subject_token_type=TokenType.JWT,
+                actor_token=self.sts_integration._actor_token,
+                actor_token_type=TokenType.JWT if self.sts_integration._actor_token else None,
+                audience=audience if audience else None,
+            )
+            self.token_cache[key] = access_token
+        except Exception as e:
+            logger.warning("STS token exchange failed for audience '%s': %s", audience, e)
+
+        return None
+
+    def _resolve_audience(self, tool: BaseTool) -> str:
+        """Look up audience from the tool's session manager."""
+        if hasattr(tool, "_mcp_session_manager"):
+            return self._audience_map.get(id(tool._mcp_session_manager), "")
+        return ""
+
+    def cache_key(self, invocation_context: InvocationContext, audience: Optional[str] = None) -> str:
+        """Generate a cache key based on session ID and audience."""
+        session_id = invocation_context.session.id
+        if audience:
+            return f"{session_id}:{audience}"
+        return session_id
 
     @override
     async def after_run_callback(
@@ -116,8 +168,14 @@ class ADKTokenPropagationPlugin(BasePlugin):
         *,
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
-        # delete token after run
-        self.token_cache.pop(self.cache_key(invocation_context), None)
+        """Clean up all cached tokens for the completed session."""
+        key = self.cache_key(invocation_context)
+        keys_to_remove = [
+            k for k in self.token_cache if k == key or k.startswith(f"{key}:")
+        ]
+        for k in keys_to_remove:
+            self.token_cache.pop(k, None)
+        self._subject_tokens.pop(key, None)
         return None
 
 

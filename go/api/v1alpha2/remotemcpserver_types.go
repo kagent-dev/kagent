@@ -59,6 +59,13 @@ type RemoteMCPServerSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
+	// STSAudience specifies the audience value to include in STS token exchange
+	// requests when this MCP server is called. This scopes the issued token to
+	// this specific service. If not set, no audience is passed in the token
+	// exchange request. Can be overridden per-agent via McpServerTool.stsAudience.
+	// +optional
+	STSAudience *string `json:"stsAudience,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
