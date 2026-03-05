@@ -12,5 +12,11 @@ spec:
       targetPort: {{ .Values.controller.service.ports.targetPort }}
       protocol: TCP
       name: controller
+    {{- if .Values.controller.metrics.enabled }}
+    - port: {{ .Values.controller.metrics.port }}
+      targetPort: {{ .Values.controller.metrics.port }}
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "kagent.controller.selectorLabels" . | nindent 4 }}
