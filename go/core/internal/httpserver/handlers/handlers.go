@@ -28,6 +28,8 @@ type Handlers struct {
 	CrewAI              *CrewAIHandler
 	AgentCronJobs       *AgentCronJobsHandler
 	GitRepos            *GitReposHandler
+	Plugins             *PluginsHandler
+	PluginProxy         *PluginProxyHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -67,5 +69,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		CrewAI:              NewCrewAIHandler(base),
 		AgentCronJobs:       NewAgentCronJobsHandler(base),
 		GitRepos:            NewGitReposHandler(base, gitRepoMCPURL),
+		Plugins:             NewPluginsHandler(base),
+		PluginProxy:         NewPluginProxyHandler(base),
 	}
 }

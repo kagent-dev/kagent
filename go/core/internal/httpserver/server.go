@@ -44,6 +44,7 @@ const (
 	APIPathCrewAI               = "/api/crewai"
 	APIPathCronJobs             = "/api/cronjobs"
 	APIPathGitRepos             = "/api/gitrepos"
+	APIPathPlugins              = "/api/plugins"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -290,6 +291,13 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathGitRepos+"/{name}", adaptHandler(s.handlers.GitRepos.HandleDeleteRepo)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleListRepos)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleAddRepo)).Methods(http.MethodPost)
+
+	// Plugins
+	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
+
+	// Plugin reverse proxy (catch-all, must be registered after more specific routes)
+	// Uses raw http.HandlerFunc, not adaptHandler, because it proxies directly
+	s.router.PathPrefix("/plugins/{name}").HandlerFunc(s.handlers.PluginProxy.HandleProxy)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
