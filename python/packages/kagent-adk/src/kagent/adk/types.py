@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
@@ -7,6 +8,9 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
+
+# Suppress repetitive experimental mode warnings from upstream ADK A2A support (#1379)
+warnings.filterwarnings("ignore", message=r"\[EXPERIMENTAL\].*A2A")
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
