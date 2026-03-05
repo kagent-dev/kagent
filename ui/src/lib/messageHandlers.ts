@@ -28,6 +28,13 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
               i
             );
 
+            // Skip unresolved confirmations — extractApprovalMessagesFromTasks
+            // handles pending ones via task.status.message to avoid duplicates.
+            if (!decision) {
+              seenMessageIds.add(historyItem.messageId);
+              continue;
+            }
+
             for (const confPart of confirmationParts) {
               const approvalMsg = buildApprovalMessage(confPart, task.contextId, task.id, decision);
               messages.push(approvalMsg);
