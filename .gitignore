@@ -211,3 +211,6 @@ go/bin/
 ## Test certificates
 python/packages/kagent-adk/tests/fixtures/certs/*.pem
 python/packages/kagent-adk/tests/fixtures/certs/*.srl
+.worktrees/
+/go/kanban-mcp
+/go/gitrepo-mcp

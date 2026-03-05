@@ -243,21 +243,16 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
-  memory?: MemorySpec;
 }
 
-export interface DeclarativeAgentSpec {
-  systemMessage: string;
-  tools: Tool[];
-  // Name of the model config resource
+export interface MemorySpec {
   modelConfig: string;
-  stream?: boolean;
-  a2aConfig?: A2AConfig;
-  context?: ContextConfig;
+  ttlDays?: number;
 }
 
-export interface ContextConfig {
-  compaction?: ContextCompressionConfig;
+export interface ContextSummarizerConfig {
+  modelConfig?: string;
+  promptTemplate?: string;
 }
 
 export interface ContextCompressionConfig {
@@ -268,14 +263,19 @@ export interface ContextCompressionConfig {
   eventRetentionSize?: number;
 }
 
-export interface ContextSummarizerConfig {
-  modelConfig?: string;
-  promptTemplate?: string;
+export interface ContextConfig {
+  compaction?: ContextCompressionConfig;
 }
 
-export interface MemorySpec {
+export interface DeclarativeAgentSpec {
+  systemMessage: string;
+  tools: Tool[];
+  // Name of the model config resource
   modelConfig: string;
-  ttlDays?: number;
+  stream?: boolean;
+  a2aConfig?: A2AConfig;
+  memory?: MemorySpec;
+  context?: ContextConfig;
 }
 
 export interface BYOAgentSpec {
@@ -433,6 +433,84 @@ export interface ToolServerCreateRequest {
 export interface DiscoveredTool {
   name: string;
   description: string;
+}
+
+// AgentCronJob types
+export interface AgentCronJobSpec {
+  schedule: string;
+  prompt: string;
+  agentRef: string;
+}
+
+export interface AgentCronJobCondition {
+  type: string;
+  status: string;
+  reason?: string;
+  message?: string;
+  lastTransitionTime?: string;
+}
+
+export interface AgentCronJobStatus {
+  observedGeneration?: number;
+  conditions?: AgentCronJobCondition[];
+  lastRunTime?: string;
+  nextRunTime?: string;
+  lastRunResult?: string;
+  lastRunMessage?: string;
+  lastSessionID?: string;
+}
+
+export interface AgentCronJob {
+  metadata: ResourceMetadata;
+  spec: AgentCronJobSpec;
+  status?: AgentCronJobStatus;
+}
+
+// GitRepo types (gitrepo-mcp service, NOT a K8s CRD)
+export type GitRepoStatus = "cloning" | "cloned" | "indexing" | "indexed" | "error";
+
+export interface GitRepo {
+  name: string;
+  url: string;
+  branch: string;
+  status: GitRepoStatus;
+  localPath: string;
+  lastSynced?: string;
+  lastIndexed?: string;
+  fileCount: number;
+  chunkCount: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AddGitRepoRequest {
+  name: string;
+  url: string;
+  branch?: string;
+}
+
+export interface GitRepoSearchContext {
+  before?: string[];
+  after?: string[];
+}
+
+export interface GitRepoSearchResult {
+  repo: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  score: number;
+  chunkType: string;
+  chunkName?: string;
+  content: string;
+  context?: GitRepoSearchContext;
+}
+
+export interface GitRepoSearchRequest {
+  query: string;
+  limit?: number;
+  contextLines?: number;
 }
 
 export interface AgentMemory {

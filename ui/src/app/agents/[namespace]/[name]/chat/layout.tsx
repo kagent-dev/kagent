@@ -2,8 +2,7 @@ import { getAgent, getAgents } from "@/app/actions/agents";
 import { getServers } from "@/app/actions/servers";
 import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 import { ErrorState } from "@/components/ErrorState";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { CSSProperties, ReactNode } from "react";
+import { ReactNode } from "react";
 
 async function getData(agentName: string, namespace: string) {
   try {
@@ -59,30 +58,21 @@ export default async function ChatLayout({
 
   if (error || !currentAgent) {
     return (
-      <main className="w-full max-w-6xl mx-auto px-4 flex items-center justify-center h-screen">
+      <div className="w-full max-w-6xl mx-auto px-4 flex items-center justify-center h-screen">
         <ErrorState message={error || "Agent data could not be loaded."} />
-      </main>
+      </div>
     );
   }
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "350px",
-          "--sidebar-width-mobile": "150px",
-        } as CSSProperties
-      }
+    <ChatLayoutUI
+      agentName={name}
+      namespace={namespace}
+      currentAgent={currentAgent}
+      allAgents={allAgents}
+      allTools={allTools}
     >
-      <ChatLayoutUI
-        agentName={name}
-        namespace={namespace}
-        currentAgent={currentAgent}
-        allAgents={allAgents}
-        allTools={allTools}
-      >
-        {children}
-      </ChatLayoutUI>
-    </SidebarProvider>
+      {children}
+    </ChatLayoutUI>
   );
 }

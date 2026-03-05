@@ -129,6 +129,7 @@ type Config struct {
 		UrlFile       string
 		VectorEnabled bool
 	}
+	GitRepoMCPURL string
 }
 
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
@@ -168,6 +169,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 600*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
+	commandLine.StringVar(&cfg.GitRepoMCPURL, "gitrepo-mcp-url", "", "URL of the gitrepo-mcp service (e.g., http://gitrepo-mcp.kagent.svc.cluster.local:8080)")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -452,6 +454,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.AgentCronJobController{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		A2ABaseURL: cfg.A2ABaseUrl,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AgentCronJob")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
@@ -528,6 +539,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
+		GitRepoMCPURL:     cfg.GitRepoMCPURL,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

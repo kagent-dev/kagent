@@ -1,0 +1,52 @@
+{{- if .Values.cronJob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "gitrepo-mcp.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gitrepo-mcp.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.cronJob.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.cronJob.failedJobsHistoryLimit | default 1 }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "gitrepo-mcp.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["gitrepo-mcp"]
+              args:
+                - "sync-all"
+                - "--reindex={{ .Values.cronJob.reindex }}"
+              env:
+                - name: GITREPO_DB_TYPE
+                  value: {{ .Values.config.dbType | quote }}
+                - name: GITREPO_DB_PATH
+                  value: {{ .Values.config.dbPath | quote }}
+                - name: GITREPO_DATA_DIR
+                  value: {{ .Values.config.dataDir | quote }}
+                {{- if .Values.config.dbUrl }}
+                - name: GITREPO_DB_URL
+                  value: {{ .Values.config.dbUrl | quote }}
+                {{- end }}
+              {{- if .Values.persistence.enabled }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "gitrepo-mcp.fullname" . }}
+          {{- end }}
+{{- end }}

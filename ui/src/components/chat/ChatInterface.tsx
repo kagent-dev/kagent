@@ -679,8 +679,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         </ScrollArea>
       </div>
 
-      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center justify-between mb-4">
+      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-3 border overflow-hidden transition-all duration-300 ease-in-out">
+        <div className="flex items-center justify-between mb-2">
           <StatusDisplay chatStatus={chatStatus} />
           <TokenStatsDisplay stats={tokenStats} />
         </div>
@@ -691,11 +691,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             onChange={(e) => setCurrentInputMessage(e.target.value)}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+            className={`min-h-[56px] max-h-[160px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}
           />
 
-          <div className="flex items-center justify-end gap-2 mt-4">
+          <div className="flex items-center justify-end gap-2 mt-2">
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>

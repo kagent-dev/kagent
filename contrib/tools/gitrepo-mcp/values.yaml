@@ -1,0 +1,47 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/kagent-dev/gitrepo-mcp
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8090
+
+config:
+  addr: ":8090"
+  transport: "http"
+  dbType: "sqlite"
+  dbPath: "/data/gitrepo.db"
+  # dbUrl: ""   # set when dbType=postgres
+  dataDir: "/data"
+  logLevel: "info"
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+resources: {}
+
+cronJob:
+  enabled: false
+  schedule: "0 */6 * * *"
+  reindex: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+remoteMCPServer:
+  enabled: true
+  description: "Git repo MCP server — semantic and structural code search"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  allowedNamespaces:
+    from: All

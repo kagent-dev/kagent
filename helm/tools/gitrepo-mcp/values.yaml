@@ -1,0 +1,41 @@
+replicas: 1
+
+image:
+  registry: localhost:5001
+  repository: kagent-dev/kagent/gitrepo-mcp
+  pullPolicy: Always
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+
+tolerations: []
+
+nodeSelector: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+args: []
+
+volumes: []
+
+volumeMounts: []
+
+config: {}

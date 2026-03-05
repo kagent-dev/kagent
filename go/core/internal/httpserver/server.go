@@ -42,6 +42,8 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
+	APIPathCronJobs             = "/api/cronjobs"
+	APIPathGitRepos             = "/api/gitrepos"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -62,6 +64,7 @@ type ServerConfig struct {
 	Authorizer        auth.Authorizer
 	ProxyURL          string
 	Reconciler        reconciler.KagentReconciler
+	GitRepoMCPURL     string
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -81,7 +84,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.GitRepoMCPURL),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -270,6 +273,23 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleResetMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
+
+	// AgentCronJobs
+	s.router.HandleFunc(APIPathCronJobs, adaptHandler(s.handlers.AgentCronJobs.HandleListCronJobs)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathCronJobs, adaptHandler(s.handlers.AgentCronJobs.HandleCreateCronJob)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleGetCronJob)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleUpdateCronJob)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathCronJobs+"/{namespace}/{name}", adaptHandler(s.handlers.AgentCronJobs.HandleDeleteCronJob)).Methods(http.MethodDelete)
+
+	// Git Repos (proxy to gitrepo-mcp)
+	s.router.HandleFunc(APIPathGitRepos+"/search", adaptHandler(s.handlers.GitRepos.HandleSearchAll)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathGitRepos+"/{name}/sync", adaptHandler(s.handlers.GitRepos.HandleSyncRepo)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathGitRepos+"/{name}/index", adaptHandler(s.handlers.GitRepos.HandleIndexRepo)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathGitRepos+"/{name}/search", adaptHandler(s.handlers.GitRepos.HandleSearchRepo)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathGitRepos+"/{name}", adaptHandler(s.handlers.GitRepos.HandleGetRepo)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathGitRepos+"/{name}", adaptHandler(s.handlers.GitRepos.HandleDeleteRepo)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleListRepos)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleAddRepo)).Methods(http.MethodPost)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

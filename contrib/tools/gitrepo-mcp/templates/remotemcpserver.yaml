@@ -1,0 +1,20 @@
+{{- if .Values.remoteMCPServer.enabled }}
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "gitrepo-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gitrepo-mcp.labels" . | nindent 4 }}
+spec:
+  description: {{ .Values.remoteMCPServer.description | quote }}
+  protocol: {{ .Values.remoteMCPServer.protocol }}
+  sseReadTimeout: {{ .Values.remoteMCPServer.sseReadTimeout }}
+  terminateOnClose: {{ .Values.remoteMCPServer.terminateOnClose }}
+  timeout: {{ .Values.remoteMCPServer.timeout }}
+  url: {{ include "gitrepo-mcp.serverUrl" . }}
+  {{- if .Values.remoteMCPServer.allowedNamespaces }}
+  allowedNamespaces:
+    {{- toYaml .Values.remoteMCPServer.allowedNamespaces | nindent 4 }}
+  {{- end }}
+{{- end }}

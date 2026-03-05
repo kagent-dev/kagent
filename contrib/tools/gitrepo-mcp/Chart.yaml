@@ -1,0 +1,8 @@
+apiVersion: v2
+name: gitrepo-mcp
+description: Git repo MCP server for kagent — semantic search + ast-grep structural search via MCP tools + REST API
+type: application
+version: 0.1.0
+appVersion: latest
+sources:
+  - https://github.com/kagent-dev/kagent

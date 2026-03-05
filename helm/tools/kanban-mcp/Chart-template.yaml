@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kanban-mcp
+description: MCP server for Kanban task board
+type: application
+version: ${VERSION}

@@ -3,11 +3,13 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentsProvider } from "@/components/AgentsProvider";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/sidebars/AppSidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppInitializer } from "@/components/AppInitializer";
+import { NamespaceProvider } from "@/lib/namespace-context";
+import { MobileTopBar } from "@/components/MobileTopBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,21 +22,27 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <TooltipProvider>
-      <AgentsProvider>
-        <html lang="en" className="">
-          <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              <AppInitializer>
-                <Header />
-                <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-                <Footer />
-              </AppInitializer>
-              <Toaster richColors/>
-            </ThemeProvider>
-          </body>
-        </html>
-      </AgentsProvider>
-    </TooltipProvider>
+    <html lang="en" className="">
+      <body className={`${geistSans.className} flex h-screen overflow-hidden`}>
+        <TooltipProvider>
+          <AgentsProvider>
+            <NamespaceProvider>
+              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                <AppInitializer>
+                  <SidebarProvider>
+                    <AppSidebar />
+                    <SidebarInset className="flex-1 overflow-y-auto">
+                      <MobileTopBar />
+                      {children}
+                    </SidebarInset>
+                  </SidebarProvider>
+                </AppInitializer>
+                <Toaster richColors />
+              </ThemeProvider>
+            </NamespaceProvider>
+          </AgentsProvider>
+        </TooltipProvider>
+      </body>
+    </html>
   );
 }

@@ -1,0 +1,9 @@
+apiVersion: kagent.dev/v1alpha2
+kind: AgentCronJob
+metadata:
+  name: daily-cluster-check
+  namespace: default
+spec:
+  schedule: "0 9 * * *"
+  agentRef: "k8s-agent"
+  prompt: "Check the health of all pods in the cluster and report any issues."

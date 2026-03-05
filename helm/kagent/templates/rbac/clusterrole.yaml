@@ -8,6 +8,7 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agentcronjobs
   - agents
   - modelconfigs
   - modelproviderconfigs
@@ -22,6 +23,7 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agentcronjobs/finalizers
   - agents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
@@ -34,6 +36,7 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agentcronjobs/status
   - agents/status
   - modelconfigs/status
   - modelproviderconfigs/status
@@ -105,6 +108,7 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agentcronjobs
   - agents
   - modelconfigs
   - modelproviderconfigs
@@ -120,6 +124,7 @@ rules:
 - apiGroups:
   - kagent.dev
   resources:
+  - agentcronjobs/finalizers
   - agents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers

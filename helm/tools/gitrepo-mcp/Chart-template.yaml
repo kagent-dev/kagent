@@ -1,0 +1,5 @@
+apiVersion: v2
+name: gitrepo-mcp
+description: MCP server for Git repository indexing and search
+type: application
+version: ${VERSION}

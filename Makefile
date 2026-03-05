@@ -37,6 +37,8 @@ APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
+KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
+GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -44,6 +46,8 @@ APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
+KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
+GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
@@ -51,6 +55,8 @@ APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
+KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
+GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
 
 #take from go/core/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -217,12 +223,10 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-golang-adk build-skills-init
+build: buildx-create build-controller build-ui build-golang-adk build-skills-init build-kanban-mcp build-gitrepo-mcp
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "App Image: $(APP_IMG)"
-	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
@@ -253,7 +257,7 @@ lint:
 	make -C python lint
 
 .PHONY: push
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk
+push: push-controller push-ui push-golang-adk
 
 
 .PHONY: controller-manifests
@@ -284,6 +288,14 @@ build-golang-adk: buildx-create
 .PHONY: build-skills-init
 build-skills-init: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+
+.PHONY: build-kanban-mcp
+build-kanban-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./plugins/kanban-mcp/ -t $(KANBAN_MCP_IMG) -f go/Dockerfile ./go
+
+.PHONY: build-gitrepo-mcp
+build-gitrepo-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=plugins/gitrepo-mcp/main.go -t $(GITREPO_MCP_IMG) -f go/Dockerfile ./go
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -329,6 +341,10 @@ helm-tools:
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
 	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
+	VERSION=$(VERSION) envsubst < helm/tools/kanban-mcp/Chart-template.yaml > helm/tools/kanban-mcp/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/kanban-mcp
+	VERSION=$(VERSION) envsubst < helm/tools/gitrepo-mcp/Chart-template.yaml > helm/tools/gitrepo-mcp/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/gitrepo-mcp
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents helm-tools
@@ -371,6 +387,18 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
+		--set tools.kanban-mcp.enabled=true \
+		--set kanban-mcp.image.registry=$(DOCKER_REGISTRY) \
+		--set kanban-mcp.image.repository=$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME) \
+		--set kanban-mcp.image.tag=$(KANBAN_MCP_IMAGE_TAG) \
+		--set-string kanban-mcp.config.KANBAN_DB_PATH=/tmp/kanban.db \
+		--set tools.gitrepo-mcp.enabled=true \
+		--set gitrepo-mcp.image.registry=$(DOCKER_REGISTRY) \
+		--set gitrepo-mcp.image.repository=$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME) \
+		--set gitrepo-mcp.image.tag=$(GITREPO_MCP_IMAGE_TAG) \
+		--set gitrepo-mcp.args[0]=serve \
+		--set-string gitrepo-mcp.config.GITREPO_ADDR=:8080 \
+		--set-string gitrepo-mcp.config.GITREPO_DATA_DIR=/tmp/gitrepo \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 

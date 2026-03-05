@@ -1,0 +1,39 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/kagent-dev/kanban-mcp
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+config:
+  addr: ":8080"
+  transport: "http"
+  dbType: "sqlite"
+  dbPath: "/data/kanban.db"
+  # dbUrl: ""   # set when dbType=postgres, e.g. "host=pg user=postgres password=secret dbname=kanban port=5432 sslmode=disable"
+  logLevel: "info"
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+resources: {}
+
+remoteMCPServer:
+  enabled: true
+  description: "Kanban MCP server"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  allowedNamespaces:
+    from: All

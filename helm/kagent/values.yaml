@@ -73,7 +73,7 @@ controller:
   a2aBaseUrl: ""
   agentImage:
     registry: ""
-    repository: kagent-dev/kagent/app
+    repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
@@ -319,7 +319,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-policy-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -328,7 +328,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-manager-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -337,7 +337,7 @@ agents:
         cpu: 1000m
         memory: 1Gi
   cilium-debug-agent:
-    enabled: true
+    enabled: false
     resources:
       requests:
         cpu: 100m
@@ -355,6 +355,10 @@ tools:
     enabled: true
   querydoc:
     enabled: true
+  kanban-mcp:
+    enabled: false
+  gitrepo-mcp:
+    enabled: false
 
 grafana-mcp:
   grafana:

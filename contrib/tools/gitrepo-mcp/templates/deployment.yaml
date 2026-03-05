@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gitrepo-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gitrepo-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gitrepo-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gitrepo-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: gitrepo-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["gitrepo-mcp"]
+          args: ["serve"]
+          env:
+            - name: GITREPO_ADDR
+              value: {{ .Values.config.addr | quote }}
+            - name: GITREPO_TRANSPORT
+              value: {{ .Values.config.transport | quote }}
+            - name: GITREPO_DB_TYPE
+              value: {{ .Values.config.dbType | quote }}
+            - name: GITREPO_DB_PATH
+              value: {{ .Values.config.dbPath | quote }}
+            - name: GITREPO_DATA_DIR
+              value: {{ .Values.config.dataDir | quote }}
+            - name: GITREPO_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            {{- if .Values.config.dbUrl }}
+            - name: GITREPO_DB_URL
+              value: {{ .Values.config.dbUrl | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "gitrepo-mcp.fullname" . }}
+      {{- end }}
