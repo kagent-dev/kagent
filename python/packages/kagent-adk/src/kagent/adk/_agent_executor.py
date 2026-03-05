@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import uuid
+import warnings
 from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
@@ -21,6 +22,9 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+
+# Suppress repetitive experimental mode warnings from upstream ADK A2A support (#1379)
+warnings.filterwarnings("ignore", message=r"\[EXPERIMENTAL\].*A2A")
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor as UpstreamA2aAgentExecutor,
 )
