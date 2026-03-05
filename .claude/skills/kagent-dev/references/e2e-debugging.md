@@ -237,7 +237,7 @@ AGENT_CONFIG_DIR=${TEMP_DIR}/config
 ```bash
 cd go/core
 go run hack/makeagentconfig/main.go
-AGENT_CONFIG_DIR=$PWD/go/core
+AGENT_CONFIG_DIR=$PWD
 ```
 
 ### Step 2: Start Mock LLM Server

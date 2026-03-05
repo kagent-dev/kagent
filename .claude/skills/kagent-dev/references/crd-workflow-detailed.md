@@ -216,16 +216,32 @@ func (a *adkApiTranslator) translateInlineAgent(...) (*adk.AgentConfig, ...) {
         }
 
         if res.CPURequest != nil {
-            container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(*res.CPURequest)
+            q, err := resource.ParseQuantity(*res.CPURequest)
+            if err != nil {
+                return nil, fmt.Errorf("invalid CPU request: %w", err)
+            }
+            container.Resources.Requests[corev1.ResourceCPU] = q
         }
         if res.MemoryRequest != nil {
-            container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(*res.MemoryRequest)
+            q, err := resource.ParseQuantity(*res.MemoryRequest)
+            if err != nil {
+                return nil, fmt.Errorf("invalid memory request: %w", err)
+            }
+            container.Resources.Requests[corev1.ResourceMemory] = q
         }
         if res.CPULimit != nil {
-            container.Resources.Limits[corev1.ResourceCPU] = resource.MustParse(*res.CPULimit)
+            q, err := resource.ParseQuantity(*res.CPULimit)
+            if err != nil {
+                return nil, fmt.Errorf("invalid CPU limit: %w", err)
+            }
+            container.Resources.Limits[corev1.ResourceCPU] = q
         }
         if res.MemoryLimit != nil {
-            container.Resources.Limits[corev1.ResourceMemory] = resource.MustParse(*res.MemoryLimit)
+            q, err := resource.ParseQuantity(*res.MemoryLimit)
+            if err != nil {
+                return nil, fmt.Errorf("invalid memory limit: %w", err)
+            }
+            container.Resources.Limits[corev1.ResourceMemory] = q
         }
     }
 
@@ -468,7 +484,7 @@ type TimeRange struct {
 ```go
 // +optional
 // +kubebuilder:default="info"
-LogLevel *string `json:"logLevel,omitempty"`
+LogLevel *LogLevel `json:"logLevel,omitempty"`
 
 // +optional
 // +kubebuilder:default=1
@@ -485,10 +501,12 @@ Replicas *int32 `json:"replicas,omitempty"`
 **Example test for validation:**
 ```go
 func TestInvalidAgentSpec(t *testing.T) {
+    invalidLevel := v1alpha2.LogLevel("invalid")
+
     agent := &v1alpha2.Agent{
         Spec: v1alpha2.AgentSpec{
             Declarative: &v1alpha2.DeclarativeAgentSpec{
-                LogLevel: pointer.String("invalid"), // Not in enum
+                LogLevel: &invalidLevel, // Not in enum
             },
         },
     }

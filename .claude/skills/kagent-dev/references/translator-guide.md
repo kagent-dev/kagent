@@ -201,7 +201,7 @@ git diff go/core/internal/controller/translator/agent/testdata/outputs/
 If your field requires a new test scenario:
 
 ```go
-// go/core/internal/controller/translator/agent/translate_test.go
+// go/core/internal/controller/translator/agent/adk_api_translator_test.go
 
 func TestTranslateAgentWithNewField(t *testing.T) {
     agent := &v1alpha2.Agent{

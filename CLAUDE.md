@@ -196,7 +196,7 @@ Breaking changes are acceptable in alpha versions.
 | Run E2E tests | `make -C go e2e` |
 | Lint code | `make -C go lint` |
 | Generate CRD code | `make -C go generate` |
-| Access UI | `kubectl port-forward -n kagent svc/kagent-ui 3000:80` |
+| Access UI | `kubectl port-forward -n kagent svc/kagent-ui 3000:8080` |
 
 ---
 

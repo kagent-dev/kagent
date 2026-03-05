@@ -97,7 +97,7 @@ Adding a field to a CRD involves several connected steps. The workflow ensures t
    **Key points:**
    - Add kubebuilder markers for validation (`+kubebuilder:validation:...`)
    - Use `+optional` for optional fields
-   - Use pointers for optional fields (`*string` not `string`)
+   - Use pointers when you need to distinguish "unset" from an empty/zero value, and follow the patterns of surrounding fields (some optional fields intentionally use value types)
    - Use `omitempty` in JSON tag for optional fields
    - Document the field with a comment explaining what it does
 
