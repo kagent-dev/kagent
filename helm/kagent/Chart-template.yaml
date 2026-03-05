@@ -9,7 +9,7 @@ dependencies:
     repository: oci://ghcr.io/kagent-dev/kmcp/helm
     condition: kmcp.enabled
   - name: kagent-tools
-    version: 0.0.13
+    version: ${KAGENT_TOOLS_VERSION}
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
   - name: grafana-mcp
