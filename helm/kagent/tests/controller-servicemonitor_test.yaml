@@ -15,7 +15,18 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: should not render when CRD is not available
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should render when both metrics and serviceMonitor are enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -29,6 +40,9 @@ tests:
           value: RELEASE-NAME-controller
 
   - it: should have correct endpoint configuration
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.port: 9093
@@ -47,6 +61,9 @@ tests:
           value: 10s
 
   - it: should use HTTPS scheme when metrics are secure
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.secure: true
@@ -55,8 +72,14 @@ tests:
       - equal:
           path: spec.endpoints[0].scheme
           value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
 
   - it: should include additional labels
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -68,6 +91,9 @@ tests:
           value: prometheus
 
   - it: should have correct selector labels
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
