@@ -72,6 +72,12 @@ type Client interface {
 	StoreCrewAIFlowState(state *CrewAIFlowState) error
 	GetCrewAIFlowState(userID, threadID string) (*CrewAIFlowState, error)
 
+	// Plugin methods
+	StorePlugin(plugin *Plugin) (*Plugin, error)
+	DeletePlugin(name string) error
+	GetPluginByPathPrefix(pathPrefix string) (*Plugin, error)
+	ListPlugins() ([]Plugin, error)
+
 	// Agent memory (vector search) methods
 	StoreAgentMemory(memory *Memory) error
 	StoreAgentMemories(memories []*Memory) error

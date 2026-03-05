@@ -575,6 +575,28 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIF
 	return &state, nil
 }
 
+// Plugin methods
+
+func (c *clientImpl) StorePlugin(plugin *dbpkg.Plugin) (*dbpkg.Plugin, error) {
+	err := save(c.db, plugin)
+	if err != nil {
+		return nil, err
+	}
+	return plugin, nil
+}
+
+func (c *clientImpl) DeletePlugin(name string) error {
+	return delete[dbpkg.Plugin](c.db, Clause{Key: "name", Value: name})
+}
+
+func (c *clientImpl) GetPluginByPathPrefix(pathPrefix string) (*dbpkg.Plugin, error) {
+	return get[dbpkg.Plugin](c.db, Clause{Key: "path_prefix", Value: pathPrefix})
+}
+
+func (c *clientImpl) ListPlugins() ([]dbpkg.Plugin, error) {
+	return list[dbpkg.Plugin](c.db)
+}
+
 // AgentMemory methods
 
 func (c *clientImpl) StoreAgentMemory(memory *dbpkg.Memory) error {

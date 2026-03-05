@@ -25,6 +25,7 @@ type InMemoryFakeClient struct {
 	agents            map[string]*database.Agent   // changed from teams
 	toolServers       map[string]*database.ToolServer
 	tools             map[string]*database.Tool
+	plugins           map[string]*database.Plugin
 	eventsBySession   map[string][]*database.Event                    // key: sessionId
 	events            map[string]*database.Event                      // key: eventID
 	pushNotifications map[string]*protocol.TaskPushNotificationConfig // key: taskID
@@ -45,6 +46,7 @@ func NewClient() database.Client {
 		agents:            make(map[string]*database.Agent),
 		toolServers:       make(map[string]*database.ToolServer),
 		tools:             make(map[string]*database.Tool),
+		plugins:           make(map[string]*database.Plugin),
 		eventsBySession:   make(map[string][]*database.Event),
 		events:            make(map[string]*database.Event),
 		pushNotifications: make(map[string]*protocol.TaskPushNotificationConfig),
@@ -1027,6 +1029,47 @@ func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
 		}
 	}
 	return nil
+}
+
+// Plugin methods
+
+func (c *InMemoryFakeClient) StorePlugin(plugin *database.Plugin) (*database.Plugin, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.plugins[plugin.Name] = plugin
+	return plugin, nil
+}
+
+func (c *InMemoryFakeClient) DeletePlugin(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.plugins, name)
+	return nil
+}
+
+func (c *InMemoryFakeClient) GetPluginByPathPrefix(pathPrefix string) (*database.Plugin, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, plugin := range c.plugins {
+		if plugin.PathPrefix == pathPrefix {
+			return plugin, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (c *InMemoryFakeClient) ListPlugins() ([]database.Plugin, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Plugin
+	for _, plugin := range c.plugins {
+		result = append(result, *plugin)
+	}
+	return result, nil
 }
 
 // PruneExpiredMemories removes all memories whose ExpiresAt is in the past

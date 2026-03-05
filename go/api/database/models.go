@@ -234,6 +234,27 @@ type AgentMemorySearchResult struct {
 	Score float64 `gorm:"column:score" json:"score"`
 }
 
+// Plugin represents an MCP server that provides a web UI.
+// Populated by the controller from RemoteMCPServer CRDs with ui.enabled=true.
+type Plugin struct {
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+
+	// Name is the RemoteMCPServer ref (namespace/name format)
+	Name string `gorm:"primaryKey;not null" json:"name"`
+	// PathPrefix is the URL routing segment
+	PathPrefix string `gorm:"uniqueIndex;not null" json:"path_prefix"`
+	// DisplayName for sidebar
+	DisplayName string `json:"display_name"`
+	// Icon is the lucide-react icon name
+	Icon string `json:"icon"`
+	// Section is the sidebar section
+	Section string `json:"section"`
+	// UpstreamURL is the base URL to proxy to (derived from spec.url)
+	UpstreamURL string `json:"upstream_url"`
+}
+
 // TableName methods to match Python table names
 func (Agent) TableName() string                    { return "agent" }
 func (Event) TableName() string                    { return "event" }
@@ -248,3 +269,4 @@ func (LangGraphCheckpointWrite) TableName() string { return "lg_checkpoint_write
 func (CrewAIAgentMemory) TableName() string        { return "crewai_agent_memory" }
 func (CrewAIFlowState) TableName() string          { return "crewai_flow_state" }
 func (Memory) TableName() string                   { return "memory" }
+func (Plugin) TableName() string                   { return "plugin" }
