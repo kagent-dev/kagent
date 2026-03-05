@@ -52,7 +52,7 @@ jobs:
         id: vars
         run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Print version
-        run: | 
+        run: |
           echo "Version: ${{ steps.vars.outputs.version }}"
       - name: Run make build
         env:

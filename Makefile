@@ -372,7 +372,6 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set kagent-tools.image.tag=$(KAGENT_TOOLS_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
