@@ -69,10 +69,13 @@ tests:
           path: spec.url
           value: http://custom-tools.NAMESPACE:8084/mcp
 
-  - it: should use kagent-tools nameOverride when set
+  - it: should respect release name when fullnameOverride is not set
     set:
-      kagent-tools.nameOverride: "my-tools"
+      kagent-tools.fullnameOverride: null
+      kagent-tools.nameOverride: "tools"
+    release:
+      name: my-release
     asserts:
       - equal:
           path: spec.url
-          value: http://RELEASE-NAME-my-tools.NAMESPACE:8084/mcp
+          value: http://my-release-tools.NAMESPACE:8084/mcp
