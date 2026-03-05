@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -415,6 +416,10 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 				l.Error(err, "failed to delete tools for remote mcp server")
 			}
 
+			if err := a.dbClient.DeletePlugin(serverRef); err != nil {
+				l.Error(err, "failed to delete plugin for remote mcp server")
+			}
+
 			return nil
 		}
 
@@ -437,6 +442,11 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		if discoveryErr != nil {
 			err = multierror.Append(err, discoveryErr)
 		}
+	}
+
+	// Reconcile plugin UI metadata (non-fatal)
+	if pluginErr := a.reconcilePluginUI(server); pluginErr != nil {
+		l.Error(pluginErr, "failed to reconcile plugin UI")
 	}
 
 	// update the tool server status as the agents depend on it
@@ -495,6 +505,66 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	}
 
 	return nil
+}
+
+func (a *kagentReconciler) reconcilePluginUI(server *v1alpha2.RemoteMCPServer) error {
+	serverRef := fmt.Sprintf("%s/%s", server.Namespace, server.Name)
+
+	// If UI not enabled, ensure plugin record is deleted
+	if server.Spec.UI == nil || !server.Spec.UI.Enabled {
+		return a.dbClient.DeletePlugin(serverRef)
+	}
+
+	ui := server.Spec.UI
+
+	// Derive upstream URL from spec.url (strip path to get base)
+	upstreamURL, err := deriveBaseURL(server.Spec.URL)
+	if err != nil {
+		return fmt.Errorf("failed to derive upstream URL: %w", err)
+	}
+
+	// Derive defaults
+	pathPrefix := ui.PathPrefix
+	if pathPrefix == "" {
+		pathPrefix = server.Name
+	}
+	displayName := ui.DisplayName
+	if displayName == "" {
+		displayName = server.Name
+	}
+	icon := ui.Icon
+	if icon == "" {
+		icon = "puzzle"
+	}
+	section := ui.Section
+	if section == "" {
+		section = "PLUGINS"
+	}
+
+	plugin := &database.Plugin{
+		Name:        serverRef,
+		PathPrefix:  pathPrefix,
+		DisplayName: displayName,
+		Icon:        icon,
+		Section:     section,
+		UpstreamURL: upstreamURL,
+	}
+
+	_, err = a.dbClient.StorePlugin(plugin)
+	return err
+}
+
+// deriveBaseURL strips the path from a URL to get the base (scheme + host).
+// e.g., "http://kanban-mcp.kagent.svc:8080/mcp" -> "http://kanban-mcp.kagent.svc:8080"
+func deriveBaseURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
 }
 
 // validateCrossNamespaceReferences validates that any cross-namespace
