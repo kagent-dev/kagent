@@ -19,6 +19,7 @@ type A2AHandlerMux interface {
 		agentRef string,
 		client *client.A2AClient,
 		card server.AgentCard,
+		tracing server.Middleware,
 	) error
 	RemoveAgentHandler(
 		agentRef string,
@@ -47,8 +48,13 @@ func (a *handlerMux) SetAgentHandler(
 	agentRef string,
 	client *client.A2AClient,
 	card server.AgentCard,
+	tracing server.Middleware,
 ) error {
-	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(authimpl.NewA2AAuthenticator(a.authenticator)))
+	middlewares := []server.Middleware{authimpl.NewA2AAuthenticator(a.authenticator)}
+	if tracing != nil {
+		middlewares = append(middlewares, tracing)
+	}
+	srv, err := server.NewA2AServer(card, NewPassthroughManager(client), server.WithMiddleWare(middlewares...))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}
