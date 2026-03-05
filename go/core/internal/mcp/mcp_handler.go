@@ -22,6 +22,7 @@ import (
 )
 
 // MCPHandler handles MCP requests and bridges them to A2A endpoints
+// and tool server discovery/invocation.
 type MCPHandler struct {
 	kubeClient    client.Client
 	a2aBaseURL    string
@@ -29,6 +30,7 @@ type MCPHandler struct {
 	httpHandler   *mcpsdk.StreamableHTTPHandler
 	server        *mcpsdk.Server
 	a2aClients    sync.Map
+	sessions      sync.Map // cached MCP client sessions keyed by "Kind/namespace/name"
 }
 
 // Input types for MCP tools
@@ -90,6 +92,36 @@ func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator au
 			Description: "Invoke a kagent agent via A2A",
 		},
 		handler.handleInvokeAgent,
+	)
+
+	// Add list_tool_servers tool
+	mcpsdk.AddTool[ListToolServersInput, ListToolServersOutput](
+		server,
+		&mcpsdk.Tool{
+			Name:        "list_tool_servers",
+			Description: "List all MCP tool servers in the cluster (RemoteMCPServer, Service, MCPServer)",
+		},
+		handler.handleListToolServers,
+	)
+
+	// Add list_tools tool
+	mcpsdk.AddTool[ListToolsInput, ListToolsOutput](
+		server,
+		&mcpsdk.Tool{
+			Name:        "list_tools",
+			Description: "Connect to a tool server and list its available tools",
+		},
+		handler.handleListTools,
+	)
+
+	// Add call_tool tool
+	mcpsdk.AddTool[CallToolInput, CallToolOutput](
+		server,
+		&mcpsdk.Tool{
+			Name:        "call_tool",
+			Description: "Invoke a specific tool on a specific tool server",
+		},
+		handler.handleCallTool,
 	)
 
 	// Create HTTP handler
@@ -309,9 +341,14 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.httpHandler.ServeHTTP(w, r)
 }
 
-// Shutdown gracefully shuts down the MCP handler
+// Shutdown gracefully shuts down the MCP handler and closes cached sessions.
 func (h *MCPHandler) Shutdown(ctx context.Context) error {
-	// The new SDK doesn't have an explicit Shutdown method on StreamableHTTPHandler
-	// The server will be shut down when the context is cancelled
+	h.sessions.Range(func(key, value any) bool {
+		if session, ok := value.(*mcpsdk.ClientSession); ok {
+			session.Close()
+		}
+		h.sessions.Delete(key)
+		return true
+	})
 	return nil
 }
