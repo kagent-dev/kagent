@@ -141,9 +141,19 @@ class DynamicMCPServer:
             return False
 
     def get_tools_sync(self) -> dict[str, Any]:
-        """Get tools synchronously for testing purposes."""
-        # This is a simplified version for testing - in real usage, use get_tools()
-        # async
+        """Get tools synchronously for testing purposes.
+
+        This prefers returning the internal tool mapping (name -> tool object)
+        to preserve compatibility with existing tests/code, and falls back to
+        using list_tools() if no such mapping is available.
+        """
+        # Prefer an internal mapping if FastMCP exposes one (e.g., for tests
+        # that rely on direct access to the underlying tool objects/callables).
+        internal_tools = getattr(self.mcp, "tools", None)
+        if isinstance(internal_tools, dict):
+            return internal_tools
+
+        # Fallback: build a mapping from the async list_tools() API.
         tools_list = asyncio.run(self.mcp.list_tools())
         return {t.name: t for t in tools_list}
 

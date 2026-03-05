@@ -55,11 +55,16 @@ def main() -> None:
         help="Port to bind to in HTTP mode (default: 3000)"
     )
 
+    stateless_http_default = os.getenv("MCP_STATELESS_HTTP", "false").lower() == "true"
+
     parser.add_argument(
         "--stateless-http",
-        type=bool,
-        default=bool(os.getenv("MCP_STATELESS_HTTP", "false").lower() == "true"),
-        help="Enable stateless HTTP mode (default: false)"
+        action=argparse.BooleanOptionalAction,
+        default=stateless_http_default,
+        help=(
+            "Enable stateless HTTP mode (use --no-stateless-http to disable; "
+            "default is derived from MCP_STATELESS_HTTP env var)"
+        ),
     )
 
     args = parser.parse_args()
