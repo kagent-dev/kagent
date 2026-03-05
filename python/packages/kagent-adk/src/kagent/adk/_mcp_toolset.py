@@ -12,8 +12,9 @@ from mcp.shared.exceptions import McpError
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
-_PING_TIMEOUT_SECONDS = 2.0
-_SESSION_REVALIDATE_TIMEOUT_SECONDS = 5.0
+# Short timeouts to fail fast on the request path; avoid adding latency when session is valid.
+_PING_TIMEOUT_SECONDS = 1.0
+_SESSION_REVALIDATE_TIMEOUT_SECONDS = 2.0
 _JSONRPC_METHOD_NOT_FOUND = -32601
 
 
@@ -54,6 +55,17 @@ class KAgentMCPSessionManager(MCPSessionManager):
     the session from the cache and create a new one.
     """
 
+    async def _close_and_recreate_session(
+        self, headers: dict[str, str] | None, reason: str
+    ) -> ClientSession:
+        """Close the cached session (best-effort) and create a new one."""
+        logger.warning("%s", reason)
+        try:
+            await self.close()
+        except Exception as close_exc:
+            logger.debug("Non-fatal error while closing stale session: %s", close_exc)
+        return await super().create_session(headers)
+
     async def create_session(self, headers: dict[str, str] | None = None) -> ClientSession:
         session = await super().create_session(headers)
 
@@ -63,26 +75,20 @@ class KAgentMCPSessionManager(MCPSessionManager):
             if _is_server_alive_error(exc):
                 pass
             else:
-                logger.warning(
-                    "MCP session failed ping validation, invalidating cached session and creating a fresh one"
+                return await self._close_and_recreate_session(
+                    headers,
+                    "MCP session failed ping validation, invalidating cached session and creating a fresh one",
                 )
-                try:
-                    await self.close()
-                except Exception as close_exc:
-                    logger.debug("Non-fatal error while closing stale session: %s", close_exc)
-                return await super().create_session(headers)
 
         try:
             await asyncio.wait_for(session.list_tools(), timeout=_SESSION_REVALIDATE_TIMEOUT_SECONDS)
             return session
         except Exception as exc:
             if _is_session_invalid_error(exc):
-                logger.warning("MCP session invalid (e.g. 404), pruning from cache and creating a fresh one")
-                try:
-                    await self.close()
-                except Exception as close_exc:
-                    logger.debug("Non-fatal error while closing stale session: %s", close_exc)
-                return await super().create_session(headers)
+                return await self._close_and_recreate_session(
+                    headers,
+                    "MCP session invalid (e.g. 404), pruning from cache and creating a fresh one",
+                )
             raise
 
 
