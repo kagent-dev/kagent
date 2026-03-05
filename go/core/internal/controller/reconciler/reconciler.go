@@ -768,7 +768,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
 		ID:     id,
-		Type:   string(agent.Spec.Type),
+		Type:   database.AgentTypeRegular,
 		Config: agentOutputs.Config,
 	}
 

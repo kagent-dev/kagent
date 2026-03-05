@@ -52,6 +52,58 @@ def static(
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
+    # Check if running in CronAgent mode - if so, execute task and exit
+    from ._cronagent import is_cronagent_mode, run_cronagent_task
+    
+    if is_cronagent_mode():
+        logger.info("Running in CronAgent mode")
+        
+        app_cfg = KAgentConfig()
+
+        with open(os.path.join(filepath, "config.json"), "r") as f:
+            config = json.load(f)
+        agent_config = AgentConfig.model_validate(config)
+        with open(os.path.join(filepath, "agent-card.json"), "r") as f:
+            agent_card = json.load(f)
+        agent_card = AgentCard.model_validate(agent_card)
+        
+        # Prepare root agent factory
+        sts_integration = create_sts_integration()
+        
+        def root_agent_factory() -> BaseAgent:
+            root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+            maybe_add_skills(root_agent)
+            return root_agent
+        
+        plugins = None
+        if sts_integration:
+            plugins = [sts_integration]
+        
+        if agent_config.model.api_key_passthrough:
+            from ._llm_passthrough_plugin import LLMPassthroughPlugin
+            if plugins is None:
+                plugins = []
+            plugins.append(LLMPassthroughPlugin())
+        
+        kagent_app = KAgentApp(
+            root_agent_factory,
+            agent_card,
+            app_cfg.url,
+            app_cfg.app_name,
+            plugins=plugins,
+            stream=False,
+            agent_config=agent_config,
+        )
+        
+        # Initialize the app (build server to set up dependencies)
+        server = kagent_app.build()
+        configure_tracing(app_cfg.name, app_cfg.namespace, server)
+        
+        # Run the cron task
+        asyncio.run(run_cronagent_task(kagent_app, root_agent_factory))
+        # Will exit in run_cronagent_task, should not reach here
+        return
+
     app_cfg = KAgentConfig()
 
     with open(os.path.join(filepath, "config.json"), "r") as f:

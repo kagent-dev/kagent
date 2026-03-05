@@ -9,6 +9,7 @@ rules:
   - kagent.dev
   resources:
   - agents
+  - cronagents
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -23,6 +24,7 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
+  - cronagents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
@@ -35,6 +37,7 @@ rules:
   - kagent.dev
   resources:
   - agents/status
+  - cronagents/status
   - modelconfigs/status
   - modelproviderconfigs/status
   - toolservers/status
@@ -106,6 +109,7 @@ rules:
   - kagent.dev
   resources:
   - agents
+  - cronagents
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -121,6 +125,7 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
+  - cronagents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers

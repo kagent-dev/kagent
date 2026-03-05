@@ -1,0 +1,30 @@
+apiVersion: kagent.dev/v1alpha2
+kind: CronAgent
+metadata:
+  name: continuous-monitor
+  namespace: default
+spec:
+  # Check every hour
+  schedule: "0 * * * *"
+
+  initialTask: |
+    Check the system health metrics and continue tracking any issues
+    from previous runs. Alert if any new problems are detected.
+
+  # Maintain conversation context across runs (shared session)
+  threadPolicy: Persistent
+
+  # Agent configuration template
+  agentTemplate:
+    type: Declarative
+    modelConfig:
+      name: default-model
+    skills:
+      - name: prometheus-query
+        enabled: true
+      - name: slack-notify
+        enabled: true
+    resources:
+      limits:
+        memory: "512Mi"
+        cpu: "500m"

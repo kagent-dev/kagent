@@ -714,3 +714,53 @@ func (c *clientImpl) deleteAgentMemoryByQuery(agentName, userID string) error {
 	}
 	return nil
 }
+
+// StoreCronAgent stores a CronAgent configuration in the database
+func (c *clientImpl) StoreCronAgent(cronAgent *dbpkg.Agent) error {
+	if cronAgent.Type != dbpkg.AgentTypeCronAgent {
+		return fmt.Errorf("invalid agent type: %s, expected %s", cronAgent.Type, dbpkg.AgentTypeCronAgent)
+	}
+	return c.db.Save(cronAgent).Error
+}
+
+// GetCronAgent retrieves a CronAgent configuration by name
+func (c *clientImpl) GetCronAgent(name string) (*dbpkg.Agent, error) {
+	var agent dbpkg.Agent
+	result := c.db.Where("id = ? AND type = ?", name, dbpkg.AgentTypeCronAgent).First(&agent)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &agent, nil
+}
+
+// ListCronAgents lists all CronAgent configurations
+func (c *clientImpl) ListCronAgents() ([]dbpkg.Agent, error) {
+	var agents []dbpkg.Agent
+	result := c.db.Where("type = ?", dbpkg.AgentTypeCronAgent).Find(&agents)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return agents, nil
+}
+
+// DeleteCronAgent deletes a CronAgent configuration
+func (c *clientImpl) DeleteCronAgent(name string) error {
+	return c.db.Where("id = ? AND type = ?", name, dbpkg.AgentTypeCronAgent).Delete(&dbpkg.Agent{}).Error
+}
+
+// ListCronAgentRuns lists all runs for a specific CronAgent
+func (c *clientImpl) ListCronAgentRuns(cronAgentName string, limit int) ([]dbpkg.Agent, error) {
+	var agents []dbpkg.Agent
+	query := c.db.Where("type = ? AND id LIKE ?", dbpkg.AgentTypeCronRun, "cronagent-"+cronAgentName+"-%").
+		Order("created_at DESC")
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	result := query.Find(&agents)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return agents, nil
+}

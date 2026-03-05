@@ -79,4 +79,11 @@ type Client interface {
 	ListAgentMemories(agentName, userID string) ([]Memory, error)
 	DeleteAgentMemory(agentName, userID string) error
 	PruneExpiredMemories() error
+
+	// CronAgent methods
+	StoreCronAgent(cronAgent *Agent) error
+	GetCronAgent(name string) (*Agent, error)
+	ListCronAgents() ([]Agent, error)
+	DeleteCronAgent(name string) error
+	ListCronAgentRuns(cronAgentName string, limit int) ([]Agent, error)
 }

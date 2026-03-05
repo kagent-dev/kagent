@@ -1042,3 +1042,53 @@ func (c *InMemoryFakeClient) PruneExpiredMemories() error {
 	}
 	return nil
 }
+
+// CronAgent methods (stubs for now)
+func (c *InMemoryFakeClient) StoreCronAgent(cronAgent *database.Agent) error {
+	return c.StoreAgent(cronAgent)
+}
+
+func (c *InMemoryFakeClient) GetCronAgent(name string) (*database.Agent, error) {
+	return c.GetAgent(name)
+}
+
+func (c *InMemoryFakeClient) ListCronAgents() ([]database.Agent, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Agent
+	for _, agent := range c.agents {
+		if agent.Type == database.AgentTypeCronAgent {
+			result = append(result, *agent)
+		}
+	}
+	return result, nil
+}
+
+func (c *InMemoryFakeClient) DeleteCronAgent(name string) error {
+	return c.DeleteAgent(name)
+}
+
+func (c *InMemoryFakeClient) ListCronAgentRuns(cronAgentName string, limit int) ([]database.Agent, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Agent
+	prefix := "cronagent-" + cronAgentName + "-"
+	for _, agent := range c.agents {
+		if agent.Type == database.AgentTypeCronRun && strings.HasPrefix(agent.ID, prefix) {
+			result = append(result, *agent)
+		}
+	}
+
+	// Sort by creation time descending
+	slices.SortStableFunc(result, func(i, j database.Agent) int {
+		return j.CreatedAt.Compare(i.CreatedAt)
+	})
+
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
+}

@@ -1,0 +1,40 @@
+apiVersion: kagent.dev/v1alpha2
+kind: CronAgent
+metadata:
+  name: daily-report
+  namespace: default
+spec:
+  # Run at 9 AM EST every weekday
+  schedule: "0 9 * * 1-5"
+  timezone: "America/New_York"
+
+  # Task to execute on each run
+  initialTask: |
+    Generate a daily report of all agent activity from the past 24 hours.
+    Include metrics on successful runs, failures, and resource usage.
+
+  # Create fresh session for each run
+  threadPolicy: PerRun
+
+  # Don't allow concurrent runs
+  concurrencyPolicy: Forbid
+
+  # Keep last 7 successful and 3 failed runs
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+
+  # Agent configuration template
+  agentTemplate:
+    type: Declarative
+    modelConfig:
+      name: default-model
+    skills:
+      - name: prometheus-query
+        enabled: true
+    resources:
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+      requests:
+        memory: "256Mi"
+        cpu: "250m"

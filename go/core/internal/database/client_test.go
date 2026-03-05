@@ -34,7 +34,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 			for j := range numUpserts {
 				agent := &dbpkg.Agent{
 					ID:   agentID,
-					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
+					Type: dbpkg.AgentType(fmt.Sprintf("type-%d-%d", goroutineID, j)),
 				}
 				err := client.StoreAgent(agent)
 				assert.NoError(t, err, "StoreAgent should not fail")
@@ -144,7 +144,7 @@ func TestStoreAgentIdempotence(t *testing.T) {
 
 	agent := &dbpkg.Agent{
 		ID:   "idempotent-agent",
-		Type: "declarative",
+		Type: dbpkg.AgentTypeRegular,
 	}
 
 	// First store should succeed
@@ -156,14 +156,14 @@ func TestStoreAgentIdempotence(t *testing.T) {
 	require.NoError(t, err, "Second StoreAgent should succeed (idempotent)")
 
 	// Third store with updated data should succeed (upsert)
-	agent.Type = "byo"
+	agent.Type = dbpkg.AgentTypeCronAgent
 	err = client.StoreAgent(agent)
 	require.NoError(t, err, "Third StoreAgent with updated data should succeed")
 
 	// Verify final state
 	retrieved, err := client.GetAgent(agent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "byo", retrieved.Type, "Agent should have updated type")
+	assert.Equal(t, dbpkg.AgentTypeCronAgent, retrieved.Type, "Agent should have updated type")
 }
 
 // TestStoreToolServerIdempotence verifies that StoreToolServer is idempotent.

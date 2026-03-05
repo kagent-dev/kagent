@@ -1,7 +1,9 @@
 package database
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +13,67 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
+// AgentType represents the type of agent stored in the database
+type AgentType string
+
+const (
+	AgentTypeRegular   AgentType = "agent"          // Regular interactive agent
+	AgentTypeCronAgent AgentType = "cronagent"      // CronAgent configuration
+	AgentTypeCronRun   AgentType = "cronagent-run"  // Individual CronAgent run
+)
+
+// ThreadPolicy determines session/conversation behavior across CronAgent runs
+type ThreadPolicy string
+
+const (
+	ThreadPolicyPerRun     ThreadPolicy = "PerRun"     // Create new session for each run
+	ThreadPolicyPersistent ThreadPolicy = "Persistent" // Reuse same session across runs
+)
+
+// ConcurrencyPolicy specifies how to handle concurrent CronAgent executions
+type ConcurrencyPolicy string
+
+const (
+	ConcurrencyPolicyAllow   ConcurrencyPolicy = "Allow"   // Allow concurrent jobs
+	ConcurrencyPolicyForbid  ConcurrencyPolicy = "Forbid"  // Skip if previous is running
+	ConcurrencyPolicyReplace ConcurrencyPolicy = "Replace" // Cancel old, start new
+)
+
+// CronAgentConfig contains controller-level configuration for scheduled agents
+type CronAgentConfig struct {
+	Schedule                   string             `json:"schedule"`
+	Timezone                   *string            `json:"timezone,omitempty"`
+	InitialTask                string             `json:"initial_task"`
+	ThreadPolicy               ThreadPolicy       `json:"thread_policy"`
+	ConcurrencyPolicy          *ConcurrencyPolicy `json:"concurrency_policy,omitempty"`
+	StartingDeadlineSeconds    *int64             `json:"starting_deadline_seconds,omitempty"`
+	SuccessfulJobsHistoryLimit *int32             `json:"successful_jobs_history_limit,omitempty"`
+	FailedJobsHistoryLimit     *int32             `json:"failed_jobs_history_limit,omitempty"`
+	Suspend                    *bool              `json:"suspend,omitempty"`
+}
+
+// Value implements the driver.Valuer interface for GORM
+func (c CronAgentConfig) Value() (driver.Value, error) {
+	if c.Schedule == "" {
+		return nil, nil
+	}
+	return json.Marshal(c)
+}
+
+// Scan implements the sql.Scanner interface for GORM
+func (c *CronAgentConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("failed to unmarshal CronAgentConfig value: %v", value)
+	}
+
+	return json.Unmarshal(bytes, c)
+}
+
 // Agent represents an agent configuration
 type Agent struct {
 	ID        string         `gorm:"primaryKey" json:"id"`
@@ -18,11 +81,14 @@ type Agent struct {
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
-	Type string `gorm:"not null" json:"type"`
+	Type   AgentType        `gorm:"not null" json:"type"`
 	// Config is optional and may be nil for some agent types.
 	// For agent types that require configuration, this field should be populated.
 	// For agent types that do not require configuration, this field should be nil.
 	Config *adk.AgentConfig `gorm:"type:json" json:"config"`
+
+	// Controller-level config for scheduled agents (only populated for type="cronagent")
+	CronAgentConfig *CronAgentConfig `gorm:"serializer:json" json:"cronagent_config,omitempty"`
 }
 
 type Event struct {

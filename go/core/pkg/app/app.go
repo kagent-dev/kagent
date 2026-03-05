@@ -44,6 +44,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	ctrltr "github.com/kagent-dev/kagent/go/core/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
@@ -449,6 +450,19 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Reconciler: rcnclr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
+		os.Exit(1)
+	}
+
+	// Create CronAgent translator
+	cronAgentTranslator := ctrltr.NewCronAgentTranslator(apiTranslator)
+
+	if err = (&controller.CronAgentReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		DBClient:   dbClient,
+		Translator: cronAgentTranslator,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CronAgent")
 		os.Exit(1)
 	}
 
