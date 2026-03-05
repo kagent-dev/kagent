@@ -353,15 +353,16 @@ class TestADKTokenPropagationPlugin:
 
         await plugin.before_run_callback(invocation_context=ic)
 
-        # Verify token is cached
+        # Verify token is cached with expected value
         assert "sess-11" in plugin.token_cache
         cache_entry = plugin.token_cache["sess-11"]
+        assert cache_entry.token == "access-token-static"
 
         # Call after_run_callback - token should still be in cache if not expired
         await plugin.after_run_callback(invocation_context=ic)
 
-        # Verify token is still cached (not expired)
-        assert "sess-11" in plugin.token_cache
+        # Verify the same cache entry is still present
+        assert plugin.token_cache.get("sess-11") is cache_entry
 
     @pytest.mark.asyncio
     async def test_actor_token_cached_and_reused(self):
