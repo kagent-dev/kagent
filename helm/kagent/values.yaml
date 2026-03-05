@@ -224,7 +224,7 @@ kmcp:
 
 kagent-tools:
   enabled: true
-  nameOverride: tools
+  nameOverride: kagent-tools
   replicaCount: 1
   resources:
     requests:
