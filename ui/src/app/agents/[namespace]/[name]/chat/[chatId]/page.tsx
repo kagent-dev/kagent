@@ -9,5 +9,6 @@ export default function ChatPageView({ params }: { params: Promise<{ name: strin
     selectedAgentName={name}
     selectedNamespace={namespace}
     sessionId={chatId}
+    headline={process.env.NEXT_PUBLIC_HEADLINE}
   />;
 }
