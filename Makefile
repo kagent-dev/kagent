@@ -35,35 +35,32 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
-KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
-GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
-KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
-GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
-KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
-GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
 
-#take from go/go.mod
+#take from go/core/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
-TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
+TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/core/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
-LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/internal/version.Version=$(VERSION)      \
-            -X github.com/$(DOCKER_REPO)/go/internal/version.GitCommit=$(GIT_COMMIT) \
-            -X github.com/$(DOCKER_REPO)/go/internal/version.BuildDate=$(BUILD_DATE)"
+LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION)      \
+            -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
+            -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE)"
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
@@ -110,7 +107,7 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 
 # KMCP
 KMCP_ENABLED ?= true
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/core/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 HELM_ACTION=upgrade --install
 
@@ -174,15 +171,15 @@ build-all: buildx-create
 .PHONY: push-test-agent
 push-test-agent: buildx-create build-kagent-adk
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/test/e2e/agents/kebab/Dockerfile ./go/test/e2e/agents/kebab
-	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/test/e2e/agents/kebab/agent.yaml
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/test/e2e/testdata/skills/kebab-maker
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
@@ -204,7 +201,7 @@ delete-kind-cluster:
 clean: prune-kind-cluster
 clean: prune-docker-images
 	docker buildx rm $(BUILDX_BUILDER_NAME)  -f || true
-	rm -rf ./go/bin
+	rm -rf ./go/core/bin
 
 .PHONY: prune-kind-cluster
 prune-kind-cluster:
@@ -220,12 +217,13 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-skills-init
+build: buildx-create build-controller build-ui build-app build-golang-adk build-skills-init
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
+	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
@@ -239,7 +237,7 @@ build-cli:
 .PHONY: build-cli-local
 build-cli-local:
 	make -C go clean
-	make -C go bin/kagent-local
+	make -C go core/bin/kagent-local
 
 .PHONY: build-img-versions
 build-img-versions:
@@ -255,16 +253,17 @@ lint:
 	make -C python lint
 
 .PHONY: push
-push: push-controller push-ui push-app push-kagent-adk
+push: push-controller push-ui push-app push-kagent-adk push-golang-adk
+
 
 .PHONY: controller-manifests
 controller-manifests:
 	make -C go manifests
-	cp go/config/crd/bases/* helm/kagent-crds/templates/
+	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
 build-controller: buildx-create controller-manifests
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 
 .PHONY: build-ui
 build-ui: buildx-create
@@ -274,17 +273,13 @@ build-ui: buildx-create
 build-kagent-adk: buildx-create
 		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 
-.PHONY: build-kanban-mcp
-build-kanban-mcp: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KANBAN_MCP_IMG) -f go/cmd/kanban-mcp/Dockerfile .
-
-.PHONY: build-gitrepo-mcp
-build-gitrepo-mcp: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(GITREPO_MCP_IMG) -f go/cmd/gitrepo-mcp/Dockerfile .
-
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+
+.PHONY: build-golang-adk
+build-golang-adk: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 
 .PHONY: build-skills-init
 build-skills-init: buildx-create
@@ -383,32 +378,6 @@ helm-install-provider: helm-version check-api-key
 helm-install: build
 helm-install: helm-install-provider
 
-.PHONY: helm-install-kanban-mcp
-helm-install-kanban-mcp: build-kanban-mcp ## Build and deploy kanban-mcp chart.
-	helm $(HELM_ACTION) kanban-mcp ./contrib/tools/kanban-mcp \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2 \
-		--timeout 5m \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait \
-		--set image.repository=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME) \
-		--set image.tag=$(KANBAN_MCP_IMAGE_TAG) \
-		--set image.pullPolicy=Always
-
-.PHONY: helm-install-gitrepo-mcp
-helm-install-gitrepo-mcp: build-gitrepo-mcp ## Build and deploy gitrepo-mcp chart.
-	helm $(HELM_ACTION) gitrepo-mcp ./contrib/tools/gitrepo-mcp \
-		--namespace kagent \
-		--create-namespace \
-		--history-max 2 \
-		--timeout 5m \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait \
-		--set image.repository=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME) \
-		--set image.tag=$(GITREPO_MCP_IMAGE_TAG) \
-		--set image.pullPolicy=Always
-
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"
 helm-test-install: helm-install-provider
@@ -436,7 +405,7 @@ helm-publish: helm-version
 
 .PHONY: kagent-cli-install
 kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
-	KAGENT_HELM_REPO=./helm/ ./go/bin/kagent-local dashboard
+	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
@@ -447,15 +416,6 @@ kagent-cli-port-forward: use-kind-cluster
 kagent-ui-port-forward: use-kind-cluster
 	open http://localhost:8082/
 	kubectl port-forward -n kagent service/kagent-ui 8082:8080
-
-.PHONY: kagent-kanban-mcp-port-forward
-kagent-kanban-mcp-port-forward: use-kind-cluster
-	open http://localhost:8084/kanban-mcp/
-	kubectl port-forward -n kagent service/kanban-mcp 8084:8080
-
-.PHONY: kagent-gitrepo-mcp-port-forward
-kagent-gitrepo-mcp-port-forward: use-kind-cluster
-	kubectl port-forward -n kagent service/gitrepo-mcp 8090:8090
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster

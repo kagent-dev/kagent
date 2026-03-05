@@ -262,6 +262,9 @@ type DeclarativeDeploymentSpec struct {
 	// +optional
 	ImageRegistry string `json:"imageRegistry,omitempty"`
 
+	// +optional
+	ImageRepository *string `json:"imageRepository,omitempty"`
+
 	SharedDeploymentSpec `json:",inline"`
 }
 
