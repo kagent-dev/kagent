@@ -118,6 +118,38 @@ type AdkApiTranslator interface {
 	GetOwnedResourceTypes() []client.Object
 }
 
+// probeConfig holds readiness probe timing configuration
+type probeConfig struct {
+	InitialDelaySeconds int32
+	TimeoutSeconds      int32
+	PeriodSeconds       int32
+}
+
+// getRuntimeProbeConfig returns readiness probe configuration for a runtime
+func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
+	switch runtime {
+	case v1alpha2.DeclarativeRuntime_Go:
+		return probeConfig{
+			InitialDelaySeconds: 2,
+			TimeoutSeconds:      5,
+			PeriodSeconds:       5,
+		}
+	case v1alpha2.DeclarativeRuntime_Python:
+		return probeConfig{
+			InitialDelaySeconds: 15,
+			TimeoutSeconds:      15,
+			PeriodSeconds:       15,
+		}
+	default:
+		// Default to Python timing (conservative)
+		return probeConfig{
+			InitialDelaySeconds: 15,
+			TimeoutSeconds:      15,
+			PeriodSeconds:       15,
+		}
+	}
+}
+
 type TranslatorPlugin = translator.TranslatorPlugin
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string) AdkApiTranslator {
@@ -487,6 +519,13 @@ func (a *adkApiTranslator) buildManifest(
 	}
 	// If neither user-provided securityContext nor sandbox is needed, securityContext remains nil
 
+	// Determine runtime for probe configuration
+	runtime := v1alpha2.DeclarativeRuntime_Python
+	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative.Runtime != "" {
+		runtime = agent.Spec.Declarative.Runtime
+	}
+	probeConf := getRuntimeProbeConfig(runtime)
+
 	deployment := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: objMeta(),
@@ -520,9 +559,9 @@ func (a *adkApiTranslator) buildManifest(
 							ProbeHandler: corev1.ProbeHandler{
 								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
 							},
-							InitialDelaySeconds: 15,
-							TimeoutSeconds:      15,
-							PeriodSeconds:       15,
+							InitialDelaySeconds: probeConf.InitialDelaySeconds,
+							TimeoutSeconds:      probeConf.TimeoutSeconds,
+							PeriodSeconds:       probeConf.PeriodSeconds,
 						},
 						SecurityContext: securityContext,
 						VolumeMounts:    volumeMounts,

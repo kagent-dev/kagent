@@ -75,6 +75,19 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 	return defaultLabels
 }
 
+// getRuntimeImageRepository returns the image repository for a given runtime
+func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
+	switch runtime {
+	case v1alpha2.DeclarativeRuntime_Go:
+		return "kagent-dev/kagent/golang-adk"
+	case v1alpha2.DeclarativeRuntime_Python:
+		return "kagent-dev/kagent/app"
+	default:
+		// Should never happen due to enum validation, but be safe
+		return "kagent-dev/kagent/app"
+	}
+}
+
 func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	// Defaults
 	port := int32(8080)
@@ -94,14 +107,22 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 	if agent.Spec.Declarative.Deployment != nil {
 		spec = *agent.Spec.Declarative.Deployment
 	}
+
+	// Determine runtime (defaults to python if not set)
+	runtime := v1alpha2.DeclarativeRuntime_Python
+	if agent.Spec.Declarative.Runtime != "" {
+		runtime = agent.Spec.Declarative.Runtime
+	}
+
+	// Get registry
 	registry := DefaultImageConfig.Registry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
-	repository := DefaultImageConfig.Repository
-	if spec.ImageRepository != nil {
-		repository = *spec.ImageRepository
-	}
+
+	// Get repository based on runtime
+	repository := getRuntimeImageRepository(runtime)
+
 	image := fmt.Sprintf("%s/%s:%s", registry, repository, DefaultImageConfig.Tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
