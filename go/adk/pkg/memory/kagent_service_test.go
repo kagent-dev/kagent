@@ -503,7 +503,7 @@ func newMockEvent(author, text string) *adksession.Event {
 			StateDelta: make(map[string]any),
 		},
 	}
-	evt.LLMResponse.Content = &genai.Content{
+	evt.Content = &genai.Content{
 		Role: author,
 		Parts: []*genai.Part{
 			{Text: text},
@@ -522,7 +522,7 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 			StateDelta: make(map[string]any),
 		},
 	}
-	evt.LLMResponse.Content = &genai.Content{
+	evt.Content = &genai.Content{
 		Role: author,
 		Parts: []*genai.Part{
 			{FunctionCall: &genai.FunctionCall{

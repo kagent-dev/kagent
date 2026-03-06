@@ -138,7 +138,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	// This implements soft validation - warns but doesn't fail reconciliation.
 	if warning := a.validateRuntimeFeatures(agent); warning != "" {
 		conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
-			Type:               "Warning",
+			Type:               v1alpha2.AgentConditionTypeUnsupportedFeatures,
 			Status:             metav1.ConditionTrue,
 			Reason:             "UnsupportedFeatures",
 			Message:            warning,
@@ -147,7 +147,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 	} else {
 		// Clear warning condition if previously set
 		for i, cond := range agent.Status.Conditions {
-			if cond.Type == "Warning" && cond.Reason == "UnsupportedFeatures" {
+			if cond.Type == v1alpha2.AgentConditionTypeUnsupportedFeatures && cond.Reason == "UnsupportedFeatures" {
 				agent.Status.Conditions = append(agent.Status.Conditions[:i], agent.Status.Conditions[i+1:]...)
 				conditionChanged = true
 				break
@@ -694,7 +694,20 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.Agent) string
 
 	// Memory: ✅ Supported in Go as of PR #1444
 	// Context compression: ✅ Supported in Go as of PR #1444
-	// (no checks needed - both features work)
+
+	// Check for unsupported context compression fields
+	if agent.Spec.Declarative.Context != nil && agent.Spec.Declarative.Context.Compaction != nil {
+		comp := agent.Spec.Declarative.Context.Compaction
+		if comp.TokenThreshold != nil {
+			unsupported = append(unsupported, "context.compaction.tokenThreshold (not implemented in Go runtime)")
+		}
+		if comp.EventRetentionSize != nil {
+			unsupported = append(unsupported, "context.compaction.eventRetentionSize (not implemented in Go runtime)")
+		}
+		if comp.Summarizer != nil && comp.Summarizer.ModelConfig != nil {
+			unsupported = append(unsupported, "context.compaction.summarizer.modelConfig (not implemented in Go runtime)")
+		}
+	}
 
 	if len(unsupported) == 0 {
 		return ""

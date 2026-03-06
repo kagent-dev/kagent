@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -104,8 +105,12 @@ func (c *Client) generateOpenAI(ctx context.Context, texts []string) ([][]float3
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	// API key should be set in environment or via headers in config
-	// This is handled by the model translator which includes headers
+
+	// Set authentication header (OpenAI uses Bearer token)
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -169,6 +174,12 @@ func (c *Client) generateAzureOpenAI(ctx context.Context, texts []string) ([][]f
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Set authentication header (Azure uses api-key header)
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	if apiKey != "" {
+		req.Header.Set("api-key", apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

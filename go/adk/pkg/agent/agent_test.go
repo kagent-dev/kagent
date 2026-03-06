@@ -283,13 +283,13 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 	}
 }
 
-// TestAgentConfigFieldUsage is a smoke test that verifies CreateGoogleADKAgent
-// properly handles all AgentConfig fields. This test acts as a canary: if a new
-// field is added to AgentConfig but not wired up in CreateGoogleADKAgent, this
-// test will fail during development, preventing the feature gap from reaching
+// TestAgentConfigFieldUsage is a smoke test that ensures AgentConfig structures
+// used by agents exercise all relevant fields. This test acts as a canary: if a
+// new field is added to AgentConfig but not reflected in this test configuration,
+// the test will fail during development, preventing configuration gaps from reaching
 // production.
 //
-// This test enforces feature parity tracking as per issue #1444.
+// This test enforces feature parity and configuration tracking as per issue #1444.
 func TestAgentConfigFieldUsage(t *testing.T) {
 	tests := []struct {
 		name              string

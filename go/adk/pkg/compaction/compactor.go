@@ -36,6 +36,7 @@ type Compactor struct {
 	mu                         sync.Mutex
 	invocationsSinceCompaction int
 	lastCompactionTime         float64
+	lastSeenInvocationID       string // Track last invocation ID to count unique invocations
 }
 
 // New creates a new Compactor with the given configuration and LLM model.
@@ -67,7 +68,12 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 
 	log := logr.FromContextOrDiscard(ctx)
 
-	c.invocationsSinceCompaction++
+	// Only increment counter when we see a new invocation ID
+	// This ensures we count unique invocations, not individual events
+	if currentInvocationID != c.lastSeenInvocationID {
+		c.invocationsSinceCompaction++
+		c.lastSeenInvocationID = currentInvocationID
+	}
 
 	log.V(1).Info("Checking compaction trigger",
 		"invocationsSinceCompaction", c.invocationsSinceCompaction,

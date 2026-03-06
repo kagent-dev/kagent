@@ -2,7 +2,9 @@ package compaction
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	adkmodel "google.golang.org/adk/model"
@@ -24,6 +26,10 @@ type CompactingSessionService struct {
 
 // NewCompactingSessionService wraps an existing session service with compaction support.
 func NewCompactingSessionService(wrapped adksession.Service, config Config, model adkmodel.LLM) (*CompactingSessionService, error) {
+	if model == nil && config.Enabled {
+		return nil, fmt.Errorf("model is required when compaction is enabled")
+	}
+
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -75,9 +81,14 @@ func (s *CompactingSessionService) AppendEvent(ctx context.Context, session adks
 	compactor := s.getOrCreateCompactor(session.ID())
 
 	// Attempt compaction (non-blocking, runs in background)
+	// Detach from request context to prevent premature cancellation
 	go func() {
-		log := logr.FromContextOrDiscard(ctx)
-		compactionEvent, err := compactor.MaybeCompact(ctx, session, event.InvocationID)
+		// Create a detached context with a reasonable timeout for compaction work
+		compactionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		log := logr.FromContextOrDiscard(compactionCtx)
+		compactionEvent, err := compactor.MaybeCompact(compactionCtx, session, event.InvocationID)
 		if err != nil {
 			log.Error(err, "Compaction failed", "sessionID", session.ID())
 			return
@@ -85,7 +96,7 @@ func (s *CompactingSessionService) AppendEvent(ctx context.Context, session adks
 
 		if compactionEvent != nil {
 			// Append compaction event to session
-			if err := s.wrapped.AppendEvent(ctx, session, compactionEvent); err != nil {
+			if err := s.wrapped.AppendEvent(compactionCtx, session, compactionEvent); err != nil {
 				log.Error(err, "Failed to append compaction event", "sessionID", session.ID())
 			}
 		}

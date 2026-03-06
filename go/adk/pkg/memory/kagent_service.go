@@ -67,8 +67,7 @@ func New(cfg Config) (*KagentMemoryService, error) {
 			HTTPClient:      client,
 		})
 		if err != nil {
-			// Embedding client creation failed, will use placeholder vectors
-			embClient = nil
+			return nil, fmt.Errorf("failed to create embedding client: %w", err)
 		}
 	}
 
