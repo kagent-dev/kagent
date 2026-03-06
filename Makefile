@@ -449,6 +449,11 @@ kagent-ui-port-forward: use-kind-cluster
 	open http://localhost:8082/
 	kubectl port-forward -n kagent service/kagent-ui 8082:8080
 
+.PHONY: temporal-ui-port-forward
+temporal-ui-port-forward: use-kind-cluster
+	open http://localhost:8084/
+	kubectl port-forward -n kagent service/kagent-temporal-ui 8084:8080
+
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
 	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
@@ -480,6 +485,27 @@ kind-debug:
 	@echo "Enter the kind cluster control plane container..."
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
 	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
+
+##@ Testing
+
+.PHONY: test-e2e-plugins
+test-e2e-plugins: ## Run plugin API + proxy smoke test against running cluster
+	bash scripts/check-plugins-api.sh --wait --proxy \
+		--url "$(KAGENT_URL)/api/plugins" \
+		--proxy-base-url "$(KAGENT_URL)" \
+		--plugin "$(PLUGIN_PATH_PREFIX)" \
+		--section "$(PLUGIN_SECTION)"
+
+KAGENT_URL ?= http://localhost:8083
+PLUGIN_PATH_PREFIX ?= kanban-mcp
+PLUGIN_SECTION ?= AGENTS
+
+.PHONY: test-e2e-go
+test-e2e-go: ## Run Go E2E tests
+	make -C go e2e
+
+.PHONY: test-e2e-all
+test-e2e-all: test-e2e-go test-e2e-plugins ## Run all E2E tests (Go + plugin smoke)
 
 .PHONY: audit
 audit:
