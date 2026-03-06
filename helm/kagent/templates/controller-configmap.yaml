@@ -66,3 +66,7 @@ data:
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- if .Values.controller.metrics.enabled }}
+  METRICS_BIND_ADDRESS: {{ printf ":%v" .Values.controller.metrics.port | quote }}
+  METRICS_SECURE: {{ .Values.controller.metrics.secure | quote }}
+  {{- end }}

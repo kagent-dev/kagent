@@ -116,6 +116,29 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+  # -- Prometheus metrics configuration
+  metrics:
+    # -- Enable the metrics endpoint
+    enabled: false
+    # -- Port for the metrics endpoint
+    port: 9093
+    # -- Serve metrics via HTTPS (true) or HTTP (false)
+    secure: false
+    # -- Deploy a Prometheus Operator ServiceMonitor
+    serviceMonitor:
+      # -- Create a ServiceMonitor resource
+      enabled: false
+      # -- Additional labels for the ServiceMonitor (e.g. release: prometheus)
+      additionalLabels: {}
+      # -- Scrape interval
+      interval: 30s
+      # -- Scrape timeout
+      scrapeTimeout: 10s
+      # -- Metric relabeling configs
+      metricRelabelings: []
+      # -- Relabeling configs
+      relabelings: []
+
   env: []
   envFrom: []
 
