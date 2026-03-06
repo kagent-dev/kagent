@@ -24,7 +24,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml (.Values.ui.podSecurityContext | default .Values.podSecurityContext ) | nindent 8 }}
       serviceAccountName: {{ include "kagent.fullname" . }}-ui
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
@@ -32,6 +32,20 @@ spec:
       {{- end }}
       {{- with .Values.ui.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ui.initContainers }}
+      initContainers:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      volumes:
+        - emptyDir: {}
+          name: tmp
+        - emptyDir: {}
+          name: lib-nginx
+        - emptyDir: {}
+          name: run-nginx
+      {{- with .Values.ui.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
@@ -63,3 +77,13 @@ spec:
               path: /health
               port: http
             periodSeconds: 30
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+            - mountPath: /var/lib/nginx
+              name: lib-nginx
+            - mountPath: /run/nginx
+              name: run-nginx
+          {{- with .Values.ui.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

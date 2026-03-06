@@ -76,12 +76,16 @@ RUN mkdir -p $BUN_INSTALL  \
     && curl -fsSL https://bun.sh/install | bash -s "bun-v$TOOLS_BUN_VERSION" \
     && bun --version
 
-RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
-    && addgroup -g 1001 nginx                        \
+RUN mkdir -p /app/ui/public /run/nginx/ /var/run/nginx/ /var/lib/nginx/tmp/ /var/lib/nginx/tmp/client_body /var/lib/nginx/logs/  \
+    && addgroup -g 1001    nginx                        \
     && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
     && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
     && chown    -vR nextjs:nginx /app/ui                \
-    && chown    -vR nextjs:nginx /tmp/nginx/
+    && chown    -vR nextjs:nginx /run/nginx             \
+    && chown    -vR nextjs:nginx /var/run/nginx         \
+    && chown    -vR nextjs:nginx /var/lib/nginx/        \
+
+    && touch /var/lib/nginx/logs/error.log && printf '\n' >> /var/lib/nginx/logs/error.log
 
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
