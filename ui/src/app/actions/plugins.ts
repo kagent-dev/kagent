@@ -46,7 +46,7 @@ export async function checkPluginBackend(pathPrefix: string): Promise<{
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
-    if (res.ok) return { status: "ok", statusCode: res.status };
+    if (res.status === 200) return { status: "ok", statusCode: res.status };
     if (res.status === 404) return { status: "not_found", statusCode: 404 };
     if (res.status === 502 || res.status === 503) return { status: "unreachable", statusCode: res.status };
     return { status: "unreachable", statusCode: res.status };

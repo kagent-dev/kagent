@@ -25,25 +25,25 @@ This spec replaces hardcoded nginx proxy rules and static Next.js routes for MCP
 
 ## Implementation Status
 
-Steps 1-11 are implemented. Steps 12-16 address bugs and testing gaps found during review:
+All 16 steps are complete.
 
 | Step | Status | Description |
 |------|--------|-------------|
 | 1-11 | Done | Core implementation (CRD, DB, controller, proxy, UI, sidebar, migration, API E2E) |
-| 12 | TODO | **FIX**: Rename proxy path `/plugins/` → `/_p/` (nginx routing conflict) |
-| 13 | TODO | **FIX**: Add loading/error states to sidebar and plugin page |
-| 14 | TODO | Mock plugin service for browser E2E tests |
-| 15 | TODO | Playwright browser E2E tests (7 scenarios) |
-| 16 | TODO | CI integration (API verification + Playwright) |
+| 12 | Done | **FIX**: Rename proxy path `/plugins/` → `/_p/` (nginx routing conflict) |
+| 13 | Done | **FIX**: Add loading/error states (SidebarStatusProvider, StatusIndicator, plugin page fallback) |
+| 14 | Done | Mock plugin service (Cypress fixtures + cy.intercept) |
+| 15 | Done | Cypress browser E2E tests (8 scenarios in plugin-routing.cy.ts) |
+| 16 | Done | CI integration (check-plugins-api.sh with --wait/--proxy, Makefile targets) |
 
 ## Bugs Fixed (Q10-Q11)
 
 - **Nginx routing conflict**: `location /plugins/` caught browser URLs, breaking hard refresh. Fix: separate `/_p/` for proxy, `/plugins/` for browser.
-- **Silent empty UI**: Sidebar `.catch(() => {})` swallowed errors; iframe showed blank on upstream failure. Fix: loading/error states with retry.
+- **Silent empty UI**: Sidebar `.catch(() => {})` swallowed errors; iframe showed blank on upstream failure. Fix: loading/error states with retry via SidebarStatusProvider context.
 
-## Next Steps
+## Key Implementation Details
 
-- Implement Steps 12-16 from `plan.md`
-- Step 12 (routing fix) is critical — do first
-- Step 13 (error states) prevents "UI is empty" confusion
-- Steps 14-16 (Playwright) ensure UI works end-to-end in CI
+- Browser E2E tests use **Cypress** (not Playwright as originally planned) to match existing test infrastructure
+- Sidebar status (loading/error/retry) is managed via `SidebarStatusProvider` React context, not inline in AppSidebarNav
+- Plugin status page at `/plugins` provides health checks via server action `checkPluginBackend()`
+- Next.js API route `/api/plugins` proxies to Go backend for client-side sidebar fetch

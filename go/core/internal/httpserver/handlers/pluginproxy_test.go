@@ -25,8 +25,8 @@ func newPluginProxyHandlerWithFakeDB(t *testing.T) (*PluginProxyHandler, *fake.I
 func TestPluginProxyHandler_NotFound(t *testing.T) {
 	h, _ := newPluginProxyHandlerWithFakeDB(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/_p/kanban-mcp/api/board", nil)
-	req = mux.SetURLVars(req, map[string]string{"name": "kanban-mcp"})
+	req := httptest.NewRequest(http.MethodGet, "/_p/kanban/api/board", nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "kanban"})
 	w := httptest.NewRecorder()
 
 	h.HandleProxy(w, req)
@@ -49,7 +49,7 @@ func TestPluginProxyHandler_StripsPrefixAndForwardsHeaders(t *testing.T) {
 	h, fakeClient := newPluginProxyHandlerWithFakeDB(t)
 	_, err := fakeClient.StorePlugin(&database.Plugin{
 		Name:        "kagent/kanban-mcp",
-		PathPrefix:  "kanban-mcp",
+		PathPrefix:  "kanban",
 		DisplayName: "Kanban Board",
 		Icon:        "kanban",
 		Section:     "AGENTS",
@@ -57,9 +57,9 @@ func TestPluginProxyHandler_StripsPrefixAndForwardsHeaders(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/_p/kanban-mcp/api/board", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_p/kanban/api/board", nil)
 	req.Host = "kagent.dev"
-	req = mux.SetURLVars(req, map[string]string{"name": "kanban-mcp"})
+	req = mux.SetURLVars(req, map[string]string{"name": "kanban"})
 	w := httptest.NewRecorder()
 
 	h.HandleProxy(w, req)
@@ -69,7 +69,7 @@ func TestPluginProxyHandler_StripsPrefixAndForwardsHeaders(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, "/api/board", got["path"])
 	assert.Equal(t, "kagent.dev", got["forwarded_host"])
-	assert.Equal(t, "kanban-mcp", got["plugin_name"])
+	assert.Equal(t, "kanban", got["plugin_name"])
 }
 
 func TestPluginProxyHandler_UsesProxyCache(t *testing.T) {
@@ -81,7 +81,7 @@ func TestPluginProxyHandler_UsesProxyCache(t *testing.T) {
 	h, fakeClient := newPluginProxyHandlerWithFakeDB(t)
 	_, err := fakeClient.StorePlugin(&database.Plugin{
 		Name:        "kagent/kanban-mcp",
-		PathPrefix:  "kanban-mcp",
+		PathPrefix:  "kanban",
 		DisplayName: "Kanban Board",
 		Icon:        "kanban",
 		Section:     "AGENTS",
@@ -90,23 +90,23 @@ func TestPluginProxyHandler_UsesProxyCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// First request creates cache entry
-	req1 := httptest.NewRequest(http.MethodGet, "/_p/kanban-mcp/", nil)
-	req1 = mux.SetURLVars(req1, map[string]string{"name": "kanban-mcp"})
+	req1 := httptest.NewRequest(http.MethodGet, "/_p/kanban/", nil)
+	req1 = mux.SetURLVars(req1, map[string]string{"name": "kanban"})
 	w1 := httptest.NewRecorder()
 	h.HandleProxy(w1, req1)
 	require.Equal(t, http.StatusOK, w1.Code)
 
-	cached1, ok := h.proxies.Load("kanban-mcp")
+	cached1, ok := h.proxies.Load("kanban")
 	require.True(t, ok, "expected proxy cache entry after first request")
 
 	// Second request should reuse same cache entry
-	req2 := httptest.NewRequest(http.MethodGet, "/_p/kanban-mcp/api/tasks", nil)
-	req2 = mux.SetURLVars(req2, map[string]string{"name": "kanban-mcp"})
+	req2 := httptest.NewRequest(http.MethodGet, "/_p/kanban/api/tasks", nil)
+	req2 = mux.SetURLVars(req2, map[string]string{"name": "kanban"})
 	w2 := httptest.NewRecorder()
 	h.HandleProxy(w2, req2)
 	require.Equal(t, http.StatusOK, w2.Code)
 
-	cached2, ok := h.proxies.Load("kanban-mcp")
+	cached2, ok := h.proxies.Load("kanban")
 	require.True(t, ok, "expected proxy cache entry after second request")
 	assert.Same(t, cached1, cached2, "expected cached reverse proxy instance to be reused")
 }
@@ -122,7 +122,7 @@ func TestPluginProxyHandler_ProxyRootPath(t *testing.T) {
 	h, fakeClient := newPluginProxyHandlerWithFakeDB(t)
 	_, err := fakeClient.StorePlugin(&database.Plugin{
 		Name:        "kagent/kanban-mcp",
-		PathPrefix:  "kanban-mcp",
+		PathPrefix:  "kanban",
 		DisplayName: "Kanban Board",
 		Icon:        "kanban",
 		Section:     "AGENTS",
@@ -130,8 +130,8 @@ func TestPluginProxyHandler_ProxyRootPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/_p/kanban-mcp", nil)
-	req = mux.SetURLVars(req, map[string]string{"name": "kanban-mcp"})
+	req := httptest.NewRequest(http.MethodGet, "/_p/kanban", nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "kanban"})
 	w := httptest.NewRecorder()
 
 	h.HandleProxy(w, req)

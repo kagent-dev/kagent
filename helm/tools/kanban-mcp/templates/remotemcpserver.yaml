@@ -14,7 +14,7 @@ spec:
   url: {{ include "kanban-mcp.serverUrl" . }}
   ui:
     enabled: true
-    pathPrefix: "kanban-mcp"
+    pathPrefix: "kanban"
     displayName: "Kanban Board"
     icon: "kanban"
     section: "AGENTS"

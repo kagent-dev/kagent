@@ -22,8 +22,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="">
-      <body className={`${geistSans.className} flex h-screen overflow-hidden`}>
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning className={`${geistSans.className} flex h-screen overflow-hidden`}>
         <TooltipProvider>
           <AgentsProvider>
             <NamespaceProvider>

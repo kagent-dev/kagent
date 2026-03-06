@@ -16,9 +16,9 @@ Before acceptance tests can pass, these issues must be addressed:
 - [ ] Step 3: Tree-sitter code chunking
 - [ ] Step 4: Embedding pipeline (EmbeddingGemma-300M + ONNX Runtime)
 - [ ] Step 5: Semantic search (cosine similarity)
-- [ ] Step 6: ast-grep structural search wrapper
+- [ ] Step 6: Reflex embedded subprocess (MCP proxy + indexing trigger)
 - [ ] Step 7: REST API server
-- [ ] Step 8: MCP protocol server
+- [ ] Step 8: Unified MCP server (native + Reflex proxy)
 - [ ] Step 9: Kagent proxy handlers
 - [ ] Step 10: Kagent UI — list page + add form
 - [ ] Step 11: Kagent UI — search
@@ -184,30 +184,61 @@ Before acceptance tests can pass, these issues must be addressed:
 
 ---
 
-## Step 6: ast-grep structural search wrapper
+## Step 6: Reflex embedded subprocess (MCP proxy + indexing trigger)
 
-**Objective:** Expose ast-grep as an MCP-ready structural search tool.
+**Objective:** Embed Reflex inside gitrepo-mcp as a subprocess. Proxy Reflex's MCP tools through the same `/mcp` endpoint so agents see one unified tool surface.
+
+**Why embedded (not separate server):**
+- Single MCP connection for agents — all tools (repo mgmt + semantic + structural + deps) in one place
+- Single Helm deployment — no sidecar coordination
+- gitrepo-mcp controls Reflex lifecycle (start/stop/restart)
+- Shared PVC access is automatic (same process)
+- See `research/09-reflex-vs-astgrep.md` for Reflex vs ast-grep comparison
 
 **Implementation guidance:**
-- Create `go/cmd/gitrepo-mcp/internal/search/structural.go`:
-  - `AstSearch(pattern, repoName, lang *string) → []AstSearchResult`
-  - Shell out to: `ast-grep --pattern '<pattern>' --json <repo-path>` (optionally with `--lang <lang>`)
-  - Parse JSON output from ast-grep
-  - `AstSearchResult` struct: `FilePath`, `LineStart`, `LineEnd`, `Content`, `MatchedNode`, `Language`
-  - `AstSearchLanguages()` → return hardcoded list of supported languages
-- Handle ast-grep not installed: return clear error "ast-grep binary not found, install from https://ast-grep.github.io/"
-- Wire up CLI: `gitrepo-mcp ast-search kagent --pattern 'func $NAME($$$) error' --lang go`
+
+Create `go/cmd/gitrepo-mcp/internal/reflex/`:
+
+- **`lifecycle.go`** — Reflex subprocess management:
+  - `ReflexManager` struct: manages `rfx mcp` subprocess
+  - `Start()` — spawn `rfx mcp` with stdin/stdout pipes, set `cwd` to repos base dir
+  - `Stop()` — send SIGTERM, wait with timeout, SIGKILL fallback
+  - `IsAvailable() bool` — check if `rfx` binary exists in PATH at startup
+  - `IsRunning() bool` — health check (subprocess alive + responsive)
+  - `Restart()` — stop + start with exponential backoff on repeated failures
+  - If `rfx` not in PATH: log warning, set `available=false`, Reflex tools omitted from tool list
+
+- **`proxy.go`** — MCP tool proxying:
+  - `ListTools() []ToolDef` — call Reflex's `tools/list` via stdio JSON-RPC, cache result
+  - No prefix — Reflex tool names (`search_code`, `find_circular`, etc.) don't collide with native names (`add_repo`, `semantic_search`, etc.)
+  - `CallTool(name, params) (result, error)` — forward to subprocess via stdio JSON-RPC, read response, return
+  - Maintain a routing table: native tool names → Go handlers, Reflex tool names → subprocess
+  - Handle timeouts: 30s per call, return MCP error on timeout
+  - Handle subprocess crash mid-call: return error, trigger restart
+
+- **`indexer.go`** — trigger Reflex indexing:
+  - `IndexRepo(repoPath string) error` — run `rfx index` as a one-shot command (not via MCP, just exec)
+  - Called after successful clone (Step 2) and after sync/pull (Step 13)
+  - Non-blocking: run in goroutine, update repo metadata with Reflex index status
+  - Creates `.reflex/` directory inside each cloned repo
+
+- Add `--reflex-enabled` flag (default: true) to `serve` command
+- Add `--reflex-path` flag (default: `rfx`) for custom binary location
 
 **Test requirements:**
-- Unit test: parse ast-grep JSON output correctly
-- Unit test: handle ast-grep not found gracefully
-- Integration test: run pattern search on cloned Go repo, verify matches
+- Unit test: `ReflexManager` starts/stops subprocess correctly (mock exec)
+- Unit test: `proxy.ListTools()` returns Reflex tool names
+- Unit test: `proxy.CallTool()` forwards request and returns response
+- Unit test: handle `rfx` not found → `IsAvailable()` returns false, tools list empty
+- Unit test: handle subprocess crash → error returned, restart triggered
+- Integration test: start gitrepo-mcp with Reflex → call `search_code` → get results
 
 **Integration notes:**
-- ast-grep must be in PATH in the container image
-- No embedding needed — this is direct AST pattern matching
+- Step 8 (MCP server) will merge native tools + proxied Reflex tools into one tool list
+- Reflex subprocess starts when `gitrepo-mcp serve` starts (eager at startup)
+- Each repo gets its own `.reflex/` index inside `<data-dir>/repos/<name>/.reflex/`
 
-**Demo:** `gitrepo-mcp ast-search kagent --pattern 'func $NAME($$$) error' --lang go` returns matching Go functions.
+**Demo:** `gitrepo-mcp serve` → agent connects to `/mcp` → `tools/list` returns both `add_repo`, `semantic_search` AND `search_code`, `find_circular`, etc.
 
 ---
 
@@ -242,28 +273,38 @@ Before acceptance tests can pass, these issues must be addressed:
 
 ---
 
-## Step 8: MCP protocol server
+## Step 8: Unified MCP server (native + Reflex proxy)
 
-**Objective:** Expose all tools via MCP protocol for agent consumption.
+**Objective:** Expose all tools — native and proxied Reflex — via a single MCP endpoint at `/mcp`.
 
 **Implementation guidance:**
 - Create `go/cmd/gitrepo-mcp/internal/server/mcp.go`:
   - Use `mark3labs/mcp-go` SDK (or equivalent Go MCP library)
-  - Register 7 tools: `add_repo`, `list_repos`, `remove_repo`, `sync_repo`, `search_code`, `ast_search`, `ast_search_languages`
-  - Each tool handler delegates to the same internal functions as REST handlers
+  - Register 5 native tools: `add_repo`, `list_repos`, `remove_repo`, `sync_repo`, `semantic_search`
+  - Each native tool handler delegates to the same internal functions as REST handlers
   - MCP transport: stdio (for local) + SSE/HTTP (for network access from agents)
+- **Merge Reflex tools into the same tool list:**
+  - On startup, call `reflexProxy.ListTools()` to get Reflex tool definitions
+  - Append Reflex tools to native tool list (no prefix — names don't collide)
+  - Build routing table: `map[string]handler` — native tool names → Go handlers, Reflex tool names → `reflexProxy.CallTool()`
+  - On `tools/call`: look up tool name in routing table, dispatch accordingly
+- If Reflex is unavailable (`--reflex-enabled=false` or binary not found), only native tools are registered
 - Add MCP server to `serve` command alongside REST API
-- Tool schemas with JSON Schema for parameters
+- Tool schemas: native tools have explicit JSON Schema; Reflex tools use schemas from `reflexProxy.ListTools()`
 
 **Test requirements:**
-- Unit test: tool registration, schema validation
-- Integration test: call tools via MCP client, verify responses
+- Unit test: `tools/list` returns merged native + Reflex tools
+- Unit test: native tool call routes to native handler
+- Unit test: Reflex tool call routes to Reflex proxy
+- Unit test: with Reflex unavailable, only native tools listed
+- Integration test: call both `semantic_search` and `search_code` via MCP client, verify responses
 
 **Integration notes:**
-- Agents connect to MCP server via tool server configuration in kagent
-- MCP and REST run in same process, share dependencies
+- Agents see ONE MCP server with 5 native + 13 Reflex = 18 tools
+- Agents connect to gitrepo-mcp once and get everything
+- MCP, REST, and Reflex subprocess all run in same process, share dependencies
 
-**Demo:** Agent configured with gitrepo-mcp tool server can call `search_code` and get semantic search results.
+**Demo:** Agent connects to `/mcp` → `tools/list` returns 18 tools → agent calls `semantic_search` (embedding-based) and `search_code` (trigram-based) in the same session.
 
 ---
 
@@ -366,7 +407,7 @@ Before acceptance tests can pass, these issues must be addressed:
 
 **Implementation guidance:**
 - Create `contrib/tools/gitrepo-mcp/`:
-  - `Dockerfile`: multi-stage build — Go binary + ONNX Runtime lib + model file + ast-grep binary
+  - `Dockerfile`: multi-stage build — Go binary + ONNX Runtime lib + model file + reflex-search binary
   - `Chart.yaml`: chart metadata
   - `values.yaml`: port, PVC size, model config, git credentials
   - `templates/deployment.yaml`: pod with PVC mount, env vars for data-dir, model-dir
@@ -378,8 +419,8 @@ Before acceptance tests can pass, these issues must be addressed:
   1. Build Go binary
   2. Download ONNX Runtime shared library
   3. Download EmbeddingGemma-300M ONNX model
-  4. Install ast-grep binary
-  5. Runtime image: distroless/base + binary + libs + model
+  4. Install reflex-search binary (`npm install -g reflex-search` or download from cargo)
+  5. Runtime image: distroless/base + binary + libs + model + reflex
 - Values:
   ```yaml
   replicaCount: 1

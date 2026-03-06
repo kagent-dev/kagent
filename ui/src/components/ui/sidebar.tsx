@@ -660,8 +660,8 @@ const SidebarMenuSkeleton = React.forwardRef<
     showIcon?: boolean
   }
 >(({ className, showIcon = false, ...props }, ref) => {
-  // Random width between 50 to 90% - use useState with lazy initializer for stable value
-  const [width] = React.useState(() => `${Math.floor(Math.random() * 40) + 50}%`)
+  // Keep skeleton width deterministic so SSR and hydration markup always match.
+  const width = "70%"
 
   return (
     <div

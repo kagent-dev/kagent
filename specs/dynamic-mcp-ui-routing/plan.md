@@ -13,11 +13,11 @@
 - [x] Step 9: Plugin bridge SDK snippet
 - [x] Step 10: Kanban migration — CRD, Helm, remove hardcoded routes
 - [x] Step 11: E2E test (API-only)
-- [ ] Step 12: **FIX** — Rename proxy path from `/plugins/` to `/_p/` (routing conflict)
-- [ ] Step 13: **FIX** — Add loading/error states to sidebar and plugin page
-- [ ] Step 14: Mock plugin service for browser E2E tests
-- [ ] Step 15: Playwright browser E2E tests
-- [ ] Step 16: CI integration — API verification script + Playwright
+- [x] Step 12: **FIX** — Rename proxy path from `/plugins/` to `/_p/` (routing conflict)
+- [x] Step 13: **FIX** — Add loading/error states to sidebar and plugin page
+- [x] Step 14: Mock plugin service for browser E2E tests
+- [x] Step 15: Cypress browser E2E tests (adapted from Playwright to match existing test infra)
+- [x] Step 16: CI integration — API verification script + Cypress
 
 ---
 

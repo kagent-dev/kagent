@@ -8,7 +8,7 @@
 | **Proxy (Go)** | `/_p/{pathPrefix}/` | Go backend reverse-proxies to plugin service. Used as iframe `src`. |
 | **API** | `/api/plugins` | Returns list of plugins; each has `pathPrefix` used in the two paths above. |
 
-- **pathPrefix** comes from `RemoteMCPServer.spec.ui.pathPrefix` (or defaults to server name). Stored in DB; must be a single token (e.g. `kanban-mcp`, `temporal`).
+- **pathPrefix** comes from `RemoteMCPServer.spec.ui.pathPrefix` (or defaults to server name). Stored in DB; must be a single token (e.g. `kanban`, `temporal`).
 - **UI** builds: sidebar link `href={/plugins/${p.pathPrefix}}`, iframe `src={/_p/${name}/}` where `name` is the route param (same as pathPrefix).
 
 ## Inconsistencies found and fixed
@@ -30,6 +30,6 @@
 
 - [x] **Go:** Proxy route `/_p/{name}`, lookup by pathPrefix in DB.
 - [x] **UI:** Sidebar links to `/plugins/${p.pathPrefix}`; iframe `src=/_p/${name}/` (name = pathPrefix from route).
-- [x] **Helm (kanban-mcp):** `pathPrefix: "kanban-mcp"` → `/plugins/kanban-mcp`, `/_p/kanban-mcp/`.
+- [x] **Helm (kanban-mcp):** `pathPrefix: "kanban"` → `/plugins/kanban`, `/_p/kanban/`.
 - [x] **Helm (temporal):** `pathPrefix: "temporal"` → `/plugins/temporal`, `/_p/temporal/`.
 - [x] **E2E:** Use `/_p/{pathPrefix}/` when asserting the Go proxy; use `/plugins/{pathPrefix}` only for browser/Next.js flows.

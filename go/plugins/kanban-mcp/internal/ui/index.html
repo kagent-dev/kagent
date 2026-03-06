@@ -479,7 +479,7 @@
         cb.addEventListener("change", function(e) {
           e.stopPropagation();
           var newStatus = cb.checked ? "Done" : "Inbox";
-          fetch("/api/tasks/" + st.id, {
+          fetch(pluginURL("/api/tasks/" + st.id), {
             method: "PUT",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({status: newStatus})
@@ -603,15 +603,24 @@
     }
   }
 
+  // Build URLs so the UI works both:
+  // - standalone at "/" (direct kanban server)
+  // - proxied under "/_p/{name}/" (kagent plugin iframe)
+  function pluginURL(path) {
+    var m = window.location.pathname.match(/^\/_p\/[^/]+/);
+    var base = m ? m[0] : "";
+    return base + path;
+  }
+
   function fetchBoard() {
-    fetch("/api/board")
+    fetch(pluginURL("/api/board"))
       .then(function(r) { return r.json(); })
       .then(renderBoard)
       .catch(function(e) { console.error("fetchBoard:", e); });
   }
 
   function toggleHITL(id, current) {
-    fetch("/api/tasks/" + id, {
+    fetch(pluginURL("/api/tasks/" + id), {
       method: "PUT",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({user_input_needed: !current})
@@ -619,7 +628,7 @@
   }
 
   function addTask(title) {
-    fetch("/api/tasks", {
+    fetch(pluginURL("/api/tasks"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({title: title, status: "Inbox"})
@@ -627,7 +636,7 @@
   }
 
   function connectSSE() {
-    var es = new EventSource("/events");
+    var es = new EventSource(pluginURL("/events"));
 
     es.addEventListener("snapshot", function(e) {
       setLiveStatus(true);
