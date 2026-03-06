@@ -114,27 +114,6 @@ test: ## Run all unit tests across the workspace.
 e2e: ## Run end-to-end tests.
 	cd core && go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
-.PHONY: test-cli-unit
-test-cli-unit: ## Run CLI unit tests (fast, no external dependencies).
-	cd core && go test -v -short ./cli/...
-
-.PHONY: test-cli-integration
-test-cli-integration: ## Run CLI integration tests (requires Docker/kind).
-	cd core && go test -v -run Integration ./cli/test/integration/...
-
-.PHONY: test-cli
-test-cli: test-cli-unit test-cli-integration ## Run all CLI tests.
-
-.PHONY: test-cli-coverage
-test-cli-coverage: ## Generate CLI test coverage report.
-	cd core && go test -coverprofile=coverage.out ./cli/...
-	cd core && go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated at core/coverage.html"
-
-.PHONY: test-tui
-test-tui: ## Run TUI tests.
-	cd core && go test -v ./cli/internal/tui/...
-
 ##@ Dependencies
 
 ## Location to install dependencies to

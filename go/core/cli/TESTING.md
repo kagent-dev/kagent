@@ -14,56 +14,36 @@ This document describes how to write and run tests for the kagent CLI.
 
 ## Overview
 
-The CLI test suite is organized into three layers:
+The CLI test suite is organized into two layers:
 
 1. **Unit Tests** - Fast tests with no external dependencies (inline with code)
-2. **Integration Tests** - Slower tests requiring Docker/kind (`test/integration/`)
-3. **TUI Tests** - Tests for terminal user interface using `teatest`
+2. **Integration Tests** - Slower tests requiring external tools like Docker/kind (marked with `//go:build integration`)
 
 ## Running Tests
 
 ### Quick Start
 
 ```bash
-# Run all CLI unit tests (fast, no external dependencies)
-make test-cli-unit
+# From repository root - run all tests including CLI
+cd go && make test
 
-# Run CLI integration tests (requires Docker/kind)
-make test-cli-integration
+# Run just CLI tests
+cd go/core && go test ./cli/...
 
-# Run all CLI tests (unit + integration)
-make test-cli
+# Run with coverage
+cd go/core && go test -coverprofile=coverage.out ./cli/...
+cd go/core && go tool cover -html=coverage.out
 
-# Run TUI tests specifically
-make test-tui
-
-# Generate coverage report
-make test-cli-coverage
-```
-
-### From go/core Directory
-
-```bash
-# Unit tests only
-go test -v -short ./cli/...
-
-# Integration tests only
-go test -v -run Integration ./cli/test/integration/...
-
-# TUI tests
-go test -v ./cli/internal/tui/...
-
-# With coverage
-go test -coverprofile=coverage.out ./cli/...
-go tool cover -html=coverage.out
+# Run integration tests (requires Docker, kind, npm, etc.)
+cd go/core && go test -tags=integration ./cli/...
 ```
 
 ### Test Flags
 
-- `-short` - Skip integration tests (unit tests only)
 - `-v` - Verbose output
 - `-run <pattern>` - Run specific tests matching pattern
-- `-failfast` - Stop on first failure
+- `-tags=integration` - Include integration tests
+- `-coverprofile=file` - Generate coverage report
 
 ## Writing Unit Tests
 
@@ -162,35 +142,32 @@ func TestInitCmd(t *testing.T) {
 
 ### Location
 
-Integration tests go in the `test/integration/` directory:
+Integration tests are placed alongside unit tests but use the `//go:build integration` build tag:
 
 ```
-cli/test/integration/
-├── install_test.go
-├── deploy_workflow_test.go
-└── helpers.go
+cli/internal/cli/agent/
+├── invoke.go
+├── invoke_test.go           ← Unit tests
+└── integration_test.go      ← Integration tests (with build tag)
 ```
 
 ### Example: Integration Test
 
 ```go
-// +build integration
+//go:build integration
 
-package integration
+package agent
 
 import (
     "testing"
-    "github.com/kagent-dev/kagent/go/core/cli/test/testutil"
+    "os/exec"
 )
 
-func TestDeployWorkflow(t *testing.T) {
-    if testing.Short() {
-        t.Skip("Skipping integration test in short mode")
+func TestAgentDeployWorkflow(t *testing.T) {
+    // Check for required tools
+    if _, err := exec.LookPath("docker"); err != nil {
+        t.Skip("docker not available, skipping integration test")
     }
-
-    // Require external dependencies
-    testutil.RequireDocker(t)
-    testutil.RequireKind(t)
 
     // Test init → build → deploy workflow
     // ...
@@ -463,37 +440,32 @@ require.NoError(t, err) // Test stops here if err != nil
 
 ## CI/CD Integration
 
-Tests run automatically in CI:
+CLI tests run as part of the main test suite in `.github/workflows/ci.yaml`. The standard `make test` command runs all unit tests including CLI tests.
 
-- **Unit tests**: Run on every commit
-- **TUI tests**: Run on every commit (with ASCII color profile)
-- **Integration tests**: Run on PR and main branch pushes
-
-See `.github/workflows/cli-tests.yml` for CI configuration.
+Integration tests can be run locally with `-tags=integration` but are not currently part of the CI pipeline.
 
 ## Coverage
 
 To generate and view coverage:
 
 ```bash
-make test-cli-coverage
-# Opens core/coverage.html in browser
+cd go/core
+go test -coverprofile=coverage.out ./cli/...
+go tool cover -html=coverage.out -o coverage.html
+# Open coverage.html in browser
 ```
 
-**Coverage Goals:**
-- Unit tests: >70%
-- Total (unit + integration): >80%
+Current coverage: ~21%
 
 ## Troubleshooting
 
-### Tests fail with "Docker daemon not available"
+### Integration tests fail with "Docker daemon not available"
 
-Integration tests require Docker. Either:
-- Install Docker
-- Run unit tests only: `make test-cli-unit`
-- Use `-short` flag: `go test -short ./cli/...`
+Integration tests require external tools (Docker, kind, npm, uv, etc.). Either:
+- Install the required tools
+- Skip integration tests: `go test ./cli/...` (without `-tags=integration`)
 
-### TUI tests have different output in CI
+### TUI tests have different output locally vs CI
 
 Ensure you're setting consistent color profiles:
 
