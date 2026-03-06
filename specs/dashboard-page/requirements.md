@@ -94,3 +94,17 @@ Should the dashboard data refresh automatically, or only on page load?
 
 **A9:** (A) On page load only. No auto-refresh or polling.
 
+---
+
+## Consolidated Requirements
+
+1. **Page**: New Dashboard page at `/`, replacing current AgentList (which already exists at `/agents`)
+2. **Backend**: New `GET /api/dashboard/stats` endpoint — COUNT queries for resources + recent sessions + recent events
+3. **Stats Row**: 7 metric cards (Agents, Workflows, Cron Jobs, Models, Tools, MCP Servers, Git Repos) — static, not clickable
+4. **Activity Chart**: Install recharts, build combined line+bar chart with mock data. Real data will come from Prometheus/Temporal later.
+5. **Recent Runs**: Left bottom panel, list of recent sessions from DB
+6. **Live Feed**: Right bottom panel, pseudo-feed from recent session events (not truly live)
+7. **Top Bar**: Namespace selector dropdown, "Stream Connected" badge (green dot + wifi icon), logout button
+8. **Data Loading**: On page load only, no auto-refresh/polling
+9. **Sidebar**: Dashboard nav item already exists at `/` — no changes needed
+

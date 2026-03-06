@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add git repository semantic search capabilities to kagent via a standalone Go MCP server (`gitrepo-mcp`) and kagent API/UI integration. Users register git repos through the kagent UI; the MCP server clones, indexes (tree-sitter chunking + EmbeddingGemma-300M embeddings), and exposes semantic search as MCP tools. Reflex (`reflex-search`) is embedded as a subprocess — its MCP tools are proxied through the same `/mcp` endpoint, giving agents a unified tool surface for semantic search, structural code search, and dependency analysis.
+Add git repository management and code search to kagent via a standalone Go MCP server (`gitrepo-mcp`) and kagent API/UI integration. Users register git repos through the kagent UI; the MCP server clones repos and delegates all search to an embedded Reflex subprocess. Reflex provides full-text search, symbol search, regex search, AST pattern search, and dependency analysis — all proxied through a single `/mcp` endpoint. No embedding pipeline — search is trigram + Tree-sitter based.
 
 ## Detailed Requirements
 
@@ -10,26 +10,24 @@ Add git repository semantic search capabilities to kagent via a standalone Go MC
 
 **Repo Management:**
 - Register a git repo by URL and branch (auth via Helm chart credentials)
-- List registered repos with status (indexed/indexing/error, last synced, file/chunk counts)
-- Remove a repo and its embeddings
+- List registered repos with status (cloning/cloned/indexing/indexed/error, last synced, file count)
+- Remove a repo and its Reflex index
 - Trigger manual sync (git pull) and re-index
 - Periodic sync via external CronJob
 
-**Semantic Search:**
-- Index repo files using tree-sitter function/block-level chunking for code (.go, .py, .js, .ts, .java, .groovy, .rs), heading-based chunking for .md, document-level for .yaml/.toml
-- Embed chunks using EmbeddingGemma-300M (local CPU, ONNX Runtime)
-- Store embeddings in SQLite as float32 BLOBs
-- Brute-force cosine similarity search
-- Return: chunk content + N surrounding context lines + file path + line range + score
-- Content-hash deduplication (skip unchanged files on re-index)
+**Code Search (all via Reflex):**
+- Full-text search — trigram-indexed, finds all occurrences
+- Symbol search — Tree-sitter parsed, finds definitions (functions, classes, methods)
+- Regex search — trigram-optimized pattern matching
+- AST pattern search — Tree-sitter S-expression patterns
+- Dependency analysis — imports, reverse deps, circular deps, hotspots, orphaned files
+- `rfx index` triggered automatically after clone/sync
+- Incremental indexing via blake3 content hashing (only changed files)
 
-**Structural Search + Dependency Analysis (Reflex — embedded):**
-- Reflex (`reflex-search`) runs as a subprocess inside gitrepo-mcp
-- gitrepo-mcp spawns `rfx mcp` via stdio, proxies Reflex MCP tools through its own `/mcp` endpoint
-- Agents see one unified MCP server with all tools (repo mgmt + semantic + structural + deps)
-- `rfx index <repo-path>` triggered automatically after clone/sync
-- Provides full-text, symbol, regex, and AST pattern search
-- Adds dependency analysis (imports, circular deps, hotspots, orphaned files)
+**Out of scope (v1):**
+- `rfx ask` (LLM-based natural language → code search) — future
+- Embedding/semantic search — future
+- FalkorDB code graph — future
 
 **Kagent Integration:**
 - Kagent HTTP server proxies MCP server REST API
@@ -38,9 +36,9 @@ Add git repository semantic search capabilities to kagent via a standalone Go MC
 
 ### Non-Functional Requirements
 - MCP server is stateless except for SQLite DB + PVC
-- Embedding runs on CPU only (no GPU dependency)
-- Reflex binary (`rfx`) must be present in container image (embedded subprocess)
-- Search latency: <1s for repos under 50K chunks
+- Reflex binary (`rfx`) must be present in container image
+- No GPU, no ONNX, no embedding model required
+- Search latency: <1s for repos under 10K files
 
 ## Architecture Overview
 
@@ -54,8 +52,7 @@ graph TB
     subgraph "gitrepo-mcp (single process)"
         REST["REST API<br/>:8090/api/repos/*"]
         MCP["Unified MCP Endpoint<br/>/mcp — all tools"]
-        IDX["Indexer<br/>tree-sitter + embeddings"]
-        DB["SQLite<br/>metadata + vectors"]
+        DB["SQLite<br/>repo metadata"]
         PVC["PVC<br/>cloned repos"]
 
         subgraph "Reflex (embedded subprocess)"
@@ -74,14 +71,13 @@ graph TB
     UI -->|fetch| API
     API -->|proxy| REST
     AGENT -->|single MCP connection| MCP
-    MCP -->|own tools| IDX
-    MCP -->|proxy via stdio| RFXPROC
+    MCP -->|repo tools| DB
+    MCP -->|search tools via stdio| RFXPROC
     RFXPROC --> RFXIDX
     RFXIDX --> RFXDB
     RFXIDX --> PVC
-    REST --> IDX
-    IDX --> DB
-    IDX --> PVC
+    REST --> DB
+    REST --> PVC
     CRON -->|POST /api/repos/:name/sync| REST
     REST -->|git clone/pull| GIT
 ```
@@ -98,8 +94,6 @@ gitrepo-mcp add <name> --url <url> --branch main  # CLI repo management
 gitrepo-mcp list
 gitrepo-mcp remove <name>
 gitrepo-mcp sync <name>
-gitrepo-mcp index <name>
-gitrepo-mcp search <name> -c "query" --limit 10
 ```
 
 **Internal packages:**
@@ -112,28 +106,14 @@ go/cmd/gitrepo-mcp/
 │   ├── add.go                 # Add repo
 │   ├── list.go                # List repos
 │   ├── remove.go              # Remove repo
-│   ├── sync.go                # Git pull
-│   ├── index.go               # Index repo
-│   └── search.go              # Search
+│   └── sync.go                # Git pull + trigger rfx index
 └── internal/
     ├── server/
     │   ├── rest.go            # REST API handlers (gorilla/mux)
-    │   └── mcp.go             # MCP protocol handlers
+    │   └── mcp.go             # Unified MCP server (native + Reflex proxy)
     ├── repo/
     │   ├── manager.go         # Clone, pull, remove git repos
     │   └── models.go          # Repo metadata types
-    ├── indexer/
-    │   ├── indexer.go         # Orchestrates chunking + embedding
-    │   ├── chunker.go         # Tree-sitter code chunking
-    │   ├── chunker_md.go      # Markdown heading-based chunking
-    │   ├── chunker_config.go  # YAML/TOML document-level chunking
-    │   └── context.go         # Surrounding context extraction
-    ├── embedder/
-    │   ├── embedder.go        # EmbeddingModel interface
-    │   ├── gemma.go           # EmbeddingGemma-300M via ONNX Runtime
-    │   └── batch.go           # Batch processing with dedup
-    ├── search/
-    │   └── semantic.go        # Brute-force cosine similarity
     ├── reflex/
     │   ├── proxy.go           # Spawn `rfx mcp` subprocess, proxy MCP tool calls via stdio
     │   ├── indexer.go         # Trigger `rfx index` after clone/sync
@@ -141,7 +121,6 @@ go/cmd/gitrepo-mcp/
     └── storage/
         ├── db.go              # SQLite setup + migrations
         ├── repos.go           # Repo CRUD
-        ├── embeddings.go      # Embedding CRUD + vector ops
         └── models.go          # GORM models
 ```
 
@@ -154,11 +133,9 @@ Base path: `/api/repos`
 | GET | `/api/repos` | List all repos |
 | POST | `/api/repos` | Add a new repo |
 | GET | `/api/repos/{name}` | Get repo details + status |
-| DELETE | `/api/repos/{name}` | Remove repo + embeddings |
-| POST | `/api/repos/{name}/sync` | Trigger git pull |
-| POST | `/api/repos/{name}/index` | Trigger re-index |
-| POST | `/api/repos/{name}/search` | Semantic search within repo |
-| POST | `/api/search` | Semantic search across all repos |
+| DELETE | `/api/repos/{name}` | Remove repo + Reflex index |
+| POST | `/api/repos/{name}/sync` | Trigger git pull + re-index |
+| POST | `/api/repos/{name}/index` | Trigger Reflex re-index |
 
 **Add repo request:**
 ```json
@@ -192,39 +169,7 @@ Base path: `/api/repos`
       "lastSynced": "2026-02-27T12:00:00Z",
       "lastIndexed": "2026-02-27T12:01:00Z",
       "fileCount": 342,
-      "chunkCount": 4521,
       "error": null
-    }
-  ]
-}
-```
-
-**Search request:**
-```json
-{
-  "query": "where do we set up auth?",
-  "limit": 10,
-  "contextLines": 3
-}
-```
-
-**Search response:**
-```json
-{
-  "results": [
-    {
-      "repo": "kagent",
-      "filePath": "go/internal/httpserver/auth/authn.go",
-      "lineStart": 45,
-      "lineEnd": 72,
-      "score": 0.832,
-      "chunkType": "function",
-      "chunkName": "Authenticate",
-      "content": "func (a *Authenticator) Authenticate(ctx context.Context, ...",
-      "context": {
-        "before": ["// Authenticator handles request authentication", ""],
-        "after": ["", "// validateToken checks token validity"]
-      }
     }
   ]
 }
@@ -232,19 +177,18 @@ Base path: `/api/repos`
 
 ### Component 3: Unified MCP Tools (single `/mcp` endpoint)
 
-All tools are served from one MCP endpoint. gitrepo-mcp handles its own tools natively and proxies Reflex tools to the embedded `rfx mcp` subprocess via stdio.
+All tools served from one MCP endpoint. gitrepo-mcp handles repo lifecycle natively and proxies all search/analysis tools to the embedded `rfx mcp` subprocess via stdio.
 
-**Native tools (repo lifecycle + semantic search):**
+**Native tools (repo lifecycle):**
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `add_repo` | Register and clone a git repo | `name`, `url`, `branch` |
 | `list_repos` | List registered repos with status | — |
-| `remove_repo` | Remove repo and embeddings | `name` |
-| `sync_repo` | Pull latest changes | `name` |
-| `semantic_search` | Embedding-based similarity search | `query`, `repo?`, `limit?`, `contextLines?` |
+| `remove_repo` | Remove repo and index | `name` |
+| `sync_repo` | Pull latest + re-index | `name` |
 
-**Proxied Reflex tools (structural search + dependency analysis):**
+**Proxied Reflex tools (search + analysis):**
 
 | Tool | Description |
 |------|-------------|
@@ -262,12 +206,12 @@ All tools are served from one MCP endpoint. gitrepo-mcp handles its own tools na
 | `find_unused` | Orphaned files |
 | `analyze_summary` | Dependency analysis summary |
 
-**No prefix needed.** Native and Reflex tool names don't collide — native embedding search is `semantic_search`, Reflex text search is `search_code`. gitrepo-mcp maintains a routing table: native tool names route to Go handlers, Reflex tool names route to the subprocess.
+**Routing:** gitrepo-mcp maintains a routing table — native tool names dispatch to Go handlers, Reflex tool names dispatch to the subprocess. No prefix needed, names don't collide.
 
 **Proxy mechanism:**
 ```
 Agent → MCP request (tool: search_code)
-  → gitrepo-mcp looks up routing table → Reflex tool
+  → gitrepo-mcp routing table → Reflex tool
   → forwards to `rfx mcp` subprocess via stdio (JSON-RPC)
   → reads response from subprocess stdout
   → returns to agent as MCP response
@@ -294,8 +238,6 @@ Proxy pattern: kagent handler receives request → forwards to gitrepo-mcp REST 
 | DELETE | `/api/gitrepos/{name}` | `DELETE /api/repos/{name}` |
 | POST | `/api/gitrepos/{name}/sync` | `POST /api/repos/{name}/sync` |
 | POST | `/api/gitrepos/{name}/index` | `POST /api/repos/{name}/index` |
-| POST | `/api/gitrepos/{name}/search` | `POST /api/repos/{name}/search` |
-| POST | `/api/gitrepos/search` | `POST /api/search` |
 
 ### Component 5: Kagent UI (`ui/src/app/git/`)
 
@@ -316,7 +258,6 @@ export async function addGitRepo(data: AddGitRepoRequest): Promise<BaseResponse<
 export async function removeGitRepo(name: string): Promise<BaseResponse<void>>
 export async function syncGitRepo(name: string): Promise<BaseResponse<GitRepo>>
 export async function indexGitRepo(name: string): Promise<BaseResponse<GitRepo>>
-export async function searchGitRepos(query: SearchRequest): Promise<BaseResponse<SearchResult[]>>
 ```
 
 **Types:** added to `ui/src/types/index.ts`
@@ -330,28 +271,14 @@ interface GitRepo {
   lastSynced?: string;
   lastIndexed?: string;
   fileCount: number;
-  chunkCount: number;
   error?: string;
-}
-
-interface SearchResult {
-  repo: string;
-  filePath: string;
-  lineStart: number;
-  lineEnd: number;
-  score: number;
-  chunkType: string;
-  chunkName: string;
-  content: string;
-  context: { before: string[]; after: string[] };
 }
 ```
 
 **UI features:**
 - List page: table with expandable rows, status badges, action buttons (sync, re-index, delete)
 - Add page: form with name, URL, branch fields
-- Search bar on list page for cross-repo semantic search
-- Search results displayed inline with syntax highlighting
+- Search delegated to agents via MCP tools (not a UI search bar in v1)
 - Follows AgentCronJob UI patterns (Shadcn/UI, toast notifications, error/loading states)
 
 ## Data Models
@@ -359,7 +286,7 @@ interface SearchResult {
 ### SQLite Schema (gitrepo-mcp)
 
 ```sql
--- Repo metadata
+-- Repo metadata only — search index is managed by Reflex (.reflex/ per repo)
 CREATE TABLE repos (
     name TEXT PRIMARY KEY,
     url TEXT NOT NULL,
@@ -369,59 +296,30 @@ CREATE TABLE repos (
     last_synced TIMESTAMP,
     last_indexed TIMESTAMP,
     file_count INTEGER DEFAULT 0,
-    chunk_count INTEGER DEFAULT 0,
     error TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- Embedding collections (one per repo)
-CREATE TABLE collections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    repo_name TEXT NOT NULL REFERENCES repos(name) ON DELETE CASCADE,
-    model TEXT NOT NULL,
-    dimensions INTEGER NOT NULL,
-    UNIQUE(repo_name)
-);
-
--- Code chunks with embeddings
-CREATE TABLE chunks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-    file_path TEXT NOT NULL,
-    line_start INTEGER NOT NULL,
-    line_end INTEGER NOT NULL,
-    chunk_type TEXT NOT NULL,         -- "function", "method", "class", "heading", "document"
-    chunk_name TEXT,                  -- function/class/heading name
-    content TEXT NOT NULL,
-    content_hash TEXT NOT NULL,       -- SHA256 for deduplication
-    embedding BLOB NOT NULL,          -- little-endian float32 array
-    metadata TEXT,                    -- JSON: language, signature, etc.
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_chunks_collection ON chunks(collection_id);
-CREATE INDEX idx_chunks_file ON chunks(collection_id, file_path);
-CREATE INDEX idx_chunks_hash ON chunks(collection_id, content_hash);
 ```
 
-### Embedding Format
-- Little-endian IEEE 754 float32 array
-- EmbeddingGemma-300M: 768 dimensions = 3,072 bytes per chunk
-- Truncatable to 384 dims (1,536 bytes) via Matryoshka if storage is a concern
+### Reflex Index (per repo, managed by Reflex)
+```
+<data-dir>/repos/<name>/.reflex/
+  meta.db          # SQLite: file metadata, stats, blake3 hashes
+  trigrams.bin     # Inverted index (memory-mapped)
+  content.bin      # Full file contents (memory-mapped)
+  config.toml      # Index settings
+```
 
 ## Error Handling
 
 | Error Case | Handling |
 |------------|----------|
 | Git clone fails (auth, network) | Set repo status to "error", store error message, return 500 |
-| File too large to embed | Skip with warning in logs, don't block indexing |
-| ONNX Runtime fails to load | Fail fast at startup with clear error message |
-| Reflex binary not found | Log warning at startup, omit Reflex tools from MCP tool list, skip `rfx index` after clone/sync |
+| Reflex binary not found | Log warning at startup, omit Reflex tools from MCP tool list, repo management still works |
 | Reflex subprocess crashes | Log error, mark Reflex tools as unavailable, attempt restart with backoff |
 | Reflex stdio timeout | Return MCP error to agent after 30s timeout, log warning |
 | Repo not found | Return 404 |
-| Search on un-indexed repo | Return 400 with message "repo not yet indexed" |
 | CronJob sync during indexing | Queue sync, skip if already in progress (mutex) |
 | Corrupt SQLite DB | Log error, offer reset via CLI command |
 
@@ -429,39 +327,29 @@ CREATE INDEX idx_chunks_hash ON chunks(collection_id, content_hash);
 
 **Repo Management:**
 - Given a valid git URL, when I call `POST /api/repos`, then the repo is cloned to PVC and status shows "cloning" → "cloned"
-- Given a registered repo, when I call `DELETE /api/repos/{name}`, then the repo directory and all embeddings are removed
-- Given a registered repo, when I call `POST /api/repos/{name}/sync`, then git pull is executed and status updated
+- Given a registered repo, when I call `DELETE /api/repos/{name}`, then the repo directory and Reflex index are removed
+- Given a registered repo, when I call `POST /api/repos/{name}/sync`, then git pull is executed and Reflex re-indexes
 
-**Indexing:**
-- Given a cloned repo, when I call `POST /api/repos/{name}/index`, then all matching files are chunked via tree-sitter and embedded
-- Given a previously indexed repo with unchanged files, when I re-index, then unchanged chunks are skipped (content-hash dedup)
-- Given a .go file with 3 functions, when indexed, then 3 separate chunks are created with correct line ranges
+**Search (via Reflex MCP tools):**
+- Given an indexed repo, when agent calls `search_code` with a text query, then matching occurrences are returned with file + line
+- Given an indexed repo, when agent calls `search_code --symbols`, then only symbol definitions are returned
+- Given an indexed repo, when agent calls `search_ast` with a Tree-sitter pattern, then matching AST nodes are returned
+- Given an indexed repo, when agent calls `get_dependencies`, then file import graph is returned
 
-**Semantic Search:**
-- Given an indexed repo, when I search "authentication middleware", then results include files related to auth with score > 0
-- Given search results, then each result includes content, context lines, file path, line range, and score
-- Given a search with `limit: 5`, then at most 5 results are returned, sorted by score descending
-
-**Structural Search (Reflex — embedded):**
-- Given a cloned repo, when agent calls `search_code` with a symbol query, then matching definitions are returned via the same MCP connection
-- Given a cloned repo, when agent calls `search_ast` with a tree-sitter pattern, then matching AST nodes are returned
-- Given a cloned repo, when agent calls `get_dependencies`, then file import graph is returned
-- Given Reflex is not installed, when gitrepo-mcp starts, then Reflex tools are omitted from the tool list and semantic search still works
-- Given the MCP tool list, then both native tools (`add_repo`, `semantic_search`, etc.) and proxied Reflex tools (`search_code`, `find_circular`, etc.) appear in a single list
+**Reflex Integration:**
+- Given Reflex is not installed, when gitrepo-mcp starts, then Reflex tools are omitted and repo management still works
+- Given the MCP tool list, then both native tools (`add_repo`, etc.) and Reflex tools (`search_code`, `find_circular`, etc.) appear in a single list
+- Given a cloned repo, then `rfx index` is triggered automatically and `.reflex/` directory is created
 
 **Kagent UI:**
-- Given the `/git` page, when loaded, then registered repos are listed with status, counts, and actions
+- Given the `/git` page, when loaded, then registered repos are listed with status and actions
 - Given the add form, when submitted with valid data, then a new repo appears in the list
-- Given the search bar, when a query is submitted, then results are displayed with file paths and scores
 
 **Kagent UI (browser acceptance — Cypress):**
-- Given a browser at `/git` with no backend, then the error state renders with a clear message and a "Return to Home" link
-- Given a browser at `/git` with mocked repos, then both indexed and errored repos display correct status badges, file/chunk counts, and expandable details
-- Given the add form at `/git/new`, when name and URL are filled and submitted, then the browser redirects to `/git` and the new repo is visible
-- Given a repo row with action buttons, when sync/re-index is clicked, then the button shows a spinner, a success toast appears, and the list refreshes
-- Given the delete button, when clicked, then a confirmation dialog appears; confirming it removes the repo and shows a success toast
-- Given the search bar, when a query is entered and Enter pressed, then search results render with file paths, scores, code content, and context lines; pressing X clears results
-- Given a live deployment (@live tag), when a small public repo is added, indexed, searched, and deleted, then each operation succeeds in the browser without errors
+- Given a browser at `/git` with no backend, then the error state renders with a clear message
+- Given a browser at `/git` with mocked repos, then repos display correct status badges and file counts
+- Given the add form at `/git/new`, when submitted, then the browser redirects to `/git`
+- Given a repo row, when sync/re-index/delete is clicked, then appropriate action fires with feedback
 
 **Kagent Proxy:**
 - Given kagent HTTP server, when `/api/gitrepos/*` is called, then the request is proxied to gitrepo-mcp and response returned
@@ -469,28 +357,25 @@ CREATE INDEX idx_chunks_hash ON chunks(collection_id, content_hash);
 ## Testing Strategy
 
 ### Unit Tests
-- **Chunker tests:** Verify tree-sitter produces correct chunks for Go, Python, JS/TS, Java, Rust, Groovy files
-- **Markdown chunker:** Verify heading-based splitting
-- **Embedding mock:** Test batch processing, dedup logic, BLOB encoding/decoding
-- **Cosine similarity:** Test correctness of similarity calculation
-- **REST handlers:** Test request parsing, validation, response format
-- **Proxy handlers:** Test kagent proxy forwards correctly (mock downstream)
+- **Repo manager:** Clone, pull, remove operations (mock git CLI)
+- **Reflex proxy:** Tool list merging, tool call forwarding, timeout handling
+- **Reflex lifecycle:** Start/stop/restart/health check
+- **REST handlers:** Request parsing, validation, response format
+- **Kagent proxy handlers:** Forward correctly (mock downstream)
 
 ### Integration Tests
-- **Clone + index + search flow:** Add repo → index → search → verify results
-- **Re-index dedup:** Index → modify one file → re-index → verify only changed chunks updated
-- **Reflex embedded proxy:** Clone repo → `rfx index` auto-triggered → call `search_code` via unified MCP → verify results
-- **Reflex unavailable:** Start gitrepo-mcp without `rfx` binary → verify native tools work, `*` tools absent from list
+- **Clone + index flow:** Add repo → `rfx index` auto-triggered → `.reflex/` created → `search_code` returns results
+- **Sync + re-index:** Modify file → sync → Reflex re-indexes changed files only
+- **Reflex unavailable:** Start gitrepo-mcp without `rfx` binary → native tools work, Reflex tools absent
 
 ### Browser Acceptance Tests (Cypress)
 - **Location:** `ui/cypress/e2e/git-repos.cy.ts`
-- **Mock-based suites (7):** page load, error state, list rendering, add form, repo actions (sync/index/delete), search, loading states — run in CI with no backend
+- **Mock-based suites (7):** page load, error state, list rendering, add form, repo actions (sync/index/delete), loading states
 - **Live integration suite (1):** full flow against real gitrepo-mcp — tagged `@live`, manual only
-- **Approach:** mock backend HTTP responses via Cypress intercepts or a lightweight mock server (server actions run server-side, so browser-level intercepts may not suffice)
-- **Stable selectors:** `data-test` attributes on key UI elements for resilient tests
+- **Stable selectors:** `data-test` attributes on key UI elements
 
 ### E2E Tests
-- **Full stack:** kagent UI → kagent proxy → gitrepo-mcp → clone → index → search
+- **Full stack:** kagent UI → kagent proxy → gitrepo-mcp → clone → Reflex index → search
 - **Helm deployment:** Deploy via Helm chart, verify service connectivity
 
 ## Appendices
@@ -502,11 +387,8 @@ CREATE INDEX idx_chunks_hash ON chunks(collection_id, content_hash);
 | Language | Go | Matches kagent ecosystem, good for CLI + server |
 | CLI framework | Cobra | Standard in kagent (same as kagent CLI) |
 | HTTP router | gorilla/mux | Same as kagent HTTP server |
-| Embedding model | EmbeddingGemma-300M | Local CPU, 300M params, 768 dims, <200MB RAM |
-| ONNX Runtime | yalue/onnxruntime_go | Most mature Go ONNX binding |
-| Tree-sitter | smacker/go-tree-sitter | Native Go bindings for AST parsing |
-| Vector storage | SQLite + float32 BLOBs | Simple, portable, sufficient for <50K chunks |
-| Structural search | Reflex (reflex-search) | Embedded subprocess, full-text + symbol + AST + deps, MCP via stdio proxy, 14+ languages |
+| Code search | Reflex (reflex-search) | Embedded subprocess, trigram + Tree-sitter + deps, built-in MCP, 14+ languages |
+| Repo metadata | SQLite (GORM) | Simple, portable, same as kagent |
 | Git operations | go-git or shell out | Pure Go git client or git CLI |
 
 ### B. Research Findings Summary
@@ -515,30 +397,27 @@ CREATE INDEX idx_chunks_hash ON chunks(collection_id, content_hash);
 - **UI patterns:** AgentCronJob as reference — list page, create/edit form, server actions (research/03)
 - **Existing git:** Greenfield — only a "Coming soon" stub exists (research/04)
 - **CRD flow:** Not needed — this is a proxy pattern, no CRD/controller (research/05)
-- **Local embeddings:** EmbeddingGemma-300M via ONNX Runtime best fit (research/06)
-- **LLM CLI design:** Named collections, content-hash dedup, glob discovery, BLOB vectors (research/07)
-- **ast-grep:** AST-based structural search — superseded by Reflex (research/08)
-- **Reflex:** Local-first code search with trigram index + Tree-sitter + dependency analysis + built-in MCP server — replaces ast-grep (research/09)
+- **Local embeddings:** EmbeddingGemma-300M — deferred to future version (research/06)
+- **LLM CLI design:** Named collections pattern — deferred to future version (research/07)
+- **ast-grep:** Superseded by Reflex (research/08)
+- **Reflex:** Replaces ast-grep + provides all search capabilities for v1 (research/09)
 
 ### C. Alternative Approaches Considered
 
+**Embedding/semantic search (EmbeddingGemma-300M + ONNX):** Deferred — adds significant complexity (ONNX Runtime, model file, chunking pipeline, vector storage). Reflex's trigram + symbol search covers v1 use cases.
+
+**ast-grep for structural search:** Rejected — Reflex provides a superset (full-text + symbol + AST + deps + MCP). See research/09.
+
+**Reflex as separate MCP server:** Rejected — embedding inside gitrepo-mcp gives agents a single MCP connection. Simpler deployment.
+
+**`rfx ask` (LLM-based natural language search):** Deferred — requires external LLM API. Keep v1 simple with direct search tools.
+
 **CRD-backed repos:** Rejected — MCP server owns data, kagent just proxies.
 
-**DB-only in kagent:** Rejected — cleaner separation with standalone MCP server.
-
-**External vector DB (Qdrant, pgvector):** Rejected — SQLite BLOBs sufficient for per-repo scale, avoids external dependency.
-
-**OpenAI embeddings:** Rejected — user requires local CPU embeddings, no API dependency.
-
-**Naive file chunking:** Rejected — tree-sitter function-level chunking provides much better search quality.
-
-**Reflex as separate MCP server:** Rejected — embedding inside gitrepo-mcp gives agents a single MCP connection with all tools (repo mgmt + semantic + structural + deps). Simpler deployment, no multi-server coordination.
-
-**ast-grep for structural search:** Rejected — Reflex provides a superset (full-text + symbol + AST + deps + MCP), ast-grep only does AST patterns and has no MCP server. See research/09.
-
-### D. Future Extensions (Out of Scope)
+### D. Future Extensions (Out of Scope for v1)
+- Embedding/semantic search (EmbeddingGemma-300M, cosine similarity)
+- `rfx ask` — natural language → code search via LLM
 - FalkorDB code graph (AST → nodes/edges, Cypher, GraphRAG)
 - Multi-branch indexing
 - Webhook-triggered sync (GitHub/GitLab webhooks)
-- GPU-accelerated embeddings
-- sqlite-vec for approximate nearest neighbor (when scale demands it)
+- UI search bar (search via agents + MCP tools in v1)
