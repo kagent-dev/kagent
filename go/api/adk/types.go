@@ -427,18 +427,32 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// TemporalRuntimeConfig is the Temporal configuration carried in config.json.
+// It is set by the CRD translator when spec.temporal is defined on the Agent.
+type TemporalRuntimeConfig struct {
+	Enabled         bool   `json:"enabled"`
+	HostAddr        string `json:"host_addr,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
+	TaskQueue       string `json:"task_queue,omitempty"`
+	NATSAddr        string `json:"nats_addr,omitempty"`
+	WorkflowTimeout string `json:"workflow_timeout,omitempty"` // duration string, e.g. "48h"
+	LLMMaxAttempts  int    `json:"llm_max_attempts,omitempty"`
+	ToolMaxAttempts int    `json:"tool_max_attempts,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-	ExecuteCode   *bool                 `json:"execute_code,omitempty"`
-	Stream        *bool                 `json:"stream,omitempty"`
-	Memory        *MemoryConfig         `json:"memory,omitempty"`
-	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Model         Model                  `json:"model"`
+	Description   string                 `json:"description"`
+	Instruction   string                 `json:"instruction"`
+	HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+	SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+	RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+	ExecuteCode   *bool                  `json:"execute_code,omitempty"`
+	Stream        *bool                  `json:"stream,omitempty"`
+	Memory        *MemoryConfig          `json:"memory,omitempty"`
+	ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
+	Temporal      *TemporalRuntimeConfig `json:"temporal,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -459,16 +473,17 @@ func (a *AgentConfig) GetExecuteCode() bool {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage       `json:"model"`
-		Description   string                `json:"description"`
-		Instruction   string                `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-		SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-		ExecuteCode   *bool                 `json:"execute_code,omitempty"`
-		Stream        *bool                 `json:"stream,omitempty"`
-		Memory        json.RawMessage       `json:"memory"`
-		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Model         json.RawMessage        `json:"model"`
+		Description   string                 `json:"description"`
+		Instruction   string                 `json:"instruction"`
+		HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+		SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+		RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+		ExecuteCode   *bool                  `json:"execute_code,omitempty"`
+		Stream        *bool                  `json:"stream,omitempty"`
+		Memory        json.RawMessage        `json:"memory"`
+		ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
+		Temporal      *TemporalRuntimeConfig `json:"temporal,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +512,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.Temporal = tmp.Temporal
 	return nil
 }
 

@@ -83,6 +83,11 @@ func (c *Client) WaitForResult(ctx context.Context, workflowID string) (*Executi
 	return &result, nil
 }
 
+// Temporal returns the underlying Temporal SDK client for worker creation.
+func (c *Client) Temporal() client.Client {
+	return c.temporal
+}
+
 // Close closes the underlying Temporal client connection.
 func (c *Client) Close() {
 	c.temporal.Close()

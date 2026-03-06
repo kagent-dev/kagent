@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
+
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
@@ -17,6 +19,8 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/adk/pkg/streaming"
+	temporalpkg "github.com/kagent-dev/kagent/go/adk/pkg/temporal"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/adk/server/adka2a"
@@ -124,15 +128,7 @@ func main() {
 
 	ctx := logr.NewContext(context.Background(), logger)
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName)
-	if err != nil {
-		logger.Error(err, "Failed to create Google ADK Runner config")
-		os.Exit(1)
-	}
-
 	stream := agentConfig.GetStream()
-	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
-	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
 
 	// Build the agent card.
 	if agentCard == nil {
@@ -147,27 +143,115 @@ func main() {
 		StateTransitionHistory: true,
 	}
 
-	// Delegate server, task store, and remaining infrastructure to app.New.
-	// Passing HTTPClient prevents app.New from creating a second token service.
-	kagentApp, err := app.New(app.AppConfig{
-		AgentCard:       *agentCard,
-		Host:            *host,
-		Port:            port,
-		KAgentURL:       kagentURL,
-		AppName:         appName,
-		ShutdownTimeout: 5 * time.Second,
-		Logger:          logger,
-		HTTPClient:      httpClient,
-		Agent:           runnerConfig.Agent,
-	}, executor)
-	if err != nil {
-		logger.Error(err, "Failed to create app")
-		os.Exit(1)
-	}
+	// Determine executor: Temporal workflow or synchronous ADK.
+	temporalEnabled := agentConfig.Temporal != nil && agentConfig.Temporal.Enabled
 
-	if err := kagentApp.Run(); err != nil {
-		logger.Error(err, "Server error")
-		os.Exit(1)
+	if temporalEnabled {
+		temporalConfig := temporalpkg.FromRuntimeConfig(agentConfig.Temporal)
+		logger.Info("Temporal execution enabled",
+			"hostAddr", temporalConfig.HostAddr,
+			"namespace", temporalConfig.Namespace,
+			"taskQueue", temporalConfig.TaskQueue,
+			"natsAddr", temporalConfig.NATSAddr)
+
+		// Serialize agent config for workflow input.
+		configJSON, err := json.Marshal(agentConfig)
+		if err != nil {
+			logger.Error(err, "Failed to marshal agent config for Temporal")
+			os.Exit(1)
+		}
+
+		// Connect to NATS.
+		natsConn, err := streaming.NewNATSConnection(temporalConfig.NATSAddr)
+		if err != nil {
+			logger.Error(err, "Failed to connect to NATS", "addr", temporalConfig.NATSAddr)
+			os.Exit(1)
+		}
+		logger.Info("Connected to NATS", "addr", temporalConfig.NATSAddr)
+
+		// Create Temporal client.
+		temporalClient, err := temporalpkg.NewClient(temporalpkg.ClientConfig{
+			TemporalAddr: temporalConfig.HostAddr,
+			Namespace:    temporalConfig.Namespace,
+		})
+		if err != nil {
+			natsConn.Close()
+			logger.Error(err, "Failed to create Temporal client", "addr", temporalConfig.HostAddr)
+			os.Exit(1)
+		}
+		logger.Info("Connected to Temporal", "addr", temporalConfig.HostAddr)
+
+		// Create activities and worker.
+		activities := temporalpkg.NewActivities(sessionService, nil, natsConn, nil, nil)
+		taskQueue := temporalConfig.TaskQueue
+		if taskQueue == "" {
+			taskQueue = temporalpkg.TaskQueueForAgent(appName)
+		}
+		temporalWorker, err := temporalpkg.NewWorker(temporalClient.Temporal(), taskQueue, activities)
+		if err != nil {
+			temporalClient.Close()
+			natsConn.Close()
+			logger.Error(err, "Failed to create Temporal worker")
+			os.Exit(1)
+		}
+
+		executor := a2a.NewTemporalExecutor(temporalClient, temporalConfig, natsConn, appName, configJSON, logger)
+
+		// Create app with temporal executor.
+		kagentApp, err := app.New(app.AppConfig{
+			AgentCard:       *agentCard,
+			Host:            *host,
+			Port:            port,
+			KAgentURL:       kagentURL,
+			AppName:         appName,
+			ShutdownTimeout: 5 * time.Second,
+			Logger:          logger,
+			HTTPClient:      httpClient,
+		}, a2a.WrapExecutorQueue(executor))
+		if err != nil {
+			temporalClient.Close()
+			natsConn.Close()
+			logger.Error(err, "Failed to create app")
+			os.Exit(1)
+		}
+
+		kagentApp.SetTemporalInfra(temporalClient, temporalWorker, natsConn)
+
+		if err := kagentApp.Run(); err != nil {
+			logger.Error(err, "Server error")
+			os.Exit(1)
+		}
+	} else {
+		// Synchronous execution path (unchanged).
+		runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName)
+		if err != nil {
+			logger.Error(err, "Failed to create Google ADK Runner config")
+			os.Exit(1)
+		}
+
+		execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
+		executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
+
+		kagentApp, err := app.New(app.AppConfig{
+			AgentCard:       *agentCard,
+			Host:            *host,
+			Port:            port,
+			KAgentURL:       kagentURL,
+			AppName:         appName,
+			ShutdownTimeout: 5 * time.Second,
+			Logger:          logger,
+			HTTPClient:      httpClient,
+			Agent:           runnerConfig.Agent,
+		}, executor)
+		if err != nil {
+			logger.Error(err, "Failed to create app")
+			os.Exit(1)
+		}
+
+		if err := kagentApp.Run(); err != nil {
+			logger.Error(err, "Server error")
+			os.Exit(1)
+		}
 	}
 }
 

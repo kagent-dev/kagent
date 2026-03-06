@@ -16,7 +16,10 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	temporalpkg "github.com/kagent-dev/kagent/go/adk/pkg/temporal"
 	"github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	"github.com/nats-io/nats.go"
+	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	adkagent "google.golang.org/adk/agent"
@@ -77,6 +80,11 @@ type KAgentApp struct {
 	tokenService   *auth.KAgentTokenService
 	sessionService session.SessionService
 	logger         logr.Logger
+
+	// Temporal infrastructure (nil when temporal is not enabled).
+	temporalClient *temporalpkg.Client
+	temporalWorker worker.Worker
+	natsConn       *nats.Conn
 }
 
 // New creates a KAgentApp by wiring the provided executor with kagent
@@ -144,9 +152,26 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	return app, nil
 }
 
-// Run starts the A2A server and blocks until a shutdown signal is received.
+// SetTemporalInfra sets Temporal infrastructure components for lifecycle management.
+// The app will start the worker alongside the A2A server and shut everything down gracefully.
+func (a *KAgentApp) SetTemporalInfra(client *temporalpkg.Client, w worker.Worker, natsConn *nats.Conn) {
+	a.temporalClient = client
+	a.temporalWorker = w
+	a.natsConn = natsConn
+}
+
+// Run starts the A2A server (and Temporal worker if configured) and blocks
+// until a shutdown signal is received.
 func (a *KAgentApp) Run() error {
 	defer a.stop()
+
+	if a.temporalWorker != nil {
+		a.logger.Info("Starting Temporal worker")
+		if err := a.temporalWorker.Start(); err != nil {
+			return fmt.Errorf("failed to start temporal worker: %w", err)
+		}
+	}
+
 	return a.server.Run()
 }
 
@@ -161,8 +186,20 @@ func (a *KAgentApp) Logger() logr.Logger {
 	return a.logger
 }
 
-// stop cleans up resources.
+// stop cleans up resources in the correct order: worker -> NATS -> Temporal client -> token service.
 func (a *KAgentApp) stop() {
+	if a.temporalWorker != nil {
+		a.logger.Info("Stopping Temporal worker")
+		a.temporalWorker.Stop()
+	}
+	if a.natsConn != nil {
+		a.logger.Info("Closing NATS connection")
+		a.natsConn.Close()
+	}
+	if a.temporalClient != nil {
+		a.logger.Info("Closing Temporal client")
+		a.temporalClient.Close()
+	}
 	if a.tokenService != nil {
 		a.tokenService.Stop()
 	}

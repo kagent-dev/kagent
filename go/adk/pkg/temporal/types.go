@@ -1,6 +1,10 @@
 package temporal
 
-import "time"
+import (
+	"time"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
+)
 
 // ExecutionRequest is the input to AgentExecutionWorkflow.
 type ExecutionRequest struct {
@@ -160,6 +164,40 @@ func TaskQueueForAgent(agentName string) string {
 
 // ApprovalSignalName is the Temporal signal channel name for HITL approvals.
 const ApprovalSignalName = "approval"
+
+// FromRuntimeConfig converts a TemporalRuntimeConfig (from config.json) to
+// a TemporalConfig (used at runtime by the workflow/worker infrastructure).
+func FromRuntimeConfig(rc *adk.TemporalRuntimeConfig) TemporalConfig {
+	cfg := DefaultTemporalConfig()
+	if rc == nil {
+		return cfg
+	}
+	cfg.Enabled = rc.Enabled
+	if rc.HostAddr != "" {
+		cfg.HostAddr = rc.HostAddr
+	}
+	if rc.Namespace != "" {
+		cfg.Namespace = rc.Namespace
+	}
+	if rc.TaskQueue != "" {
+		cfg.TaskQueue = rc.TaskQueue
+	}
+	if rc.NATSAddr != "" {
+		cfg.NATSAddr = rc.NATSAddr
+	}
+	if rc.WorkflowTimeout != "" {
+		if d, err := time.ParseDuration(rc.WorkflowTimeout); err == nil {
+			cfg.WorkflowTimeout = d
+		}
+	}
+	if rc.LLMMaxAttempts > 0 {
+		cfg.LLMMaxAttempts = rc.LLMMaxAttempts
+	}
+	if rc.ToolMaxAttempts > 0 {
+		cfg.ToolMaxAttempts = rc.ToolMaxAttempts
+	}
+	return cfg
+}
 
 // WorkflowIDForSession returns a deterministic workflow ID for a session.
 func WorkflowIDForSession(agentName, sessionID string) string {
