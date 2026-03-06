@@ -16,6 +16,9 @@ import {
   Building2,
   Network,
   Puzzle,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -102,14 +105,28 @@ export function AppSidebarNav() {
   const pathname = usePathname();
   const [plugins, setPlugins] = useState<PluginNav[]>([]);
   const [badges, setBadges] = useState<Record<string, PluginBadge>>({});
+  const [pluginsLoading, setPluginsLoading] = useState(true);
+  const [pluginsError, setPluginsError] = useState<string | null>(null);
+  const [fetchKey, setFetchKey] = useState(0);
 
-  // Fetch plugins on mount
+  // Fetch plugins on mount (and on retry)
   useEffect(() => {
+    setPluginsLoading(true);
+    setPluginsError(null);
     fetch("/api/plugins")
-      .then((r) => r.json())
-      .then((res) => setPlugins(res.data ?? []))
-      .catch(() => {});
-  }, []);
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((res) => {
+        setPlugins(res.data ?? []);
+        setPluginsLoading(false);
+      })
+      .catch((err) => {
+        setPluginsError(err.message || "Failed to load plugins");
+        setPluginsLoading(false);
+      });
+  }, [fetchKey]);
 
   // Listen for badge updates from plugin iframes
   useEffect(() => {
@@ -188,6 +205,27 @@ export function AppSidebarNav() {
           </SidebarGroup>
         );
       })}
+      {pluginsLoading && (
+        <div data-testid="plugins-loading" className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span>Loading plugins…</span>
+        </div>
+      )}
+      {pluginsError && (
+        <div data-testid="plugins-error" className="flex items-center gap-2 px-4 py-2 text-xs text-destructive">
+          <AlertCircle className="h-3 w-3" />
+          <span>Plugins failed</span>
+          <button
+            data-testid="plugins-retry"
+            onClick={() => setFetchKey((k) => k + 1)}
+            className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-muted"
+            aria-label="Retry loading plugins"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+        </div>
+      )}
     </>
   );
 }
