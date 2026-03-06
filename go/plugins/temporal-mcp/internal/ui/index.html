@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temporal Workflows</title>
+<style>
+  :root {
+    --background: #020817;
+    --foreground: #e2e8f0;
+    --card: #020b1d;
+    --card-foreground: #e2e8f0;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #0f172a;
+    --secondary-foreground: #cbd5e1;
+    --muted: #0f172a;
+    --muted-foreground: #94a3b8;
+    --border: #1e293b;
+    --input: #223248;
+    --ring: #7c3aed;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.28);
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+  }
+
+  html.light {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #f8fafc;
+    --card-foreground: #0f172a;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #475569;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #7c3aed;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px; height: 56px;
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  header h1 { font-size: 1rem; font-weight: 600; }
+
+  .header-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success); flex-shrink: 0;
+  }
+  .header-dot.offline {
+    background: var(--warning);
+    animation: pulse-amber 2s ease-in-out infinite;
+  }
+  @keyframes pulse-amber {
+    0%,100% { opacity:1; } 50% { opacity:0.4; }
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 600; min-width: 20px; height: 20px;
+    padding: 0 6px; border-radius: 10px;
+    background: var(--primary); color: var(--primary-foreground);
+  }
+
+  #status {
+    margin-left: auto; font-size: 0.75rem;
+    color: var(--muted-foreground);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .filters {
+    display: flex; gap: 4px; padding: 12px 16px 0;
+  }
+  .filter-btn {
+    padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--secondary); color: var(--secondary-foreground);
+    font-size: 0.8rem; cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--primary); }
+  .filter-btn.active {
+    background: var(--primary); color: var(--primary-foreground);
+    border-color: var(--primary);
+  }
+
+  .table-wrap {
+    padding: 12px 16px; overflow-x: auto;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+  }
+  th {
+    text-align: left; padding: 8px 12px;
+    color: var(--muted-foreground); font-weight: 500;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: var(--secondary); }
+  tr.expanded { background: var(--secondary); }
+
+  .status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 500; text-transform: capitalize;
+  }
+  .status-running { background: rgba(59,130,246,0.15); color: var(--info); }
+  .status-completed { background: rgba(34,197,94,0.15); color: var(--success); }
+  .status-failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+  .status-canceled { background: rgba(245,158,11,0.15); color: var(--warning); }
+  .status-terminated { background: rgba(239,68,68,0.15); color: var(--danger); }
+  .status-timed_out { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+  .detail-row td { padding: 0; }
+  .detail-panel {
+    padding: 16px 24px; background: var(--card);
+    border-bottom: 2px solid var(--border);
+  }
+  .detail-panel h3 {
+    font-size: 0.85rem; font-weight: 600; margin-bottom: 8px;
+    color: var(--muted-foreground);
+  }
+  .activity-list {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .activity-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 8px;
+    background: var(--secondary); font-size: 0.8rem;
+  }
+  .activity-name { font-weight: 500; flex: 1; }
+  .activity-duration { color: var(--muted-foreground); }
+  .activity-attempt { color: var(--muted-foreground); font-size: 0.75rem; }
+  .activity-error {
+    color: var(--danger); font-size: 0.75rem;
+    margin-top: 2px; word-break: break-word;
+  }
+
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+    font-size: 0.8rem; cursor: pointer; transition: all 0.15s;
+    background: var(--secondary); color: var(--secondary-foreground);
+  }
+  .btn:hover { border-color: var(--primary); }
+  .btn-danger { background: rgba(239,68,68,0.15); color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover { background: rgba(239,68,68,0.25); }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+  .btn-primary:hover { background: var(--primary-hover); }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--muted-foreground);
+  }
+  .empty-state svg { width: 48px; height: 48px; opacity: 0.4; margin-bottom: 12px; }
+  .empty-state p { font-size: 0.9rem; }
+
+  .error-banner {
+    margin: 12px 16px; padding: 12px 16px; border-radius: var(--radius);
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    color: var(--danger); font-size: 0.85rem; display: none;
+  }
+
+  /* Signal modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px; width: 400px; max-width: 90vw;
+  }
+  .modal h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+  .modal label { display: block; font-size: 0.8rem; margin-bottom: 4px; color: var(--muted-foreground); }
+  .modal input, .modal textarea {
+    width: 100%; padding: 8px 12px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--input);
+    color: var(--foreground); font-size: 0.85rem; margin-bottom: 12px;
+    font-family: inherit;
+  }
+  .modal textarea { min-height: 80px; resize: vertical; font-family: monospace; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  .wf-id { font-family: monospace; font-size: 0.8rem; }
+  .truncate { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="header-dot" id="connDot"></div>
+    <h1>Temporal Workflows</h1>
+    <span class="badge" id="runningBadge" style="display:none">0</span>
+    <div id="status">Connecting&hellip;</div>
+  </header>
+
+  <div class="error-banner" id="errorBanner"></div>
+
+  <div class="filters">
+    <button class="filter-btn active" data-filter="">All</button>
+    <button class="filter-btn" data-filter="Running">Running</button>
+    <button class="filter-btn" data-filter="Completed">Completed</button>
+    <button class="filter-btn" data-filter="Failed">Failed</button>
+    <button class="filter-btn" data-filter="Canceled">Canceled</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Workflow ID</th>
+          <th>Status</th>
+          <th>Start Time</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody id="workflowBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <p>No workflows found</p>
+    </div>
+  </div>
+
+  <!-- Signal modal -->
+  <div class="modal-overlay" id="signalModal">
+    <div class="modal">
+      <h2>Send Signal</h2>
+      <input type="hidden" id="signalWorkflowId">
+      <label>Signal Name</label>
+      <input type="text" id="signalName" placeholder="e.g. approve">
+      <label>Data (JSON)</label>
+      <textarea id="signalData" placeholder='{"key": "value"}'></textarea>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeSignalModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="sendSignal()">Send Signal</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  var workflows = [];
+  var activeFilter = '';
+  var expandedId = null;
+  var detailCache = {};
+  var connected = false;
+  var es = null;
+
+  var body = document.getElementById('workflowBody');
+  var emptyEl = document.getElementById('emptyState');
+  var connDot = document.getElementById('connDot');
+  var statusEl = document.getElementById('status');
+  var badgeEl = document.getElementById('runningBadge');
+  var errorBanner = document.getElementById('errorBanner');
+
+  // --- Theme bridge ---
+  if (window.kagent && window.kagent.onContext) {
+    window.kagent.onContext(function(ctx) {
+      document.documentElement.className = ctx.theme === 'light' ? 'light' : '';
+    });
+  }
+
+  // --- Filters ---
+  document.querySelectorAll('.filter-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      activeFilter = btn.dataset.filter;
+      render();
+    });
+  });
+
+  // --- SSE ---
+  function connectSSE() {
+    if (es) { es.close(); }
+    es = new EventSource('events');
+
+    es.addEventListener('snapshot', function(e) {
+      setConnected(true);
+      hideError();
+      try {
+        var d = JSON.parse(e.data);
+        if (d.data && d.data.workflows) {
+          workflows = d.data.workflows || [];
+        } else if (d.workflows) {
+          workflows = d.workflows || [];
+        }
+      } catch(err) { /* ignore */ }
+      render();
+    });
+
+    es.addEventListener('message', function(e) {
+      try {
+        var d = JSON.parse(e.data);
+        if (d.type === 'workflow_update' && d.data && d.data.workflows) {
+          workflows = d.data.workflows || [];
+          render();
+        }
+      } catch(err) { /* ignore */ }
+    });
+
+    es.onerror = function() {
+      setConnected(false);
+      setTimeout(connectSSE, 3000);
+    };
+  }
+
+  function setConnected(v) {
+    connected = v;
+    connDot.className = 'header-dot' + (v ? '' : ' offline');
+    statusEl.textContent = v ? 'Connected' : 'Reconnecting\u2026';
+  }
+
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    errorBanner.style.display = 'block';
+  }
+
+  function hideError() {
+    errorBanner.style.display = 'none';
+  }
+
+  // --- Render ---
+  function render() {
+    var filtered = workflows;
+    if (activeFilter) {
+      filtered = workflows.filter(function(w) { return w.Status === activeFilter; });
+    }
+
+    // Update badge
+    var running = workflows.filter(function(w) { return w.Status === 'Running'; }).length;
+    if (running > 0) {
+      badgeEl.textContent = running;
+      badgeEl.style.display = '';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+
+    // Bridge badge
+    if (window.kagent && window.kagent.setBadge) {
+      window.kagent.setBadge(running);
+    }
+
+    if (filtered.length === 0) {
+      body.innerHTML = '';
+      emptyEl.style.display = '';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+      var w = filtered[i];
+      var isExpanded = expandedId === w.WorkflowID;
+      var dur = formatDuration(w.StartTime, w.CloseTime);
+      var startStr = formatTime(w.StartTime);
+
+      html += '<tr class="clickable' + (isExpanded ? ' expanded' : '') + '" data-wfid="' + esc(w.WorkflowID) + '">';
+      html += '<td>' + esc(w.AgentName || '-') + '</td>';
+      html += '<td><span class="wf-id truncate" title="' + esc(w.WorkflowID) + '">' + esc(w.WorkflowID) + '</span></td>';
+      html += '<td><span class="status-badge status-' + esc((w.Status || '').toLowerCase()) + '">' + esc(w.Status) + '</span></td>';
+      html += '<td>' + startStr + '</td>';
+      html += '<td>' + dur + '</td>';
+      html += '</tr>';
+
+      if (isExpanded) {
+        html += '<tr class="detail-row"><td colspan="5"><div class="detail-panel" id="detail-' + esc(w.WorkflowID) + '">';
+        html += renderDetail(w);
+        html += '</div></td></tr>';
+      }
+    }
+    body.innerHTML = html;
+
+    // Row click handlers
+    body.querySelectorAll('tr.clickable').forEach(function(row) {
+      row.addEventListener('click', function() {
+        var wfid = row.dataset.wfid;
+        if (expandedId === wfid) {
+          expandedId = null;
+          render();
+        } else {
+          expandedId = wfid;
+          render();
+          fetchDetail(wfid);
+        }
+      });
+    });
+  }
+
+  function renderDetail(w) {
+    var detail = detailCache[w.WorkflowID];
+    var html = '';
+
+    if (detail && detail.Activities && detail.Activities.length > 0) {
+      html += '<h3>Activities</h3><div class="activity-list">';
+      for (var j = 0; j < detail.Activities.length; j++) {
+        var a = detail.Activities[j];
+        html += '<div class="activity-item">';
+        html += '<span class="status-badge status-' + esc((a.Status || '').toLowerCase()) + '">' + esc(a.Status) + '</span>';
+        html += '<span class="activity-name">' + esc(a.Name) + '</span>';
+        if (a.Duration) html += '<span class="activity-duration">' + esc(a.Duration) + '</span>';
+        if (a.Attempt > 1) html += '<span class="activity-attempt">attempt ' + a.Attempt + '</span>';
+        html += '</div>';
+        if (a.Error) html += '<div class="activity-error">' + esc(a.Error) + '</div>';
+      }
+      html += '</div>';
+    } else if (detail) {
+      html += '<h3>Activities</h3><p style="color:var(--muted-foreground);font-size:0.85rem;">No activities recorded.</p>';
+    } else {
+      html += '<p style="color:var(--muted-foreground);font-size:0.85rem;">Loading details&hellip;</p>';
+    }
+
+    html += '<div class="actions">';
+    if (w.Status === 'Running') {
+      html += '<button class="btn btn-danger" onclick="event.stopPropagation();cancelWorkflow(\'' + esc(w.WorkflowID) + '\')">Cancel</button>';
+      html += '<button class="btn" onclick="event.stopPropagation();openSignalModal(\'' + esc(w.WorkflowID) + '\')">Signal</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function fetchDetail(wfid) {
+    fetch('api/workflows/' + encodeURIComponent(wfid))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.data) { detailCache[wfid] = d.data; }
+        if (expandedId === wfid) render();
+      })
+      .catch(function() { /* ignore */ });
+  }
+
+  // --- Actions ---
+  window.cancelWorkflow = function(wfid) {
+    if (!confirm('Cancel workflow ' + wfid + '?')) return;
+    fetch('api/workflows/' + encodeURIComponent(wfid) + '/cancel', { method: 'POST' })
+      .then(function(r) { if (!r.ok) throw new Error('Cancel failed'); })
+      .catch(function(err) { showError(err.message); });
+  };
+
+  window.openSignalModal = function(wfid) {
+    document.getElementById('signalWorkflowId').value = wfid;
+    document.getElementById('signalName').value = '';
+    document.getElementById('signalData').value = '';
+    document.getElementById('signalModal').classList.add('open');
+  };
+
+  window.closeSignalModal = function() {
+    document.getElementById('signalModal').classList.remove('open');
+  };
+
+  window.sendSignal = function() {
+    var wfid = document.getElementById('signalWorkflowId').value;
+    var name = document.getElementById('signalName').value.trim();
+    var dataStr = document.getElementById('signalData').value.trim();
+    if (!name) { alert('Signal name is required'); return; }
+
+    var payload = { signal_name: name };
+    if (dataStr) {
+      try { payload.data = JSON.parse(dataStr); }
+      catch(e) { alert('Invalid JSON data'); return; }
+    }
+
+    fetch('api/workflows/' + encodeURIComponent(wfid) + '/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { if (!r.ok) throw new Error('Signal failed'); closeSignalModal(); })
+    .catch(function(err) { showError(err.message); });
+  };
+
+  // --- Helpers ---
+  function esc(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(s));
+    return d.innerHTML;
+  }
+
+  function formatTime(iso) {
+    if (!iso) return '-';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    } catch(e) { return iso; }
+  }
+
+  function formatDuration(start, end) {
+    if (!start) return '-';
+    var s = new Date(start).getTime();
+    var e = end ? new Date(end).getTime() : Date.now();
+    var ms = e - s;
+    if (ms < 0) return '-';
+    var secs = Math.floor(ms / 1000);
+    if (secs < 60) return secs + 's';
+    var mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + 'm ' + (secs % 60) + 's';
+    var hrs = Math.floor(mins / 60);
+    return hrs + 'h ' + (mins % 60) + 'm';
+  }
+
+  // --- Init ---
+  connectSSE();
+})();
+</script>
+</body>
+</html>
