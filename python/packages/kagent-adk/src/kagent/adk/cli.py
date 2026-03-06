@@ -15,7 +15,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
-from .tools import add_skills_tool_to_agent
+from .tools import add_session_tool, add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -74,7 +74,7 @@ def static(
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
-
+        add_session_tool(root_agent)
         maybe_add_skills(root_agent)
 
         return root_agent
@@ -149,6 +149,7 @@ def run(
         if sts_integration:
             add_to_agent(sts_integration, root_agent)
 
+        add_session_tool(root_agent)
         maybe_add_skills(root_agent)
 
         return root_agent
@@ -213,6 +214,7 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+        add_session_tool(root_agent)
         maybe_add_skills(root_agent)
         return root_agent
 
