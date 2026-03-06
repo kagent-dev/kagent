@@ -102,7 +102,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 }
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
-// This is exported to allow reuse of model creation logic (e.g., for compaction).
+// This is exported to allow reuse of model creation logic (e.g., for memory summarization).
 func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM, error) {
 	switch m := m.(type) {
 	case *adk.OpenAI:

@@ -693,20 +693,9 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.Agent) string
 	}
 
 	// Memory: ✅ Supported in Go as of PR #1444
-	// Context compression: ✅ Supported in Go as of PR #1444
-
-	// Check for unsupported context compression fields
+	// Context compression: Not yet implemented in Go runtime
 	if agent.Spec.Declarative.Context != nil && agent.Spec.Declarative.Context.Compaction != nil {
-		comp := agent.Spec.Declarative.Context.Compaction
-		if comp.TokenThreshold != nil {
-			unsupported = append(unsupported, "context.compaction.tokenThreshold (not implemented in Go runtime)")
-		}
-		if comp.EventRetentionSize != nil {
-			unsupported = append(unsupported, "context.compaction.eventRetentionSize (not implemented in Go runtime)")
-		}
-		if comp.Summarizer != nil && comp.Summarizer.ModelConfig != nil {
-			unsupported = append(unsupported, "context.compaction.summarizer.modelConfig (not implemented in Go runtime)")
-		}
+		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
 	}
 
 	if len(unsupported) == 0 {

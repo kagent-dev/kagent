@@ -6,9 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
-	"github.com/kagent-dev/kagent/go/adk/pkg/compaction"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -37,42 +35,6 @@ func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessi
 		adkSessionService = session.NewSessionServiceAdapter(sessionService)
 	} else {
 		adkSessionService = adksession.InMemoryService()
-	}
-
-	// Wrap session service with compaction if context compression is configured
-	if agentConfig.ContextConfig != nil && agentConfig.ContextConfig.Compaction != nil {
-		compactionConfig := compaction.Config{
-			Enabled:            true,
-			CompactionInterval: 5, // Default
-			OverlapSize:        2, // Default
-		}
-
-		if agentConfig.ContextConfig.Compaction.CompactionInterval != nil {
-			compactionConfig.CompactionInterval = *agentConfig.ContextConfig.Compaction.CompactionInterval
-		}
-		if agentConfig.ContextConfig.Compaction.OverlapSize != nil {
-			compactionConfig.OverlapSize = *agentConfig.ContextConfig.Compaction.OverlapSize
-		}
-		if agentConfig.ContextConfig.Compaction.PromptTemplate != "" {
-			compactionConfig.SystemPrompt = agentConfig.ContextConfig.Compaction.PromptTemplate
-		}
-
-		// Get LLM model for compaction (re-use agent's model)
-		log := logr.FromContextOrDiscard(ctx)
-		llmModel, err := agent.CreateLLM(ctx, agentConfig.Model, log)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create LLM for compaction: %w", err)
-		}
-
-		compactingService, err := compaction.NewCompactingSessionService(
-			adkSessionService,
-			compactionConfig,
-			llmModel,
-		)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create compacting session service: %w", err)
-		}
-		adkSessionService = compactingService
 	}
 
 	// Create memory service if memory is configured

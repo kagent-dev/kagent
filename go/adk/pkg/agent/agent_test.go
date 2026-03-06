@@ -318,14 +318,6 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 						BaseUrl:  "https://api.openai.com/v1",
 					},
 				},
-				ContextConfig: &adk.AgentContextConfig{
-					Compaction: &adk.AgentCompressionConfig{
-						CompactionInterval: intPtr(5),
-						OverlapSize:        intPtr(2),
-						TokenThreshold:     intPtr(10000),
-						EventRetentionSize: intPtr(50),
-					},
-				},
 			},
 			expectMemoryTools: true,
 		},
@@ -378,13 +370,6 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 			}
 			if !tt.expectMemoryTools && tt.config.Memory != nil {
 				t.Error("expected no memory config but got one")
-			}
-
-			// Verify context config field exists when set
-			if tt.config.ContextConfig != nil {
-				if tt.config.ContextConfig.Compaction == nil {
-					t.Error("context config set but compaction is nil")
-				}
 			}
 
 			// Verify stream field handling
