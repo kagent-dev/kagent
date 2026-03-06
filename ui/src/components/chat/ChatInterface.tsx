@@ -449,6 +449,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
           return "";
         });
+        // Safety net: reset chatStatus to "ready" if still in a transient working state.
+        setChatStatus(prev => {
+          if (prev === "thinking" || prev === "working" || prev === "submitted" ||
+              prev === "generating_response" || prev === "processing_tools") {
+            return "ready";
+          }
+          return prev;
+        });
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") {

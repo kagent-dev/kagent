@@ -40,7 +40,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.1
 	sigs.k8s.io/yaml v1.6.0
 	trpc.group/trpc-go/trpc-a2a-go v0.2.5
-	turso.tech/database/tursogo v0.5.0-pre.13
+	turso.tech/database/tursogo v0.5.0
 )
 
 require (
@@ -144,7 +144,7 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/tursodatabase/turso-go-platform-libs v0.5.0-pre.13 // indirect
+	github.com/tursodatabase/turso-go-platform-libs v0.5.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect

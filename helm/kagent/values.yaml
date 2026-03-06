@@ -83,7 +83,7 @@ controller:
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
   streaming: # Streaming buffer size for A2A communication
-    maxBufSize: 1Mi # 1024 * 1024
+    maxBufSize: 10Mi # Must be large enough for base64-encoded image payloads (typically 4-7MB)
     initialBufSize: 4Ki # 4 * 1024
     timeout: 600s # 600 seconds
   # -- Namespaces the controller should watch.

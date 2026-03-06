@@ -107,7 +107,7 @@ type Config struct {
 		CertKey  string
 	}
 	Streaming struct {
-		MaxBufSize     resource.QuantityValue `default:"1Mi"`
+		MaxBufSize     resource.QuantityValue `default:"10Mi"`
 		InitialBufSize resource.QuantityValue `default:"4Ki"`
 		Timeout        time.Duration          `default:"60s"`
 	}
