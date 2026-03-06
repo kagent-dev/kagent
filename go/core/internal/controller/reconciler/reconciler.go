@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -26,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/provider"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	mcputil "github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -784,7 +784,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
 
-	tsp, err := a.createMcpTransport(ctx, remoteMcpServer)
+	tsp, err := mcputil.CreateMCPTransport(ctx, a.kube, remoteMcpServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
@@ -807,59 +807,6 @@ func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
 		return true
 	}
 	return slices.Contains(a.watchedNamespaces, namespace)
-}
-
-func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServer) (mcp.Transport, error) {
-	headers, err := s.ResolveHeaders(ctx, a.kube)
-	if err != nil {
-		return nil, err
-	}
-
-	httpClient := newHTTPClient(headers)
-
-	switch s.Spec.Protocol {
-	case v1alpha2.RemoteMCPServerProtocolSse:
-		return &mcp.SSEClientTransport{
-			Endpoint:   s.Spec.URL,
-			HTTPClient: httpClient,
-		}, nil
-	default:
-		return &mcp.StreamableClientTransport{
-			Endpoint:   s.Spec.URL,
-			HTTPClient: httpClient,
-		}, nil
-	}
-}
-
-// go-sdk does not have a WithHeaders option when initializing transport
-// so we need to create a custom HTTP client that adds headers to all requests.
-func newHTTPClient(headers map[string]string) *http.Client {
-	if len(headers) == 0 {
-		return http.DefaultClient
-	}
-	return &http.Client{
-		Transport: &headerTransport{
-			headers: headers,
-			base:    http.DefaultTransport,
-		},
-	}
-}
-
-// headerTransport is an http.RoundTripper that adds custom headers to requests.
-type headerTransport struct {
-	headers map[string]string
-	base    http.RoundTripper
-}
-
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	for k, v := range t.headers {
-		req.Header.Set(k, v)
-	}
-	if t.base == nil {
-		t.base = http.DefaultTransport
-	}
-	return t.base.RoundTrip(req)
 }
 
 func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
