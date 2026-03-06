@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><title>Mock Plugin</title></head>
+<body>
+  <div data-testid="mock-plugin-content">Mock Plugin Loaded</div>
+  <script>
+    window.addEventListener("message", function(e) {
+      if (e.data && e.data.type === "kagent:context") {
+        document.body.setAttribute("data-theme", e.data.payload.theme || "");
+        document.body.setAttribute("data-context-received", "true");
+      }
+    });
+    // Signal ready
+    window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+  </script>
+</body>
+</html>

@@ -504,8 +504,12 @@ PLUGIN_SECTION ?= AGENTS
 test-e2e-go: ## Run Go E2E tests
 	make -C go e2e
 
+.PHONY: test-e2e-browser
+test-e2e-browser: ## Run Cypress browser E2E tests for plugin routing
+	cd ui && npx cypress run --spec cypress/e2e/plugin-routing.cy.ts
+
 .PHONY: test-e2e-all
-test-e2e-all: test-e2e-go test-e2e-plugins ## Run all E2E tests (Go + plugin smoke)
+test-e2e-all: test-e2e-go test-e2e-plugins test-e2e-browser ## Run all E2E tests (Go + plugin smoke + browser)
 
 .PHONY: audit
 audit:

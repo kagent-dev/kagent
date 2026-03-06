@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "name": "default/test-plugin",
+      "pathPrefix": "test-plugin",
+      "displayName": "Test Plugin",
+      "icon": "puzzle",
+      "section": "AGENTS"
+    }
+  ]
+}
