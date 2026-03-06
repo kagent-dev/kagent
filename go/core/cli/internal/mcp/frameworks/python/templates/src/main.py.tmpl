@@ -14,9 +14,6 @@ Usage Examples:
   # Custom host/port
   python src/main.py --transport http --host localhost --port 8080
 
-  # Stateless HTTP mode
-  python src/main.py --transport http --stateless-http
-
   # Environment variable mode
   MCP_TRANSPORT_MODE=http python src/main.py
 """
@@ -55,18 +52,6 @@ def main() -> None:
         help="Port to bind to in HTTP mode (default: 3000)"
     )
 
-    stateless_http_default = os.getenv("MCP_STATELESS_HTTP", "false").lower() == "true"
-
-    parser.add_argument(
-        "--stateless-http",
-        action=argparse.BooleanOptionalAction,
-        default=stateless_http_default,
-        help=(
-            "Enable stateless HTTP mode (use --no-stateless-http to disable; "
-            "default is derived from MCP_STATELESS_HTTP env var)"
-        ),
-    )
-
     args = parser.parse_args()
 
     # Check environment variable for transport mode
@@ -96,8 +81,7 @@ def main() -> None:
 
         server.run(transport_mode=transport_mode,
                    host=args.host,
-                   port=args.port,
-                   stateless_http=args.stateless_http)
+                   port=args.port)
 
     except KeyboardInterrupt:
         print("\nShutting down server...")
