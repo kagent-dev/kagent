@@ -124,6 +124,27 @@ func setupMCPServer(t *testing.T, cli client.Client) *v1alpha1.MCPServer {
 		t.Fatalf("failed to create mcp server: %v", err)
 	}
 	cleanup(t, cli, mcpServer)
+
+	// Wait for MCP server to be ready before returning
+	// This prevents race conditions where agents try to connect before the server is available
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=2m", // MCP servers need time for npx to download packages
+		"mcpservers.kagent.dev",
+		mcpServer.Name,
+		"-n",
+		mcpServer.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to wait for MCP server to be ready: %v", err)
+	}
+
 	return mcpServer
 }
 
