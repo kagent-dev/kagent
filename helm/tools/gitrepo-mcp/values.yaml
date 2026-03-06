@@ -32,10 +32,25 @@ resources:
     cpu: "1"
     memory: 1Gi
 
-args: []
+args:
+  - serve
 
 volumes: []
 
 volumeMounts: []
 
-config: {}
+config:
+  GITREPO_ADDR: ":8080"
+  GITREPO_TRANSPORT: "http"
+  GITREPO_DATA_DIR: "/data"
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+cronJob:
+  enabled: false
+  schedule: "0 */6 * * *"
+  image: curlimages/curl:8.5.0

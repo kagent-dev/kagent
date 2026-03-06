@@ -1,0 +1,25 @@
+{{- if .Values.cronJob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "gitrepo-mcp.fullname" . }}-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gitrepo-mcp.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: {{ .Values.cronJob.image }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  curl -sf -X POST http://{{ include "gitrepo-mcp.fullname" . }}:{{ .Values.service.port }}/api/sync-all
+{{- end }}
