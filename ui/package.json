@@ -10,6 +10,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:e2e:cypress": "cypress run --e2e",
+    "test:e2e:git": "start-server-and-test dev http://localhost:8001 'cypress run --e2e --spec cypress/e2e/git-repos.cy.ts'",
+    "test:e2e:git:open": "start-server-and-test dev http://localhost:8001 'cypress open --e2e'",
     "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress"
   },
   "dependencies": {
