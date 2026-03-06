@@ -257,6 +257,8 @@ proxy:
 agents:
   k8s-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -266,6 +268,8 @@ agents:
         memory: 1Gi
   kgateway-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -275,6 +279,8 @@ agents:
         memory: 1Gi
   istio-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -284,6 +290,8 @@ agents:
         memory: 1Gi
   promql-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -293,6 +301,8 @@ agents:
         memory: 1Gi
   observability-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -302,6 +312,8 @@ agents:
         memory: 1Gi
   argo-rollouts-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -311,6 +323,8 @@ agents:
         memory: 1Gi
   helm-agent:
     enabled: true
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -320,6 +334,8 @@ agents:
         memory: 1Gi
   cilium-policy-agent:
     enabled: false
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -329,6 +345,8 @@ agents:
         memory: 1Gi
   cilium-manager-agent:
     enabled: false
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -338,6 +356,8 @@ agents:
         memory: 1Gi
   cilium-debug-agent:
     enabled: false
+    temporal:
+      enabled: true
     resources:
       requests:
         cpu: 100m
@@ -396,12 +416,12 @@ querydoc:
 # ==============================================================================
 
 temporal:
-  enabled: false
+  enabled: true
   server:
     image: temporalio/auto-setup:1.26.2
     host: temporal-server
     port: 7233
-    namespace: default
+    namespace: kagent
     resources:
       requests:
         cpu: 100m
@@ -412,11 +432,11 @@ temporal:
   persistence:
     driver: sqlite      # "sqlite" (dev) or "postgresql" (prod)
     postgresql:
-      host: ""
+      host: pgsql-postgresql.kagent.svc.cluster.local
       port: 5432
       database: temporal
-      user: temporal
-      password: ""
+      user: postgres
+      password: "kagent"
       existingSecret: ""
       existingSecretKey: TEMPORAL_DB_PASSWORD
   ui:

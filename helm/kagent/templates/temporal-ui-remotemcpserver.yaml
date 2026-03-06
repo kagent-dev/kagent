@@ -19,5 +19,5 @@ spec:
     pathPrefix: "temporal"
     displayName: "Temporal Workflows"
     icon: "workflow"
-    section: "TOOLS"
+    section: "PLUGINS"
 {{- end }}

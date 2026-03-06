@@ -12,5 +12,6 @@ The goal is to make MCP plugin UIs dynamically discoverable and routable:
 2. **Dynamic proxy**: Replace hardcoded nginx location blocks with a dynamic proxy mechanism that routes `/plugins/<name>/` to the plugin's service based on CRD metadata
 3. **Dynamic sidebar**: Sidebar navigation auto-discovers plugins with UIs and renders nav items dynamically
 4. **Plugin UI hosting**: Each MCP server can optionally serve its own web UI, which gets embedded under the kagent shell (sidebar + header remain visible)
+5. **Plugins status page** - UI /plugins and show there internal info on /api/plugins and status of plugin backends if they are available - healthcheck status page. Also allow enable/disable plugins
 
 This decouples plugin UI integration from the core codebase — deploying a new RemoteMCPServer CRD with UI metadata automatically makes its UI accessible.

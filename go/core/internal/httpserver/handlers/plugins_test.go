@@ -38,7 +38,7 @@ func TestHandleListPlugins_WithPlugins(t *testing.T) {
 
 	fakeClient.StorePlugin(&database.Plugin{
 		Name:        "kagent/kanban-mcp",
-		PathPrefix:  "kanban",
+		PathPrefix:  "kanban-mcp",
 		DisplayName: "Kanban Board",
 		Icon:        "kanban",
 		Section:     "AGENTS",
@@ -59,7 +59,7 @@ func TestHandleListPlugins_WithPlugins(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	require.Len(t, resp.Data, 1)
-	assert.Equal(t, "kanban", resp.Data[0].PathPrefix)
+	assert.Equal(t, "kanban-mcp", resp.Data[0].PathPrefix)
 	assert.Equal(t, "Kanban Board", resp.Data[0].DisplayName)
 	assert.Equal(t, "kanban", resp.Data[0].Icon)
 	assert.Equal(t, "AGENTS", resp.Data[0].Section)

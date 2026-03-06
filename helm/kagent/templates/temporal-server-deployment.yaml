@@ -33,25 +33,37 @@ spec:
         - name: temporal-server
           image: {{ .Values.temporal.server.image | quote }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if eq .Values.temporal.persistence.driver "sqlite" }}
+          command: ["temporal"]
+          args:
+            - "server"
+            - "start-dev"
+            - "--headless"
+            - "--ip"
+            - "0.0.0.0"
+            - "--port"
+            - {{ .Values.temporal.server.port | quote }}
+            - "--db-filename"
+            - "/temporal-data/temporal.db"
+            - "--namespace"
+            - {{ .Values.temporal.server.namespace | quote }}
+          {{- end }}
           ports:
             - name: grpc
               containerPort: {{ .Values.temporal.server.port }}
               protocol: TCP
+          {{- if eq .Values.temporal.persistence.driver "postgresql" }}
           env:
             - name: DB
-              value: {{ if eq .Values.temporal.persistence.driver "postgresql" }}postgres{{ else }}sqlite{{ end }}
+              value: postgres12
+            - name: DB_PORT
+              value: {{ .Values.temporal.persistence.postgresql.port | quote }}
+            - name: DBNAME
+              value: {{ .Values.temporal.persistence.postgresql.database | quote }}
             - name: TEMPORAL_ADDRESS
               value: "0.0.0.0:{{ .Values.temporal.server.port }}"
-            {{- if eq .Values.temporal.persistence.driver "sqlite" }}
-            - name: SQLITE_DB_PATH
-              value: /temporal-data/temporal.db
-            {{- else if eq .Values.temporal.persistence.driver "postgresql" }}
             - name: POSTGRES_SEEDS
               value: {{ .Values.temporal.persistence.postgresql.host | quote }}
-            - name: POSTGRES_PORT
-              value: {{ .Values.temporal.persistence.postgresql.port | quote }}
-            - name: POSTGRES_DB
-              value: {{ .Values.temporal.persistence.postgresql.database | quote }}
             - name: POSTGRES_USER
               value: {{ .Values.temporal.persistence.postgresql.user | quote }}
             {{- if .Values.temporal.persistence.postgresql.existingSecret }}
@@ -64,7 +76,7 @@ spec:
             - name: POSTGRES_PWD
               value: {{ .Values.temporal.persistence.postgresql.password | quote }}
             {{- end }}
-            {{- end }}
+          {{- end }}
           resources:
             {{- toYaml .Values.temporal.server.resources | nindent 12 }}
           {{- if eq .Values.temporal.persistence.driver "sqlite" }}

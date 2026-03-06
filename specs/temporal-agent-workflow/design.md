@@ -421,6 +421,7 @@ temporal:
     host: temporal-server
     port: 7233
     namespace: kagent
+    image: temporalio/auto-setup:latest
   persistence:
     driver: sqlite      # "sqlite" (dev) or "postgresql" (prod)
     postgresql:
@@ -430,6 +431,7 @@ temporal:
       user: temporal
       password: ""
       existingSecret: ""
+      existingSecretKey: ""
   ui:
     enabled: true
     port: 8080
@@ -439,6 +441,46 @@ nats:
   port: 4222
   image: nats:2-alpine
 ```
+
+**SQLite mode deployment (dev):**
+The `temporalio/auto-setup` image does NOT support SQLite via env vars. SQLite mode uses the Temporal CLI dev server directly:
+```yaml
+command: ["temporal"]
+args:
+  - "server"
+  - "start-dev"
+  - "--headless"
+  - "--ip"
+  - "0.0.0.0"
+  - "--port"
+  - "7233"
+  - "--db-filename"
+  - "/temporal-data/temporal.db"
+  - "--namespace"
+  - "kagent"
+```
+Data stored on `emptyDir` volume at `/temporal-data/`. No env vars needed — all config via CLI args.
+
+**PostgreSQL mode deployment (prod):**
+Uses `temporalio/auto-setup` with env vars:
+```yaml
+env:
+  - name: DB
+    value: postgres12
+  - name: DB_PORT
+    value: "5432"
+  - name: DBNAME
+    value: temporal
+  - name: TEMPORAL_ADDRESS
+    value: "0.0.0.0:7233"
+  - name: POSTGRES_SEEDS
+    value: <host>
+  - name: POSTGRES_USER
+    value: temporal
+  - name: POSTGRES_PWD
+    value: <password>  # or from existingSecret
+```
+Note: env var names are `DB_PORT`/`DBNAME` (not `POSTGRES_PORT`/`POSTGRES_DB`) and `DB=postgres12` (not `postgres`).
 
 ## Data Models
 
@@ -573,6 +615,7 @@ toolRetry := &temporal.RetryPolicy{
 
 - [kagent-go-execution.md](research/kagent-go-execution.md) -- Current Go ADK execution model analysis
 - [temporal-go-sdk.md](research/temporal-go-sdk.md) -- Temporal Go SDK patterns and K8s deployment
+- [temporal-sqlite-startup.md](research/temporal-sqlite-startup.md) -- SQLite startup fix: `temporalio/auto-setup` does not support SQLite via env vars; must use `temporal server start-dev` CLI
 
 ### D. Mermaid: Full Execution Sequence with Streaming
 

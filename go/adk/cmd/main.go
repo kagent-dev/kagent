@@ -148,6 +148,14 @@ func main() {
 
 	if temporalEnabled {
 		temporalConfig := temporalpkg.FromRuntimeConfig(agentConfig.Temporal)
+		// Translator keeps infra endpoints in env vars; support those as
+		// fallback so temporal-enabled agents can boot when config omits them.
+		if temporalConfig.HostAddr == "" {
+			temporalConfig.HostAddr = os.Getenv("TEMPORAL_HOST_ADDR")
+		}
+		if temporalConfig.NATSAddr == "" {
+			temporalConfig.NATSAddr = os.Getenv("NATS_ADDR")
+		}
 		logger.Info("Temporal execution enabled",
 			"hostAddr", temporalConfig.HostAddr,
 			"namespace", temporalConfig.Namespace,
@@ -222,7 +230,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		// Synchronous execution path (unchanged).
+		logger.Info("Temporal execution disabled, using synchronous execution")
 		runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName)
 		if err != nil {
 			logger.Error(err, "Failed to create Google ADK Runner config")

@@ -8,6 +8,7 @@
 | `requirements.md` | 14 Q&A pairs covering all design decisions |
 | `research/kagent-go-execution.md` | Analysis of current Go ADK execution model |
 | `research/temporal-go-sdk.md` | Temporal Go SDK patterns and K8s deployment |
+| `research/temporal-sqlite-startup.md` | SQLite startup fix: CLI dev server vs auto-setup env vars |
 | `design.md` | Full design with architecture, components, data models, acceptance criteria |
 | `plan.md` | 11-step implementation plan with checklist |
 | `summary.md` | This file |

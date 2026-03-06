@@ -243,8 +243,8 @@ func TestE2ETemporalUIPlugin(t *testing.T) {
 			return false, nil
 		}
 
-		// Just check that the proxy route exists for temporal.
-		proxyURL := baseURL + "/plugins/temporal/"
+		// Just check that the proxy route exists for temporal (Go serves proxy at /_p/, not /plugins/).
+		proxyURL := baseURL + "/_p/temporal/"
 		proxyReq, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyURL, nil)
 		if err != nil {
 			return false, nil

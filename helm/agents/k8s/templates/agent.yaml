@@ -8,6 +8,10 @@ metadata:
 spec:
   description: An Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.
   type: Declarative
+  {{- if .Values.temporal.enabled }}
+  temporal:
+    enabled: true
+  {{- end }}
   declarative:
     systemMessage: |
       # Kubernetes AI Agent System Prompt

@@ -21,6 +21,12 @@ export function getBackendUrl() {
   return "http://localhost:8083/api";
 }
 
+/** Backend root URL (no /api suffix). Use for proxy paths like /_p/{name}/ */
+export function getBackendRoot(): string {
+  const url = getBackendUrl();
+  return url.replace(/\/api\/?$/, "") || url;
+}
+
 export function getRelativeTimeString(date: string | number | Date): string {
   const now = new Date();
   const past = new Date(date);

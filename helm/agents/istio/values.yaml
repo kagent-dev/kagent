@@ -1,6 +1,9 @@
 modelConfigRef: ""
 imagePullSecrets: []
 
+temporal:
+  enabled: false
+
 
 resources:
   requests:

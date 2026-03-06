@@ -55,6 +55,19 @@ describe('Main page', () => {
 })
 
 
+describe('Plugins', () => {
+  it('plugins/kanban-mcp page loads with plugin shell and iframe', () => {
+    cy.window().then((win) => {
+      win.localStorage.setItem('kagent-onboarding', 'true');
+    });
+
+    cy.visit('/plugins/kanban-mcp');
+    // Plugin page renders with iframe that loads plugin content via /_p/kanban-mcp/
+    cy.get('iframe[title="Plugin: kanban-mcp"]', { timeout: 10000 }).should('exist');
+    cy.get('iframe[title="Plugin: kanban-mcp"]').should('have.attr', 'src').and('include', '/_p/kanban-mcp');
+  });
+});
+
 describe('Regressions', () => {
   it('model edit page should load correctly', () => {
     cy.window().then((win) => {

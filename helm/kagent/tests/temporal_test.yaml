@@ -75,7 +75,7 @@ tests:
           count: 1
         template: templates/nats-service.yaml
 
-  - it: should use SQLite by default with emptyDir volume
+  - it: should use SQLite start-dev mode by default
     set:
       temporal:
         enabled: true
@@ -88,10 +88,17 @@ tests:
               sizeLimit: 500Mi
         template: templates/temporal-server-deployment.yaml
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[0].args
           content:
-            name: DB
-            value: sqlite
+            "--db-filename"
+        template: templates/temporal-server-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content:
+            "/temporal-data/temporal.db"
+        template: templates/temporal-server-deployment.yaml
+      - isNull:
+          path: spec.template.spec.containers[0].env
         template: templates/temporal-server-deployment.yaml
 
   - it: should use PostgreSQL when configured
@@ -114,7 +121,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DB
-            value: postgres
+            value: postgres12
         template: templates/temporal-server-deployment.yaml
       - contains:
           path: spec.template.spec.containers[0].env
@@ -125,7 +132,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DB
+            name: DBNAME
             value: temporal_db
         template: templates/temporal-server-deployment.yaml
 
@@ -178,6 +185,10 @@ tests:
       - equal:
           path: spec.ui.enabled
           value: true
+        template: templates/temporal-ui-remotemcpserver.yaml
+      - equal:
+          path: spec.ui.section
+          value: "PLUGINS"
         template: templates/temporal-ui-remotemcpserver.yaml
 
   - it: should not render Temporal UI when ui.enabled is false

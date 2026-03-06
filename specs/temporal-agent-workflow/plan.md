@@ -251,10 +251,10 @@
 **Objective:** K8s-native deployment of all infrastructure via Helm.
 
 **Implementation:**
-- **Temporal server** -- Add `helm/temporal/` chart (thin wrapper or subchart dependency on `temporalio/helm-charts`)
+- **Temporal server** -- Templates in `helm/kagent/templates/temporal-*` (part of main kagent chart, not a subchart)
   - `values.yaml` with `persistence.driver` switch: `sqlite` (dev) / `postgresql` (prod)
-  - SQLite: single-replica, emptyDir volume
-  - PostgreSQL: configurable host/port/credentials/existingSecret
+  - SQLite: uses `temporal server start-dev --headless` with CLI args (NOT env vars -- `temporalio/auto-setup` does not support SQLite via env vars); single-replica, emptyDir volume at `/temporal-data/`
+  - PostgreSQL: uses `temporalio/auto-setup` with env vars (`DB=postgres12`, `DB_PORT`, `DBNAME`, `POSTGRES_SEEDS`, `POSTGRES_USER`, `POSTGRES_PWD`); configurable host/port/credentials/existingSecret
   - Temporal UI service on port 8080
 - **NATS** -- Add embedded NATS deployment to `helm/kagent/`
   - Single-replica `nats:2-alpine` container

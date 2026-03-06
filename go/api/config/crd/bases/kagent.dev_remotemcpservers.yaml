@@ -179,7 +179,8 @@ spec:
               ui:
                 description: |-
                   UI defines optional web UI metadata for this MCP server.
-                  When ui.enabled is true, the server's UI is accessible at /plugins/{ui.pathPrefix}/
+                  When ui.enabled is true, the server's UI is accessible via /_p/{ui.pathPrefix}/ (proxy)
+                  and browser URL /plugins/{ui.pathPrefix} (Next.js wrapper with sidebar + iframe)
                 properties:
                   displayName:
                     description: |-
@@ -198,7 +199,7 @@ spec:
                     type: string
                   pathPrefix:
                     description: |-
-                      PathPrefix is the URL path segment used for routing: /plugins/{pathPrefix}/
+                      PathPrefix is the URL path segment used for routing: /_p/{pathPrefix}/
                       Must be a valid URL path segment (lowercase alphanumeric + hyphens).
                       Defaults to the RemoteMCPServer name if not specified.
                     maxLength: 63
