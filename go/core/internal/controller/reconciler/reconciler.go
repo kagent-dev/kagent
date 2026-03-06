@@ -134,6 +134,21 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	})
 
+	// TODO(#1444): Once PR #1452 is merged (adds runtime field to CRD), uncomment this to
+	// warn users when they configure features unsupported by Go runtime.
+	// This implements soft validation as per design decision in FEATURE_MATRIX.md.
+	//
+	// Example implementation:
+	// if warning := a.validateRuntimeFeatures(agent); warning != "" {
+	// 	conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+	// 		Type:               "Warning",
+	// 		Status:             metav1.ConditionTrue,
+	// 		Reason:             "UnsupportedFeatures",
+	// 		Message:            warning,
+	// 		ObservedGeneration: agent.Generation,
+	// 	})
+	// }
+
 	deployedCondition := metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
@@ -643,6 +658,52 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 
 	return nil
 }
+
+// validateRuntimeFeatures checks if the agent configures features unsupported by its runtime.
+// Returns a warning message if unsupported features are detected, empty string otherwise.
+//
+// TODO(#1444): Uncomment and use this function once PR #1452 (runtime field) is merged.
+// This implements soft validation as per FEATURE_MATRIX.md - warns but doesn't fail reconciliation.
+//
+// func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.Agent) string {
+// 	if agent.Spec.Declarative == nil {
+// 		return ""
+// 	}
+//
+// 	// Determine runtime (once runtime field exists in CRD)
+// 	// runtime := agent.Spec.Declarative.Runtime
+// 	// if runtime == "" {
+// 	// 	runtime = "python" // default
+// 	// }
+//
+// 	// if runtime != "go" {
+// 	// 	return "" // Python runtime supports all features
+// 	// }
+//
+// 	// Check for Go runtime unsupported features
+// 	var unsupported []string
+//
+// 	// ExecuteCodeBlocks: deprecated, not implementing in Go
+// 	// if agent.Spec.Declarative.ExecuteCodeBlocks != nil && *agent.Spec.Declarative.ExecuteCodeBlocks {
+// 	// 	unsupported = append(unsupported, "code execution (executeCodeBlocks)")
+// 	// }
+//
+// 	// Context compression: not yet implemented in Go
+// 	// if agent.Spec.Declarative.Context != nil && agent.Spec.Declarative.Context.Compaction != nil {
+// 	// 	unsupported = append(unsupported, "context compression")
+// 	// }
+//
+// 	// Memory: now supported in Go as of this PR
+// 	// (no check needed)
+//
+// 	// if len(unsupported) == 0 {
+// 	// 	return ""
+// 	// }
+//
+// 	// return fmt.Sprintf("The following features are not supported in Go runtime and will be ignored: %s. "+
+// 	// 	"Consider using runtime: python or removing these configurations. See FEATURE_MATRIX.md for details.",
+// 	// 	strings.Join(unsupported, ", "))
+// }
 
 // GetOwnedResourceTypes returns all the resource types that may be owned by
 // controllers that are reconciled herein. At present only the agents controller

@@ -16,6 +16,8 @@ import (
 	adkmodel "google.golang.org/adk/model"
 	adkgemini "google.golang.org/adk/model/gemini"
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/loadmemorytool"
+	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
 )
 
@@ -38,11 +40,21 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
 
+	// Add memory tools if memory is configured
+	var memoryTools []tool.Tool
+	if agentConfig.Memory != nil {
+		log.Info("Memory configuration detected, adding memory tools")
+		memoryTools = []tool.Tool{
+			preloadmemorytool.New(),
+			loadmemorytool.New(),
+		}
+	}
+
 	if agentConfig.Model == nil {
 		return nil, fmt.Errorf("model configuration is required")
 	}
 
-	llmModel, err := createLLM(ctx, agentConfig.Model, log)
+	llmModel, err := CreateLLM(ctx, agentConfig.Model, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
@@ -57,6 +69,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		Instruction:     agentConfig.Instruction,
 		Model:           llmModel,
 		IncludeContents: llmagent.IncludeContentsDefault,
+		Tools:           memoryTools,
 		Toolsets:        toolsets,
 		BeforeToolCallbacks: []llmagent.BeforeToolCallback{
 			makeBeforeToolCallback(log),
@@ -73,6 +86,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		"name", llmAgentConfig.Name,
 		"hasDescription", llmAgentConfig.Description != "",
 		"hasInstruction", llmAgentConfig.Instruction != "",
+		"toolsCount", len(llmAgentConfig.Tools),
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
 	llmAgent, err := llmagent.New(llmAgentConfig)
@@ -80,13 +94,16 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		return nil, fmt.Errorf("failed to create LLM agent: %w", err)
 	}
 
-	log.Info("Successfully created Google ADK LLM agent", "toolsetsCount", len(llmAgentConfig.Toolsets))
+	log.Info("Successfully created Google ADK LLM agent",
+		"toolsCount", len(llmAgentConfig.Tools),
+		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
 	return llmAgent, nil
 }
 
-// createLLM creates an adkmodel.LLM from the model configuration.
-func createLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM, error) {
+// CreateLLM creates an adkmodel.LLM from the model configuration.
+// This is exported to allow reuse of model creation logic (e.g., for compaction).
+func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM, error) {
 	switch m := m.(type) {
 	case *adk.OpenAI:
 		cfg := &models.OpenAIConfig{
