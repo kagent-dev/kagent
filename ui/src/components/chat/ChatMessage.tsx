@@ -1,4 +1,5 @@
-import { Message, TextPart } from "@a2a-js/sdk";
+import { Message, TextPart, FilePart } from "@a2a-js/sdk";
+import Image from "next/image";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
@@ -29,6 +30,12 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
+  const imageParts = (message.parts?.filter(part => {
+    if (part.kind !== "file") return false;
+    const fp = part as FilePart;
+    const mimeType = fp.file && "mimeType" in fp.file ? fp.file.mimeType : undefined;
+    return mimeType?.startsWith("image/");
+  }) || []) as FilePart[];
 
   const source = message.role === "user" ? "user" : "assistant";
   const messageId = message.messageId;
@@ -140,8 +147,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return null;
   }
 
-  // Skip empty messages
-  if (!content) {
+  // Skip empty messages (no text and no images)
+  if (!content && imageParts.length === 0) {
     return null;
   }
 
@@ -164,7 +171,34 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
-      <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      {imageParts.length > 0 && (
+        <div className="flex flex-wrap gap-2 my-1">
+          {imageParts.map((fp, i) => {
+            const file = fp.file;
+            const mimeType = "mimeType" in file ? file.mimeType : "image/png";
+            let src: string;
+            if ("bytes" in file && file.bytes) {
+              src = `data:${mimeType};base64,${file.bytes}`;
+            } else if ("uri" in file && file.uri) {
+              src = file.uri;
+            } else {
+              return null;
+            }
+            return (
+              <Image
+                key={i}
+                src={src}
+                alt={"name" in file && file.name ? file.name : "attached image"}
+                width={320}
+                height={256}
+                className="max-w-xs max-h-64 rounded border object-contain"
+                unoptimized
+              />
+            );
+          })}
+        </div>
+      )}
+      {content && <TruncatableText content={String(content)} className="break-all text-primary-foreground" />}
       {source !== "user" && messageId !== undefined && (
         <div className="flex mt-2 justify-end items-center gap-2">
           <button

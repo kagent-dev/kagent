@@ -1,4 +1,4 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart, FilePart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
 import { TokenStats, ChatStatus } from "@/types";
@@ -379,6 +379,7 @@ export function createMessage(
     contextId?: string;
     taskId?: string;
     additionalMetadata?: Record<string, unknown>;
+    fileParts?: FilePart[];
   } = {}
 ): Message {
   const {
@@ -387,16 +388,20 @@ export function createMessage(
     contextId,
     taskId,
     additionalMetadata = {},
+    fileParts = [],
   } = options;
+
+  const parts: Part[] = [];
+  if (content) {
+    parts.push({ kind: "text", text: content });
+  }
+  parts.push(...fileParts);
 
   const message: Message = {
     kind: "message",
     messageId,
     role: source === "user" ? "user" : "agent",
-    parts: [{
-      kind: "text",
-      text: content
-    }],
+    parts,
     contextId,
     taskId,
     metadata: {
@@ -559,6 +564,9 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           return;
         }
 
+        // Collect file parts so they can be included in the final message
+        const messageFileParts = message.parts.filter((p: Part) => p.kind === "file") as FilePart[];
+
         for (const part of message.parts) {
 
           if (isTextPart(part)) {
@@ -572,7 +580,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
                 {
                   originalType: "TextMessage",
                   contextId: statusUpdate.contextId,
-                  taskId: statusUpdate.taskId
+                  taskId: statusUpdate.taskId,
+                  fileParts: messageFileParts.length > 0 ? messageFileParts : undefined,
                 }
               );
               handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
@@ -585,6 +594,22 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               if (handlers.setChatStatus) {
                 handlers.setChatStatus("generating_response");
               }
+            }
+          } else if (part.kind === "file") {
+            // File parts are collected above. On final messages with text,
+            // they are attached to the text message (line 577). For all other
+            // cases (no text, or non-final), create a standalone message for
+            // the file parts immediately since images can't stream incrementally.
+            if (!(statusUpdate.final && message.parts.some(isTextPart))) {
+              const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+              const displayMessage = createMessage("", source, {
+                originalType: "TextMessage",
+                contextId: statusUpdate.contextId,
+                taskId: statusUpdate.taskId,
+                fileParts: messageFileParts,
+              });
+              handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+              break; // Already handled all file parts
             }
           } else if (isDataPart(part)) {
             const data = part.data;
@@ -641,6 +666,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     // Add artifact content and convert tool parts to messages
     let artifactText = "";
     const convertedMessages: Message[] = [];
+    const artifactFileParts: FilePart[] = [];
     for (const part of artifactUpdate.artifact.parts) {
       if (isTextPart(part)) {
         artifactText += part.text || "";
@@ -677,7 +703,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         continue;
       }
       if (part.kind === "file") {
-        artifactText += `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+        artifactFileParts.push(part as FilePart);
         continue;
       }
       artifactText += String(part);
@@ -688,14 +714,15 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       handlers.setStreamingContent(() => "");
 
       const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-      if (artifactText) {
+      if (artifactText || artifactFileParts.length > 0) {
         const displayMessage = createMessage(
           artifactText,
           source,
           {
             originalType: "TextMessage",
             contextId: artifactUpdate.contextId,
-            taskId: artifactUpdate.taskId
+            taskId: artifactUpdate.taskId,
+            fileParts: artifactFileParts.length > 0 ? artifactFileParts : undefined,
           }
         );
         handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
@@ -726,6 +753,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
   const handleA2AMessage = (message: Message) => {
     const content = aggregatePartsToText(message.parts);
+    const messageFileParts = (message.parts?.filter((p: Part) => p.kind === "file") || []) as FilePart[];
 
     if (message.role !== "user") {
       const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
@@ -735,7 +763,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         {
           originalType: "TextMessage",
           contextId: message.contextId,
-          taskId: message.taskId
+          taskId: message.taskId,
+          fileParts: messageFileParts.length > 0 ? messageFileParts : undefined,
         }
       );
       handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);

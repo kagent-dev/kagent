@@ -2,7 +2,8 @@
 
 import type React from "react";
 import { useState, useRef, useEffect } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import Image from "next/image";
+import { ArrowBigUp, X, Loader2, Mic, Square, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -26,7 +27,20 @@ import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessage
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message, DataPart } from "@a2a-js/sdk";
+import { Message, DataPart, FilePart } from "@a2a-js/sdk";
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:...;base64, prefix
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -62,6 +76,58 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
+  const [imageAttachments, setImageAttachments] = useState<Array<{ file: File; preview: string; base64: string }>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+  const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  const [isDragging, setIsDragging] = useState(false);
+
+  const addImageFiles = async (files: File[]) => {
+    for (const file of files) {
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        toast.error(`Unsupported file type: ${file.type}. Supported: PNG, JPEG, GIF, WebP`);
+        continue;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        toast.error(`File too large: ${file.name}. Max size: 10MB`);
+        continue;
+      }
+      const base64 = await fileToBase64(file);
+      const preview = URL.createObjectURL(file);
+      setImageAttachments(prev => [...prev, { file, preview, base64 }]);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await addImageFiles(Array.from(e.target.files || []));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (chatStatus !== "ready") return;
+    const files = Array.from(e.dataTransfer.files);
+    await addImageFiles(files);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (chatStatus === "ready") setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const removeImageAttachment = (index: number) => {
+    setImageAttachments(prev => {
+      URL.revokeObjectURL(prev[index].preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
 
   const {
     isListening,
@@ -174,7 +240,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+    const hasText = currentInputMessage.trim().length > 0;
+    const hasImages = imageAttachments.length > 0;
+    if ((!hasText && !hasImages) || !selectedAgentName || !selectedNamespace) {
       return;
     }
 
@@ -184,7 +252,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     const userMessageText = currentInputMessage;
+    const currentImages = [...imageAttachments];
     setCurrentInputMessage("");
+    setImageAttachments([]);
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
@@ -193,21 +263,39 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingDecisionsRef.current = {};
     pendingRejectionReasonsRef.current = {};
 
+    // Build parts array with text and/or images
+    const parts: Array<{ kind: "text"; text: string } | FilePart> = [];
+    if (hasText) {
+      parts.push({ kind: "text", text: userMessageText });
+    }
+    for (const img of currentImages) {
+      parts.push({
+        kind: "file",
+        file: {
+          bytes: img.base64,
+          mimeType: img.file.type,
+          name: img.file.name,
+        },
+      } as FilePart);
+    }
+
+    // Clean up preview URLs
+    for (const img of currentImages) {
+      URL.revokeObjectURL(img.preview);
+    }
+
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
       messageId: uuidv4(),
       role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
+      parts,
       metadata: {
         timestamp: Date.now()
       }
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -267,6 +355,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
+        fileParts: currentImages.map(img => ({
+          kind: "file" as const,
+          file: {
+            bytes: img.base64,
+            mimeType: img.file.type,
+            name: img.file.name,
+          },
+        } as FilePart)),
       });
 
       await streamA2AMessage(a2aMessage, {
@@ -341,6 +437,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       } finally {
         streamActive = false;
         if (timeoutTimer) clearTimeout(timeoutTimer);
+        // Finalize streaming when the stream ends, in case no
+        // final=true event was received (e.g. image-only responses).
+        setIsStreaming(false);
+        setStreamingContent(prev => {
+          if (prev) {
+            // Flush any accumulated streaming content as a proper message
+            const source = `${selectedNamespace}/${selectedAgentName.replace(/_/g, "-")}`;
+            const flushedMessage = createMessage(prev, source, { originalType: "TextMessage" });
+            setStreamingMessages(prevMsgs => [...prevMsgs, flushedMessage]);
+          }
+          return "";
+        });
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -599,6 +707,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (chatStatus !== "ready") return;
+    const items = Array.from(e.clipboardData.items);
+    const imageFiles = items
+      .filter(item => item.kind === "file" && ACCEPTED_IMAGE_TYPES.includes(item.type))
+      .map(item => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      addImageFiles(imageFiles);
+    }
+  };
+
   if (sessionNotFound) {
     return (
       <div className="flex flex-col items-center justify-center w-full h-full">
@@ -685,17 +806,72 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <TokenStatsDisplay stats={tokenStats} />
         </div>
 
-        <form onSubmit={handleSendMessage}>
+        <form
+          onSubmit={handleSendMessage}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          className={isDragging ? "ring-2 ring-primary ring-inset rounded-lg" : ""}
+        >
+          {imageAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {imageAttachments.map((img, index) => (
+                <div key={index} className="relative group w-16 h-16">
+                  <Image
+                    src={img.preview}
+                    alt={img.file.name}
+                    width={64}
+                    height={64}
+                    className="w-16 h-16 object-cover rounded border"
+                    unoptimized
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImageAttachment(index)}
+                    className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <Textarea
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
           <div className="flex items-center justify-end gap-2 mt-4">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatStatus !== "ready"}
+                    aria-label="Attach image"
+                  >
+                    <Paperclip className="h-4 w-4" aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Attach image</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
@@ -726,7 +902,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+            <Button type="submit" className={""} disabled={(!currentInputMessage.trim() && imageAttachments.length === 0) || chatStatus !== "ready"}>
               Send
               <ArrowBigUp className="h-4 w-4 ml-2" />
             </Button>
