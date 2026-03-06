@@ -108,6 +108,14 @@ type ApprovalDecision struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
+// WorkflowStatus represents the current state of a workflow execution.
+type WorkflowStatus struct {
+	WorkflowID string `json:"workflowID"`
+	RunID      string `json:"runID"`
+	Status     string `json:"status"` // "running", "completed", "failed", "canceled", "terminated", "timed_out"
+	TaskQueue  string `json:"taskQueue,omitempty"`
+}
+
 // WorkerConfig holds configuration for a Temporal worker.
 type WorkerConfig struct {
 	TemporalAddr string `json:"temporalAddr"` // e.g. "temporal-server:7233"
