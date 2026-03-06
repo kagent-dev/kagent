@@ -6,4 +6,5 @@ use (
 	./adk
 	./plugins/kanban-mcp
 	./plugins/gitrepo-mcp
+	./plugins/temporal-mcp
 )
