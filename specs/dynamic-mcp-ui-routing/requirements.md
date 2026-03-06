@@ -143,7 +143,81 @@ The sidebar needs to know which plugins have UIs. Options:
 
 ---
 
-I believe the core requirements are now covered. Here's a summary of decisions:
+---
+
+## Q10: Nginx routing conflict — browser URL vs. proxy URL collision
+
+**Bug found during implementation review:** `location /plugins/` in nginx catches ALL `/plugins/*` requests and sends them to the Go backend. This means:
+
+- **Client-side navigation** (clicking sidebar `<Link>`) works — Next.js handles it, no nginx involved
+- **Hard refresh or direct URL** (`/plugins/kanban`) is broken — nginx sends to Go proxy → upstream service → user gets raw plugin HTML without Next.js layout/sidebar
+- **iframe src** (`/plugins/kanban/`) works correctly via nginx → Go proxy → upstream
+
+The browser URL (`/plugins/kanban`) and the internal proxy path (`/plugins/kanban/`) collide at the nginx level.
+
+**Option A: Separate internal proxy path** — Change Go proxy to serve at `/_p/{name}/` instead of `/plugins/{name}/`. Nginx gets `location /_p/` → Go backend. Browser URL `/plugins/kanban` falls through to `location /` → Next.js. iframe src becomes `/_p/kanban/`.
+
+**Option B: Next.js API route proxy** — Use Next.js API route `/api/plugin-proxy/[name]/[...path]` as proxy. Remove nginx `/plugins/` block. iframe src becomes `/api/plugin-proxy/kanban/`.
+
+**Option C: next.config.ts rewrites** — Add rewrite rule in Next.js to proxy `/_p/*` to Go backend. Similar to Option A but uses Next.js rewrites instead of nginx.
+
+**User answer:** Option A — Separate internal proxy path `/_p/{name}/`. Cleanest separation: browser URL stays `/plugins/kanban` (nice), internal proxy uses `/_p/kanban/` (clearly distinct). Minimal changes: rename Go route, update nginx location, update iframe src.
+
+---
+
+## Q11: Error handling gaps — silent failures cause "UI is empty"
+
+**Bug found during implementation review:** Multiple silent failure modes cause "UI is empty" with no user feedback:
+
+1. **Sidebar fetch swallows errors**: `.catch(() => {})` on `/api/plugins` fetch silently ignores network errors, auth failures, 500s. User sees no plugin items with no indication of why.
+2. **iframe shows blank on upstream failure**: If upstream returns 502 Bad Gateway (service not running), iframe renders nothing. No fallback UI or error message.
+3. **No loading state**: Sidebar shows no "Loading plugins..." indicator during fetch. Plugins appear after a flash of content.
+
+**Requirements:**
+- Sidebar must show a loading indicator while fetching `/api/plugins`
+- Sidebar must show an error indicator if `/api/plugins` fails (with retry option)
+- Plugin iframe page must detect load failures (iframe `onerror`, or timeout-based) and show a fallback "Plugin unavailable" message
+- Plugin iframe page must show a loading skeleton while iframe content loads
+
+**User answer:** All four requirements are must-haves. Silent empty UI is unacceptable for debugging and user experience.
+
+---
+
+## Q12: Browser E2E testing — Playwright tests for full UI verification
+
+**Gap found during implementation review:** The existing E2E test (`go/core/test/e2e/plugin_routing_test.go`) only verifies the API pipeline (CRD → Controller → DB → `/api/plugins` → `/plugins/{name}/` proxy). It does NOT test:
+
+1. Sidebar renders plugin nav items from `/api/plugins` response
+2. Clicking a plugin nav item navigates to `/plugins/{name}`
+3. Plugin page renders an iframe with correct src
+4. iframe loads content from upstream service
+5. postMessage bridge works (theme sync, badge updates)
+6. Hard refresh on `/plugins/{name}` preserves sidebar layout
+7. Plugin removal causes sidebar to update
+
+**Requirements:**
+- Add Playwright browser E2E tests covering items 1–7 above
+- Tests must run against a deployed kagent instance (Kind cluster)
+- Tests must use a mock plugin service (simple HTTP server returning test HTML)
+- Tests must verify both client-side navigation and hard refresh scenarios
+- CI integration: Playwright tests run as part of `make test-e2e` or separate `make test-e2e-browser`
+
+**User answer:** All seven scenarios are required. Use Playwright for browser testing. Mock plugin service must include `kagent-plugin-bridge.js` integration to test postMessage bridge.
+
+---
+
+## Q13: API verification script improvements
+
+**Gap found during implementation review:** `scripts/check-plugins-api.sh` exists but is not integrated into CI. Additional verification needed:
+
+1. Script should verify `/api/plugins` response shape matches `StandardResponse[[]PluginResponse]`
+2. Script should verify proxy endpoint returns non-404 for registered plugins
+3. Script should be callable from E2E test suite
+4. Script should support `--wait` flag to poll until plugin appears (for CI use after helm install)
+
+**User answer:** Integrate into CI. Add `--wait` polling mode for use after helm deployments.
+
+---
 
 ## Consolidated Requirements Summary
 
@@ -158,4 +232,8 @@ I believe the core requirements are now covered. Here's a summary of decisions:
 | Q7 | postMessage bridge scope | All 6 capabilities are v1 must-haves |
 | Q8 | API path structure | `/plugins/{name}/` top-level path (Option B) |
 | Q9 | Plugin discovery API | New `/api/plugins` endpoint (Option A) |
+| Q10 | Nginx routing conflict fix | Separate internal proxy path `/_p/{name}/` (Option A) |
+| Q11 | Error handling gaps | Loading/error states for sidebar and iframe (all 4 must-haves) |
+| Q12 | Browser E2E testing | Playwright tests for 7 UI scenarios |
+| Q13 | API verification in CI | Integrate check script with `--wait` polling mode |
 

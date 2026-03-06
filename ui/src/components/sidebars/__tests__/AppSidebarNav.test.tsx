@@ -1,11 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import { AppSidebarNav, NAV_SECTIONS } from "../AppSidebarNav";
+import { waitFor } from "@testing-library/react";
+import { act } from "react";
 
 // Mock next/navigation
 const mockPathname = jest.fn(() => "/agents");
 jest.mock("next/navigation", () => ({
   usePathname: () => mockPathname(),
 }));
+
+jest.mock("next/link", () => {
+  const React = require("react");
+  return ({ href, children }: { href: string; children: React.ReactNode }) => (
+    <a href={href}>{children}</a>
+  );
+});
 
 // Mock SidebarProvider context that sidebar primitives require
 jest.mock("@/components/ui/sidebar", () => {
@@ -26,7 +35,7 @@ jest.mock("@/components/ui/sidebar", () => {
     SidebarMenuButton: ({
       children,
       isActive,
-      asChild,
+      asChild: _asChild,
       "aria-current": ariaCurrent,
       ...props
     }: React.PropsWithChildren<{ isActive?: boolean; asChild?: boolean; "aria-current"?: string }>) => (
@@ -34,12 +43,19 @@ jest.mock("@/components/ui/sidebar", () => {
         {children}
       </button>
     ),
+    SidebarMenuBadge: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
+      <span data-testid="sidebar-menu-badge" {...props}>{children}</span>
+    ),
   };
 });
 
 describe("AppSidebarNav", () => {
+  const mockFetch = jest.fn();
+
   beforeEach(() => {
     mockPathname.mockReturnValue("/agents");
+    mockFetch.mockReturnValue(new Promise(() => {}));
+    global.fetch = mockFetch as unknown as typeof fetch;
   });
 
   it("renders all 4 section labels", () => {
@@ -52,10 +68,10 @@ describe("AppSidebarNav", () => {
     expect(labels[3]).toHaveTextContent("ADMIN");
   });
 
-  it("renders 12 nav items total", () => {
+  it("renders 11 static nav items total", () => {
     render(<AppSidebarNav />);
     const items = screen.getAllByTestId("sidebar-menu-item");
-    expect(items).toHaveLength(12);
+    expect(items).toHaveLength(11);
   });
 
   it("sets data-active='true' on item matching current pathname", () => {
@@ -98,7 +114,6 @@ describe("AppSidebarNav", () => {
       "My Agents",
       "Workflows",
       "Cron Jobs",
-      "Kanban",
       "Models",
       "Tools",
       "MCP Servers",
@@ -152,10 +167,89 @@ describe("AppSidebarNav", () => {
     const nonActiveButtons = buttons.filter(
       (btn) => btn.getAttribute("aria-current") !== "page"
     );
-    // 12 total items minus 1 active = 11
-    expect(nonActiveButtons).toHaveLength(11);
+    // 11 total static items minus 1 active
+    expect(nonActiveButtons).toHaveLength(10);
     nonActiveButtons.forEach((btn) => {
       expect(btn).not.toHaveAttribute("aria-current");
+    });
+  });
+
+  it("renders Kanban Board dynamically in AGENTS from /api/plugins", async () => {
+    mockFetch.mockResolvedValue({
+      json: async () => ({
+        data: [
+          {
+            name: "kagent/kanban-mcp",
+            pathPrefix: "kanban",
+            displayName: "Kanban Board",
+            icon: "kanban",
+            section: "AGENTS",
+          },
+        ],
+      }),
+    });
+
+    render(<AppSidebarNav />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Kanban Board")).toBeInTheDocument();
+    });
+  });
+
+  it("renders PLUGINS section when plugin section is unknown", async () => {
+    mockFetch.mockResolvedValue({
+      json: async () => ({
+        data: [
+          {
+            name: "kagent/custom-mcp",
+            pathPrefix: "custom",
+            displayName: "Custom Plugin",
+            icon: "puzzle",
+            section: "CUSTOM",
+          },
+        ],
+      }),
+    });
+
+    render(<AppSidebarNav />);
+
+    await waitFor(() => {
+      expect(screen.getByText("PLUGINS")).toBeInTheDocument();
+      expect(screen.getByText("Custom Plugin")).toBeInTheDocument();
+    });
+  });
+
+  it("renders plugin badge when plugin posts kagent:plugin-badge event", async () => {
+    mockFetch.mockResolvedValue({
+      json: async () => ({
+        data: [
+          {
+            name: "kagent/kanban-mcp",
+            pathPrefix: "kanban",
+            displayName: "Kanban Board",
+            icon: "kanban",
+            section: "AGENTS",
+          },
+        ],
+      }),
+    });
+
+    render(<AppSidebarNav />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Kanban Board")).toBeInTheDocument();
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("kagent:plugin-badge", {
+          detail: { plugin: "kanban", count: 7 },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-menu-badge")).toHaveTextContent("7");
     });
   });
 });

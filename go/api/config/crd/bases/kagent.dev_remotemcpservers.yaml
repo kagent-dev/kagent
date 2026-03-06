@@ -176,6 +176,46 @@ spec:
                 type: boolean
               timeout:
                 type: string
+              ui:
+                description: |-
+                  UI defines optional web UI metadata for this MCP server.
+                  When ui.enabled is true, the server's UI is accessible at /plugins/{ui.pathPrefix}/
+                properties:
+                  displayName:
+                    description: |-
+                      DisplayName is the human-readable name shown in the sidebar.
+                      Defaults to the RemoteMCPServer name if not specified.
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled indicates this MCP server provides a web
+                      UI.
+                    type: boolean
+                  icon:
+                    default: puzzle
+                    description: Icon is a lucide-react icon name (e.g., "kanban",
+                      "git-fork", "database").
+                    type: string
+                  pathPrefix:
+                    description: |-
+                      PathPrefix is the URL path segment used for routing: /plugins/{pathPrefix}/
+                      Must be a valid URL path segment (lowercase alphanumeric + hyphens).
+                      Defaults to the RemoteMCPServer name if not specified.
+                    maxLength: 63
+                    pattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+                    type: string
+                  section:
+                    default: PLUGINS
+                    description: Section is the sidebar section where this plugin
+                      appears.
+                    enum:
+                    - OVERVIEW
+                    - AGENTS
+                    - RESOURCES
+                    - ADMIN
+                    - PLUGINS
+                    type: string
+                type: object
               url:
                 minLength: 1
                 type: string

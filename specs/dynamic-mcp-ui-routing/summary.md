@@ -5,11 +5,11 @@
 | File | Description |
 |------|-------------|
 | `specs/dynamic-mcp-ui-routing/rough-idea.md` | Original idea with context |
-| `specs/dynamic-mcp-ui-routing/requirements.md` | 9 Q&A decisions covering proxy, CRD, sidebar, iframe, migration |
+| `specs/dynamic-mcp-ui-routing/requirements.md` | 13 Q&A decisions (Q1-Q9 original + Q10-Q13 routing fix, testing) |
 | `specs/dynamic-mcp-ui-routing/research/r1-current-architecture.md` | Analysis of current plugin/nginx/sidebar patterns |
 | `specs/dynamic-mcp-ui-routing/research/r2-mcp-ext-apps.md` | MCP Apps extension spec analysis and alignment |
-| `specs/dynamic-mcp-ui-routing/design.md` | Full design: CRD, DB, controller, proxy, iframe, postMessage bridge |
-| `specs/dynamic-mcp-ui-routing/plan.md` | 11-step incremental implementation plan |
+| `specs/dynamic-mcp-ui-routing/design.md` | Full design: CRD, DB, controller, proxy, iframe, postMessage bridge, browser E2E |
+| `specs/dynamic-mcp-ui-routing/plan.md` | 16-step plan (11 original + 5 fixes/testing) |
 
 ## Overview
 
@@ -17,16 +17,33 @@ This spec replaces hardcoded nginx proxy rules and static Next.js routes for MCP
 
 1. **CRD** — `RemoteMCPServer.spec.ui` declares UI metadata (pathPrefix, displayName, icon, section)
 2. **Controller** — Reconciles UI metadata into a `Plugin` database table
-3. **Go reverse proxy** — `/plugins/{name}/` routes dynamically based on DB lookup
-4. **Nginx** — Single `location /plugins/` block proxies to Go backend (one-time change)
-5. **Next.js** — Catch-all `/plugins/[name]/` renders iframe with postMessage bridge
-6. **Sidebar** — Auto-discovers plugins via `/api/plugins`, renders nav items dynamically
+3. **Go reverse proxy** — `/_p/{name}/` routes dynamically based on DB lookup
+4. **Nginx** — `location /_p/` proxies to Go backend; browser URL `/plugins/{name}` goes to Next.js
+5. **Next.js** — Catch-all `/plugins/[name]/` renders iframe (src=`/_p/{name}/`) with postMessage bridge
+6. **Sidebar** — Auto-discovers plugins via `/api/plugins`, renders nav items with loading/error states
 7. **postMessage bridge** — Theme sync, resize, navigation, namespace, auth, badges
 
-Kanban-mcp migrates to the new system as proof-of-concept. Deploying a new MCP server with `ui.enabled: true` automatically makes its UI accessible — no core codebase changes needed.
+## Implementation Status
+
+Steps 1-11 are implemented. Steps 12-16 address bugs and testing gaps found during review:
+
+| Step | Status | Description |
+|------|--------|-------------|
+| 1-11 | Done | Core implementation (CRD, DB, controller, proxy, UI, sidebar, migration, API E2E) |
+| 12 | TODO | **FIX**: Rename proxy path `/plugins/` → `/_p/` (nginx routing conflict) |
+| 13 | TODO | **FIX**: Add loading/error states to sidebar and plugin page |
+| 14 | TODO | Mock plugin service for browser E2E tests |
+| 15 | TODO | Playwright browser E2E tests (7 scenarios) |
+| 16 | TODO | CI integration (API verification + Playwright) |
+
+## Bugs Fixed (Q10-Q11)
+
+- **Nginx routing conflict**: `location /plugins/` caught browser URLs, breaking hard refresh. Fix: separate `/_p/` for proxy, `/plugins/` for browser.
+- **Silent empty UI**: Sidebar `.catch(() => {})` swallowed errors; iframe showed blank on upstream failure. Fix: loading/error states with retry.
 
 ## Next Steps
 
-- Implement using the 11-step plan in `plan.md`
-- Steps 1-6 (backend) can be developed and tested independently from steps 7-9 (frontend)
-- Step 10 (kanban migration) validates the full pipeline end-to-end
+- Implement Steps 12-16 from `plan.md`
+- Step 12 (routing fix) is critical — do first
+- Step 13 (error states) prevents "UI is empty" confusion
+- Steps 14-16 (Playwright) ensure UI works end-to-end in CI

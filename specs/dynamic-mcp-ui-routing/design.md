@@ -32,15 +32,17 @@ Replace the hardcoded nginx proxy rules and static Next.js routes for MCP plugin
 
 ## Architecture Overview
 
+**Key routing principle:** Browser URLs (`/plugins/{name}`) go to Next.js for the shell page with sidebar. Internal proxy URLs (`/_p/{name}/`) go to Go backend for reverse-proxying to upstream plugin services. This separation prevents nginx routing conflicts.
+
 ```mermaid
 graph TD
-    Browser[Browser] -->|/plugins/kanban/| Nginx
+    Browser[Browser] -->|/plugins/kanban| Nginx
     Browser -->|/api/plugins| Nginx
-    Browser -->|/plugins/[name]| NextJS[Next.js UI]
+    Browser -->|iframe: /_p/kanban/| Nginx
 
-    Nginx -->|location /plugins/| GoBackend[Go Backend]
-    Nginx -->|location /api/| GoBackend
-    Nginx -->|location /| NextJS
+    Nginx -->|"location /_p/"| GoBackend[Go Backend]
+    Nginx -->|"location /api/"| GoBackend
+    Nginx -->|"location /"| NextJS[Next.js UI]
 
     GoBackend -->|reverse proxy| PluginA[kanban-mcp Service]
     GoBackend -->|reverse proxy| PluginB[gitrepo-mcp Service]
@@ -52,7 +54,7 @@ graph TD
     Controller -->|persist UI metadata| DB
 
     NextJS -->|fetch /api/plugins| GoBackend
-    NextJS -->|render iframe src=/plugins/name/| Browser
+    NextJS -->|"render iframe src=/_p/name/"| Browser
 
     subgraph "iframe sandbox"
         PluginUI[Plugin UI HTML/JS]
@@ -72,25 +74,25 @@ sequenceDiagram
     participant DB as Database
     participant P as Plugin Service
 
-    Note over B,P: Page Load
+    Note over B,P: Page Load (browser URL)
     B->>N: GET /plugins/kanban
-    N->>UI: proxy to Next.js
-    UI->>B: Render iframe shell page
+    N->>UI: location / → proxy to Next.js
+    UI->>B: Render sidebar + iframe shell page
 
     Note over B,P: Sidebar Discovery
     B->>N: GET /api/plugins
-    N->>Go: proxy to backend
+    N->>Go: location /api/ → proxy to backend
     Go->>DB: query plugins with ui.enabled=true
     DB-->>Go: plugin list with UI metadata
     Go-->>B: [{name, displayName, icon, section, pathPrefix}]
 
-    Note over B,P: Plugin UI Load (iframe src)
-    B->>N: GET /plugins/kanban/
-    N->>Go: location /plugins/ proxy
+    Note over B,P: Plugin UI Load (internal proxy URL via iframe)
+    B->>N: GET /_p/kanban/ (iframe src)
+    N->>Go: location /_p/ → proxy to backend
     Go->>DB: lookup plugin "kanban" → service URL
     Go->>P: reverse proxy request
     P-->>Go: HTML response
-    Go-->>B: plugin UI HTML
+    Go-->>B: plugin UI HTML inside iframe
 
     Note over B,P: postMessage Bridge
     B->>B: host sends theme, namespace, auth to iframe
@@ -363,7 +365,7 @@ func NewPluginProxyHandler(base *Base) *PluginProxyHandler {
     return &PluginProxyHandler{Base: base}
 }
 
-// HandleProxy handles all requests to /plugins/{name}/{path...}
+// HandleProxy handles all requests to /_p/{name}/{path...}
 func (h *PluginProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
     pathPrefix := mux.Vars(r)["name"]
     if pathPrefix == "" {
@@ -379,9 +381,9 @@ func (h *PluginProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request)
 
     proxy := h.getOrCreateProxy(plugin)
 
-    // Strip the /plugins/{name} prefix before forwarding
+    // Strip the /_p/{name} prefix before forwarding
     originalPath := r.URL.Path
-    prefix := "/plugins/" + pathPrefix
+    prefix := "/_p/" + pathPrefix
     r.URL.Path = strings.TrimPrefix(originalPath, prefix)
     if r.URL.Path == "" {
         r.URL.Path = "/"
@@ -427,7 +429,7 @@ Add to path constants:
 const (
     // ... existing ...
     APIPathPlugins     = "/api/plugins"
-    PluginsProxyPath   = "/plugins/{name}"
+    PluginsProxyPath   = "/_p/{name}"
 )
 ```
 
@@ -438,23 +440,27 @@ Add to `setupRoutes()`:
 s.router.HandleFunc(APIPathPlugins,
     adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
 
-// Plugin reverse proxy (catch-all, must be registered last)
-// Note: uses raw http.HandlerFunc, not adaptHandler, because it proxies directly
-s.router.PathPrefix("/plugins/{name}").HandlerFunc(
+// Plugin reverse proxy at /_p/{name} (internal path, NOT /plugins/)
+// Browser URLs /plugins/{name} go to Next.js via location / catch-all
+// Uses raw http.HandlerFunc, not adaptHandler, because it proxies directly
+s.router.PathPrefix("/_p/{name}").HandlerFunc(
     s.handlers.PluginProxy.HandleProxy)
 ```
 
-### 8. Nginx: One-Time Addition
+### 8. Nginx: Routing Fix — Separate Browser and Proxy Paths
 
 **File:** `ui/conf/nginx.conf`
 
-Replace the hardcoded `/kanban-mcp/` block with a single `/plugins/` block:
+**Critical:** Browser URL `/plugins/{name}` must reach Next.js (for sidebar + iframe shell).
+Internal proxy URL `/_p/{name}/` must reach Go backend (for iframe content).
+
+Replace the hardcoded `/kanban-mcp/` block with `/_p/` (NOT `/plugins/`):
 
 ```nginx
-# Dynamic plugin UI proxy — routes to Go backend which reverse-proxies
-# to the appropriate plugin service based on database lookup.
-location /plugins/ {
-    proxy_pass http://kagent_backend/plugins/;
+# Internal plugin proxy — iframe content loads via /_p/{name}/
+# Browser URLs /plugins/{name} fall through to location / (Next.js)
+location /_p/ {
+    proxy_pass http://kagent_backend/_p/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
@@ -470,6 +476,7 @@ location /plugins/ {
 ```
 
 Remove the hardcoded `/kanban-mcp/` location block.
+Remove any existing `location /plugins/` block (it would intercept browser URLs).
 
 ### 9. Next.js: Dynamic Plugin Page
 
@@ -501,10 +508,15 @@ export default function PluginPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [title, setTitle] = useState<string>("");
 
-  // Build iframe src — Go backend reverse proxies to plugin service
+  // Build iframe src — uses /_p/ internal proxy path (NOT /plugins/)
+  // /plugins/{name} = browser URL (Next.js page with sidebar)
+  // /_p/{name}/     = internal proxy URL (Go backend → upstream service)
   const path = useParams<{ path?: string[] }>().path;
   const subPath = path ? "/" + path.join("/") : "/";
-  const iframeSrc = `/plugins/${name}${subPath}`;
+  const iframeSrc = `/_p/${name}${subPath}`;
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   // Send context to iframe on changes
   useEffect(() => {
@@ -585,12 +597,29 @@ export default function PluginPage() {
           <h1 className="text-sm font-semibold">{title}</h1>
         </div>
       )}
+      {loading && (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading plugin...</span>
+        </div>
+      )}
+      {error && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+          <AlertCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm text-muted-foreground">Plugin unavailable</p>
+          <button onClick={() => { setError(false); setLoading(true); }} className="text-xs underline">
+            Retry
+          </button>
+        </div>
+      )}
       <iframe
         ref={iframeRef}
         src={iframeSrc}
-        className="flex-1 border-0"
+        className={cn("flex-1 border-0", (loading || error) && "hidden")}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         title={`Plugin: ${name}`}
+        onLoad={() => setLoading(false)}
+        onError={() => { setLoading(false); setError(true); }}
       />
     </div>
   );
@@ -854,12 +883,15 @@ New optional field `ui` of type `PluginUISpec` (see Component 1 above).
 
 ## Error Handling
 
-- **Plugin not found**: Go proxy returns 404 if pathPrefix not in database. Next.js plugin page shows "Plugin not available" message.
-- **Plugin service down**: Go proxy returns 502 Bad Gateway. iframe shows error. Host detects via `onerror` and shows fallback UI.
+- **Plugin not found**: Go proxy returns 404 if pathPrefix not in database. Next.js plugin page shows "Plugin unavailable" fallback with retry button.
+- **Plugin service down**: Go proxy returns 502 Bad Gateway. iframe `onError` fires. Host shows "Plugin unavailable" fallback UI with retry button.
+- **Sidebar fetch failure**: `/api/plugins` error shows inline error indicator with retry option (not silent `.catch(() => {})`).
+- **Loading states**: Sidebar shows loading indicator while fetching plugins. Plugin page shows loading skeleton while iframe loads.
 - **CRD without ui section**: No Plugin record created. No impact on existing tool server functionality.
 - **Duplicate pathPrefix**: Database unique index rejects. Controller logs error, continues reconciling other fields. CRD status should reflect the conflict.
 - **Stale proxy cache**: Cache invalidated on plugin delete/update via controller webhook or TTL-based eviction.
 - **postMessage from unknown origin**: Bridge validates `event.data.type` prefix; ignores non-`kagent:` messages.
+- **Hard refresh on /plugins/{name}**: Works correctly because nginx routes to Next.js (via `location /` catch-all). Internal proxy at `/_p/` is separate.
 
 ---
 
@@ -868,86 +900,228 @@ New optional field `ui` of type `PluginUISpec` (see Component 1 above).
 ```gherkin
 Feature: Dynamic MCP UI Routing for Plugins
 
-Scenario: Plugin UI auto-discovered from CRD
-  Given a RemoteMCPServer CRD "kanban-mcp" with ui.enabled=true and ui.pathPrefix="kanban"
-  When the controller reconciles
-  Then a Plugin record exists in the database with pathPrefix="kanban"
-  And GET /api/plugins returns an entry with pathPrefix="kanban"
+  # --- API Pipeline (existing) ---
 
-Scenario: Plugin UI accessible via /plugins/{name}/
-  Given a Plugin record with pathPrefix="kanban" and upstreamURL="http://kanban-mcp:8080"
-  When I navigate to /plugins/kanban/
-  Then the Go backend reverse-proxies the request to http://kanban-mcp:8080/
-  And I receive the kanban-mcp HTML response
+  Scenario: Plugin UI auto-discovered from CRD
+    Given a RemoteMCPServer CRD "kanban-mcp" with ui.enabled=true and ui.pathPrefix="kanban"
+    When the controller reconciles
+    Then a Plugin record exists in the database with pathPrefix="kanban"
+    And GET /api/plugins returns an entry with pathPrefix="kanban"
 
-Scenario: Sidebar shows dynamic plugin nav item
-  Given the /api/plugins endpoint returns [{pathPrefix:"kanban", displayName:"Kanban Board", icon:"kanban", section:"AGENTS"}]
-  When the sidebar renders
-  Then "Kanban Board" appears under the AGENTS section with the kanban icon
-  And clicking it navigates to /plugins/kanban
+  Scenario: Plugin UI accessible via internal proxy
+    Given a Plugin record with pathPrefix="kanban" and upstreamURL="http://kanban-mcp:8080"
+    When the iframe loads /_p/kanban/
+    Then the Go backend reverse-proxies the request to http://kanban-mcp:8080/
+    And the iframe receives the kanban-mcp HTML response
 
-Scenario: Plugin rendered in iframe with sidebar shell
-  Given I navigate to /plugins/kanban
-  Then the kagent sidebar remains visible
-  And the plugin UI loads inside an iframe with sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+  Scenario: Plugin removal cleans up
+    Given a RemoteMCPServer CRD is deleted
+    When the controller reconciles
+    Then the Plugin record is deleted from the database
+    And the /api/plugins endpoint no longer returns it
+    And /_p/{name}/ returns 404
 
-Scenario: Theme sync via postMessage
-  Given a plugin is loaded in an iframe
-  When the host theme changes to "dark"
-  Then the iframe receives a kagent:context message with theme="dark"
+  Scenario: SSE works through reverse proxy
+    Given I open /_p/kanban/events via the Go reverse proxy
+    Then I receive SSE events streamed from the kanban-mcp service
+    And the proxy does not buffer responses
 
-Scenario: Namespace context forwarded
-  Given a plugin is loaded and the user changes namespace to "production"
-  Then the iframe receives a kagent:context message with namespace="production"
+  # --- Routing Fix (Q10) ---
 
-Scenario: Badge update from plugin
-  Given a plugin sends kagent:badge with {count: 5}
-  Then the sidebar shows a badge "5" next to the plugin nav item
+  Scenario: Browser URL and proxy URL are separate paths
+    Given nginx config has location /_p/ pointing to Go backend
+    And location / pointing to Next.js (catch-all)
+    When the browser navigates to /plugins/kanban
+    Then nginx routes to Next.js (not Go backend)
+    And Next.js renders the plugin page with sidebar and iframe
 
-Scenario: Navigation from plugin
-  Given a plugin sends kagent:navigate with {href: "/agents"}
-  Then the host navigates to /agents
+  Scenario: Hard refresh on plugin page preserves sidebar
+    Given a user is on /plugins/kanban and presses F5
+    Then the page reloads with the full Next.js layout (sidebar visible)
+    And the iframe reloads from /_p/kanban/
 
-Scenario: Plugin removal cleans up
-  Given a RemoteMCPServer CRD is deleted
-  When the controller reconciles
-  Then the Plugin record is deleted from the database
-  And the /api/plugins endpoint no longer returns it
-  And the sidebar no longer shows the nav item
+  Scenario: Direct URL access works
+    Given a user pastes /plugins/kanban into the browser address bar
+    Then the page loads with sidebar and iframe (same as client-side navigation)
 
-Scenario: Kanban migrated to plugin system
-  Given the kanban-mcp Helm chart deploys with ui metadata in RemoteMCPServer
-  Then /plugins/kanban/ serves the kanban board
-  And no hardcoded /kanban-mcp/ nginx route exists
-  And no ui/src/app/kanban/page.tsx file exists
+  # --- Browser UI (Q11, Q12) ---
 
-Scenario: SSE works through reverse proxy
-  Given I open /plugins/kanban/events via the Go reverse proxy
-  Then I receive SSE events streamed from the kanban-mcp service
-  And the proxy does not buffer responses
+  Scenario: Sidebar shows dynamic plugin nav item
+    Given the /api/plugins endpoint returns [{pathPrefix:"kanban", displayName:"Kanban Board", icon:"kanban", section:"AGENTS"}]
+    When the sidebar renders
+    Then "Kanban Board" appears under the AGENTS section with the kanban icon
+    And clicking it navigates to /plugins/kanban
+
+  Scenario: Sidebar shows loading state while fetching plugins
+    Given the /api/plugins request is in-flight
+    Then the sidebar shows a loading indicator in the PLUGINS area
+
+  Scenario: Sidebar shows error state on API failure
+    Given the /api/plugins request fails with 500
+    Then the sidebar shows an error indicator with retry option
+    And clicking retry re-fetches /api/plugins
+
+  Scenario: Plugin rendered in iframe with sidebar shell
+    Given I navigate to /plugins/kanban
+    Then the kagent sidebar remains visible
+    And the plugin UI loads inside an iframe with sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+    And the iframe src is /_p/kanban/ (internal proxy, not /plugins/)
+
+  Scenario: Plugin page shows loading skeleton
+    Given I navigate to /plugins/kanban
+    Then a loading indicator is shown while the iframe loads
+    And it disappears when the iframe content is ready
+
+  Scenario: Plugin page shows error on upstream failure
+    Given the upstream plugin service is not running
+    When I navigate to /plugins/kanban
+    Then the page shows "Plugin unavailable" with a retry button
+    And clicking retry reloads the iframe
+
+  Scenario: Theme sync via postMessage
+    Given a plugin is loaded in an iframe
+    When the host theme changes to "dark"
+    Then the iframe receives a kagent:context message with theme="dark"
+
+  Scenario: Namespace context forwarded
+    Given a plugin is loaded and the user changes namespace to "production"
+    Then the iframe receives a kagent:context message with namespace="production"
+
+  Scenario: Badge update from plugin
+    Given a plugin sends kagent:badge with {count: 5}
+    Then the sidebar shows a badge "5" next to the plugin nav item
+
+  Scenario: Navigation from plugin
+    Given a plugin sends kagent:navigate with {href: "/agents"}
+    Then the host navigates to /agents
+
+  Scenario: Sidebar updates on plugin removal
+    Given the sidebar shows "Kanban Board" from /api/plugins
+    When the RemoteMCPServer CRD is deleted and controller reconciles
+    And the sidebar re-fetches /api/plugins
+    Then "Kanban Board" no longer appears in the sidebar
+
+  # --- Migration ---
+
+  Scenario: Kanban migrated to plugin system
+    Given the kanban-mcp Helm chart deploys with ui metadata in RemoteMCPServer
+    Then /_p/kanban/ serves the kanban board (via Go proxy)
+    And /plugins/kanban loads the Next.js page with sidebar and iframe
+    And no hardcoded /kanban-mcp/ nginx route exists
+    And no ui/src/app/kanban/page.tsx file exists
 ```
 
 ---
 
 ## Testing Strategy
 
-- **Unit tests**:
-  - `deriveBaseURL()` correctly strips paths from various URL formats
-  - `PluginsHandler.HandleListPlugins()` returns correct JSON from mocked DB
-  - `PluginProxyHandler` routes to correct upstream, strips prefix, handles 404
-  - Sidebar merges static nav items with dynamic plugins correctly
-  - postMessage handler processes each message type
+### Unit tests (existing + new)
 
-- **Integration tests**:
-  - Controller creates/deletes Plugin records when CRD ui field changes
-  - Go reverse proxy forwards requests and SSE streams to actual HTTP server
-  - Nginx `/plugins/` location correctly proxies to Go backend
+- `deriveBaseURL()` correctly strips paths from various URL formats
+- `PluginsHandler.HandleListPlugins()` returns correct JSON from mocked DB
+- `PluginProxyHandler` routes to correct upstream, strips `/_p/` prefix, handles 404
+- Sidebar merges static nav items with dynamic plugins correctly
+- Sidebar shows loading state during fetch, error state on failure
+- Plugin page constructs iframe src with `/_p/` prefix (not `/plugins/`)
+- Plugin page shows loading skeleton, error fallback, retry behavior
+- postMessage handler processes each message type
 
-- **E2E tests**:
-  - Deploy kanban-mcp with UI metadata → verify accessible at `/plugins/kanban/`
-  - Verify sidebar shows Kanban under AGENTS section
-  - Verify theme/namespace changes propagate to iframe
-  - Verify badge updates appear in sidebar
+### Integration tests (existing + new)
+
+- Controller creates/deletes Plugin records when CRD ui field changes
+- Go reverse proxy forwards requests and SSE streams to actual HTTP server
+- Nginx `/_p/` location correctly proxies to Go backend
+- Nginx `/plugins/` requests fall through to Next.js (not Go backend)
+
+### API E2E tests (existing — Go httptest)
+
+- Create RemoteMCPServer with UI → poll `/api/plugins` until entry appears
+- Verify `/api/plugins` returns correct metadata shape
+- Verify `/_p/{name}/` returns proxied response (non-404)
+- Delete CRD → verify disappears from `/api/plugins` and `/_p/` returns 404
+
+### Browser E2E tests (NEW — Playwright)
+
+**Location:** `ui/e2e/plugin-routing.spec.ts`
+
+**Prerequisites:**
+- Kind cluster with kagent deployed
+- Mock plugin service deployed (simple HTTP server returning test HTML with `kagent-plugin-bridge.js`)
+- RemoteMCPServer CRD with `ui` section applied
+
+**Test scenarios:**
+
+1. **Sidebar plugin discovery**
+   - Navigate to `/`
+   - Wait for sidebar to load
+   - Assert plugin nav item appears in correct section
+   - Assert plugin icon renders
+
+2. **Plugin navigation (client-side)**
+   - Click plugin nav item in sidebar
+   - Assert URL changes to `/plugins/{name}`
+   - Assert sidebar remains visible
+   - Assert iframe element exists with `src=/_p/{name}/`
+   - Assert iframe loads content (not blank)
+
+3. **Plugin navigation (hard refresh)**
+   - Navigate directly to `/plugins/{name}` via `page.goto()`
+   - Assert sidebar renders with plugin nav item
+   - Assert iframe loads content
+
+4. **Plugin loading states**
+   - Mock slow upstream (delay response)
+   - Navigate to `/plugins/{name}`
+   - Assert loading skeleton visible
+   - Wait for iframe load
+   - Assert loading skeleton hidden, iframe visible
+
+5. **Plugin error state**
+   - Configure upstream to return 502
+   - Navigate to `/plugins/{name}`
+   - Assert "Plugin unavailable" message visible
+   - Assert retry button exists
+
+6. **Theme sync via postMessage**
+   - Navigate to `/plugins/{name}`
+   - Wait for iframe to load
+   - Toggle theme to dark
+   - Assert iframe receives `kagent:context` message with `theme: "dark"` (verified by mock plugin writing to DOM)
+
+7. **Badge update from plugin**
+   - Navigate to `/plugins/{name}`
+   - Wait for iframe to load
+   - Trigger badge update from mock plugin (postMessage `kagent:badge` with `{count: 3}`)
+   - Assert sidebar badge shows "3" next to plugin nav item
+
+**Mock plugin service:** A minimal HTTP server serving:
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <div id="plugin-content">Mock Plugin Loaded</div>
+  <div id="theme">unknown</div>
+  <script src="/kagent-plugin-bridge.js"></script>
+  <script>
+    kagent.connect();
+    kagent.onContext(({ theme }) => {
+      document.getElementById('theme').textContent = theme;
+    });
+    kagent.setBadge(3);
+  </script>
+</body>
+</html>
+```
+
+### API verification script (CI integration)
+
+**Location:** `scripts/check-plugins-api.sh` (existing, enhanced)
+
+Enhancements:
+- Add `--wait` flag for polling mode (use after helm install in CI)
+- Add proxy endpoint verification (`/_p/{name}/` returns non-404)
+- Integrate into CI pipeline as post-deploy smoke test
+- Exit codes: 0 = pass, 1 = validation failed, 2 = missing dependency
 
 ---
 
@@ -956,11 +1130,13 @@ Scenario: SSE works through reverse proxy
 | Concern | Choice | Rationale |
 |---|---|---|
 | Reverse proxy | `net/http/httputil.ReverseProxy` | Go stdlib, no new dependency |
+| Internal proxy path | `/_p/{name}/` | Avoids collision with browser URL `/plugins/{name}` |
 | iframe sandbox | `allow-scripts allow-same-origin allow-forms allow-popups` | Minimum permissions for functional plugin UI |
 | Bridge protocol | postMessage with `kagent:` prefix | Standards-based, aligns with MCP Apps pattern |
 | Icon resolution | Dynamic lucide-react import by name | Icons already in codebase, tree-shaking handles unused |
 | Plugin discovery | `/api/plugins` endpoint + DB query | Decouples sidebar from K8s API, fast reads from DB |
 | Proxy caching | `sync.Map` keyed by pathPrefix | Simple, sufficient for expected plugin count (<100) |
+| Browser E2E testing | Playwright | Industry standard, supports iframe inspection, postMessage verification |
 
 ## Appendix B: MCP Apps Extension Compatibility
 
@@ -987,3 +1163,5 @@ Future: kagent could support MCP Apps inline UIs in chat views alongside full-pa
 **Separate PluginUI CRD** — Rejected (Q2): overkill for alpha, adds CRD surface area.
 
 **Keep kanban hardcoded** — Rejected (Q6): two patterns is confusing, new system needs a real proof-of-concept.
+
+**Nginx `/plugins/` for both browser and proxy** — Rejected (Q10): causes routing conflict — browser URL and iframe proxy URL collide at nginx level. Hard refresh breaks (raw plugin HTML without sidebar). Fix: separate paths `/_p/` (proxy) vs `/plugins/` (browser).

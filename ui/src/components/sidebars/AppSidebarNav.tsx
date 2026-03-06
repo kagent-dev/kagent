@@ -61,7 +61,7 @@ function getIconByName(name: string): LucideIcon {
     .split("-")
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join("");
-  return (LucideIcons as Record<string, LucideIcon>)[pascalCase] ?? Puzzle;
+  return (LucideIcons as unknown as Record<string, LucideIcon>)[pascalCase] ?? Puzzle;
 }
 
 export const NAV_SECTIONS: NavSection[] = [

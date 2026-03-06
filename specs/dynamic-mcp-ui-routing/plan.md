@@ -2,17 +2,22 @@
 
 ## Checklist
 
-- [ ] Step 1: CRD extension — add PluginUISpec to RemoteMCPServer
-- [ ] Step 2: Database model and client — Plugin table
-- [ ] Step 3: Controller — reconcile UI metadata into Plugin records
-- [ ] Step 4: HTTP handler — /api/plugins discovery endpoint
-- [ ] Step 5: HTTP handler — /plugins/{name}/ reverse proxy
-- [ ] Step 6: Nginx — add /plugins/ location block, remove /kanban-mcp/
-- [ ] Step 7: Next.js — plugin iframe page with postMessage bridge
-- [ ] Step 8: Sidebar — dynamic plugin navigation
-- [ ] Step 9: Plugin bridge SDK snippet
-- [ ] Step 10: Kanban migration — CRD, Helm, remove hardcoded routes
-- [ ] Step 11: E2E test
+- [x] Step 1: CRD extension — add PluginUISpec to RemoteMCPServer
+- [x] Step 2: Database model and client — Plugin table
+- [x] Step 3: Controller — reconcile UI metadata into Plugin records
+- [x] Step 4: HTTP handler — /api/plugins discovery endpoint
+- [x] Step 5: HTTP handler — /plugins/{name}/ reverse proxy
+- [x] Step 6: Nginx — add /plugins/ location block, remove /kanban-mcp/
+- [x] Step 7: Next.js — plugin iframe page with postMessage bridge
+- [x] Step 8: Sidebar — dynamic plugin navigation
+- [x] Step 9: Plugin bridge SDK snippet
+- [x] Step 10: Kanban migration — CRD, Helm, remove hardcoded routes
+- [x] Step 11: E2E test (API-only)
+- [ ] Step 12: **FIX** — Rename proxy path from `/plugins/` to `/_p/` (routing conflict)
+- [ ] Step 13: **FIX** — Add loading/error states to sidebar and plugin page
+- [ ] Step 14: Mock plugin service for browser E2E tests
+- [ ] Step 15: Playwright browser E2E tests
+- [ ] Step 16: CI integration — API verification script + Playwright
 
 ---
 
@@ -319,3 +324,312 @@
 - Follows existing E2E patterns in `go/core/test/e2e/`
 
 **Demo:** `make -C go test-e2e` passes with new plugin routing tests.
+
+---
+
+## Step 12: FIX — Rename Proxy Path from `/plugins/` to `/_p/`
+
+**Objective:** Fix the nginx routing conflict where browser URL `/plugins/{name}` and iframe proxy URL collide, causing hard refresh to bypass Next.js layout.
+
+**Root cause:** `location /plugins/` in nginx catches ALL `/plugins/*` requests — including browser navigation. On hard refresh or direct URL, nginx sends to Go backend instead of Next.js. User sees raw plugin HTML without sidebar.
+
+**Implementation guidance:**
+
+1. **Go server** — `go/core/internal/httpserver/server.go`:
+   - Change `PluginsProxyPath` constant from `"/plugins/{name}"` to `"/_p/{name}"`
+   - Update `PathPrefix` registration: `s.router.PathPrefix("/_p/{name}").HandlerFunc(...)`
+
+2. **Go proxy handler** — `go/core/internal/httpserver/handlers/pluginproxy.go`:
+   - Update `HandleProxy` prefix stripping: `prefix := "/_p/" + pathPrefix`
+   - Update comments referencing `/plugins/`
+
+3. **Nginx** — `ui/conf/nginx.conf`:
+   - Rename `location /plugins/` to `location /_p/`
+   - Change `proxy_pass` to `http://kagent_backend/_p/`
+   - Browser URL `/plugins/{name}` now falls through to `location /` → Next.js
+
+4. **Next.js plugin page** — `ui/src/app/plugins/[name]/[[...path]]/page.tsx`:
+   - Change iframe src from `/plugins/${name}${subPath}` to `/_p/${name}${subPath}`
+
+5. **Update unit tests** — `go/core/internal/httpserver/handlers/pluginproxy_test.go`:
+   - Update all URL paths in tests from `/plugins/` to `/_p/`
+
+6. **Update E2E test** — `go/core/test/e2e/plugin_routing_test.go`:
+   - Update proxy URL from `/plugins/test-plugin/` to `/_p/test-plugin/`
+
+7. **Update API verification script** — `scripts/check-plugins-api.sh`:
+   - If checking proxy endpoint, use `/_p/` path
+
+**Test requirements:**
+- All existing unit tests pass with updated paths
+- E2E test verifies `/_p/{name}/` proxy works
+- Manual test: hard refresh on `/plugins/kanban` preserves sidebar layout
+- Nginx config validates: `nginx -t`
+
+**Integration notes:**
+- This is a non-breaking change for the API (`/api/plugins` is unchanged)
+- The `pathPrefix` field in Plugin model and CRD is unchanged (it's the logical name, not the URL path)
+- `/_p/` is an internal-only path — not exposed to users or documented externally
+
+**Demo:** Hard refresh on `/plugins/kanban` → sidebar stays visible, iframe loads from `/_p/kanban/`.
+
+---
+
+## Step 13: FIX — Add Loading/Error States to Sidebar and Plugin Page
+
+**Objective:** Eliminate silent empty UI by adding loading indicators, error states, and retry behavior.
+
+**Implementation guidance:**
+
+1. **Sidebar plugin fetch** — `ui/src/components/sidebars/AppSidebarNav.tsx`:
+   - Add `loading` and `error` state variables
+   - Set `loading=true` before fetch, `false` after
+   - Replace `.catch(() => {})` with `.catch((err) => { setError(true); console.error(err); })`
+   - Render loading indicator (spinner or skeleton) while `loading=true`
+   - Render error indicator with "Retry" button when `error=true`
+   - Retry button calls `fetchPlugins()` again
+
+2. **Plugin page loading** — `ui/src/app/plugins/[name]/[[...path]]/page.tsx`:
+   - Add `loading` state (default `true`)
+   - Add `error` state (default `false`)
+   - iframe `onLoad` → `setLoading(false)`
+   - iframe `onError` → `setLoading(false); setError(true)`
+   - Render loading skeleton (Loader2 spinner + "Loading plugin...") while `loading=true`
+   - Render error fallback (AlertCircle icon + "Plugin unavailable" + Retry button) when `error=true`
+   - Hide iframe with `className="hidden"` while loading or error
+   - Retry button resets state and reloads iframe (toggle `key` prop or re-set src)
+
+3. **Update sidebar tests** — `ui/src/components/sidebars/__tests__/AppSidebarNav.test.tsx`:
+   - Test: loading state visible during pending fetch
+   - Test: error state visible on fetch rejection
+   - Test: retry re-fetches `/api/plugins`
+
+**Test requirements:**
+- Unit test: sidebar shows loading indicator while fetch is pending
+- Unit test: sidebar shows error indicator when `/api/plugins` returns 500
+- Unit test: clicking retry re-fetches and clears error state
+- Unit test: plugin page shows loading skeleton, then content after iframe loads
+- Unit test: plugin page shows error fallback on iframe error
+
+**Integration notes:**
+- Uses existing Shadcn/UI components (Loader2 icon from lucide-react)
+- No new dependencies needed
+
+**Demo:** Stop the Go backend → sidebar shows "Failed to load plugins (Retry)" instead of empty. Start backend → click Retry → plugins appear.
+
+---
+
+## Step 14: Mock Plugin Service for Browser E2E Tests
+
+**Objective:** Create a minimal HTTP server that serves as a mock plugin for Playwright browser tests, including `kagent-plugin-bridge.js` integration.
+
+**Implementation guidance:**
+
+1. **Create mock plugin** — `ui/e2e/fixtures/mock-plugin-server.ts`:
+   - Simple Express or Node HTTP server
+   - Serves on configurable port (default 9999)
+   - Endpoints:
+     - `GET /` → returns test HTML with bridge integration (see below)
+     - `GET /api/health` → returns 200
+     - `GET /events` → SSE stream emitting test events
+
+2. **Mock plugin HTML**:
+   ```html
+   <!DOCTYPE html>
+   <html>
+   <body>
+     <div id="plugin-content">Mock Plugin Loaded</div>
+     <div id="theme" data-testid="theme-value">unknown</div>
+     <div id="namespace" data-testid="namespace-value">unknown</div>
+     <script>
+       // Inline bridge (no external file dependency for test simplicity)
+       window.addEventListener("message", (event) => {
+         if (event.data?.type === "kagent:context") {
+           document.getElementById("theme").textContent = event.data.payload.theme;
+           document.getElementById("namespace").textContent = event.data.payload.namespace;
+         }
+       });
+       // Signal ready
+       window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+       // Send badge after load
+       setTimeout(() => {
+         window.parent.postMessage({ type: "kagent:badge", payload: { count: 3 } }, "*");
+       }, 100);
+     </script>
+   </body>
+   </html>
+   ```
+
+3. **Deploy mock plugin to Kind** — `ui/e2e/fixtures/mock-plugin.yaml`:
+   - Deployment + Service for mock plugin
+   - RemoteMCPServer CRD with `ui` section pointing to mock service
+
+4. **Playwright fixture** — `ui/e2e/fixtures/plugin-fixture.ts`:
+   - Before all: apply mock plugin K8s manifests, wait for plugin to appear in `/api/plugins`
+   - After all: delete mock plugin manifests
+
+**Test requirements:**
+- Mock plugin responds within 100ms for test reliability
+- Mock plugin HTML includes data-testid attributes for Playwright selectors
+- Mock plugin emits `kagent:ready`, processes `kagent:context`, sends `kagent:badge`
+
+**Integration notes:**
+- Mock plugin deploys to same Kind cluster as kagent
+- Uses existing `kubectl apply` patterns from E2E setup
+
+**Demo:** `kubectl apply -f ui/e2e/fixtures/mock-plugin.yaml` → `/api/plugins` shows mock plugin → `/_p/mock-plugin/` returns test HTML.
+
+---
+
+## Step 15: Playwright Browser E2E Tests
+
+**Objective:** Automated browser tests verifying the full UI pipeline — sidebar discovery, plugin navigation, iframe rendering, postMessage bridge, and error states.
+
+**Implementation guidance:**
+
+1. **Setup Playwright** — `ui/playwright.config.ts`:
+   - Base URL from env `KAGENT_UI_URL` (default `http://localhost:8080`)
+   - Browser: chromium
+   - Timeout: 30s per test
+   - Global setup: deploy mock plugin, wait for it in `/api/plugins`
+   - Global teardown: remove mock plugin
+
+2. **Test file** — `ui/e2e/plugin-routing.spec.ts`:
+
+   ```typescript
+   test.describe("Plugin UI Routing", () => {
+
+     test("sidebar shows plugin nav item from /api/plugins", async ({ page }) => {
+       await page.goto("/");
+       // Wait for plugin to appear in sidebar (fetched from /api/plugins)
+       const pluginLink = page.getByRole("link", { name: "Mock Plugin" });
+       await expect(pluginLink).toBeVisible({ timeout: 10000 });
+     });
+
+     test("clicking plugin navigates to /plugins/{name} with sidebar", async ({ page }) => {
+       await page.goto("/");
+       await page.getByRole("link", { name: "Mock Plugin" }).click();
+       await expect(page).toHaveURL(/\/plugins\/mock-plugin/);
+       // Sidebar still visible
+       await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+       // iframe present with correct src
+       const iframe = page.frameLocator('iframe[title="Plugin: mock-plugin"]');
+       await expect(iframe.locator("#plugin-content")).toHaveText("Mock Plugin Loaded");
+     });
+
+     test("hard refresh preserves sidebar and iframe", async ({ page }) => {
+       await page.goto("/plugins/mock-plugin");
+       // Sidebar visible on direct navigation
+       await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+       // iframe loads
+       const iframe = page.frameLocator('iframe[title="Plugin: mock-plugin"]');
+       await expect(iframe.locator("#plugin-content")).toHaveText("Mock Plugin Loaded");
+     });
+
+     test("theme sync via postMessage", async ({ page }) => {
+       await page.goto("/plugins/mock-plugin");
+       const iframe = page.frameLocator('iframe[title="Plugin: mock-plugin"]');
+       // Wait for plugin to receive initial context
+       await expect(iframe.locator('[data-testid="theme-value"]')).not.toHaveText("unknown", { timeout: 5000 });
+       // Theme should be light or dark (from host)
+       const themeText = await iframe.locator('[data-testid="theme-value"]').textContent();
+       expect(["light", "dark"]).toContain(themeText);
+     });
+
+     test("badge update appears in sidebar", async ({ page }) => {
+       await page.goto("/plugins/mock-plugin");
+       // Mock plugin sends badge count=3 after 100ms
+       const badge = page.getByTestId("sidebar-menu-badge");
+       await expect(badge).toHaveText("3", { timeout: 5000 });
+     });
+
+     test("loading state shown while iframe loads", async ({ page }) => {
+       await page.goto("/plugins/mock-plugin");
+       // Loading indicator should be visible briefly
+       // (may be too fast to catch; test validates no error state)
+       const iframe = page.frameLocator('iframe[title="Plugin: mock-plugin"]');
+       await expect(iframe.locator("#plugin-content")).toHaveText("Mock Plugin Loaded");
+       // No error message visible
+       await expect(page.getByText("Plugin unavailable")).not.toBeVisible();
+     });
+
+     test("error state shown when plugin unreachable", async ({ page }) => {
+       // Navigate to a non-existent plugin
+       await page.goto("/plugins/nonexistent-plugin-xyz");
+       // Should show error fallback (upstream returns 404 or iframe fails)
+       await expect(page.getByText("Plugin unavailable")).toBeVisible({ timeout: 10000 });
+       // Retry button present
+       await expect(page.getByRole("button", { name: /retry/i })).toBeVisible();
+     });
+   });
+   ```
+
+3. **Add npm scripts** — `ui/package.json`:
+   ```json
+   "test:e2e": "playwright test",
+   "test:e2e:ui": "playwright test --ui"
+   ```
+
+**Test requirements:**
+- All 7 tests pass against Kind cluster with mock plugin deployed
+- Tests are idempotent (can run multiple times without side effects)
+- Test timeout: 30s per test (allows for K8s reconciliation latency)
+- Tests use Playwright built-in assertions (auto-retry + timeout)
+
+**Integration notes:**
+- Playwright runs against the nginx-fronted kagent UI (port 8080)
+- Tests use `page.frameLocator()` for iframe content assertions
+- Mock plugin must be deployed before tests run (handled by global setup)
+
+**Demo:** `cd ui && npx playwright test` → 7 tests pass, HTML report generated.
+
+---
+
+## Step 16: CI Integration — API Verification + Playwright
+
+**Objective:** Integrate API verification script and Playwright browser tests into CI pipeline.
+
+**Implementation guidance:**
+
+1. **Enhance `scripts/check-plugins-api.sh`**:
+   - Add `--wait` flag: poll `/api/plugins` every 2s up to 60s until expected plugin appears
+   - Add `--proxy` flag: verify `/_p/{name}/` returns non-404
+   - Add `--all` flag: run both checks
+   - Use in CI after `helm install` to wait for plugin to be ready before running browser tests
+
+2. **Add Makefile targets**:
+   ```makefile
+   # Run API verification
+   test-plugins-api:
+   	scripts/check-plugins-api.sh --wait --proxy
+
+   # Run Playwright browser E2E tests
+   test-e2e-browser:
+   	cd ui && npx playwright install --with-deps chromium
+   	cd ui && npx playwright test
+
+   # Run all E2E tests (API + browser)
+   test-e2e-all: test-e2e test-plugins-api test-e2e-browser
+   ```
+
+3. **GitHub Actions workflow** — `.github/workflows/e2e-browser.yml` (or extend existing):
+   - Trigger: PR, push to main
+   - Steps:
+     1. Create Kind cluster
+     2. Build and deploy kagent
+     3. Deploy mock plugin (`kubectl apply -f ui/e2e/fixtures/mock-plugin.yaml`)
+     4. Wait for plugin ready (`scripts/check-plugins-api.sh --wait --plugin mock-plugin`)
+     5. Run Playwright tests (`make test-e2e-browser`)
+     6. Upload Playwright report as artifact
+
+**Test requirements:**
+- CI completes within 10 minutes (including cluster creation)
+- Playwright report uploaded as artifact on failure
+- API verification script exits non-zero on any failure
+
+**Integration notes:**
+- Kind cluster reused from existing E2E setup
+- Playwright installed via `npx playwright install --with-deps` (includes browser binaries)
+- Mock plugin cleanup handled by CI teardown (Kind cluster deleted)
+
+**Demo:** PR triggers CI → Kind cluster created → kagent deployed → mock plugin deployed → API verified → Playwright tests pass → green check on PR.
