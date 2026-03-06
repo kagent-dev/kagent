@@ -2362,6 +2362,10 @@ spec:
       jsonPath: .spec.type
       name: Type
       type: string
+    - description: The runtime implementation for declarative agents.
+      jsonPath: .spec.declarative.runtime
+      name: Runtime
+      type: string
     - description: Whether or not the agent is ready to serve requests.
       jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
@@ -7362,8 +7366,6 @@ spec:
                         type: array
                       imageRegistry:
                         type: string
-                      imageRepository:
-                        type: string
                       labels:
                         additionalProperties:
                           type: string
@@ -9976,6 +9978,21 @@ spec:
                         maxItems: 20
                         type: array
                     type: object
+                  runtime:
+                    allOf:
+                    - enum:
+                      - python
+                      - go
+                    - enum:
+                      - python
+                      - go
+                    default: python
+                    description: |-
+                      Runtime specifies which ADK implementation to use for this agent.
+                      - "python": Uses the Python ADK (default, slower startup, full feature set)
+                      - "go": Uses the Go ADK (faster startup, most features supported)
+                      The runtime determines both the container image and readiness probe configuration.
+                    type: string
                   stream:
                     description: |-
                       Whether to stream the response from the model.
