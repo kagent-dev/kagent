@@ -134,6 +134,27 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	})
 
+	// Warn users when they configure features unsupported by their chosen runtime.
+	// This implements soft validation - warns but doesn't fail reconciliation.
+	if warning := a.validateRuntimeFeatures(agent); warning != "" {
+		conditionChanged = conditionChanged || meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
+			Type:               v1alpha2.AgentConditionTypeUnsupportedFeatures,
+			Status:             metav1.ConditionTrue,
+			Reason:             "UnsupportedFeatures",
+			Message:            warning,
+			ObservedGeneration: agent.Generation,
+		})
+	} else {
+		// Clear warning condition if previously set
+		for i, cond := range agent.Status.Conditions {
+			if cond.Type == v1alpha2.AgentConditionTypeUnsupportedFeatures && cond.Reason == "UnsupportedFeatures" {
+				agent.Status.Conditions = append(agent.Status.Conditions[:i], agent.Status.Conditions[i+1:]...)
+				conditionChanged = true
+				break
+			}
+		}
+	}
+
 	deployedCondition := metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
@@ -642,6 +663,48 @@ func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.A
 	}
 
 	return nil
+}
+
+// validateRuntimeFeatures checks if the agent configures features unsupported by its runtime.
+// Returns a warning message if unsupported features are detected, empty string otherwise.
+// This implements soft validation - warns but doesn't fail reconciliation.
+func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.Agent) string {
+	if agent.Spec.Declarative == nil {
+		return ""
+	}
+
+	// Get runtime (defaults to python)
+	runtime := agent.Spec.Declarative.Runtime
+	if runtime == "" {
+		runtime = v1alpha2.DeclarativeRuntime_Python
+	}
+
+	// Python runtime supports all features
+	if runtime != v1alpha2.DeclarativeRuntime_Go {
+		return ""
+	}
+
+	// Check for Go runtime unsupported features
+	var unsupported []string
+
+	// ExecuteCodeBlocks: deprecated, not implementing in Go
+	if agent.Spec.Declarative.ExecuteCodeBlocks != nil && *agent.Spec.Declarative.ExecuteCodeBlocks {
+		unsupported = append(unsupported, "code execution (executeCodeBlocks is deprecated)")
+	}
+
+	// Memory: ✅ Supported in Go as of PR #1444
+	// Context compression: Not yet implemented in Go runtime
+	if agent.Spec.Declarative.Context != nil && agent.Spec.Declarative.Context.Compaction != nil {
+		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
+	}
+
+	if len(unsupported) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("The following features are not supported in Go runtime and will be ignored: %s. "+
+		"Consider using runtime: python or removing these configurations.",
+		strings.Join(unsupported, ", "))
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be owned by
