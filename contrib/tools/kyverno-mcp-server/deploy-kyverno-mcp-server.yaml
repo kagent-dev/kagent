@@ -68,8 +68,11 @@ spec:
       serviceAccountName: kyverno-mcp-server
       containers:
         - name: kyverno-mcp-server
-          image: kyverno-mcp-server:latest
+          image: ghcr.io/kagent-dev/kyverno-mcp-server:latest
           imagePullPolicy: IfNotPresent
+          # To use a locally built image instead, set:
+          #   image: kyverno-mcp-server:latest
+          #   imagePullPolicy: Never
           ports:
             - name: mcp
               containerPort: 8089
@@ -86,14 +89,12 @@ spec:
               cpu: 500m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /sse
+            tcpSocket:
               port: 8089
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /sse
+            tcpSocket:
               port: 8089
             initialDelaySeconds: 10
             periodSeconds: 30
