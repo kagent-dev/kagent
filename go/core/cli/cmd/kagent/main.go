@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
@@ -324,7 +325,18 @@ Examples:
 		Run: func(cmd *cobra.Command, args []string) {
 			deployCfg.ProjectDir = args[0]
 
-			if err := cli.DeployCmd(cmd.Context(), deployCfg); err != nil {
+			// Create Kubernetes client (skip in dry-run mode)
+			var k8sClient client.Client
+			var err error
+			if !deployCfg.DryRun {
+				k8sClient, err = cli.CreateKubernetesClient()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error creating Kubernetes client: %v\n", err)
+					os.Exit(1)
+				}
+			}
+
+			if err := cli.DeployCmd(cmd.Context(), k8sClient, deployCfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
