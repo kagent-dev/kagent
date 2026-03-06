@@ -1,0 +1,35 @@
+{
+  "openai": [
+    {
+      "name": "temporal_simple_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is the capital of France?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-temporal-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "The capital of France is Paris.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 15,
+          "completion_tokens": 8,
+          "total_tokens": 23
+        }
+      }
+    }
+  ]
+}

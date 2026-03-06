@@ -114,6 +114,10 @@ test: ## Run all unit tests across the workspace.
 e2e: ## Run end-to-end tests.
 	cd core && go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
+.PHONY: e2e-temporal
+e2e-temporal: ## Run Temporal E2E tests (requires Temporal + NATS in cluster).
+	cd core && TEMPORAL_ENABLED=1 go test -v -run 'TestE2ETemporal.*' github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+
 ##@ Dependencies
 
 ## Location to install dependencies to
