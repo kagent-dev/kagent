@@ -296,8 +296,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
 
 	// Plugin reverse proxy (catch-all, must be registered after more specific routes)
+	// Uses /_p/ prefix to avoid conflict with Next.js /plugins/ browser URLs
 	// Uses raw http.HandlerFunc, not adaptHandler, because it proxies directly
-	s.router.PathPrefix("/plugins/{name}").HandlerFunc(s.handlers.PluginProxy.HandleProxy)
+	s.router.PathPrefix("/_p/{name}").HandlerFunc(s.handlers.PluginProxy.HandleProxy)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

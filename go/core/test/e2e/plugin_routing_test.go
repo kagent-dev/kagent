@@ -33,7 +33,7 @@ func kagentBaseURL() string {
 // 3. Verify /api/plugins returns correct metadata
 // 4. Delete CRD
 // 5. Verify /api/plugins no longer returns the entry
-// 6. Verify /plugins/{name}/ returns 404
+// 6. Verify /_p/{name}/ returns 404
 func TestE2EPluginRouting(t *testing.T) {
 	cli := setupK8sClient(t, false)
 	httpClient := &http.Client{Timeout: 10 * time.Second}
@@ -112,9 +112,9 @@ func TestE2EPluginRouting(t *testing.T) {
 	assert.Equal(t, "PLUGINS", foundPlugin.Section)
 	t.Logf("Plugin metadata verified: %+v", foundPlugin)
 
-	// Verify /plugins/test-plugin/ returns a response (proxy is set up)
+	// Verify /_p/test-plugin/ returns a response (proxy is set up)
 	// The upstream doesn't exist, so we expect a 502 (Bad Gateway) rather than 404
-	proxyURL := baseURL + "/plugins/test-plugin/"
+	proxyURL := baseURL + "/_p/test-plugin/"
 	proxyReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proxyURL, nil)
 	require.NoError(t, err)
 	proxyResp, err := httpClient.Do(proxyReq)
@@ -159,7 +159,7 @@ func TestE2EPluginRouting(t *testing.T) {
 	require.NoError(t, disappearErr, "timed out waiting for plugin to disappear from /api/plugins")
 	t.Logf("Plugin removed from /api/plugins after CRD deletion")
 
-	// Verify /plugins/test-plugin/ returns 404 after deletion
+	// Verify /_p/test-plugin/ returns 404 after deletion
 	proxyReq2, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proxyURL, nil)
 	require.NoError(t, err)
 	proxyResp2, err := httpClient.Do(proxyReq2)

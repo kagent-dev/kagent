@@ -12,7 +12,7 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// PluginProxyHandler handles /plugins/{name}/ reverse proxy requests
+// PluginProxyHandler handles /_p/{name}/ reverse proxy requests
 type PluginProxyHandler struct {
 	*Base
 	proxies sync.Map // pathPrefix -> *httputil.ReverseProxy
@@ -23,7 +23,7 @@ func NewPluginProxyHandler(base *Base) *PluginProxyHandler {
 	return &PluginProxyHandler{Base: base}
 }
 
-// HandleProxy handles all requests to /plugins/{name}/{path...}
+// HandleProxy handles all requests to /_p/{name}/{path...}
 func (h *PluginProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("plugin-proxy")
 
@@ -42,9 +42,9 @@ func (h *PluginProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request)
 
 	proxy := h.getOrCreateProxy(plugin)
 
-	// Strip the /plugins/{name} prefix before forwarding
+	// Strip the /_p/{name} prefix before forwarding
 	originalPath := r.URL.Path
-	prefix := "/plugins/" + pathPrefix
+	prefix := "/_p/" + pathPrefix
 	r.URL.Path = strings.TrimPrefix(originalPath, prefix)
 	if r.URL.Path == "" {
 		r.URL.Path = "/"

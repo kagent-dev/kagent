@@ -42,7 +42,7 @@ type PluginUISpec struct {
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty"`
 
-	// PathPrefix is the URL path segment used for routing: /plugins/{pathPrefix}/
+	// PathPrefix is the URL path segment used for routing: /_p/{pathPrefix}/
 	// Must be a valid URL path segment (lowercase alphanumeric + hyphens).
 	// Defaults to the RemoteMCPServer name if not specified.
 	// +optional
@@ -93,7 +93,8 @@ type RemoteMCPServerSpec struct {
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 
 	// UI defines optional web UI metadata for this MCP server.
-	// When ui.enabled is true, the server's UI is accessible at /plugins/{ui.pathPrefix}/
+	// When ui.enabled is true, the server's UI is accessible via /_p/{ui.pathPrefix}/ (proxy)
+	// and browser URL /plugins/{ui.pathPrefix} (Next.js wrapper with sidebar + iframe)
 	// +optional
 	UI *PluginUISpec `json:"ui,omitempty"`
 }

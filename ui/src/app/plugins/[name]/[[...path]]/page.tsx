@@ -17,10 +17,11 @@ export default function PluginPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [title, setTitle] = useState<string>("");
 
-  // Build iframe src - Go backend reverse proxies to plugin service
+  // Build iframe src using /_p/ prefix - Go backend reverse proxies to plugin service
+  // Browser URL /plugins/{name} stays on Next.js; iframe loads from /_p/{name}/ via Go proxy
   const pathParams = useParams<{ path?: string[] }>();
   const subPath = pathParams.path ? "/" + pathParams.path.join("/") : "/";
-  const iframeSrc = `/plugins/${name}${subPath}`;
+  const iframeSrc = `/_p/${name}${subPath}`;
 
   const sendContext = useCallback(() => {
     const iframe = iframeRef.current;
