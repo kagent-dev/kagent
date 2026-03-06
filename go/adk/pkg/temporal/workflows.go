@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -164,8 +165,27 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 			}
 		}
 
-		// Handle A2A agent calls (child workflows) - placeholder for Step 6.
-		// Agent calls are not yet implemented; they will be added in Step 6.
+		// Handle A2A agent calls as child workflows on target agent task queues.
+		if len(llmResp.AgentCalls) > 0 {
+			childResults, err := executeChildWorkflows(ctx, req, llmResp.AgentCalls, config)
+			if err != nil {
+				return &ExecutionResult{
+					SessionID: req.SessionID,
+					Status:    "failed",
+					Reason:    fmt.Sprintf("child workflow failed at turn %d: %s", turn, err.Error()),
+				}, nil
+			}
+
+			// Append child results to history as tool-like responses for the LLM.
+			for _, cr := range childResults {
+				resultBytes, _ := json.Marshal(cr)
+				history = append(history, conversationEntry{
+					Role:       "tool",
+					ToolCallID: "agent-" + cr.AgentName,
+					ToolResult: resultBytes,
+				})
+			}
+		}
 
 		// HITL approval: block on signal if the LLM requested human approval.
 		if llmResp.NeedsApproval {
@@ -207,6 +227,63 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 		Status:    "failed",
 		Reason:    fmt.Sprintf("exceeded maximum turns (%d)", MaxTurns),
 	}, nil
+}
+
+// childWorkflowResult captures the outcome of a child workflow execution.
+type childWorkflowResult struct {
+	AgentName string          `json:"agentName"`
+	Status    string          `json:"status"`
+	Response  json.RawMessage `json:"response,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
+}
+
+// executeChildWorkflows launches child workflows for A2A agent calls in parallel
+// and waits for all of them to complete.
+func executeChildWorkflows(ctx workflow.Context, parentReq *ExecutionRequest, agentCalls []AgentCall, config TemporalConfig) ([]childWorkflowResult, error) {
+	results := make([]childWorkflowResult, len(agentCalls))
+	futures := make([]workflow.ChildWorkflowFuture, len(agentCalls))
+
+	for i, ac := range agentCalls {
+		childSessionID := ChildWorkflowID(parentReq.SessionID, ac.TargetAgent)
+		childNATSSubject := "agent." + ac.TargetAgent + "." + childSessionID + ".stream"
+
+		childOpts := workflow.ChildWorkflowOptions{
+			TaskQueue:                TaskQueueForAgent(ac.TargetAgent),
+			WorkflowID:               childSessionID,
+			WorkflowExecutionTimeout: config.WorkflowTimeout,
+			ParentClosePolicy:        enumspb.PARENT_CLOSE_POLICY_TERMINATE,
+		}
+		childCtx := workflow.WithChildOptions(ctx, childOpts)
+
+		childReq := &ExecutionRequest{
+			SessionID:   childSessionID,
+			UserID:      parentReq.UserID,
+			AgentName:   ac.TargetAgent,
+			Message:     ac.Message,
+			Config:      parentReq.Config, // child inherits parent config
+			NATSSubject: childNATSSubject,
+		}
+
+		futures[i] = workflow.ExecuteChildWorkflow(childCtx, AgentExecutionWorkflow, childReq)
+	}
+
+	// Wait for all child workflows to complete.
+	for i, f := range futures {
+		var childResult ExecutionResult
+		err := f.Get(ctx, &childResult)
+		if err != nil {
+			return nil, fmt.Errorf("child workflow for agent %q failed: %w", agentCalls[i].TargetAgent, err)
+		}
+
+		results[i] = childWorkflowResult{
+			AgentName: agentCalls[i].TargetAgent,
+			Status:    childResult.Status,
+			Response:  childResult.Response,
+			Reason:    childResult.Reason,
+		}
+	}
+
+	return results, nil
 }
 
 // executeToolsInParallel executes multiple tool calls concurrently using workflow goroutines.

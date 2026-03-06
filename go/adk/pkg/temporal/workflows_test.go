@@ -493,6 +493,165 @@ func (s *WorkflowTestSuite) TestHITLAfterToolCalls() {
 	s.Equal("completed", result.Status)
 }
 
+// Test: parent workflow starts child workflow for A2A agent call and receives result.
+// Child workflow executes inline with mocked activities (no OnWorkflow mock needed).
+func (s *WorkflowTestSuite) TestChildWorkflowSuccess() {
+	req := basicRequest()
+
+	// Session activity: called by both parent and child.
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// Parent LLM turn 1: returns an agent call.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			Content: "Let me ask the specialist.",
+			AgentCalls: []AgentCall{
+				{TargetAgent: "specialist", Message: []byte("What is the answer?")},
+			},
+		}, nil).Once()
+
+	// Child LLM turn (executes inline): terminal response.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "The answer is 42.", Terminal: true}, nil).Once()
+
+	// Parent LLM turn 2 (after child result): terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "The specialist says the answer is 42.", Terminal: true}, nil).Once()
+
+	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
+// Test: child workflow failure propagates to parent as failed result.
+// Child fails at session init, which is a workflow error that propagates to parent.
+func (s *WorkflowTestSuite) TestChildWorkflowFailurePropagates() {
+	req := basicRequest()
+
+	// Parent session succeeds.
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil).Once()
+
+	// Parent LLM turn: returns agent call.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			AgentCalls: []AgentCall{
+				{TargetAgent: "broken-agent", Message: []byte("help")},
+			},
+		}, nil)
+
+	// Child session fails (causes child workflow error -> propagates to parent).
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(nil, errSessionUnavailable).Once()
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("failed", result.Status)
+	s.Contains(result.Reason, "child workflow failed")
+}
+
+// Test: parallel child workflows (multiple A2A calls in one turn).
+// Both children execute inline with mocked activities.
+func (s *WorkflowTestSuite) TestParallelChildWorkflows() {
+	req := basicRequest()
+
+	// Session activity: parent + 2 children.
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// Parent LLM turn 1: two agent calls.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			Content: "Let me consult both experts.",
+			AgentCalls: []AgentCall{
+				{TargetAgent: "expert-a", Message: []byte("question A")},
+				{TargetAgent: "expert-b", Message: []byte("question B")},
+			},
+		}, nil).Once()
+
+	// Child A LLM turn: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Answer A", Terminal: true}, nil).Once()
+
+	// Child B LLM turn: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Answer B", Terminal: true}, nil).Once()
+
+	// Parent LLM turn 2: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Both experts agree.", Terminal: true}, nil).Once()
+
+	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
+// Test: agent calls combined with tool calls in the same turn.
+func (s *WorkflowTestSuite) TestAgentCallsWithToolCalls() {
+	req := basicRequest()
+
+	// Session: parent + child.
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// Parent LLM turn 1: both tool calls and agent calls.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{
+				{ID: "tc-1", Name: "get_data", Args: []byte(`{}`)},
+			},
+			AgentCalls: []AgentCall{
+				{TargetAgent: "analyzer", Message: []byte("analyze this")},
+			},
+		}, nil).Once()
+
+	// Tool execution.
+	s.env.OnActivity(s.act.ToolExecuteActivity, mock.Anything, mock.Anything).
+		Return(&ToolResponse{ToolCallID: "tc-1", Result: []byte(`"data"`)}, nil)
+
+	// Child LLM turn: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Analysis complete.", Terminal: true}, nil).Once()
+
+	// Parent LLM turn 2: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "All done.", Terminal: true}, nil).Once()
+
+	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
 // Sentinel errors for test mocks (Temporal test suite needs concrete errors).
 var (
 	errLLMUnavailable     = &testError{"LLM provider unavailable"}
