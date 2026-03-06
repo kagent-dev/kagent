@@ -13,6 +13,7 @@ spec:
   selector:
     matchLabels:
       {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
   endpoints:
     - port: metrics
       interval: {{ .Values.controller.metrics.serviceMonitor.interval }}
