@@ -1,0 +1,11 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: kyverno-mcp-server
+  namespace: kagent
+spec:
+  protocol: SSE
+  url: "http://kyverno-mcp-server:8089/sse"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Kyverno policy management - list, inspect, explain, and audit Kubernetes policies"

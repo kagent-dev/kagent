@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kyverno-mcp-server
+  namespace: kagent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno-mcp-server
+rules:
+  - apiGroups: ["kyverno.io"]
+    resources: ["clusterpolicies", "policies", "policyexceptions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources: ["clusterpolicyreports", "policyreports"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kyverno-mcp-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kyverno-mcp-server
+subjects:
+  - kind: ServiceAccount
+    name: kyverno-mcp-server
+    namespace: kagent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyverno-mcp-server
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: kyverno-mcp-server
+spec:
+  ports:
+    - name: mcp
+      port: 8089
+      targetPort: 8089
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: kyverno-mcp-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-mcp-server
+  namespace: kagent
+  labels:
+    app.kubernetes.io/name: kyverno-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyverno-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kyverno-mcp-server
+    spec:
+      serviceAccountName: kyverno-mcp-server
+      containers:
+        - name: kyverno-mcp-server
+          image: ghcr.io/kagent-dev/kyverno-mcp-server:latest
+          imagePullPolicy: IfNotPresent
+          # To use a locally built image instead, set:
+          #   image: kyverno-mcp-server:latest
+          #   imagePullPolicy: Never
+          ports:
+            - name: mcp
+              containerPort: 8089
+          env:
+            - name: MCP_PORT
+              value: "8089"
+            - name: MCP_HOST
+              value: "0.0.0.0"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8089
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8089
+            initialDelaySeconds: 10
+            periodSeconds: 30
