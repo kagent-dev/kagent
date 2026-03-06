@@ -1,7 +1,8 @@
 """Base classes for framework-specific STS integration."""
 
+import inspect
 import logging
-from typing import Any, Dict, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
 from ._actor_service import ActorTokenService
 from .client import STSClient, STSConfig, TokenType
@@ -16,6 +17,7 @@ class STSIntegrationBase:
         self,
         well_known_uri: str,
         service_account_token_path: Optional[str] = None,
+        fetch_actor_token: Optional[Union[Callable[[], str], Callable[[], Awaitable[str]]]] = None,
         timeout: int = 30,
         verify_ssl: bool = True,
         additional_config: Optional[Dict[str, Any]] = None,
@@ -24,6 +26,8 @@ class STSIntegrationBase:
 
         Args:
             well_known_uri: Well-known configuration URI for the STS server
+            service_account_token_path: Path to service account token file (ignored if fetch_actor_token is set)
+            fetch_actor_token: Optional callable (sync or async) that returns an actor token
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
             additional_config: Additional configuration for the specific framework
@@ -32,6 +36,7 @@ class STSIntegrationBase:
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.additional_config = additional_config or {}
+        self.fetch_actor_token = fetch_actor_token
 
         # Initialize STS client
         config = STSConfig(
@@ -41,7 +46,12 @@ class STSIntegrationBase:
         )
         self.sts_client = STSClient(config)
         self.access_token = None  # cached access token
-        self._actor_token = ActorTokenService(service_account_token_path).get_actor_token()
+
+        # Initialize actor token: use fetch_actor_token if provided, otherwise use service account
+        if fetch_actor_token:
+            self._actor_token = None  # Will be fetched dynamically
+        else:
+            self._actor_token = ActorTokenService(service_account_token_path).get_actor_token()
 
     async def exchange_token(
         self,
