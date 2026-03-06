@@ -1,0 +1,5 @@
+apiVersion: v2
+name: temporal-mcp
+description: MCP server for Temporal workflow administration
+type: application
+version: ${VERSION}

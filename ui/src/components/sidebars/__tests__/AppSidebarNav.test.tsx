@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { AppSidebarNav, NAV_SECTIONS } from "../AppSidebarNav";
 import { waitFor } from "@testing-library/react";
 import { act } from "react";
@@ -15,6 +15,17 @@ jest.mock("next/link", () => {
     <a href={href}>{children}</a>
   );
 });
+
+// Mock sidebar status context (plugins come from provider; nav no longer shows status/retry)
+const mockPlugins = jest.fn(() => []);
+const mockRetry = jest.fn();
+jest.mock("@/lib/sidebar-status-context", () => ({
+  useSidebarStatus: () => ({
+    status: "ok",
+    plugins: mockPlugins(),
+    retry: mockRetry,
+  }),
+}));
 
 // Mock SidebarProvider context that sidebar primitives require
 jest.mock("@/components/ui/sidebar", () => {
@@ -50,12 +61,9 @@ jest.mock("@/components/ui/sidebar", () => {
 });
 
 describe("AppSidebarNav", () => {
-  const mockFetch = jest.fn();
-
   beforeEach(() => {
     mockPathname.mockReturnValue("/agents");
-    mockFetch.mockReturnValue(new Promise(() => {}));
-    global.fetch = mockFetch as unknown as typeof fetch;
+    mockPlugins.mockReturnValue([]);
   });
 
   it("renders all 4 section labels", () => {
@@ -111,8 +119,8 @@ describe("AppSidebarNav", () => {
     expect(labels).toEqual([
       "Dashboard",
       "Live Feed",
+      "Plugins",
       "My Agents",
-      "Workflows",
       "Cron Jobs",
       "Models",
       "Tools",
@@ -174,79 +182,58 @@ describe("AppSidebarNav", () => {
     });
   });
 
-  it("renders Kanban Board dynamically in AGENTS from /api/plugins", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            name: "kagent/kanban-mcp",
-            pathPrefix: "kanban-mcp",
-            displayName: "Kanban Board",
-            icon: "kanban",
-            section: "AGENTS",
-          },
-        ],
-      }),
-    });
+  it("renders Kanban Board dynamically in AGENTS from sidebar status context", () => {
+    mockPlugins.mockReturnValue([
+      {
+        name: "kagent/kanban-mcp",
+        pathPrefix: "kanban",
+        displayName: "Kanban Board",
+        icon: "kanban",
+        section: "AGENTS",
+      },
+    ]);
 
     render(<AppSidebarNav />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Kanban Board")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Kanban Board")).toBeInTheDocument();
   });
 
-  it("renders PLUGINS section when plugin section is unknown", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            name: "kagent/custom-mcp",
-            pathPrefix: "custom",
-            displayName: "Custom Plugin",
-            icon: "puzzle",
-            section: "CUSTOM",
-          },
-        ],
-      }),
-    });
+  it("renders PLUGINS section when plugin section is unknown", () => {
+    mockPlugins.mockReturnValue([
+      {
+        name: "kagent/custom-mcp",
+        pathPrefix: "custom",
+        displayName: "Custom Plugin",
+        icon: "puzzle",
+        section: "CUSTOM",
+      },
+    ]);
 
     render(<AppSidebarNav />);
 
-    await waitFor(() => {
-      expect(screen.getByText("PLUGINS")).toBeInTheDocument();
-      expect(screen.getByText("Custom Plugin")).toBeInTheDocument();
-    });
+    expect(screen.getByText("PLUGINS")).toBeInTheDocument();
+    expect(screen.getByText("Custom Plugin")).toBeInTheDocument();
   });
 
   it("renders plugin badge when plugin posts kagent:plugin-badge event", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            name: "kagent/kanban-mcp",
-            pathPrefix: "kanban-mcp",
-            displayName: "Kanban Board",
-            icon: "kanban",
-            section: "AGENTS",
-          },
-        ],
-      }),
-    });
+    mockPlugins.mockReturnValue([
+      {
+        name: "kagent/kanban-mcp",
+        pathPrefix: "kanban",
+        displayName: "Kanban Board",
+        icon: "kanban",
+        section: "AGENTS",
+      },
+    ]);
 
     render(<AppSidebarNav />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Kanban Board")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Kanban Board")).toBeInTheDocument();
 
     act(() => {
       window.dispatchEvent(
         new CustomEvent("kagent:plugin-badge", {
-          detail: { plugin: "kanban-mcp", count: 7 },
+          detail: { plugin: "kanban", count: 7 },
         })
       );
     });
@@ -256,86 +243,4 @@ describe("AppSidebarNav", () => {
     });
   });
 
-  it("shows loading indicator while plugins fetch is in-flight", () => {
-    // Default mock returns a never-resolving promise
-    render(<AppSidebarNav />);
-    expect(screen.getByTestId("plugins-loading")).toBeInTheDocument();
-    expect(screen.getByText("Loading plugins…")).toBeInTheDocument();
-  });
-
-  it("hides loading indicator after plugins load", async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [] }),
-    });
-
-    render(<AppSidebarNav />);
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("plugins-loading")).not.toBeInTheDocument();
-    });
-  });
-
-  it("shows error state when plugins fetch fails", async () => {
-    mockFetch.mockRejectedValue(new Error("Network error"));
-
-    render(<AppSidebarNav />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("plugins-error")).toBeInTheDocument();
-      expect(screen.getByText("Plugins failed")).toBeInTheDocument();
-      expect(screen.getByTestId("plugins-retry")).toBeInTheDocument();
-    });
-  });
-
-  it("shows error state when plugins fetch returns non-ok status", async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: async () => ({}),
-    });
-
-    render(<AppSidebarNav />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("plugins-error")).toBeInTheDocument();
-    });
-  });
-
-  it("retries plugins fetch when retry button is clicked", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("Network error"));
-
-    render(<AppSidebarNav />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("plugins-error")).toBeInTheDocument();
-    });
-
-    // Now set up successful response for retry
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            name: "kagent/kanban-mcp",
-            pathPrefix: "kanban-mcp",
-            displayName: "Kanban Board",
-            icon: "kanban",
-            section: "AGENTS",
-          },
-        ],
-      }),
-    });
-
-    const callsBefore = mockFetch.mock.calls.length;
-    fireEvent.click(screen.getByTestId("plugins-retry"));
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("plugins-error")).not.toBeInTheDocument();
-      expect(screen.getByText("Kanban Board")).toBeInTheDocument();
-    });
-
-    // Verify fetch was called again after retry
-    expect(mockFetch.mock.calls.length).toBeGreaterThan(callsBefore);
-  });
 });

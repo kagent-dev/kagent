@@ -17,7 +17,7 @@ spec:
   ui:
     enabled: true
     pathPrefix: "temporal"
-    displayName: "Temporal Workflows"
-    icon: "workflow"
-    section: "PLUGINS"
+    displayName: "Workflows"
+    icon: "git-branch"
+    section: "AGENTS"
 {{- end }}
