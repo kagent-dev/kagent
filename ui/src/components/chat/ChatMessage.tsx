@@ -175,6 +175,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <div className="flex flex-wrap gap-2 my-1">
           {imageParts.map((fp, i) => {
             const file = fp.file;
+            if (!file) {
+              return null;
+            }
             const mimeType = "mimeType" in file ? file.mimeType : "image/png";
             let src: string;
             if ("bytes" in file && file.bytes) {

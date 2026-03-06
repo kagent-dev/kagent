@@ -77,6 +77,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
   const [imageAttachments, setImageAttachments] = useState<Array<{ file: File; preview: string; base64: string }>>([]);
+  const imageAttachmentsRef = useRef(imageAttachments);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -163,6 +164,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setPendingDecisions({});
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
+      // Revoke any pending attachment previews from the previous session.
+      setImageAttachments(prev => {
+        for (const img of prev) URL.revokeObjectURL(img.preview);
+        return [];
+      });
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -226,6 +232,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     initializeChat();
   }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+
+  // Keep ref in sync so the unmount cleanup always sees the latest attachments.
+  useEffect(() => {
+    imageAttachmentsRef.current = imageAttachments;
+  }, [imageAttachments]);
+
+  // Revoke any remaining object URLs when the component unmounts.
+  useEffect(() => {
+    return () => {
+      for (const img of imageAttachmentsRef.current) {
+        URL.revokeObjectURL(img.preview);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (containerRef.current) {

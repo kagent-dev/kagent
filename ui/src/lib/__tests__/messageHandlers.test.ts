@@ -271,6 +271,86 @@ describe('getMetadataValue', () => {
   });
 });
 
+describe('file-part handling in status-update', () => {
+  function makeHandlers(emitted: Message[]) {
+    return createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setTokenStats: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+  }
+
+  const filePart = { kind: 'file', file: { mimeType: 'image/png', bytes: 'abc123' } };
+
+  test('file-only status-update (non-final) emits standalone file message', () => {
+    const emitted: Message[] = [];
+    const handlers = makeHandlers(emitted);
+
+    const event: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: { state: 'working', message: { role: 'agent', parts: [filePart] } },
+    };
+    handlers.handleMessageEvent(event);
+
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
+    // createMessage appends fileParts directly to parts[] (no text part when content is empty)
+    expect(emitted[0].parts).toHaveLength(1);
+    expect(emitted[0].parts[0].kind).toBe('file');
+  });
+
+  test('file-only status-update (final) emits standalone file message', () => {
+    const emitted: Message[] = [];
+    const handlers = makeHandlers(emitted);
+
+    const event: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: true,
+      status: { state: 'completed', message: { role: 'agent', parts: [filePart] } },
+    };
+    handlers.handleMessageEvent(event);
+
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
+    expect(emitted[0].parts).toHaveLength(1);
+    expect(emitted[0].parts[0].kind).toBe('file');
+  });
+
+  test('text+file status-update (final) emits single message with text and file parts — no placeholder duplication', () => {
+    const emitted: Message[] = [];
+    const handlers = makeHandlers(emitted);
+
+    const event: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: true,
+      status: {
+        state: 'completed',
+        message: {
+          role: 'agent',
+          parts: [
+            { kind: 'text', text: 'Here is your image' },
+            filePart,
+          ],
+        },
+      },
+    };
+    handlers.handleMessageEvent(event);
+
+    // Exactly one message — file part must not trigger a second standalone message
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
+    // parts[0] is the text, parts[1] is the file — no [File: ...] placeholder in text
+    expect(emitted[0].parts).toHaveLength(2);
+    expect((emitted[0].parts[0] as any).text).toBe('Here is your image');
+    expect(emitted[0].parts[1].kind).toBe('file');
+  });
+});
+
 describe('dual-prefix integration', () => {
   test('extractTokenStatsFromTasks works with adk_usage_metadata', () => {
     const tasks: any = [

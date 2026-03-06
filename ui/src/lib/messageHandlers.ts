@@ -752,8 +752,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleA2AMessage = (message: Message) => {
-    const content = aggregatePartsToText(message.parts);
     const messageFileParts = (message.parts?.filter((p: Part) => p.kind === "file") || []) as FilePart[];
+    // Exclude file parts from text aggregation — they are rendered as images, not placeholder text.
+    const nonFileParts = message.parts?.filter((p: Part) => p.kind !== "file") || [];
+    const content = aggregatePartsToText(nonFileParts);
 
     if (message.role !== "user") {
       const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
