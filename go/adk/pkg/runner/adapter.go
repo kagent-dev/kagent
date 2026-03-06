@@ -68,7 +68,6 @@ func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessi
 			adkSessionService,
 			compactionConfig,
 			llmModel,
-			log,
 		)
 		if err != nil {
 			return runner.Config{}, fmt.Errorf("failed to create compacting session service: %w", err)

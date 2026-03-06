@@ -22,14 +22,12 @@ const (
 type Client struct {
 	config     *adk.EmbeddingConfig
 	httpClient *http.Client
-	log        logr.Logger
 }
 
 // Config for creating an embedding client.
 type Config struct {
 	EmbeddingConfig *adk.EmbeddingConfig
 	HTTPClient      *http.Client
-	Logger          logr.Logger
 }
 
 // New creates a new embedding client.
@@ -47,15 +45,9 @@ func New(cfg Config) (*Client, error) {
 		client = http.DefaultClient
 	}
 
-	log := cfg.Logger
-	if log.GetSink() == nil {
-		log = logr.Discard()
-	}
-
 	return &Client{
 		config:     cfg.EmbeddingConfig,
 		httpClient: client,
-		log:        log,
 	}, nil
 }
 
@@ -67,7 +59,8 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 		return nil, fmt.Errorf("no texts provided")
 	}
 
-	c.log.V(1).Info("Generating embeddings", "count", len(texts), "model", c.config.Model)
+	log := logr.FromContextOrDiscard(ctx)
+	log.V(1).Info("Generating embeddings", "count", len(texts), "model", c.config.Model)
 
 	// Route to appropriate provider
 	switch c.config.Provider {
@@ -85,6 +78,8 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 
 // generateOpenAI generates embeddings using OpenAI API.
 func (c *Client) generateOpenAI(ctx context.Context, texts []string) ([][]float32, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
 	baseURL := c.config.BaseUrl
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
@@ -135,7 +130,7 @@ func (c *Client) generateOpenAI(ctx context.Context, texts []string) ([][]float3
 
 		// Ensure correct dimension
 		if len(embedding) > TargetDimension {
-			c.log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
+			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
 			embedding = embedding[:TargetDimension]
 			embedding = normalizeL2(embedding)
 		} else if len(embedding) < TargetDimension {
@@ -145,7 +140,7 @@ func (c *Client) generateOpenAI(ctx context.Context, texts []string) ([][]float3
 		embeddings = append(embeddings, embedding)
 	}
 
-	c.log.Info("Successfully generated embeddings", "count", len(embeddings))
+	log.Info("Successfully generated embeddings", "count", len(embeddings))
 	return embeddings, nil
 }
 

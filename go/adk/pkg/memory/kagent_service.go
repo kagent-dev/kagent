@@ -24,7 +24,6 @@ type KagentMemoryService struct {
 	apiURL          string
 	client          *http.Client
 	ttlDays         int
-	log             logr.Logger
 	embeddingClient *embedding.Client
 	model           adkmodel.LLM // Optional: for session summarization
 }
@@ -43,8 +42,6 @@ type Config struct {
 	EmbeddingConfig *adk.EmbeddingConfig
 	// Model for session summarization (optional)
 	Model adkmodel.LLM
-	// Logger for logging (optional)
-	Logger logr.Logger
 }
 
 // New creates a new KagentMemoryService.
@@ -61,11 +58,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 		client = http.DefaultClient
 	}
 
-	log := cfg.Logger
-	if log.GetSink() == nil {
-		log = logr.Discard()
-	}
-
 	// Create embedding client if config provided
 	var embClient *embedding.Client
 	if cfg.EmbeddingConfig != nil {
@@ -73,10 +65,10 @@ func New(cfg Config) (*KagentMemoryService, error) {
 		embClient, err = embedding.New(embedding.Config{
 			EmbeddingConfig: cfg.EmbeddingConfig,
 			HTTPClient:      client,
-			Logger:          log,
 		})
 		if err != nil {
-			log.Info("Failed to create embedding client, will use placeholder vectors", "error", err)
+			// Embedding client creation failed, will use placeholder vectors
+			embClient = nil
 		}
 	}
 
@@ -85,7 +77,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 		apiURL:          strings.TrimSuffix(cfg.APIURL, "/"),
 		client:          client,
 		ttlDays:         cfg.TTLDays,
-		log:             log,
 		embeddingClient: embClient,
 		model:           cfg.Model,
 	}, nil
@@ -95,12 +86,13 @@ func New(cfg Config) (*KagentMemoryService, error) {
 // It extracts content from the session, optionally summarizes it, generates embeddings,
 // and stores it via the Kagent API.
 func (s *KagentMemoryService) AddSession(ctx context.Context, session adksession.Session) error {
-	s.log.V(1).Info("Adding session to memory", "sessionID", session.ID(), "userID", session.UserID())
+	log := logr.FromContextOrDiscard(ctx)
+	log.V(1).Info("Adding session to memory", "sessionID", session.ID(), "userID", session.UserID())
 
 	// Extract text content from session events
 	rawContent := s.extractSessionContent(session)
 	if rawContent == "" {
-		s.log.V(1).Info("No content to add to memory", "sessionID", session.ID())
+		log.V(1).Info("No content to add to memory", "sessionID", session.ID())
 		return nil
 	}
 
@@ -109,16 +101,16 @@ func (s *KagentMemoryService) AddSession(ctx context.Context, session adksession
 	if s.model != nil {
 		summarized, err := s.summarizeContent(ctx, rawContent)
 		if err != nil {
-			s.log.V(1).Info("Summarization failed, using raw content", "error", err)
+			log.V(1).Info("Summarization failed, using raw content", "error", err)
 		} else if len(summarized) > 0 {
 			contents = summarized
-			s.log.V(1).Info("Summarized content", "items", len(contents))
+			log.V(1).Info("Summarized content", "items", len(contents))
 		}
 	}
 
 	// Generate embeddings
 	if s.embeddingClient == nil {
-		s.log.V(1).Info("No embedding client, using placeholder vectors")
+		log.V(1).Info("No embedding client, using placeholder vectors")
 		// Use placeholder vectors if no embedding config
 		for _, content := range contents {
 			if err := s.storeMemory(ctx, session.UserID(), content, make([]float32, 768)); err != nil {
@@ -144,7 +136,7 @@ func (s *KagentMemoryService) AddSession(ctx context.Context, session adksession
 		}
 	}
 
-	s.log.Info("Successfully added session to memory", "sessionID", session.ID(), "items", len(contents))
+	log.Info("Successfully added session to memory", "sessionID", session.ID(), "items", len(contents))
 	return nil
 }
 
@@ -186,7 +178,8 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 // Search implements memory.Service.Search.
 // It searches for relevant memories using vector similarity.
 func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
-	s.log.V(1).Info("Searching memory", "query", req.Query, "userID", req.UserID)
+	log := logr.FromContextOrDiscard(ctx)
+	log.V(1).Info("Searching memory", "query", req.Query, "userID", req.UserID)
 
 	if req.Query == "" {
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
@@ -197,7 +190,7 @@ func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequ
 	if s.embeddingClient != nil {
 		embeddings, err := s.embeddingClient.Generate(ctx, []string{req.Query})
 		if err != nil {
-			s.log.Error(err, "Failed to generate query embedding, using placeholder")
+			log.Error(err, "Failed to generate query embedding, using placeholder")
 			vector = make([]float32, 768)
 		} else if len(embeddings) > 0 {
 			vector = embeddings[0]
@@ -205,7 +198,7 @@ func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequ
 			vector = make([]float32, 768)
 		}
 	} else {
-		s.log.V(1).Info("No embedding client, using placeholder vector")
+		log.V(1).Info("No embedding client, using placeholder vector")
 		vector = make([]float32, 768)
 	}
 
@@ -261,13 +254,15 @@ func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequ
 		})
 	}
 
-	s.log.Info("Found memories", "count", len(memories), "query", req.Query)
+	log.Info("Found memories", "count", len(memories), "query", req.Query)
 	return &memory.SearchResponse{Memories: memories}, nil
 }
 
 // summarizeContent uses the LLM to extract key facts from conversation content.
 // Returns a list of summarized facts, or the original content wrapped in a slice if summarization fails.
 func (s *KagentMemoryService) summarizeContent(ctx context.Context, content string) ([]string, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
 	if content == "" {
 		return nil, nil
 	}
@@ -324,7 +319,7 @@ Summary (JSON List):`, content)
 
 	summary := strings.TrimSpace(summaryText.String())
 	if summary == "" {
-		s.log.V(1).Info("Empty summary returned, using original content")
+		log.V(1).Info("Empty summary returned, using original content")
 		return []string{content}, nil
 	}
 
@@ -337,19 +332,19 @@ Summary (JSON List):`, content)
 	// Parse JSON
 	var facts []string
 	if err := json.Unmarshal([]byte(summary), &facts); err != nil {
-		s.log.V(1).Info("Failed to parse summary as JSON, using original content", "error", err, "output", summary)
+		log.V(1).Info("Failed to parse summary as JSON, using original content", "error", err, "output", summary)
 		return []string{content}, nil
 	}
 
 	// Validate all items are strings
 	for _, fact := range facts {
 		if fact == "" {
-			s.log.V(1).Info("Summary contains empty strings, using original content")
+			log.V(1).Info("Summary contains empty strings, using original content")
 			return []string{content}, nil
 		}
 	}
 
-	s.log.V(1).Info("Successfully summarized content", "facts", len(facts))
+	log.V(1).Info("Successfully summarized content", "facts", len(facts))
 	return facts, nil
 }
 

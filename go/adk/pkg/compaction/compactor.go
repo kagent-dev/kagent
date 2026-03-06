@@ -32,15 +32,14 @@ Output ONLY the summary text, no preamble or meta-commentary.`
 type Compactor struct {
 	config Config
 	model  adkmodel.LLM
-	log    logr.Logger
 
-	mu                  sync.Mutex
+	mu                         sync.Mutex
 	invocationsSinceCompaction int
 	lastCompactionTime         float64
 }
 
 // New creates a new Compactor with the given configuration and LLM model.
-func New(config Config, model adkmodel.LLM, logger logr.Logger) (*Compactor, error) {
+func New(config Config, model adkmodel.LLM) (*Compactor, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid compaction config: %w", err)
 	}
@@ -49,14 +48,9 @@ func New(config Config, model adkmodel.LLM, logger logr.Logger) (*Compactor, err
 		return nil, fmt.Errorf("model is required for compaction")
 	}
 
-	if logger.GetSink() == nil {
-		logger = logr.Discard()
-	}
-
 	return &Compactor{
 		config: config,
 		model:  model,
-		log:    logger,
 	}, nil
 }
 
@@ -71,9 +65,11 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 		return nil, nil
 	}
 
+	log := logr.FromContextOrDiscard(ctx)
+
 	c.invocationsSinceCompaction++
 
-	c.log.V(1).Info("Checking compaction trigger",
+	log.V(1).Info("Checking compaction trigger",
 		"invocationsSinceCompaction", c.invocationsSinceCompaction,
 		"compactionInterval", c.config.CompactionInterval)
 
@@ -82,14 +78,14 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 		return nil, nil
 	}
 
-	c.log.Info("Triggering compaction",
+	log.Info("Triggering compaction",
 		"sessionID", session.ID(),
 		"invocationsSinceCompaction", c.invocationsSinceCompaction)
 
 	// Extract events to compact
 	events := session.Events()
 	if events.Len() < 2 {
-		c.log.V(1).Info("Not enough events to compact")
+		log.V(1).Info("Not enough events to compact")
 		return nil, nil // Need at least some history to compact
 	}
 
@@ -98,7 +94,7 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 	// For simplicity, we'll compact events up to the most recent N events
 	keepRecentCount := c.config.OverlapSize * 2 // Rough estimate: 2 events per invocation
 	if keepRecentCount >= events.Len() {
-		c.log.V(1).Info("Session too short for compaction", "eventCount", events.Len())
+		log.V(1).Info("Session too short for compaction", "eventCount", events.Len())
 		return nil, nil
 	}
 
@@ -136,7 +132,7 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 	}
 
 	if len(contentParts) == 0 {
-		c.log.V(1).Info("No content to compact")
+		log.V(1).Info("No content to compact")
 		return nil, nil
 	}
 
@@ -147,7 +143,7 @@ func (c *Compactor) MaybeCompact(ctx context.Context, session adksession.Session
 		return nil, fmt.Errorf("failed to generate compaction summary: %w", err)
 	}
 
-	c.log.Info("Compaction successful",
+	log.Info("Compaction successful",
 		"compactedEvents", compactUpTo,
 		"summaryLength", len(summary))
 

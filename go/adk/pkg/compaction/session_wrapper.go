@@ -19,25 +19,19 @@ type CompactingSessionService struct {
 	wrapped    adksession.Service
 	config     Config
 	model      adkmodel.LLM
-	log        logr.Logger
 	compactors sync.Map // sessionID -> *Compactor
 }
 
 // NewCompactingSessionService wraps an existing session service with compaction support.
-func NewCompactingSessionService(wrapped adksession.Service, config Config, model adkmodel.LLM, logger logr.Logger) (*CompactingSessionService, error) {
+func NewCompactingSessionService(wrapped adksession.Service, config Config, model adkmodel.LLM) (*CompactingSessionService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
-	}
-
-	if logger.GetSink() == nil {
-		logger = logr.Discard()
 	}
 
 	return &CompactingSessionService{
 		wrapped: wrapped,
 		config:  config,
 		model:   model,
-		log:     logger,
 	}, nil
 }
 
@@ -82,16 +76,17 @@ func (s *CompactingSessionService) AppendEvent(ctx context.Context, session adks
 
 	// Attempt compaction (non-blocking, runs in background)
 	go func() {
+		log := logr.FromContextOrDiscard(ctx)
 		compactionEvent, err := compactor.MaybeCompact(ctx, session, event.InvocationID)
 		if err != nil {
-			s.log.Error(err, "Compaction failed", "sessionID", session.ID())
+			log.Error(err, "Compaction failed", "sessionID", session.ID())
 			return
 		}
 
 		if compactionEvent != nil {
 			// Append compaction event to session
 			if err := s.wrapped.AppendEvent(ctx, session, compactionEvent); err != nil {
-				s.log.Error(err, "Failed to append compaction event", "sessionID", session.ID())
+				log.Error(err, "Failed to append compaction event", "sessionID", session.ID())
 			}
 		}
 	}()
@@ -106,13 +101,12 @@ func (s *CompactingSessionService) getOrCreateCompactor(sessionID string) *Compa
 	}
 
 	// Create new compactor
-	compactor, err := New(s.config, s.model, s.log)
+	compactor, err := New(s.config, s.model)
 	if err != nil {
-		s.log.Error(err, "Failed to create compactor, using disabled compactor", "sessionID", sessionID)
 		// Return a disabled compactor as fallback
 		disabledConfig := s.config
 		disabledConfig.Enabled = false
-		compactor, _ = New(disabledConfig, s.model, s.log)
+		compactor, _ = New(disabledConfig, s.model)
 	}
 
 	// Store and return
