@@ -1,0 +1,47 @@
+{{- if and .Values.temporal.enabled .Values.temporal.ui.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: temporal-ui
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: temporal-ui
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: temporal-ui
+          image: {{ .Values.temporal.ui.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.temporal.ui.port }}
+              protocol: TCP
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: "{{ include "kagent.fullname" . }}-temporal-server:{{ .Values.temporal.server.port }}"
+            - name: TEMPORAL_UI_PORT
+              value: {{ .Values.temporal.ui.port | quote }}
+          resources:
+            {{- toYaml .Values.temporal.ui.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+{{- end }}

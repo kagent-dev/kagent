@@ -1,0 +1,46 @@
+{{- if or .Values.nats.enabled .Values.temporal.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-nats
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nats
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: client
+              containerPort: {{ .Values.nats.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

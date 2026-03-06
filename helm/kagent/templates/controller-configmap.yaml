@@ -66,3 +66,7 @@ data:
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- if .Values.temporal.enabled }}
+  TEMPORAL_HOST_ADDR: {{ printf "%s-temporal-server:%d" (include "kagent.fullname" .) (.Values.temporal.server.port | int) | quote }}
+  NATS_ADDR: {{ printf "nats://%s-nats:%d" (include "kagent.fullname" .) (.Values.nats.port | int) | quote }}
+  {{- end }}

@@ -1,0 +1,80 @@
+{{- if .Values.temporal.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-server
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: temporal-server
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: temporal-server
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq .Values.temporal.persistence.driver "sqlite" }}
+      volumes:
+        - name: temporal-data
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- end }}
+      containers:
+        - name: temporal-server
+          image: {{ .Values.temporal.server.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.temporal.server.port }}
+              protocol: TCP
+          env:
+            - name: DB
+              value: {{ if eq .Values.temporal.persistence.driver "postgresql" }}postgres{{ else }}sqlite{{ end }}
+            - name: TEMPORAL_ADDRESS
+              value: "0.0.0.0:{{ .Values.temporal.server.port }}"
+            {{- if eq .Values.temporal.persistence.driver "sqlite" }}
+            - name: SQLITE_DB_PATH
+              value: /temporal-data/temporal.db
+            {{- else if eq .Values.temporal.persistence.driver "postgresql" }}
+            - name: POSTGRES_SEEDS
+              value: {{ .Values.temporal.persistence.postgresql.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.temporal.persistence.postgresql.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.temporal.persistence.postgresql.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.temporal.persistence.postgresql.user | quote }}
+            {{- if .Values.temporal.persistence.postgresql.existingSecret }}
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.temporal.persistence.postgresql.existingSecret }}
+                  key: {{ .Values.temporal.persistence.postgresql.existingSecretKey }}
+            {{- else }}
+            - name: POSTGRES_PWD
+              value: {{ .Values.temporal.persistence.postgresql.password | quote }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.temporal.server.resources | nindent 12 }}
+          {{- if eq .Values.temporal.persistence.driver "sqlite" }}
+          volumeMounts:
+            - name: temporal-data
+              mountPath: /temporal-data
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+{{- end }}

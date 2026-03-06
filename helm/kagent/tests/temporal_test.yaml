@@ -1,0 +1,248 @@
+suite: test temporal infrastructure
+templates:
+  - templates/temporal-server-deployment.yaml
+  - templates/temporal-server-service.yaml
+  - templates/temporal-ui-deployment.yaml
+  - templates/temporal-ui-service.yaml
+  - templates/temporal-ui-remotemcpserver.yaml
+  - templates/nats-deployment.yaml
+  - templates/nats-service.yaml
+  - templates/controller-configmap.yaml
+
+tests:
+  - it: should not render any temporal resources when disabled
+    set:
+      temporal:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/controller-configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-server-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-server-service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-remotemcpserver.yaml
+
+  - it: should not render nats when both temporal and nats disabled
+    set:
+      temporal:
+        enabled: false
+      nats:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/nats-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/nats-service.yaml
+
+  - it: should render all temporal resources when enabled
+    set:
+      temporal:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-server-deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-server-service.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-ui-deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-ui-service.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-ui-remotemcpserver.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/nats-deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/nats-service.yaml
+
+  - it: should use SQLite by default with emptyDir volume
+    set:
+      temporal:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: temporal-data
+            emptyDir:
+              sizeLimit: 500Mi
+        template: templates/temporal-server-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB
+            value: sqlite
+        template: templates/temporal-server-deployment.yaml
+
+  - it: should use PostgreSQL when configured
+    set:
+      temporal:
+        enabled: true
+        persistence:
+          driver: postgresql
+          postgresql:
+            host: pg-host
+            port: 5432
+            database: temporal_db
+            user: temporal_user
+            password: secret123
+    asserts:
+      - isNull:
+          path: spec.template.spec.volumes
+        template: templates/temporal-server-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB
+            value: postgres
+        template: templates/temporal-server-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_SEEDS
+            value: pg-host
+        template: templates/temporal-server-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DB
+            value: temporal_db
+        template: templates/temporal-server-deployment.yaml
+
+  - it: should use existingSecret for PostgreSQL password when set
+    set:
+      temporal:
+        enabled: true
+        persistence:
+          driver: postgresql
+          postgresql:
+            host: pg-host
+            existingSecret: my-pg-secret
+            existingSecretKey: PG_PASSWORD
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PWD
+            valueFrom:
+              secretKeyRef:
+                name: my-pg-secret
+                key: PG_PASSWORD
+        template: templates/temporal-server-deployment.yaml
+
+  - it: should set TEMPORAL_ADDRESS in Temporal UI deployment
+    set:
+      temporal:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TEMPORAL_ADDRESS
+            value: "RELEASE-NAME-temporal-server:7233"
+        template: templates/temporal-ui-deployment.yaml
+
+  - it: should create RemoteMCPServer with correct UI config
+    set:
+      temporal:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ui.pathPrefix
+          value: temporal
+        template: templates/temporal-ui-remotemcpserver.yaml
+      - equal:
+          path: spec.ui.displayName
+          value: "Temporal Workflows"
+        template: templates/temporal-ui-remotemcpserver.yaml
+      - equal:
+          path: spec.ui.enabled
+          value: true
+        template: templates/temporal-ui-remotemcpserver.yaml
+
+  - it: should not render Temporal UI when ui.enabled is false
+    set:
+      temporal:
+        enabled: true
+        ui:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-ui-remotemcpserver.yaml
+
+  - it: should inject TEMPORAL_HOST_ADDR and NATS_ADDR in controller configmap when temporal enabled
+    set:
+      temporal:
+        enabled: true
+    asserts:
+      - equal:
+          path: data.TEMPORAL_HOST_ADDR
+          value: "RELEASE-NAME-temporal-server:7233"
+        template: templates/controller-configmap.yaml
+      - equal:
+          path: data.NATS_ADDR
+          value: "nats://RELEASE-NAME-nats:4222"
+        template: templates/controller-configmap.yaml
+
+  - it: should not inject TEMPORAL_HOST_ADDR in controller configmap when temporal disabled
+    set:
+      temporal:
+        enabled: false
+    asserts:
+      - notExists:
+          path: data.TEMPORAL_HOST_ADDR
+        template: templates/controller-configmap.yaml
+      - notExists:
+          path: data.NATS_ADDR
+        template: templates/controller-configmap.yaml
+
+  - it: should render nats when only nats.enabled is true
+    set:
+      temporal:
+        enabled: false
+      nats:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/nats-deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/nats-service.yaml
+
+  - it: should use correct NATS image
+    set:
+      nats:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "nats:2-alpine"
+        template: templates/nats-deployment.yaml

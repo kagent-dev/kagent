@@ -1,0 +1,20 @@
+{{- if and .Values.temporal.enabled .Values.temporal.ui.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-ui
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.temporal.ui.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-ui
+{{- end }}

@@ -287,7 +287,7 @@ build-golang-adk: buildx-create
 
 .PHONY: build-skills-init
 build-skills-init: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
 
 .PHONY: build-kanban-mcp
 build-kanban-mcp: buildx-create
@@ -405,6 +405,10 @@ helm-install-provider: helm-version check-api-key
 .PHONY: helm-install
 helm-install: build
 helm-install: helm-install-provider
+
+.PHONY: helm-install-temporal
+helm-install-temporal: KAGENT_HELM_EXTRA_ARGS+=--set temporal.enabled=true --set nats.enabled=true
+helm-install-temporal: helm-install
 
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"

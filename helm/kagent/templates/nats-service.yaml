@@ -1,0 +1,20 @@
+{{- if or .Values.nats.enabled .Values.temporal.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-nats
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: {{ .Values.nats.port }}
+      targetPort: client
+      protocol: TCP
+  selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+{{- end }}
