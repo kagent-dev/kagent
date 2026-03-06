@@ -117,9 +117,9 @@ func TestConstructImageName(t *testing.T) {
 
 func TestGetAgentNameFromManifest(t *testing.T) {
 	tests := []struct {
-		name        string
+		name         string
 		manifestYAML string
-		want        string
+		want         string
 	}{
 		{
 			name: "valid manifest with agent name",
@@ -131,9 +131,9 @@ language: python
 			want: "test-agent",
 		},
 		{
-			name:        "no manifest file",
+			name:         "no manifest file",
 			manifestYAML: "",
-			want:        "",
+			want:         "",
 		},
 		{
 			name: "invalid yaml",

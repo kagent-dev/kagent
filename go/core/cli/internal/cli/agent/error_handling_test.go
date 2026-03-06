@@ -55,16 +55,16 @@ framework: adk
 			errContains: "language is required",
 		},
 		{
-			name: "empty file",
+			name:         "empty file",
 			manifestYAML: "",
-			wantErr:     true,
-			errContains: "agent name is required",
+			wantErr:      true,
+			errContains:  "agent name is required",
 		},
 		{
-			name: "only whitespace",
+			name:         "only whitespace",
 			manifestYAML: "   \n\n   \t\t\n",
-			wantErr:     true,
-			errContains: "failed to parse",
+			wantErr:      true,
+			errContains:  "failed to parse",
 		},
 	}
 
@@ -480,10 +480,8 @@ func TestInvokeWithInvalidAgent(t *testing.T) {
 	t.Run("task validation", func(t *testing.T) {
 		// Both task and file empty should fail
 		cfg := &InvokeCfg{
-			Agent:  "testagent",
-			Task:   "",
-			File:   "",
-			Config: &config.Config{KAgentURL: "http://localhost:8080"},
+			Task: "",
+			File: "",
 		}
 
 		assert.Empty(t, cfg.Task, "Empty task should be invalid")

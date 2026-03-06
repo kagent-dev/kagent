@@ -41,15 +41,15 @@ modelProvider: anthropic
 	content, err := os.ReadFile(manifestPath)
 	require.NoError(t, err)
 
-	var manifest map[string]interface{}
+	var manifest map[string]any
 	err = yaml.Unmarshal(content, &manifest)
 	require.NoError(t, err)
 
-	mcpServers, ok := manifest["mcpServers"].([]interface{})
+	mcpServers, ok := manifest["mcpServers"].([]any)
 	require.True(t, ok, "mcpServers should be an array")
 	require.Len(t, mcpServers, 1)
 
-	server := mcpServers[0].(map[string]interface{})
+	server := mcpServers[0].(map[string]any)
 	assert.Equal(t, "github-server", server["name"])
 	assert.Equal(t, "remote", server["type"])
 	assert.Equal(t, "https://api.github.com/mcp", server["url"])
@@ -82,14 +82,14 @@ language: python
 	content, err := os.ReadFile(manifestPath)
 	require.NoError(t, err)
 
-	var manifest map[string]interface{}
+	var manifest map[string]any
 	err = yaml.Unmarshal(content, &manifest)
 	require.NoError(t, err)
 
-	mcpServers := manifest["mcpServers"].([]interface{})
+	mcpServers := manifest["mcpServers"].([]any)
 	require.Len(t, mcpServers, 1)
 
-	server := mcpServers[0].(map[string]interface{})
+	server := mcpServers[0].(map[string]any)
 	assert.Equal(t, "filesystem-server", server["name"])
 	assert.Equal(t, "command", server["type"])
 	assert.Equal(t, "npx", server["command"])
@@ -147,18 +147,18 @@ language: python
 	content, err := os.ReadFile(manifestPath)
 	require.NoError(t, err)
 
-	var manifest map[string]interface{}
+	var manifest map[string]any
 	err = yaml.Unmarshal(content, &manifest)
 	require.NoError(t, err)
 
-	mcpServers := manifest["mcpServers"].([]interface{})
+	mcpServers := manifest["mcpServers"].([]any)
 	require.Len(t, mcpServers, 2)
 
 	// Verify first server
-	server1 := mcpServers[0].(map[string]interface{})
+	server1 := mcpServers[0].(map[string]any)
 	assert.Equal(t, "server-1", server1["name"])
 
 	// Verify second server
-	server2 := mcpServers[1].(map[string]interface{})
+	server2 := mcpServers[1].(map[string]any)
 	assert.Equal(t, "server-2", server2["name"])
 }

@@ -16,7 +16,7 @@ import (
 // NewFakeK8sClientset creates a fake Kubernetes clientset with optional initial objects.
 // Useful for testing kubectl/client-go interactions.
 func NewFakeK8sClientset(objects ...runtime.Object) *fake.Clientset {
-	return fake.NewSimpleClientset(objects...)
+	return fake.NewClientset(objects...)
 }
 
 // NewFakeControllerClient creates a fake controller-runtime client with the kagent scheme.

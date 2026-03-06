@@ -182,7 +182,6 @@ func validateDeploymentRequirements(manifest *common.AgentManifest) (string, err
 	return apiKeyEnvVar, nil
 }
 
-
 // envFileData holds both the secret name and the parsed env var keys
 type envFileData struct {
 	SecretName string

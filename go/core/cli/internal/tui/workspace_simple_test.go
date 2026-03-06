@@ -84,11 +84,11 @@ func TestSessionListItem_Interface(t *testing.T) {
 	sessionID := "sess-123"
 
 	tests := []struct {
-		name        string
-		item        sessionListItem
-		wantTitle   string
-		wantDesc    string
-		wantFilter  string
+		name       string
+		item       sessionListItem
+		wantTitle  string
+		wantDesc   string
+		wantFilter string
 	}{
 		{
 			name: "session with name",
