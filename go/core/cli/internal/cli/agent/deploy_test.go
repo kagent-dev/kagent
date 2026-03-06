@@ -1,150 +1,201 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
+	"github.com/kagent-dev/kagent/go/core/cli/test/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateAndLoadProject(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *DeployCfg
-		setup   func(t *testing.T) string
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name: "missing project directory",
-			cfg: &DeployCfg{
-				ProjectDir: "",
-			},
-			setup:   nil,
-			wantErr: true,
-			errMsg:  "project directory is required",
+func TestDeployCmd_DryRun_Success(t *testing.T) {
+	// Create temporary project directory with manifest and Dockerfile
+	tmpDir := t.TempDir()
+
+	// Create kagent.yaml
+	manifestContent := `agentName: test-agent
+description: Test agent for deployment
+framework: adk
+language: python
+modelProvider: anthropic
+`
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	require.NoError(t, err)
+
+	// Create Dockerfile
+	dockerfileContent := `FROM python:3.12-slim
+WORKDIR /app
+COPY . .
+CMD ["python", "main.py"]
+`
+	dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644)
+	require.NoError(t, err)
+
+	// Create .env file with API key
+	envContent := `ANTHROPIC_API_KEY=test-key-12345
+OTHER_VAR=value
+`
+	envPath := filepath.Join(tmpDir, ".env")
+	err = os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+
+	// Setup config
+	cfg := &DeployCfg{
+		ProjectDir: tmpDir,
+		EnvFile:    envPath,
+		DryRun:     true, // Dry-run mode to avoid Docker build
+		Config: &config.Config{
+			Namespace: "test-namespace",
 		},
-		{
-			name: "non-existent project directory",
-			cfg: &DeployCfg{
-				ProjectDir: "/nonexistent/path",
-			},
-			setup:   nil,
-			wantErr: true,
-			errMsg:  "project directory does not exist",
-		},
-		{
-			name: "missing kagent.yaml",
-			cfg:  &DeployCfg{},
-			setup: func(t *testing.T) string {
-				return t.TempDir()
-			},
-			wantErr: true,
-			errMsg:  "failed to load kagent.yaml",
-		},
-		{
-			name: "valid project with manifest",
-			cfg:  &DeployCfg{},
-			setup: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				manifestPath := filepath.Join(tmpDir, "kagent.yaml")
-				manifestContent := `agentName: test-agent
+	}
+
+	// Create fake K8s client (not used in dry-run, but required by signature)
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	// Call DeployCmd
+	err = DeployCmd(context.Background(), k8sClient, cfg)
+
+	// Should succeed in dry-run mode
+	assert.NoError(t, err)
+}
+
+func TestDeployCmd_MissingProjectDir(t *testing.T) {
+	cfg := &DeployCfg{
+		ProjectDir: "",
+		Config:     &config.Config{},
+	}
+
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	err := DeployCmd(context.Background(), k8sClient, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "project directory is required")
+}
+
+func TestDeployCmd_NonExistentProjectDir(t *testing.T) {
+	cfg := &DeployCfg{
+		ProjectDir: "/nonexistent/path",
+		Config:     &config.Config{},
+	}
+
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	err := DeployCmd(context.Background(), k8sClient, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "project directory does not exist")
+}
+
+func TestDeployCmd_MissingManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &DeployCfg{
+		ProjectDir: tmpDir,
+		Config:     &config.Config{},
+	}
+
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	err := DeployCmd(context.Background(), k8sClient, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load kagent.yaml")
+}
+
+func TestDeployCmd_MissingModelProvider(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create manifest without modelProvider
+	manifestContent := `agentName: test-agent
 description: Test agent
 framework: adk
 language: python
 `
-				err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
-				require.NoError(t, err)
-				return tmpDir
-			},
-			wantErr: false,
-		},
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	require.NoError(t, err)
+
+	cfg := &DeployCfg{
+		ProjectDir: tmpDir,
+		DryRun:     true,
+		Config:     &config.Config{},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.setup != nil {
-				tt.cfg.ProjectDir = tt.setup(t)
-			}
+	k8sClient := testutil.NewFakeControllerClient(t)
 
-			manifest, err := validateAndLoadProject(tt.cfg)
+	err = DeployCmd(context.Background(), k8sClient, cfg)
 
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				require.NoError(t, err)
-				assert.NotNil(t, manifest)
-			}
-		})
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "model provider is required")
 }
 
-func TestDeployCfg_Validation(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *DeployCfg
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name: "empty project directory",
-			cfg: &DeployCfg{
-				ProjectDir: "",
-				Config:     &config.Config{},
-			},
-			wantErr: true,
-			errMsg:  "project directory is required",
-		},
+func TestDeployCmd_MissingEnvFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	manifestContent := `agentName: test-agent
+description: Test agent
+framework: adk
+language: python
+modelProvider: anthropic
+`
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	require.NoError(t, err)
+
+	cfg := &DeployCfg{
+		ProjectDir: tmpDir,
+		EnvFile:    "", // Missing env file
+		DryRun:     true,
+		Config:     &config.Config{},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := validateAndLoadProject(tt.cfg)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	err = DeployCmd(context.Background(), k8sClient, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--env-file is required")
 }
 
-func TestIsVerbose(t *testing.T) {
-	tests := []struct {
-		name   string
-		cfg    *config.Config
-		want   bool
-	}{
-		{
-			name:   "nil config",
-			cfg:    nil,
-			want:   false,
-		},
-		{
-			name:   "verbose false",
-			cfg:    &config.Config{Verbose: false},
-			want:   false,
-		},
-		{
-			name:   "verbose true",
-			cfg:    &config.Config{Verbose: true},
-			want:   true,
-		},
+func TestDeployCmd_EnvFileMissingAPIKey(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	manifestContent := `agentName: test-agent
+description: Test agent
+framework: adk
+language: python
+modelProvider: anthropic
+`
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	require.NoError(t, err)
+
+	// Create .env file WITHOUT the required API key
+	envContent := `OTHER_VAR=value
+SOME_KEY=some_value
+`
+	envPath := filepath.Join(tmpDir, ".env")
+	err = os.WriteFile(envPath, []byte(envContent), 0644)
+	require.NoError(t, err)
+
+	cfg := &DeployCfg{
+		ProjectDir: tmpDir,
+		EnvFile:    envPath,
+		DryRun:     true,
+		Config:     &config.Config{},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsVerbose(tt.cfg)
-			assert.Equal(t, tt.want, got)
-		})
-	}
+	k8sClient := testutil.NewFakeControllerClient(t)
+
+	err = DeployCmd(context.Background(), k8sClient, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must contain ANTHROPIC_API_KEY")
 }

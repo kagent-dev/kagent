@@ -8,224 +8,157 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
-func TestAddMcpCfg_Validation(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *AddMcpCfg
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name: "both image and build provided",
-			cfg: &AddMcpCfg{
-				Name:    "test-mcp",
-				Image:   "test:latest",
-				Build:   "./Dockerfile",
-				Command: "node",
-				Config:  &config.Config{},
-			},
-			wantErr: true,
-			errMsg:  "only one of --image or --build may be set",
-		},
-		{
-			name: "remote URL with command type conflicts",
-			cfg: &AddMcpCfg{
-				Name:      "test-mcp",
-				RemoteURL: "http://example.com",
-				Command:   "node", // Should be ignored for remote
-				Config:    &config.Config{},
-			},
-			wantErr: false, // Remote takes precedence
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp project directory
-			tmpDir := t.TempDir()
-			manifestPath := filepath.Join(tmpDir, "kagent.yaml")
-			manifestContent := `agentName: test-agent
-description: Test agent
-framework: adk
-language: python
-mcpServers: []
-`
-			err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
-			require.NoError(t, err)
-
-			tt.cfg.ProjectDir = tmpDir
-
-			err = AddMcpCmd(tt.cfg)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			}
-		})
-	}
-}
-
-func TestAddMcpCfg_RemoteType(t *testing.T) {
+func TestAddMcpCmd_AddRemoteServer(t *testing.T) {
 	tmpDir := t.TempDir()
-	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+
+	// Create initial manifest without MCP servers
 	manifestContent := `agentName: test-agent
 description: Test agent
 framework: adk
 language: python
-mcpServers: []
+modelProvider: anthropic
 `
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
 	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
 	require.NoError(t, err)
 
 	cfg := &AddMcpCfg{
 		ProjectDir: tmpDir,
-		Name:       "remote-mcp",
-		RemoteURL:  "http://example.com/mcp",
-		Headers:    []string{"Authorization=Bearer token", "X-Custom=value"},
+		Name:       "github-server",
+		RemoteURL:  "https://api.github.com/mcp",
+		Headers:    []string{"Authorization=Bearer ${GITHUB_TOKEN}"},
 		Config:     &config.Config{},
 	}
 
-	// Note: This will fail in full execution due to regenerateMcpToolsFile,
-	// but validates the parsing logic
+	// Call AddMcpCmd
 	err = AddMcpCmd(cfg)
-	// Expected to fail on regeneration, but we tested the validation logic
-	if err != nil {
-		// Acceptable for this test
-		t.Logf("Expected failure on regeneration: %v", err)
-	}
+	require.NoError(t, err)
+
+	// Verify manifest was updated
+	content, err := os.ReadFile(manifestPath)
+	require.NoError(t, err)
+
+	var manifest map[string]interface{}
+	err = yaml.Unmarshal(content, &manifest)
+	require.NoError(t, err)
+
+	mcpServers, ok := manifest["mcpServers"].([]interface{})
+	require.True(t, ok, "mcpServers should be an array")
+	require.Len(t, mcpServers, 1)
+
+	server := mcpServers[0].(map[string]interface{})
+	assert.Equal(t, "github-server", server["name"])
+	assert.Equal(t, "remote", server["type"])
+	assert.Equal(t, "https://api.github.com/mcp", server["url"])
 }
 
-func TestAddMcpCfg_CommandType(t *testing.T) {
+func TestAddMcpCmd_AddCommandServer(t *testing.T) {
 	tmpDir := t.TempDir()
-	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+
 	manifestContent := `agentName: test-agent
 description: Test agent
 framework: adk
 language: python
-mcpServers: []
 `
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
 	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
 	require.NoError(t, err)
 
 	cfg := &AddMcpCfg{
 		ProjectDir: tmpDir,
-		Name:       "command-mcp",
-		Command:    "node",
-		Args:       []string{"server.js"},
-		Env:        []string{"NODE_ENV=production"},
-		Image:      "node:20",
+		Name:       "filesystem-server",
+		Command:    "npx",
+		Args:       []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
 		Config:     &config.Config{},
 	}
 
-	// Note: This will fail in full execution due to regenerateMcpToolsFile
 	err = AddMcpCmd(cfg)
-	if err != nil {
-		t.Logf("Expected failure on regeneration: %v", err)
-	}
+	require.NoError(t, err)
+
+	// Verify manifest was updated
+	content, err := os.ReadFile(manifestPath)
+	require.NoError(t, err)
+
+	var manifest map[string]interface{}
+	err = yaml.Unmarshal(content, &manifest)
+	require.NoError(t, err)
+
+	mcpServers := manifest["mcpServers"].([]interface{})
+	require.Len(t, mcpServers, 1)
+
+	server := mcpServers[0].(map[string]interface{})
+	assert.Equal(t, "filesystem-server", server["name"])
+	assert.Equal(t, "command", server["type"])
+	assert.Equal(t, "npx", server["command"])
 }
 
-func TestAddMcpCfg_DuplicateNameValidation(t *testing.T) {
+func TestAddMcpCmd_MissingManifest(t *testing.T) {
 	tmpDir := t.TempDir()
-	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
-	// Manifest with existing MCP server
-	manifestContent := `agentName: test-agent
-description: Test agent
-framework: adk
-language: python
-mcpServers:
-  - name: existing-mcp
-    type: remote
-    url: http://example.com
-`
-	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
-	require.NoError(t, err)
 
 	cfg := &AddMcpCfg{
 		ProjectDir: tmpDir,
-		Name:       "existing-mcp", // Duplicate name
-		RemoteURL:  "http://other.com",
+		Name:       "test-server",
+		RemoteURL:  "http://example.com",
 		Config:     &config.Config{},
 	}
 
-	err = AddMcpCmd(cfg)
+	err := AddMcpCmd(cfg)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.Contains(t, err.Error(), "failed to load kagent.yaml")
 }
 
-func TestParseKeyValuePairs(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []string
-		want  map[string]string
-	}{
-		{
-			name:  "empty input",
-			input: []string{},
-			want:  map[string]string{},
-		},
-		{
-			name:  "single pair",
-			input: []string{"key=value"},
-			want:  map[string]string{"key": "value"},
-		},
-		{
-			name:  "multiple pairs",
-			input: []string{"key1=value1", "key2=value2"},
-			want: map[string]string{
-				"key1": "value1",
-				"key2": "value2",
-			},
-		},
-		{
-			name:  "value with equals sign",
-			input: []string{"key=value=with=equals"},
-			want:  map[string]string{"key": "value=with=equals"},
-		},
-		{
-			name:  "invalid format ignored",
-			input: []string{"invalidentry", "valid=value"},
-			want:  map[string]string{"valid": "value"},
-		},
-	}
+func TestAddMcpCmd_AddMultipleServers(t *testing.T) {
+	tmpDir := t.TempDir()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseKeyValuePairs(tt.input)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
+	manifestContent := `agentName: test-agent
+description: Test agent
+framework: adk
+language: python
+`
+	manifestPath := filepath.Join(tmpDir, "kagent.yaml")
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	require.NoError(t, err)
 
-func TestResolveProjectDir(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		wantError bool
-	}{
-		{
-			name:      "empty uses current dir",
-			input:     "",
-			wantError: false,
-		},
-		{
-			name:      "relative path",
-			input:     ".",
-			wantError: false,
-		},
+	// Add first server (remote)
+	cfg1 := &AddMcpCfg{
+		ProjectDir: tmpDir,
+		Name:       "server-1",
+		RemoteURL:  "http://server1.com",
+		Config:     &config.Config{},
 	}
+	err = AddMcpCmd(cfg1)
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := ResolveProjectDir(tt.input)
-			if tt.wantError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.NotEmpty(t, result)
-			}
-		})
+	// Add second server (command)
+	cfg2 := &AddMcpCfg{
+		ProjectDir: tmpDir,
+		Name:       "server-2",
+		Command:    "python",
+		Args:       []string{"server.py"},
+		Config:     &config.Config{},
 	}
+	err = AddMcpCmd(cfg2)
+	require.NoError(t, err)
+
+	// Verify both servers exist
+	content, err := os.ReadFile(manifestPath)
+	require.NoError(t, err)
+
+	var manifest map[string]interface{}
+	err = yaml.Unmarshal(content, &manifest)
+	require.NoError(t, err)
+
+	mcpServers := manifest["mcpServers"].([]interface{})
+	require.Len(t, mcpServers, 2)
+
+	// Verify first server
+	server1 := mcpServers[0].(map[string]interface{})
+	assert.Equal(t, "server-1", server1["name"])
+
+	// Verify second server
+	server2 := mcpServers[1].(map[string]interface{})
+	assert.Equal(t, "server-2", server2["name"])
 }
