@@ -59,4 +59,18 @@ var (
 		"Well-known endpoint for the Security Token Service (STS) used for token exchange.",
 		ComponentAgentRuntime,
 	)
+
+	TemporalHostAddr = RegisterStringVar(
+		"TEMPORAL_HOST_ADDR",
+		"temporal-server:7233",
+		"Temporal server gRPC address for workflow execution.",
+		ComponentAgentRuntime,
+	)
+
+	NATSAddr = RegisterStringVar(
+		"NATS_ADDR",
+		"nats://nats:4222",
+		"NATS server address for real-time streaming.",
+		ComponentAgentRuntime,
+	)
 )

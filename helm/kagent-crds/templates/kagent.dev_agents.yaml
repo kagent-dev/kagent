@@ -10213,6 +10213,40 @@ spec:
                     minItems: 1
                     type: array
                 type: object
+              temporal:
+                description: |-
+                  Temporal configures durable workflow execution for this agent.
+                  When enabled, agent execution runs as Temporal workflows with per-turn
+                  activity granularity, crash recovery, and configurable retry policies.
+                properties:
+                  enabled:
+                    description: Enabled controls whether this agent uses Temporal
+                      for execution.
+                    type: boolean
+                  retryPolicy:
+                    description: RetryPolicy configures activity retry behavior.
+                    properties:
+                      llmMaxAttempts:
+                        description: |-
+                          LLMMaxAttempts is the maximum number of retry attempts for LLM activities.
+                          Default: 5.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      toolMaxAttempts:
+                        description: |-
+                          ToolMaxAttempts is the maximum number of retry attempts for tool activities.
+                          Default: 3.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
+                  workflowTimeout:
+                    description: |-
+                      WorkflowTimeout is the maximum duration for a workflow execution.
+                      Default: 48h.
+                    type: string
+                type: object
               type:
                 allOf:
                 - enum:

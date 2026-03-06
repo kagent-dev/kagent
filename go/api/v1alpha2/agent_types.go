@@ -67,6 +67,12 @@ type AgentSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
+	// Temporal configures durable workflow execution for this agent.
+	// When enabled, agent execution runs as Temporal workflows with per-turn
+	// activity granularity, crash recovery, and configurable retry policies.
+	// +optional
+	Temporal *TemporalSpec `json:"temporal,omitempty"`
 }
 
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
@@ -333,6 +339,37 @@ type ServiceAccountConfig struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// TemporalSpec configures Temporal-based durable workflow execution for an agent.
+type TemporalSpec struct {
+	// Enabled controls whether this agent uses Temporal for execution.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// WorkflowTimeout is the maximum duration for a workflow execution.
+	// Default: 48h.
+	// +optional
+	WorkflowTimeout *metav1.Duration `json:"workflowTimeout,omitempty"`
+
+	// RetryPolicy configures activity retry behavior.
+	// +optional
+	RetryPolicy *TemporalRetryPolicy `json:"retryPolicy,omitempty"`
+}
+
+// TemporalRetryPolicy configures per-activity retry behavior for Temporal workflows.
+type TemporalRetryPolicy struct {
+	// LLMMaxAttempts is the maximum number of retry attempts for LLM activities.
+	// Default: 5.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	LLMMaxAttempts *int32 `json:"llmMaxAttempts,omitempty"`
+
+	// ToolMaxAttempts is the maximum number of retry attempts for tool activities.
+	// Default: 3.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ToolMaxAttempts *int32 `json:"toolMaxAttempts,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type

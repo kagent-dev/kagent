@@ -389,6 +389,20 @@ func (a *adkApiTranslator) buildManifest(
 		},
 	)
 
+	// Inject Temporal and NATS env vars when Temporal is enabled.
+	if agent.Spec.Temporal != nil && agent.Spec.Temporal.Enabled {
+		sharedEnv = append(sharedEnv,
+			corev1.EnvVar{
+				Name:  env.TemporalHostAddr.Name(),
+				Value: env.TemporalHostAddr.Get(),
+			},
+			corev1.EnvVar{
+				Name:  env.NATSAddr.Name(),
+				Value: env.NATSAddr.Get(),
+			},
+		)
+	}
+
 	var skills []string
 	var gitRefs []v1alpha2.GitRepo
 	var gitAuthSecretRef *corev1.LocalObjectReference
@@ -648,6 +662,26 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
 			secretHashBytes = append(secretHashBytes, embHash...)
 		}
+	}
+
+	// Translate Temporal configuration from CRD spec to runtime config.
+	if agent.Spec.Temporal != nil && agent.Spec.Temporal.Enabled {
+		tc := &adk.TemporalRuntimeConfig{
+			Enabled:   true,
+			TaskQueue: fmt.Sprintf("agent-%s", agent.Name),
+		}
+		if agent.Spec.Temporal.WorkflowTimeout != nil {
+			tc.WorkflowTimeout = agent.Spec.Temporal.WorkflowTimeout.Duration.String()
+		}
+		if agent.Spec.Temporal.RetryPolicy != nil {
+			if agent.Spec.Temporal.RetryPolicy.LLMMaxAttempts != nil {
+				tc.LLMMaxAttempts = int(*agent.Spec.Temporal.RetryPolicy.LLMMaxAttempts)
+			}
+			if agent.Spec.Temporal.RetryPolicy.ToolMaxAttempts != nil {
+				tc.ToolMaxAttempts = int(*agent.Spec.Temporal.RetryPolicy.ToolMaxAttempts)
+			}
+		}
+		cfg.Temporal = tc
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {

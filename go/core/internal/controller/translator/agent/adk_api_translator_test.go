@@ -1287,3 +1287,159 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 		})
 	}
 }
+
+func Test_AdkApiTranslator_TemporalSpec(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "test-ns"
+	modelName := "ollama-model"
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "llama2",
+			Provider: v1alpha2.ModelProviderOllama,
+			Ollama: &v1alpha2.OllamaConfig{
+				Host: "http://ollama:11434",
+			},
+		},
+	}
+
+	defaultModel := types.NamespacedName{Namespace: namespace, Name: modelName}
+
+	tests := []struct {
+		name         string
+		temporal     *v1alpha2.TemporalSpec
+		wantConfig   bool // expect TemporalRuntimeConfig in AgentConfig
+		wantEnvVars  bool // expect TEMPORAL_HOST_ADDR and NATS_ADDR env vars
+		assertConfig func(t *testing.T, cfg *adk.AgentConfig)
+	}{
+		{
+			name:        "no temporal spec - config absent, no env vars",
+			temporal:    nil,
+			wantConfig:  false,
+			wantEnvVars: false,
+		},
+		{
+			name:        "temporal disabled - config absent, no env vars",
+			temporal:    &v1alpha2.TemporalSpec{Enabled: false},
+			wantConfig:  false,
+			wantEnvVars: false,
+		},
+		{
+			name:        "temporal enabled with defaults",
+			temporal:    &v1alpha2.TemporalSpec{Enabled: true},
+			wantConfig:  true,
+			wantEnvVars: true,
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.Temporal)
+				assert.True(t, cfg.Temporal.Enabled)
+				assert.Equal(t, "agent-temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Empty(t, cfg.Temporal.WorkflowTimeout)
+				assert.Zero(t, cfg.Temporal.LLMMaxAttempts)
+				assert.Zero(t, cfg.Temporal.ToolMaxAttempts)
+			},
+		},
+		{
+			name: "temporal enabled with all fields",
+			temporal: &v1alpha2.TemporalSpec{
+				Enabled:         true,
+				WorkflowTimeout: &metav1.Duration{Duration: 24 * 60 * 60 * 1e9}, // 24h
+				RetryPolicy: &v1alpha2.TemporalRetryPolicy{
+					LLMMaxAttempts:  ptr.To(int32(10)),
+					ToolMaxAttempts: ptr.To(int32(5)),
+				},
+			},
+			wantConfig:  true,
+			wantEnvVars: true,
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.Temporal)
+				assert.True(t, cfg.Temporal.Enabled)
+				assert.Equal(t, "agent-temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Equal(t, "24h0m0s", cfg.Temporal.WorkflowTimeout)
+				assert.Equal(t, 10, cfg.Temporal.LLMMaxAttempts)
+				assert.Equal(t, 5, cfg.Temporal.ToolMaxAttempts)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agent := &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "temporal-agent",
+					Namespace: namespace,
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Test Agent with Temporal",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "You are a test agent",
+						ModelConfig:   modelName,
+					},
+					Temporal: tt.temporal,
+				},
+			}
+
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(ns, modelConfig, agent).
+				Build()
+
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), agent)
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+
+			// Check config
+			if tt.wantConfig {
+				require.NotNil(t, outputs.Config.Temporal)
+			} else {
+				assert.Nil(t, outputs.Config.Temporal)
+			}
+
+			if tt.assertConfig != nil {
+				tt.assertConfig(t, outputs.Config)
+			}
+
+			// Check env vars in deployment
+			var dep *appsv1.Deployment
+			for _, obj := range outputs.Manifest {
+				if d, ok := obj.(*appsv1.Deployment); ok {
+					dep = d
+					break
+				}
+			}
+			require.NotNil(t, dep, "Deployment not found in manifest")
+
+			container := dep.Spec.Template.Spec.Containers[0]
+			hasTemporalEnv := false
+			hasNATSEnv := false
+			for _, e := range container.Env {
+				if e.Name == "TEMPORAL_HOST_ADDR" {
+					hasTemporalEnv = true
+				}
+				if e.Name == "NATS_ADDR" {
+					hasNATSEnv = true
+				}
+			}
+
+			if tt.wantEnvVars {
+				assert.True(t, hasTemporalEnv, "Expected TEMPORAL_HOST_ADDR env var")
+				assert.True(t, hasNATSEnv, "Expected NATS_ADDR env var")
+			} else {
+				assert.False(t, hasTemporalEnv, "Did not expect TEMPORAL_HOST_ADDR env var")
+				assert.False(t, hasNATSEnv, "Did not expect NATS_ADDR env var")
+			}
+		})
+	}
+}
