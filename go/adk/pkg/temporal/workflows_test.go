@@ -368,6 +368,131 @@ func TestExtractTemporalConfigInvalidJSON(t *testing.T) {
 	}
 }
 
+// Test: HITL approval signal allows workflow to continue.
+func (s *WorkflowTestSuite) TestHITLApprovalContinues() {
+	req := basicRequest()
+
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// First LLM turn: needs approval.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			Content:       "I need to delete a file. Do you approve?",
+			NeedsApproval: true,
+			ApprovalMsg:   "Delete important-file.txt?",
+		}, nil).Once()
+
+	// Publish approval activity.
+	s.env.OnActivity(s.act.PublishApprovalActivity, mock.Anything, mock.Anything).Return(nil)
+
+	// Register a callback to send the approval signal after the workflow blocks.
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(ApprovalSignalName, &ApprovalDecision{
+			Approved: true,
+			Reason:   "User approved the deletion",
+		})
+	}, 0)
+
+	// Second LLM turn after approval: terminal response.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "File deleted successfully.", Terminal: true}, nil).Once()
+
+	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
+// Test: HITL rejection signal stops workflow with "rejected" status.
+func (s *WorkflowTestSuite) TestHITLRejectionStopsWorkflow() {
+	req := basicRequest()
+
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// LLM turn: needs approval.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			Content:       "I need to delete a file.",
+			NeedsApproval: true,
+			ApprovalMsg:   "Delete important-file.txt?",
+		}, nil)
+
+	s.env.OnActivity(s.act.PublishApprovalActivity, mock.Anything, mock.Anything).Return(nil)
+
+	// Send rejection signal.
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(ApprovalSignalName, &ApprovalDecision{
+			Approved: false,
+			Reason:   "Too dangerous",
+		})
+	}, 0)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("rejected", result.Status)
+	s.Equal("Too dangerous", result.Reason)
+}
+
+// Test: HITL approval after tool calls in the same turn.
+func (s *WorkflowTestSuite) TestHITLAfterToolCalls() {
+	req := basicRequest()
+
+	s.env.OnActivity(s.act.SessionActivity, mock.Anything, mock.Anything).
+		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
+
+	// First turn: tool calls + needs approval.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{
+				{ID: "tc-1", Name: "check_file", Args: []byte(`{"path":"important.txt"}`)},
+			},
+			NeedsApproval: true,
+			ApprovalMsg:   "Found file. Delete it?",
+		}, nil).Once()
+
+	s.env.OnActivity(s.act.ToolExecuteActivity, mock.Anything, mock.Anything).
+		Return(&ToolResponse{ToolCallID: "tc-1", Result: []byte(`"exists"`)}, nil)
+
+	s.env.OnActivity(s.act.PublishApprovalActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(ApprovalSignalName, &ApprovalDecision{
+			Approved: true,
+			Reason:   "Go ahead",
+		})
+	}, 0)
+
+	// Second turn after approval: terminal.
+	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Done.", Terminal: true}, nil).Once()
+
+	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+
+	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result ExecutionResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+}
+
 // Sentinel errors for test mocks (Temporal test suite needs concrete errors).
 var (
 	errLLMUnavailable     = &testError{"LLM provider unavailable"}

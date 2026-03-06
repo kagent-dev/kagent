@@ -167,8 +167,38 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 		// Handle A2A agent calls (child workflows) - placeholder for Step 6.
 		// Agent calls are not yet implemented; they will be added in Step 6.
 
-		// HITL approval - placeholder for Step 5.
-		// Approval signals are not yet implemented; they will be added in Step 5.
+		// HITL approval: block on signal if the LLM requested human approval.
+		if llmResp.NeedsApproval {
+			// Publish approval request to NATS so the UI/client knows to prompt the user.
+			wfInfo := workflow.GetInfo(ctx)
+			_ = workflow.ExecuteActivity(taskCtx, activities.PublishApprovalActivity, &PublishApprovalRequest{
+				WorkflowID:  wfInfo.WorkflowExecution.ID,
+				RunID:       wfInfo.WorkflowExecution.RunID,
+				SessionID:   req.SessionID,
+				Message:     llmResp.ApprovalMsg,
+				NATSSubject: req.NATSSubject,
+			}).Get(taskCtx, nil)
+
+			// Block until a signal is received on the "approval" channel.
+			// This is durable: survives pod restarts, waits up to workflow timeout (default 48h).
+			approvalCh := workflow.GetSignalChannel(ctx, ApprovalSignalName)
+			var decision ApprovalDecision
+			approvalCh.Receive(ctx, &decision)
+
+			if !decision.Approved {
+				return &ExecutionResult{
+					SessionID: req.SessionID,
+					Status:    "rejected",
+					Reason:    decision.Reason,
+				}, nil
+			}
+
+			// Approved: add the approval context to history and continue the loop.
+			history = append(history, conversationEntry{
+				Role:    "user",
+				Content: fmt.Sprintf("[APPROVED] %s", decision.Reason),
+			})
+		}
 	}
 
 	// Safety: exceeded max turns.

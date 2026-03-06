@@ -564,6 +564,79 @@ func TestAppendEventActivity_SessionNotFound(t *testing.T) {
 	}
 }
 
+func TestPublishApprovalActivity_Success(t *testing.T) {
+	_, addr := startEmbeddedNATS(t)
+	conn := connectNATS(t, addr)
+
+	subject := "agent.test.sess-approval.stream"
+	var received []streaming.StreamEvent
+	var mu sync.Mutex
+
+	sub, err := conn.Subscribe(subject, func(msg *nats.Msg) {
+		var evt streaming.StreamEvent
+		if err := json.Unmarshal(msg.Data, &evt); err == nil {
+			mu.Lock()
+			received = append(received, evt)
+			mu.Unlock()
+		}
+	})
+	if err != nil {
+		t.Fatalf("failed to subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	act := NewActivities(nil, nil, conn, nil, nil)
+
+	err = act.PublishApprovalActivity(context.Background(), &PublishApprovalRequest{
+		WorkflowID:  "wf-123",
+		RunID:       "run-456",
+		SessionID:   "sess-approval",
+		Message:     "Delete this file?",
+		NATSSubject: subject,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	conn.Flush()
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("expected 1 approval request event, got %d", len(received))
+	}
+	if received[0].Type != streaming.EventTypeApprovalRequest {
+		t.Errorf("expected approval_request event, got %q", received[0].Type)
+	}
+	// The Data field contains the JSON-encoded ApprovalRequest.
+	var approvalReq streaming.ApprovalRequest
+	if err := json.Unmarshal([]byte(received[0].Data), &approvalReq); err != nil {
+		t.Fatalf("failed to unmarshal approval request from event data: %v", err)
+	}
+	if approvalReq.WorkflowID != "wf-123" {
+		t.Errorf("got workflowID=%q, want %q", approvalReq.WorkflowID, "wf-123")
+	}
+	if approvalReq.Message != "Delete this file?" {
+		t.Errorf("got message=%q, want %q", approvalReq.Message, "Delete this file?")
+	}
+}
+
+func TestPublishApprovalActivity_NilPublisher(t *testing.T) {
+	// No NATS connection -- should succeed silently.
+	act := NewActivities(nil, nil, nil, nil, nil)
+
+	err := act.PublishApprovalActivity(context.Background(), &PublishApprovalRequest{
+		WorkflowID:  "wf-123",
+		SessionID:   "sess-1",
+		Message:     "Approve?",
+		NATSSubject: "test.subject",
+	})
+	if err != nil {
+		t.Fatalf("expected no error for nil publisher, got: %v", err)
+	}
+}
+
 func TestToolExecuteActivity_ErrorPublishesEndEvent(t *testing.T) {
 	_, addr := startEmbeddedNATS(t)
 	conn := connectNATS(t, addr)

@@ -163,6 +163,26 @@ func (a *Activities) SaveTaskActivity(ctx context.Context, req *TaskSaveRequest)
 	return nil
 }
 
+// PublishApprovalActivity publishes an HITL approval request to NATS.
+// This is an activity (not workflow.SideEffect) because it needs the NATS connection,
+// which is external I/O that cannot be performed inside a deterministic workflow.
+func (a *Activities) PublishApprovalActivity(ctx context.Context, req *PublishApprovalRequest) error {
+	if a.publisher == nil {
+		// No NATS connection -- skip publishing. The workflow will still wait for the signal.
+		return nil
+	}
+
+	approvalReq := &streaming.ApprovalRequest{
+		WorkflowID: req.WorkflowID,
+		RunID:      req.RunID,
+		SessionID:  req.SessionID,
+		Message:    req.Message,
+	}
+	// Fire-and-forget: if publishing fails, the signal can still be sent via HTTP API.
+	_ = a.publisher.PublishApprovalRequest(req.NATSSubject, approvalReq)
+	return nil
+}
+
 // AppendEventActivity appends an event to a session.
 func (a *Activities) AppendEventActivity(ctx context.Context, req *AppendEventRequest) error {
 	if a.sessionSvc == nil {

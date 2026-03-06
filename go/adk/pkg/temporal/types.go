@@ -93,6 +93,15 @@ type AppendEventRequest struct {
 	Event     []byte `json:"event"`
 }
 
+// PublishApprovalRequest is the input to PublishApprovalActivity.
+type PublishApprovalRequest struct {
+	WorkflowID  string `json:"workflowID"`
+	RunID       string `json:"runID"`
+	SessionID   string `json:"sessionID"`
+	Message     string `json:"message"`
+	NATSSubject string `json:"natsSubject"`
+}
+
 // ApprovalDecision is the payload for HITL approval signals.
 type ApprovalDecision struct {
 	Approved bool   `json:"approved"`
