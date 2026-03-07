@@ -17,6 +17,7 @@ COPY core/go.mod core/go.sum core/
 COPY adk/go.mod adk/go.sum adk/
 COPY plugins/kanban-mcp/go.mod plugins/kanban-mcp/go.sum plugins/kanban-mcp/
 COPY plugins/gitrepo-mcp/go.mod plugins/gitrepo-mcp/go.sum plugins/gitrepo-mcp/
+COPY plugins/temporal-mcp/go.mod plugins/temporal-mcp/go.sum plugins/temporal-mcp/
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
