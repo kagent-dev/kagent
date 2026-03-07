@@ -32,6 +32,20 @@ def _instrument_anthropic(event_logger_provider=None):
         pass
 
 
+def _instrument_aiohttp_client():
+    """Instrument aiohttp client if available.
+
+    This ensures outbound HTTP calls made via aiohttp (e.g. litellm's default
+    transport) create OTEL spans and propagate trace context headers.
+    """
+    try:
+        from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
+
+        AioHttpClientInstrumentor().instrument()
+    except ImportError:
+        pass
+
+
 def _instrument_google_generativeai():
     """Instrument Google GenerativeAI SDK if available."""
     try:
@@ -91,6 +105,7 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             logging.info("Created new TracerProvider")
 
         HTTPXClientInstrumentor().instrument()
+        _instrument_aiohttp_client()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app)
     # Configure logging if enabled
