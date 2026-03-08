@@ -22,8 +22,8 @@
     "instruction": "You are an assistant.",
     "memory": {
       "embedding": {
-        "model": "text-embedding-3-small",
-        "provider": "openai"
+        "model": "text-embedding-005",
+        "provider": "gemini_vertex_ai"
       }
     },
     "model": {
@@ -60,7 +60,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
     {
@@ -129,7 +129,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "7112061214771074752"
+              "kagent.dev/config-hash": "13646724703108583778"
             },
             "labels": {
               "app": "kagent",
@@ -159,6 +159,22 @@
                         "name": "openai-secret"
                       }
                     }
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_PROJECT",
+                    "value": "my-project"
+                  },
+                  {
+                    "name": "GOOGLE_CLOUD_LOCATION",
+                    "value": "us-central1"
+                  },
+                  {
+                    "name": "GOOGLE_GENAI_USE_VERTEXAI",
+                    "value": "true"
+                  },
+                  {
+                    "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                    "value": "/creds/key.json"
                   },
                   {
                     "name": "KAGENT_NAMESPACE",
@@ -211,6 +227,10 @@
                     "name": "config"
                   },
                   {
+                    "mountPath": "/creds",
+                    "name": "google-creds"
+                  },
+                  {
                     "mountPath": "/var/run/secrets/tokens",
                     "name": "kagent-token"
                   }
@@ -223,6 +243,12 @@
                 "name": "config",
                 "secret": {
                   "secretName": "agent-cross-provider-memory"
+                }
+              },
+              {
+                "name": "google-creds",
+                "secret": {
+                  "secretName": "gcp-creds"
                 }
               },
               {
