@@ -128,12 +128,8 @@ func main() {
 	// Build memory service if configured.
 	var memoryService *kagentmemory.KagentMemoryService
 	if agentConfig.Memory != nil && kagentURL != "" {
-		agentName := appName
-		if idx := strings.LastIndex(appName, "__NS__"); idx >= 0 {
-			agentName = appName[idx+len("__NS__"):]
-		}
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
-			AgentName:       agentName,
+			AgentName:       appName,
 			APIURL:          kagentURL,
 			HTTPClient:      httpClient,
 			TTLDays:         agentConfig.Memory.TTLDays,
@@ -144,7 +140,7 @@ func main() {
 			os.Exit(1)
 		}
 		memoryService = memSvc
-		logger.Info("Memory service enabled", "agentName", agentName)
+		logger.Info("Memory service enabled", "appName", appName)
 	}
 
 	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
