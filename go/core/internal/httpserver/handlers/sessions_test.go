@@ -517,9 +517,72 @@ func TestSessionsHandler(t *testing.T) {
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 
 			handler.HandleListTasksForSession(responseRecorder, req)
-
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+	})
+
+	t.Run("HandleGetSubAgentSession", func(t *testing.T) {
+		t.Run("Success", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler()
+			sessionID := "parent-session"
+			toolCallID := "call-1"
+			subSessionID := "sub-session-1"
+			userID := "test-user"
+
+			// Create sub-session
+			dbClient.StoreSession(&database.Session{
+				ID:     subSessionID,
+				UserID: userID,
+			})
+
+			// Add task with caller metadata
+			dbClient.AddTask(&database.Task{
+				ID:        "task-1",
+				SessionID: subSessionID,
+				Data:      `{"id": "task-1", "metadata": {"kagent_caller_session_id": "parent-session", "kagent_caller_tool_call_id": "call-1"}}`,
+				CreatedAt: time.Now(),
+			})
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/toolcalls/"+toolCallID+"/subagentsession", nil)
+			req = mux.SetURLVars(req, map[string]string{
+				"session_id":   sessionID,
+				"tool_call_id": toolCallID,
+			})
+			req = setUser(req, userID)
+			handler.HandleGetSubAgentSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var response api.StandardResponse[handlers.SessionResponse]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, subSessionID, response.Data.Session.ID)
+		})
+
+		t.Run("MissingParams", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/sessions/s/toolcalls/c/subagentsession", nil)
+			// No URL vars set - will fail on first GetPathParam
+			req = setUser(req, "test-user")
+			handler.HandleGetSubAgentSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+		})
+
+		t.Run("NotFound", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			req := httptest.NewRequest("GET", "/api/sessions/c/toolcalls/d/subagentsession", nil)
+			req = mux.SetURLVars(req, map[string]string{
+				"session_id":   "c",
+				"tool_call_id": "d",
+			})
+			req = setUser(req, "test-user")
+			handler.HandleGetSubAgentSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
 		})
 	})
 }

@@ -12,6 +12,7 @@ interface ToolCallDisplayProps {
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   pendingDecisions?: Record<string, "approve" | "deny">;
+  sessionId?: string;
 }
 
 interface ToolCallState {
@@ -162,7 +163,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
 };
 
 
-const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions }: ToolCallDisplayProps) => {
+const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions, sessionId }: ToolCallDisplayProps) => {
   // Determine which tool call IDs this component instance "owns" by finding,
   // for each ID introduced by currentMessage, whether currentMessage is the
   // FIRST message in allMessages that introduces that ID.
@@ -184,20 +185,20 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
     }
 
     const ownedIds = new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
-    
+
     // Scan backwards from our index to see if any earlier message already has these IDs.
     // This avoids a full O(N) scan per component render by aborting early.
     for (let i = currentIndex - 1; i >= 0; i--) {
       const msg = allMessages[i];
       if (!isToolCallRequestMessage(msg)) continue;
-      
+
       const prevRequests = extractToolCallRequests(msg);
       for (const pr of prevRequests) {
         if (pr.id) {
           ownedIds.delete(pr.id);
         }
       }
-      
+
       if (ownedIds.size === 0) break; // Early exit if all IDs were claimed by earlier messages
     }
     return ownedIds;
@@ -314,6 +315,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             result={toolCall.result}
             status={effectiveStatus === "pending_approval" ? "requested" : effectiveStatus as AgentCallStatus}
             isError={toolCall.result?.is_error}
+            sessionId={sessionId}
           />
         ) : (
           <ToolDisplay

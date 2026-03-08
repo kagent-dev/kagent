@@ -205,6 +205,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Sessions - using database handlers
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleListSessions)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/subagentsessions/{tool_call_id}", adaptHandler(s.handlers.Sessions.HandleGetSubAgentSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/agent/{namespace}/{name}", adaptHandler(s.handlers.Sessions.HandleGetSessionsForAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListTasksForSession)).Methods(http.MethodGet)

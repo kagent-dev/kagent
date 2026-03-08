@@ -13,6 +13,11 @@ KAGENT_METADATA_KEY_PREFIX = "kagent_"
 ADK_METADATA_KEY_PREFIX = "adk_"
 
 
+# Caller metadata constants
+KAGENT_METADATA_KEY_CALLER_SESSION_ID = "caller_session_id"
+KAGENT_METADATA_KEY_CALLER_TOOL_CALL_ID = "caller_tool_call_id"
+
+
 def get_kagent_metadata_key(key: str) -> str:
     """Gets the A2A event metadata key for the given key.
 

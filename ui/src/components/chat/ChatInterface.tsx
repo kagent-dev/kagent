@@ -207,7 +207,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -648,6 +648,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
+                    sessionId={sessionId!}
                   />
                 })}
 
@@ -665,6 +666,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
+                    sessionId={session?.id || sessionId}
                   />
                 })}
 

@@ -43,6 +43,7 @@ type Client interface {
 	GetTool(name string) (*Tool, error)
 	GetToolServer(name string) (*ToolServer, error)
 	GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error)
+	GetSubAgentSession(sessionID, toolCallID string) (string, error)
 
 	// List methods
 	ListTools() ([]Tool, error)

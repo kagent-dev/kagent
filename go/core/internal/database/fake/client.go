@@ -252,6 +252,46 @@ func (c *InMemoryFakeClient) GetSession(sessionID string, userID string) (*datab
 }
 
 // GetAgent retrieves an agent by name
+func (c *InMemoryFakeClient) GetSubAgentSession(sessionID, toolCallID string) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var matchedTasks []*database.Task
+
+	for _, task := range c.tasks {
+		var taskData protocol.Task
+		if err := json.Unmarshal([]byte(task.Data), &taskData); err != nil {
+			continue
+		}
+
+		if taskData.Metadata == nil {
+			continue
+		}
+
+		if taskData.Metadata["kagent_caller_session_id"] == sessionID &&
+			taskData.Metadata["kagent_caller_tool_call_id"] == toolCallID {
+			matchedTasks = append(matchedTasks, task)
+		}
+	}
+
+	if len(matchedTasks) == 0 {
+		return "", gorm.ErrRecordNotFound
+	}
+
+	// Sort by created_at DESC to get the latest
+	slices.SortStableFunc(matchedTasks, func(a, b *database.Task) int {
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+		if a.CreatedAt.Before(b.CreatedAt) {
+			return 1
+		}
+		return 0
+	})
+
+	return matchedTasks[0].SessionID, nil
+}
+
 func (c *InMemoryFakeClient) GetAgent(agentName string) (*database.Agent, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

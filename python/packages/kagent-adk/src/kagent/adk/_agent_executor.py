@@ -40,6 +40,7 @@ from typing_extensions import override
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
+    KAGENT_METADATA_KEY_PREFIX,
     TaskResultAggregator,
     extract_ask_user_answers_from_message,
     extract_batch_decisions_from_message,
@@ -514,6 +515,16 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             get_kagent_metadata_key("user_id"): run_args["user_id"],
             get_kagent_metadata_key("session_id"): run_args["session_id"],
         }
+
+        # Include caller metadata from A2A request metadata if present.
+        # When a parent agent calls a child via RemoteA2aAgent, the
+        # a2a_request_meta_provider injects kagent_* keys into the A2A
+        # wire protocol's MessageSendParams.metadata which arrives here
+        # via context.metadata.
+        if context.metadata:
+            for key, value in context.metadata.items():
+                if key.startswith(KAGENT_METADATA_KEY_PREFIX):
+                    run_metadata[key] = value
 
         # publish the task working event
         await event_queue.enqueue_event(

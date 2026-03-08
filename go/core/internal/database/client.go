@@ -113,6 +113,28 @@ func (c *clientImpl) GetSession(sessionName string, userID string) (*dbpkg.Sessi
 		Clause{Key: "user_id", Value: userID})
 }
 
+func (c *clientImpl) GetSubAgentSession(sessionID, toolCallID string) (string, error) {
+	var sessionName string
+	query := c.db.Table("task").Select("session_id")
+
+	if c.db.Name() == "sqlite" {
+		query = query.Where("json_extract(data, '$.metadata.kagent_caller_session_id') = ?", sessionID).
+			Where("json_extract(data, '$.metadata.kagent_caller_tool_call_id') = ?", toolCallID)
+	} else {
+		query = query.Where("(data::json -> 'metadata' ->> 'kagent_caller_session_id') = ?", sessionID).
+			Where("(data::json -> 'metadata' ->> 'kagent_caller_tool_call_id') = ?", toolCallID)
+	}
+
+	err := query.Order("created_at DESC").Limit(1).Pluck("session_id", &sessionName).Error
+	if err != nil {
+		return "", err
+	}
+	if sessionName == "" {
+		return "", errors.New("sub-agent session not found")
+	}
+	return sessionName, nil
+}
+
 // GetAgent retrieves an agent by name and user ID
 func (c *clientImpl) GetAgent(agentID string) (*dbpkg.Agent, error) {
 	return get[dbpkg.Agent](c.db, Clause{Key: "id", Value: agentID})

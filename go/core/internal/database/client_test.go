@@ -572,3 +572,31 @@ func TestPruneExpiredMemories(t *testing.T) {
 	assert.Contains(t, ids, "prune-hot", "Expired popular memory should have TTL extended and be retained")
 	assert.Contains(t, ids, "prune-live", "Non-expired memory should be retained")
 }
+
+func TestGetSessionByToolCall(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+
+	sessionID := "parent-session"
+	toolCallID := "call-1"
+	subSessionID := "sub-session-1"
+
+	taskData := `{"metadata": {"kagent_caller_session_id": "parent-session", "kagent_caller_tool_call_id": "call-1"}}`
+
+	err := client.(*clientImpl).db.Create(&dbpkg.Task{
+		ID:        "task-1",
+		SessionID: subSessionID,
+		Data:      taskData,
+		CreatedAt: time.Now(),
+	}).Error
+	require.NoError(t, err)
+
+	// Test success
+	foundSessionID, err := client.GetSubAgentSession(sessionID, toolCallID)
+	require.NoError(t, err)
+	assert.Equal(t, subSessionID, foundSessionID)
+
+	// Test not found (wrong session id)
+	_, err = client.GetSubAgentSession("wrong-session", toolCallID)
+	assert.Error(t, err)
+}
