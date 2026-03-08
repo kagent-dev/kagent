@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
@@ -22,44 +20,19 @@ const (
 	frameworkJava          = "java"
 )
 
-var InitCmd = &cobra.Command{
-	Use:   "init [project-name]",
-	Short: "Initialize a new MCP server project",
-	Long: `Initialize a new MCP server project with dynamic tool loading.
-
-This command provides subcommands to initialize a new MCP server project
-using one of the supported frameworks.`,
-	RunE: runInit,
+// InitMcpCfg contains configuration for MCP init command
+type InitMcpCfg struct {
+	Force          bool
+	NoGit          bool
+	Author         string
+	Email          string
+	Description    string
+	NonInteractive bool
+	Namespace      string
 }
 
-var (
-	initForce          bool
-	initNoGit          bool
-	initAuthor         string
-	initEmail          string
-	initDescription    string
-	initNonInteractive bool
-	initNamespace      string
-)
-
-func init() {
-	InitCmd.PersistentFlags().BoolVar(&initForce, "force", false, "Overwrite existing directory")
-	InitCmd.PersistentFlags().BoolVar(&initNoGit, "no-git", false, "Skip git initialization")
-	InitCmd.PersistentFlags().StringVar(&initAuthor, "author", "", "Author name for the project")
-	InitCmd.PersistentFlags().StringVar(&initEmail, "email", "", "Author email for the project")
-	InitCmd.PersistentFlags().StringVar(&initDescription, "description", "", "Description for the project")
-	InitCmd.PersistentFlags().BoolVar(&initNonInteractive, "non-interactive", false, "Run in non-interactive mode")
-	InitCmd.PersistentFlags().StringVar(&initNamespace, "namespace", "default", "Default namespace for project resources")
-}
-
-func runInit(cmd *cobra.Command, args []string) error {
-	if len(args) == 0 {
-		return cmd.Help()
-	}
-	return nil
-}
-
-func runInitFramework(
+func InitMcp(
+	cfg *InitMcpCfg,
 	projectName, framework string,
 	customizeProjectConfig func(*mcp.ProjectConfig) error,
 ) error {
@@ -68,20 +41,20 @@ func runInitFramework(
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 
-	if !initNonInteractive {
-		if initDescription == "" {
-			initDescription = promptForDescription()
+	if !cfg.NonInteractive {
+		if cfg.Description == "" {
+			cfg.Description = promptForDescription()
 		}
-		if initAuthor == "" {
-			initAuthor = promptForAuthor()
+		if cfg.Author == "" {
+			cfg.Author = promptForAuthor()
 		}
-		if initEmail == "" {
-			initEmail = promptForEmail()
+		if cfg.Email == "" {
+			cfg.Email = promptForEmail()
 		}
 	}
 
 	// Create project manifest
-	projectmanifests := manifests.GetDefault(projectName, framework, initDescription, initAuthor, initEmail, initNamespace)
+	projectmanifests := manifests.GetDefault(projectName, framework, cfg.Description, cfg.Author, cfg.Email, cfg.Namespace)
 
 	// Check if directory exists
 	projectPath, err := filepath.Abs(projectName)
@@ -99,7 +72,7 @@ func runInitFramework(
 		Tools:       projectmanifests.Tools,
 		Secrets:     projectmanifests.Secrets,
 		Directory:   projectPath,
-		NoGit:       initNoGit,
+		NoGit:       cfg.NoGit,
 	}
 
 	// Customize project config for the specific framework
