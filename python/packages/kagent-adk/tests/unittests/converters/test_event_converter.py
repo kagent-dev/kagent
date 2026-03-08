@@ -14,6 +14,7 @@ def _create_mock_invocation_context():
     context.app_name = "test_app"
     context.user_id = "test_user"
     context.session.id = "test_session"
+    context.session.state = {}
     return context
 
 

@@ -2,9 +2,11 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+from a2a.types import Message as A2AMessage
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
@@ -19,6 +21,7 @@ from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
+from kagent.core.a2a import KAGENT_METADATA_KEY_PREFIX, get_kagent_metadata_key
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -30,6 +33,29 @@ PROXY_HOST_HEADER = "x-kagent-host"
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"
+
+
+def _kagent_metadata_provider(ctx: InvocationContext, _message: A2AMessage) -> dict[str, Any]:
+    """Extract kagent metadata from session state for A2A request propagation.
+
+    This provider is used by RemoteA2aAgent to inject caller metadata
+    (e.g. kagent_caller_session_id, kagent_caller_tool_call_id) into the
+    A2A wire protocol so the receiving child agent can store them in task
+    metadata for parent-child session correlation.
+
+    It also propagates the parent's user_id so that child agent sessions
+    are created under the same identity, so that the user can view those
+    sessions (kagent requires that users can only see their own sessions).
+    """
+    metadata: dict[str, Any] = {}
+    if ctx.session:
+        # Propagate the parent's user_id to the child agent session.
+        metadata[get_kagent_metadata_key("user_id")] = ctx.session.user_id
+        if ctx.session.state:
+            for key, value in ctx.session.state.items():
+                if key.startswith(KAGENT_METADATA_KEY_PREFIX):
+                    metadata[key] = value
+    return metadata
 
 
 def create_header_provider(
@@ -371,6 +397,7 @@ class AgentConfig(BaseModel):
                     agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                     description=remote_agent.description,
                     httpx_client=client,
+                    a2a_request_meta_provider=_kagent_metadata_provider,
                 )
 
                 tools.append(AgentTool(agent=remote_a2a_agent))

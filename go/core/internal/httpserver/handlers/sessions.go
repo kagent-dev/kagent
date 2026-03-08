@@ -395,6 +395,51 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
+func (h *SessionsHandler) HandleGetSubAgentSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get-sub-agent-session")
+
+	parentSessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Missing required path parameter: session_id", err))
+		return
+	}
+	toolCallID, err := GetPathParam(r, "tool_call_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Missing required path parameter: tool_call_id", err))
+		return
+	}
+
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+
+	log = log.WithValues("parentSessionID", parentSessionID, "toolCallID", toolCallID, "userID", userID)
+
+	sessionID, err := h.DatabaseService.GetSubAgentSession(parentSessionID, toolCallID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Sub-agent session not found", err))
+		return
+	}
+
+	// Now get the session details as standard session response
+	session, err := h.DatabaseService.GetSession(sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		return
+	}
+
+	// We don't return events here for the lookup as it's a lookup, but we can if we want to follow HandleGetSession
+	// For now let's just return the session to be consistent with creating a session
+	log.Info("Successfully found sub-agent session", "sessionID", sessionID)
+	data := api.NewResponse(SessionResponse{
+		Session: session,
+		Events:  nil,
+	}, "Successfully found sub-agent session", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
 func getUserID(r *http.Request) (string, error) {
 	log := ctrllog.Log.WithName("http-helpers")
 

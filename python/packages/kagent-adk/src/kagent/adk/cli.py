@@ -15,6 +15,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
+from ._session_linking_plugin import SessionLinkingPlugin
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -60,10 +61,10 @@ def static(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
-    plugins = None
+    plugins = [SessionLinkingPlugin()]
     sts_integration = create_sts_integration()
     if sts_integration:
-        plugins = [sts_integration]
+        plugins.append(sts_integration)
 
     if agent_config.model.api_key_passthrough:
         from ._llm_passthrough_plugin import LLMPassthroughPlugin
@@ -136,10 +137,10 @@ def run(
 ):
     app_cfg = KAgentConfig()
 
-    plugins = None
+    plugins = [SessionLinkingPlugin()]
     sts_integration = create_sts_integration()
     if sts_integration:
-        plugins = [sts_integration]
+        plugins.append(sts_integration)
 
     agent_loader = AgentLoader(agents_dir=working_dir)
 
@@ -206,10 +207,10 @@ def run(
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
     app_cfg = KAgentConfig(url="http://fake-url.example.com", name="test-agent", namespace="kagent")
-    plugins = None
+    plugins = [SessionLinkingPlugin()]
     sts_integration = create_sts_integration()
     if sts_integration:
-        plugins = [sts_integration]
+        plugins.append(sts_integration)
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
