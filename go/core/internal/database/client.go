@@ -106,7 +106,7 @@ func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
 	return protocolMessages, nil
 }
 
-// GetSession retrieves a session by name and user ID
+// GetSession retrieves a session by id and user ID
 func (c *clientImpl) GetSession(sessionID string, userID string) (*dbpkg.Session, error) {
 	return get[dbpkg.Session](c.db,
 		Clause{Key: "id", Value: sessionID},
