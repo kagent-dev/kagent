@@ -39,6 +39,7 @@ GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
 KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
 GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
+TEMPORAL_MCP_IMAGE_NAME ?= temporal-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -48,6 +49,7 @@ GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
 GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
+TEMPORAL_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
@@ -57,6 +59,7 @@ GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(G
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
 GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
+TEMPORAL_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TEMPORAL_MCP_IMAGE_NAME):$(TEMPORAL_MCP_IMAGE_TAG)
 
 #take from go/core/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -223,7 +226,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-golang-adk build-skills-init build-kanban-mcp build-gitrepo-mcp
+build: buildx-create build-controller build-ui build-golang-adk build-skills-init build-kanban-mcp build-gitrepo-mcp build-temporal-mcp
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -295,7 +298,11 @@ build-kanban-mcp: buildx-create
 
 .PHONY: build-gitrepo-mcp
 build-gitrepo-mcp: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=plugins/gitrepo-mcp/main.go -t $(GITREPO_MCP_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(GITREPO_MCP_IMG) -f go/plugins/gitrepo-mcp/Dockerfile ./go
+
+.PHONY: build-temporal-mcp
+build-temporal-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./plugins/temporal-mcp/ -t $(TEMPORAL_MCP_IMG) -f go/Dockerfile ./go
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -407,7 +414,14 @@ helm-install: build
 helm-install: helm-install-provider
 
 .PHONY: helm-install-temporal
-helm-install-temporal: KAGENT_HELM_EXTRA_ARGS+=--set temporal.enabled=true --set nats.enabled=true
+helm-install-temporal: KAGENT_HELM_EXTRA_ARGS+=--set temporal.enabled=true --set nats.enabled=true --set temporal.ui.image=$(TEMPORAL_MCP_IMG) \
+	--set k8s-agent.temporal.enabled=true \
+	--set kgateway-agent.temporal.enabled=true \
+	--set istio-agent.temporal.enabled=true \
+	--set promql-agent.temporal.enabled=true \
+	--set observability-agent.temporal.enabled=true \
+	--set argo-rollouts-agent.temporal.enabled=true \
+	--set helm-agent.temporal.enabled=true
 helm-install-temporal: helm-install
 
 .PHONY: helm-test-install

@@ -520,3 +520,35 @@ export interface AgentMemory {
   created_at: string;
   expires_at?: string;
 }
+
+// Dashboard types
+export interface DashboardCounts {
+  agents: number;
+  workflows: number;
+  cronJobs: number;
+  models: number;
+  tools: number;
+  mcpServers: number;
+  gitRepos: number;
+}
+
+export interface RecentRun {
+  sessionId: string;
+  sessionName: string;
+  agentName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecentEvent {
+  id: number;
+  sessionId: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface DashboardStatsResponse {
+  counts: DashboardCounts;
+  recentRuns: RecentRun[];
+  recentEvents: RecentEvent[];
+}

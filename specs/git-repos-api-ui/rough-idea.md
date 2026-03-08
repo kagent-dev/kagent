@@ -14,3 +14,9 @@ llm install llm-sentence-transformers
 llm embed-multi myrepo -m sentence-transformers/all-MiniLM-L6-v2 --files . '**/*.go'
 llm similar myrepo -c "where do we set up auth?"
 ```
+
+## V2 
+
+Add Git Blame and History Who wrote :) https://github.com/haacked/spelungit
+https://haacked.com/archive/2025/09/29/announcing-spelungit/
+

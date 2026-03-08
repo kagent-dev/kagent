@@ -45,6 +45,7 @@ const (
 	APIPathCronJobs             = "/api/cronjobs"
 	APIPathGitRepos             = "/api/gitrepos"
 	APIPathPlugins              = "/api/plugins"
+	APIPathDashboard            = "/api/dashboard"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -291,6 +292,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathGitRepos+"/{name}", adaptHandler(s.handlers.GitRepos.HandleDeleteRepo)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleListRepos)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathGitRepos, adaptHandler(s.handlers.GitRepos.HandleAddRepo)).Methods(http.MethodPost)
+
+	// Dashboard
+	s.router.HandleFunc(APIPathDashboard+"/stats", adaptHandler(s.handlers.Dashboard.HandleDashboardStats)).Methods(http.MethodGet)
 
 	// Plugins
 	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)

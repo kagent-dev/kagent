@@ -113,9 +113,9 @@ export default function PluginPage() {
   }, [name, sendContext]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="absolute inset-0 flex flex-col overflow-hidden">
       {title && (
-        <div className="flex h-10 items-center border-b px-3">
+        <div className="flex h-10 shrink-0 items-center border-b px-3">
           <h1 className="text-sm font-semibold">{title}</h1>
         </div>
       )}
@@ -147,7 +147,7 @@ export default function PluginPage() {
         key={retryKey}
         ref={iframeRef}
         src={iframeSrc}
-        className={`flex-1 border-0 ${loading || error ? "hidden" : ""}`}
+        className={`min-h-0 flex-1 border-0 ${loading || error ? "hidden" : ""}`}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         title={`Plugin: ${name}`}
       />

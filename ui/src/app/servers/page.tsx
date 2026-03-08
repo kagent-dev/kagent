@@ -90,8 +90,8 @@ export default function ServersPage() {
         });
         setServers(sortedServers);
 
-        // Start with all servers collapsed
-        setExpandedServers(new Set());
+        // Start with all servers expanded
+        setExpandedServers(new Set(sortedServers.map(s => s.ref).filter(Boolean) as string[]));
       } else {
         console.error("Failed to fetch servers:", serversResponse);
         toast.error(serversResponse.error || "Failed to fetch servers data.");

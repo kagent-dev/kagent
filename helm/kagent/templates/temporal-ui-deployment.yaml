@@ -32,10 +32,12 @@ spec:
               containerPort: {{ .Values.temporal.ui.port }}
               protocol: TCP
           env:
-            - name: TEMPORAL_ADDRESS
+            - name: TEMPORAL_ADDR
+              value: ":{{ .Values.temporal.ui.port }}"
+            - name: TEMPORAL_HOST_PORT
               value: "{{ include "kagent.fullname" . }}-temporal-server:{{ .Values.temporal.server.port }}"
-            - name: TEMPORAL_UI_PORT
-              value: {{ .Values.temporal.ui.port | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ .Values.temporal.server.namespace | quote }}
           resources:
             {{- toYaml .Values.temporal.ui.resources | nindent 12 }}
           readinessProbe:

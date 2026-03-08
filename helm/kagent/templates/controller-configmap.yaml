@@ -70,3 +70,6 @@ data:
   TEMPORAL_HOST_ADDR: {{ printf "%s-temporal-server:%d" (include "kagent.fullname" .) (.Values.temporal.server.port | int) | quote }}
   NATS_ADDR: {{ printf "nats://%s-nats:%d" (include "kagent.fullname" .) (.Values.nats.port | int) | quote }}
   {{- end }}
+  {{- if index .Values "tools" "gitrepo-mcp" "enabled" }}
+  GITREPO_MCP_URL: {{ printf "http://%s-gitrepo-mcp:%s" (include "kagent.fullname" .) "8080" | quote }}
+  {{- end }}

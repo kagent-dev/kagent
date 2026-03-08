@@ -30,6 +30,7 @@ type Handlers struct {
 	GitRepos            *GitReposHandler
 	Plugins             *PluginsHandler
 	PluginProxy         *PluginProxyHandler
+	Dashboard           *DashboardHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -71,5 +72,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		GitRepos:            NewGitReposHandler(base, gitRepoMCPURL),
 		Plugins:             NewPluginsHandler(base),
 		PluginProxy:         NewPluginProxyHandler(base),
+		Dashboard:           NewDashboardHandler(base),
 	}
 }

@@ -44,6 +44,10 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  html, body {
+    height: 100%;
+  }
+
   body {
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: var(--background);
@@ -51,16 +55,18 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   header {
-    position: sticky;
-    top: 0;
     z-index: 10;
     background: var(--background);
     border-bottom: 1px solid var(--border);
     padding: 0 16px;
-    height: 56px;
+    height: 36px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -94,8 +100,9 @@
     gap: 12px;
     padding: 16px;
     overflow-x: auto;
-    min-height: calc(100vh - 56px);
-    align-items: flex-start;
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
     scroll-snap-type: x proximity;
   }
 
@@ -103,12 +110,10 @@
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    width: 320px;
-    min-width: 320px;
-    min-height: 560px;
+    flex: 1 1 0;
+    min-width: 160px;
     display: flex;
     flex-direction: column;
-    max-height: calc(100vh - 88px);
     box-shadow: var(--shadow-sm);
     scroll-snap-align: start;
     overflow: hidden;
@@ -352,7 +357,7 @@
   @media (max-width: 900px) {
     header { padding: 0 12px; height: 50px; }
     #board { padding: 12px; gap: 10px; }
-    .column { width: min(85vw, 320px); min-width: min(85vw, 320px); }
+    .column { flex: 0 0 min(85vw, 280px); min-width: min(85vw, 280px); }
   }
 
   .col-body::-webkit-scrollbar { width: 4px; }

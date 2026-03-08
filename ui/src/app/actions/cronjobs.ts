@@ -19,7 +19,7 @@ export async function getCronJobs(): Promise<BaseResponse<AgentCronJob[]>> {
 
     return {
       message: "Cron jobs fetched successfully",
-      data: response.data,
+      data: response.data ?? [],
     };
   } catch (error) {
     return createErrorResponse<AgentCronJob[]>(error, "Error getting cron jobs");

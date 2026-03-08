@@ -193,3 +193,36 @@ type SessionRunsResponse struct {
 type SessionRunsData struct {
 	Runs []any `json:"runs"`
 }
+
+// Dashboard types
+
+type DashboardStatsResponse struct {
+	Counts       DashboardCounts `json:"counts"`
+	RecentRuns   []RecentRun     `json:"recentRuns"`
+	RecentEvents []RecentEvent   `json:"recentEvents"`
+}
+
+type DashboardCounts struct {
+	Agents     int `json:"agents"`
+	Workflows  int `json:"workflows"`
+	CronJobs   int `json:"cronJobs"`
+	Models     int `json:"models"`
+	Tools      int `json:"tools"`
+	MCPServers int `json:"mcpServers"`
+	GitRepos   int `json:"gitRepos"`
+}
+
+type RecentRun struct {
+	SessionID   string `json:"sessionId"`
+	SessionName string `json:"sessionName"`
+	AgentName   string `json:"agentName"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type RecentEvent struct {
+	ID        uint   `json:"id"`
+	SessionID string `json:"sessionId"`
+	Summary   string `json:"summary"`
+	CreatedAt string `json:"createdAt"`
+}
