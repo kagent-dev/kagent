@@ -108,31 +108,3 @@ export async function checkSessionExists(sessionId: string): Promise<BaseRespons
     return createErrorResponse<boolean>(error, "Error checking session");
   }
 }
-
-/**
- * Updates a session
- * @param session The session to update
- * @returns A promise with the updated session
- */
-export async function updateSession(session: Session): Promise<BaseResponse<Session>> {
-  try {
-    const sessionToUpdate = {
-      ...session,
-      agent_id: Number(session.agent_id)
-    };
-
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${session.id}`, {
-      method: "PUT",
-      body: JSON.stringify(sessionToUpdate),
-    });
-
-    if (!response) {
-      throw new Error("Failed to update session");
-    }
-
-    revalidatePath("/");
-    return { message: "Session updated successfully", data: response.data };
-  } catch (error) {
-    return createErrorResponse<Session>(error, "Error updating session");
-  }
-}
