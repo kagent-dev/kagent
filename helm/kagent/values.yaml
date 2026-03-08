@@ -223,8 +223,8 @@ kmcp:
 # ==============================================================================
 
 kagent-tools:
-  fullnameOverride: kagent-tools
   enabled: true
+  nameOverride: tools
   replicaCount: 1
   resources:
     requests:
@@ -235,6 +235,8 @@ kagent-tools:
       memory: 1Gi
   tools:
     loglevel: "debug"
+    metrics:
+      port: 8085  # Use a different port than the main service port (8084) to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION

@@ -1,0 +1,36 @@
+{
+  "anthropic": [
+    {
+      "name": "catch_all",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "2+2"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "msg-mock-1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-20250514",
+        "content": [
+          {
+            "type": "text",
+            "text": "The answer is 4."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5
+        }
+      }
+    }
+  ]
+}
