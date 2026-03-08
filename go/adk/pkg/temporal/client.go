@@ -33,7 +33,10 @@ func NewClientFromExisting(c client.Client) *Client {
 // ExecuteAgent starts an AgentExecutionWorkflow and returns the workflow run handle.
 func (c *Client) ExecuteAgent(ctx context.Context, req *ExecutionRequest, cfg TemporalConfig) (client.WorkflowRun, error) {
 	workflowID := WorkflowIDForSession(req.AgentName, req.SessionID)
-	taskQueue := TaskQueueForAgent(req.AgentName)
+	taskQueue := cfg.TaskQueue
+	if taskQueue == "" {
+		taskQueue = TaskQueueForAgent(req.AgentName)
+	}
 
 	opts := client.StartWorkflowOptions{
 		ID:                       workflowID,

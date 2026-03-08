@@ -41,8 +41,9 @@ export async function checkPluginBackend(pathPrefix: string): Promise<{
   const root = getBackendRoot();
   const url = `${root}/_p/${pathPrefix}/`;
   try {
+    // Use GET instead of HEAD — some backends (e.g. Temporal UI) reject HEAD with 405.
     const res = await fetch(url, {
-      method: "HEAD",
+      method: "GET",
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });

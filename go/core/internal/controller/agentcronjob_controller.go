@@ -205,9 +205,30 @@ func (r *AgentCronJobController) executeRun(ctx context.Context, cronJob *v1alph
 		ContextID: &sessionID,
 	}
 
-	_, err = a2aC.SendMessage(execCtx, protocol.SendMessageParams{Message: msg})
+	result, err := a2aC.SendMessage(execCtx, protocol.SendMessageParams{Message: msg})
 	if err != nil {
 		return sessionID, fmt.Errorf("failed to send message to agent: %w", err)
+	}
+
+	// Check the task result status if it's a Task response.
+	if result != nil && result.Result != nil {
+		if task, ok := result.Result.(*protocol.Task); ok {
+			switch task.Status.State {
+			case protocol.TaskStateFailed:
+				msg := "task failed"
+				if task.Status.Message != nil {
+					for _, p := range task.Status.Message.Parts {
+						if tp, ok := p.(protocol.TextPart); ok {
+							msg = tp.Text
+							break
+						}
+					}
+				}
+				return sessionID, fmt.Errorf("agent task failed: %s", msg)
+			case protocol.TaskStateCanceled:
+				return sessionID, fmt.Errorf("agent task was cancelled")
+			}
+		}
 	}
 
 	return sessionID, nil
