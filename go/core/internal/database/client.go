@@ -63,9 +63,9 @@ func (c *clientImpl) DeleteTask(taskID string) error {
 }
 
 // DeleteSession deletes a session by id and user ID
-func (c *clientImpl) DeleteSession(sessionName string, userID string) error {
+func (c *clientImpl) DeleteSession(sessionID string, userID string) error {
 	return delete[dbpkg.Session](c.db,
-		Clause{Key: "id", Value: sessionName},
+		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 
@@ -106,10 +106,10 @@ func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
 	return protocolMessages, nil
 }
 
-// GetSession retrieves a session by name and user ID
-func (c *clientImpl) GetSession(sessionName string, userID string) (*dbpkg.Session, error) {
+// GetSession retrieves a session by id and user ID
+func (c *clientImpl) GetSession(sessionID string, userID string) (*dbpkg.Session, error) {
 	return get[dbpkg.Session](c.db,
-		Clause{Key: "id", Value: sessionName},
+		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 

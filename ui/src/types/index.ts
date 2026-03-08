@@ -187,7 +187,7 @@ export interface FunctionCall {
 export interface Session {
   id: string;
   name: string;
-  agent_id: number;
+  agent_id: string;
   user_id: string;
   created_at: string;
   updated_at: string;
