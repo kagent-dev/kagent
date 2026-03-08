@@ -69,9 +69,6 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 		return c.generateOpenAI(ctx, texts)
 	case "azure_openai":
 		return c.generateAzureOpenAI(ctx, texts)
-	case "anthropic":
-		// Anthropic doesn't have embeddings API, fall back to OpenAI-compatible
-		return c.generateOpenAI(ctx, texts)
 	default:
 		return nil, fmt.Errorf("unsupported embedding provider: %s", c.config.Provider)
 	}

@@ -131,7 +131,7 @@
     {
       "name": "generate_embedding_request",
       "match": {
-        "match_type": "exact",
+        "match_type": "contains",
         "input": "User prefers dark mode and Go over Python"
       },
       "response": {

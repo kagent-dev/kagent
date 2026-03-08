@@ -31,7 +31,8 @@ const (
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // Toolsets are passed in directly (created by mcp.CreateToolsets).
 // agentName is used as the ADK agent identity (appears in event Author field).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string) (agent.Agent, error) {
+// extraTools are appended to the agent's tool list (e.g. save_memory).
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -49,6 +50,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			loadmemorytool.New(),
 		}
 	}
+	memoryTools = append(memoryTools, extraTools...)
 
 	if agentConfig.Model == nil {
 		return nil, fmt.Errorf("model configuration is required")

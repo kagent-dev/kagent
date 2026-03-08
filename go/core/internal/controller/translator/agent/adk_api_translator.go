@@ -842,6 +842,15 @@ func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespa
 		return nil, nil, nil, err
 	}
 
+	// Validate that the model provider supports embeddings.
+	// Only OpenAI and Azure OpenAI have embedding APIs.
+	switch embModel.GetType() {
+	case adk.ModelTypeOpenAI, adk.ModelTypeAzureOpenAI:
+		// supported
+	default:
+		return nil, nil, nil, fmt.Errorf("model provider %q does not support embeddings; memory requires an OpenAI or Azure OpenAI embedding model", embModel.GetType())
+	}
+
 	return adk.ModelToEmbeddingConfig(embModel), embMdd, embHash, nil
 }
 
