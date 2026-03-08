@@ -11,10 +11,10 @@ import (
 )
 
 func TestGetProjectDir(t *testing.T) {
-	// Save original projectDir value
-	origProjectDir := projectDir
+	// Save original config
+	origCfg := *runCfg
 	defer func() {
-		projectDir = origProjectDir
+		*runCfg = origCfg
 	}()
 
 	tests := []struct {
@@ -26,7 +26,7 @@ func TestGetProjectDir(t *testing.T) {
 		{
 			name: "use current directory when not specified",
 			setup: func(t *testing.T) {
-				projectDir = ""
+				runCfg.ProjectDir = ""
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
@@ -38,7 +38,7 @@ func TestGetProjectDir(t *testing.T) {
 		{
 			name: "use specified absolute path",
 			setup: func(t *testing.T) {
-				projectDir = "/tmp/test-project"
+				runCfg.ProjectDir = "/tmp/test-project"
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
@@ -48,7 +48,7 @@ func TestGetProjectDir(t *testing.T) {
 		{
 			name: "convert relative path to absolute",
 			setup: func(t *testing.T) {
-				projectDir = "./test-project"
+				runCfg.ProjectDir = "./test-project"
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
@@ -180,14 +180,14 @@ func TestRunCmd_Flags(t *testing.T) {
 }
 
 func TestRunCmd_TransportDefault(t *testing.T) {
-	// Save original value
-	origTransport := runTransport
+	// Save original config
+	origCfg := *runCfg
 	defer func() {
-		runTransport = origTransport
+		*runCfg = origCfg
 	}()
 
 	// Reset to default
-	runTransport = "stdio"
+	runCfg.Transport = "stdio"
 
 	flag := RunCmd.Flags().Lookup("transport")
 	require.NotNil(t, flag)
@@ -195,14 +195,14 @@ func TestRunCmd_TransportDefault(t *testing.T) {
 }
 
 func TestExecuteRun_MissingManifest(t *testing.T) {
-	// Save original projectDir value
-	origProjectDir := projectDir
+	// Save original config
+	origCfg := *runCfg
 	defer func() {
-		projectDir = origProjectDir
+		*runCfg = origCfg
 	}()
 
 	tmpDir := t.TempDir()
-	projectDir = tmpDir
+	runCfg.ProjectDir = tmpDir
 
 	err := executeRun(RunCmd, []string{})
 
@@ -211,14 +211,14 @@ func TestExecuteRun_MissingManifest(t *testing.T) {
 }
 
 func TestExecuteRun_UnsupportedFramework(t *testing.T) {
-	// Save original projectDir value
-	origProjectDir := projectDir
+	// Save original config
+	origCfg := *runCfg
 	defer func() {
-		projectDir = origProjectDir
+		*runCfg = origCfg
 	}()
 
 	tmpDir := t.TempDir()
-	projectDir = tmpDir
+	runCfg.ProjectDir = tmpDir
 
 	// Create manifest with unsupported framework
 	manifestPath := filepath.Join(tmpDir, "manifest.yaml")
@@ -268,18 +268,18 @@ secrets: {}
 }
 
 func TestRunCmd_NoInspectorFlag(t *testing.T) {
-	// Save original value
-	origNoInspector := noInspector
+	// Save original config
+	origCfg := *runCfg
 	defer func() {
-		noInspector = origNoInspector
+		*runCfg = origCfg
 	}()
 
 	// Test setting the flag
-	noInspector = true
-	assert.True(t, noInspector)
+	runCfg.NoInspector = true
+	assert.True(t, runCfg.NoInspector)
 
-	noInspector = false
-	assert.False(t, noInspector)
+	runCfg.NoInspector = false
+	assert.False(t, runCfg.NoInspector)
 }
 
 func TestManifestValidation(t *testing.T) {

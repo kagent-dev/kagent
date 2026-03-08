@@ -25,7 +25,7 @@ func runInitTypeScript(_ *cobra.Command, args []string) error {
 	projectName := args[0]
 	framework := "typescript"
 
-	if err := runInitFramework(projectName, framework, nil); err != nil {
+	if err := runInitFramework(initMcpCfg, projectName, framework, nil); err != nil {
 		return err
 	}
 

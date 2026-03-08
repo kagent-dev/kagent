@@ -22,6 +22,17 @@ const (
 	frameworkJava          = "java"
 )
 
+// InitMcpCfg contains configuration for MCP init command
+type InitMcpCfg struct {
+	Force          bool
+	NoGit          bool
+	Author         string
+	Email          string
+	Description    string
+	NonInteractive bool
+	Namespace      string
+}
+
 var InitCmd = &cobra.Command{
 	Use:   "init [project-name]",
 	Short: "Initialize a new MCP server project",
@@ -32,24 +43,16 @@ using one of the supported frameworks.`,
 	RunE: runInit,
 }
 
-var (
-	initForce          bool
-	initNoGit          bool
-	initAuthor         string
-	initEmail          string
-	initDescription    string
-	initNonInteractive bool
-	initNamespace      string
-)
+var initMcpCfg = &InitMcpCfg{}
 
 func init() {
-	InitCmd.PersistentFlags().BoolVar(&initForce, "force", false, "Overwrite existing directory")
-	InitCmd.PersistentFlags().BoolVar(&initNoGit, "no-git", false, "Skip git initialization")
-	InitCmd.PersistentFlags().StringVar(&initAuthor, "author", "", "Author name for the project")
-	InitCmd.PersistentFlags().StringVar(&initEmail, "email", "", "Author email for the project")
-	InitCmd.PersistentFlags().StringVar(&initDescription, "description", "", "Description for the project")
-	InitCmd.PersistentFlags().BoolVar(&initNonInteractive, "non-interactive", false, "Run in non-interactive mode")
-	InitCmd.PersistentFlags().StringVar(&initNamespace, "namespace", "default", "Default namespace for project resources")
+	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.Force, "force", false, "Overwrite existing directory")
+	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.NoGit, "no-git", false, "Skip git initialization")
+	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Author, "author", "", "Author name for the project")
+	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Email, "email", "", "Author email for the project")
+	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Description, "description", "", "Description for the project")
+	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.NonInteractive, "non-interactive", false, "Run in non-interactive mode")
+	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Namespace, "namespace", "default", "Default namespace for project resources")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -60,6 +63,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 func runInitFramework(
+	cfg *InitMcpCfg,
 	projectName, framework string,
 	customizeProjectConfig func(*mcp.ProjectConfig) error,
 ) error {
@@ -68,20 +72,20 @@ func runInitFramework(
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 
-	if !initNonInteractive {
-		if initDescription == "" {
-			initDescription = promptForDescription()
+	if !cfg.NonInteractive {
+		if cfg.Description == "" {
+			cfg.Description = promptForDescription()
 		}
-		if initAuthor == "" {
-			initAuthor = promptForAuthor()
+		if cfg.Author == "" {
+			cfg.Author = promptForAuthor()
 		}
-		if initEmail == "" {
-			initEmail = promptForEmail()
+		if cfg.Email == "" {
+			cfg.Email = promptForEmail()
 		}
 	}
 
 	// Create project manifest
-	projectmanifests := manifests.GetDefault(projectName, framework, initDescription, initAuthor, initEmail, initNamespace)
+	projectmanifests := manifests.GetDefault(projectName, framework, cfg.Description, cfg.Author, cfg.Email, cfg.Namespace)
 
 	// Check if directory exists
 	projectPath, err := filepath.Abs(projectName)
@@ -99,7 +103,7 @@ func runInitFramework(
 		Tools:       projectmanifests.Tools,
 		Secrets:     projectmanifests.Secrets,
 		Directory:   projectPath,
-		NoGit:       initNoGit,
+		NoGit:       cfg.NoGit,
 	}
 
 	// Customize project config for the specific framework

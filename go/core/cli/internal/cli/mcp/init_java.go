@@ -25,7 +25,7 @@ func runInitJava(_ *cobra.Command, args []string) error {
 	projectName := args[0]
 	framework := frameworkJava
 
-	if err := runInitFramework(projectName, framework, nil); err != nil {
+	if err := runInitFramework(initMcpCfg, projectName, framework, nil); err != nil {
 		return err
 	}
 

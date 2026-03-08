@@ -59,17 +59,15 @@ func TestBuildCmd_Flags(t *testing.T) {
 }
 
 func TestRunBuild_MissingManifest(t *testing.T) {
-	// Save original buildDir value
-	origBuildDir := buildDir
-	origBuildTag := buildTag
+	// Save original config
+	origCfg := *buildCfg
 	defer func() {
-		buildDir = origBuildDir
-		buildTag = origBuildTag
+		*buildCfg = origCfg
 	}()
 
 	tmpDir := t.TempDir()
-	buildDir = tmpDir
-	buildTag = "" // Force manifest lookup
+	buildCfg.ProjectDir = tmpDir
+	buildCfg.Tag = "" // Force manifest lookup
 
 	err := runBuild(BuildCmd, []string{})
 
@@ -78,27 +76,21 @@ func TestRunBuild_MissingManifest(t *testing.T) {
 }
 
 func TestRunBuild_WithExplicitTag(t *testing.T) {
-	// Save original values
-	origBuildDir := buildDir
-	origBuildTag := buildTag
-	origBuildPush := buildPush
-	origBuildKindLoad := buildKindLoad
+	// Save original config
+	origCfg := *buildCfg
 	defer func() {
-		buildDir = origBuildDir
-		buildTag = origBuildTag
-		buildPush = origBuildPush
-		buildKindLoad = origBuildKindLoad
+		*buildCfg = origCfg
 	}()
 
 	// When tag is explicitly provided, manifest is not required
 	// This test verifies the logic but won't actually build
-	buildTag = "my-server:latest"
-	buildPush = false
-	buildKindLoad = false
+	buildCfg.Tag = "my-server:latest"
+	buildCfg.Push = false
+	buildCfg.KindLoad = false
 
 	// We can't actually run the build without Docker, but we can verify
 	// that the tag is set correctly
-	assert.Equal(t, "my-server:latest", buildTag)
+	assert.Equal(t, "my-server:latest", buildCfg.Tag)
 }
 
 func TestRunBuild_ManifestImageName(t *testing.T) {
@@ -151,16 +143,14 @@ secrets: {}
 			err := os.WriteFile(manifestPath, []byte(content), 0644)
 			require.NoError(t, err)
 
-			// Save original values
-			origBuildDir := buildDir
-			origBuildTag := buildTag
+			// Save original config
+			origCfg := *buildCfg
 			defer func() {
-				buildDir = origBuildDir
-				buildTag = origBuildTag
+				*buildCfg = origCfg
 			}()
 
-			buildDir = tmpDir
-			buildTag = ""
+			buildCfg.ProjectDir = tmpDir
+			buildCfg.Tag = ""
 
 			// Note: We can't actually run the build without Docker and other dependencies,
 			// but we've verified the manifest loading logic
@@ -226,33 +216,33 @@ func TestBuildFlags_Defaults(t *testing.T) {
 }
 
 func TestBuildDir_CurrentDirectory(t *testing.T) {
-	// Save original value
-	origBuildDir := buildDir
+	// Save original config
+	origCfg := *buildCfg
 	defer func() {
-		buildDir = origBuildDir
+		*buildCfg = origCfg
 	}()
 
-	// When buildDir is empty, it should use current directory
-	buildDir = ""
+	// When ProjectDir is empty, it should use current directory
+	buildCfg.ProjectDir = ""
 
 	// This is tested in the actual runBuild function
 	// We just verify the variable is empty
-	assert.Empty(t, buildDir)
+	assert.Empty(t, buildCfg.ProjectDir)
 }
 
 func TestBuildPlatform_MultiArch(t *testing.T) {
-	// Save original value
-	origPlatform := buildPlatform
+	// Save original config
+	origCfg := *buildCfg
 	defer func() {
-		buildPlatform = origPlatform
+		*buildCfg = origCfg
 	}()
 
 	// Test multi-architecture build platform specification
-	buildPlatform = "linux/amd64,linux/arm64"
+	buildCfg.Platform = "linux/amd64,linux/arm64"
 
-	assert.Equal(t, "linux/amd64,linux/arm64", buildPlatform)
-	assert.Contains(t, buildPlatform, "linux/amd64")
-	assert.Contains(t, buildPlatform, "linux/arm64")
+	assert.Equal(t, "linux/amd64,linux/arm64", buildCfg.Platform)
+	assert.Contains(t, buildCfg.Platform, "linux/amd64")
+	assert.Contains(t, buildCfg.Platform, "linux/arm64")
 }
 
 func TestRunBuild_ValidationOnly(t *testing.T) {
@@ -308,15 +298,13 @@ framework: [invalid
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			origBuildDir := buildDir
-			origBuildTag := buildTag
+			origCfg := *buildCfg
 			defer func() {
-				buildDir = origBuildDir
-				buildTag = origBuildTag
+				*buildCfg = origCfg
 			}()
 
-			buildDir = tt.setup(t)
-			buildTag = "" // Force manifest lookup
+			buildCfg.ProjectDir = tt.setup(t)
+			buildCfg.Tag = "" // Force manifest lookup
 
 			err := runBuild(BuildCmd, []string{})
 

@@ -241,33 +241,20 @@ func TestRunInitFramework_ProjectCreation(t *testing.T) {
 }
 
 func TestInitNonInteractiveMode(t *testing.T) {
-	// Test non-interactive mode behavior
+	// Test non-interactive mode behavior with config struct
 
-	// Save original values
-	origNonInteractive := initNonInteractive
-	origDescription := initDescription
-	origAuthor := initAuthor
-	origEmail := initEmail
-
-	defer func() {
-		// Restore original values
-		initNonInteractive = origNonInteractive
-		initDescription = origDescription
-		initAuthor = origAuthor
-		initEmail = origEmail
-	}()
-
-	// Set non-interactive mode
-	initNonInteractive = true
-	initDescription = "Test description"
-	initAuthor = "Test Author"
-	initEmail = "test@example.com"
+	cfg := &InitMcpCfg{
+		NonInteractive: true,
+		Description:    "Test description",
+		Author:         "Test Author",
+		Email:          "test@example.com",
+	}
 
 	// Verify values are set
-	assert.True(t, initNonInteractive)
-	assert.Equal(t, "Test description", initDescription)
-	assert.Equal(t, "Test Author", initAuthor)
-	assert.Equal(t, "test@example.com", initEmail)
+	assert.True(t, cfg.NonInteractive)
+	assert.Equal(t, "Test description", cfg.Description)
+	assert.Equal(t, "Test Author", cfg.Author)
+	assert.Equal(t, "test@example.com", cfg.Email)
 }
 
 func TestInitFlags(t *testing.T) {

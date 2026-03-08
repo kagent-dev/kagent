@@ -11,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// RunCfg contains configuration for MCP run command
+type RunCfg struct {
+	ProjectDir  string
+	NoInspector bool
+	Transport   string
+}
+
 var RunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run MCP server locally",
@@ -35,28 +42,24 @@ Examples:
 	RunE: executeRun,
 }
 
-var (
-	projectDir   string
-	noInspector  bool
-	runTransport string
-)
+var runCfg = &RunCfg{}
 
 func init() {
 	RunCmd.Flags().StringVarP(
-		&projectDir,
+		&runCfg.ProjectDir,
 		"project-dir",
 		"d",
 		"",
 		"Project directory to use (default: current directory)",
 	)
 	RunCmd.Flags().BoolVar(
-		&noInspector,
+		&runCfg.NoInspector,
 		"no-inspector",
 		false,
 		"Run the server directly without launching the MCP inspector",
 	)
 	RunCmd.Flags().StringVar(
-		&runTransport,
+		&runCfg.Transport,
 		"transport",
 		"stdio",
 		"Transport mode (stdio or http)",
@@ -75,7 +78,7 @@ func executeRun(_ *cobra.Command, _ []string) error {
 	}
 
 	// Check if npx is installed (only needed when using inspector)
-	if !noInspector {
+	if !runCfg.NoInspector {
 		if err := checkNpxInstalled(); err != nil {
 			return err
 		}
@@ -121,7 +124,7 @@ func runFastMCPPython(projectDir string, manifest *manifests.ProjectManifest) er
 		return fmt.Errorf("failed to run uv sync: %w", err)
 	}
 
-	if noInspector {
+	if runCfg.NoInspector {
 		// Run the server directly
 		fmt.Printf("Running server directly: uv run python src/main.py\n")
 		fmt.Printf("Server is running and waiting for MCP protocol input on stdin...\n")
@@ -174,7 +177,7 @@ func runMCPGo(projectDir string, manifest *manifests.ProjectManifest) error {
 		return fmt.Errorf("failed to run go mod tidy: %w", err)
 	}
 
-	if noInspector {
+	if runCfg.NoInspector {
 		// Run the server directly
 		fmt.Printf("Running server directly: go run main.go\n")
 		fmt.Printf("Server is running and waiting for MCP protocol input on stdin...\n")
@@ -210,7 +213,7 @@ func getProjectDir() (string, error) {
 		return "", fmt.Errorf("failed to get config: %w", err)
 	}
 	// Determine project directory
-	dir := projectDir
+	dir := runCfg.ProjectDir
 	if dir == "" {
 		// Use current working directory
 		var err error
@@ -275,7 +278,7 @@ func runTypeScript(projectDir string, manifest *manifests.ProjectManifest) error
 		return fmt.Errorf("failed to install dependencies: %w", err)
 	}
 
-	if noInspector {
+	if runCfg.NoInspector {
 		// Run the server directly with tsx (like Python uses uv run python)
 		fmt.Printf("Running server directly: npx tsx src/index.ts\n")
 		fmt.Printf("Server is running and waiting for MCP protocol input on stdin...\n")
@@ -330,13 +333,13 @@ func runJava(projectDir string, manifest *manifests.ProjectManifest) error {
 
 	// Prepare Maven arguments based on transport mode
 	mavenArgs := []string{"exec:java", "-q", "-Dexec.mainClass=com.example.Main"}
-	if runTransport == transportHTTP {
+	if runCfg.Transport == transportHTTP {
 		mavenArgs = append(mavenArgs, "-Dexec.args=--transport http --host 0.0.0.0 --port 3000")
 	}
 
-	if noInspector {
+	if runCfg.NoInspector {
 		// Run the server directly
-		if runTransport == transportHTTP {
+		if runCfg.Transport == transportHTTP {
 			fmt.Printf("Running server directly: mvn exec:java -Dexec.mainClass=\"com.example.Main\" --transport http --host 0.0.0.0 --port 3000\n")
 			fmt.Printf("Server is running on http://localhost:3000\n")
 			fmt.Printf("Health check: http://localhost:3000/health\n")
@@ -357,7 +360,7 @@ func runJava(projectDir string, manifest *manifests.ProjectManifest) error {
 
 	// Create server configuration for inspector
 	var serverConfig map[string]any
-	if runTransport == transportHTTP {
+	if runCfg.Transport == transportHTTP {
 		serverConfig = map[string]any{
 			"type": "streamable-http",
 			"url":  "http://localhost:3000/mcp",

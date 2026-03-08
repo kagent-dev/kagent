@@ -15,6 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// AddToolCfg contains configuration for MCP add-tool command
+type AddToolCfg struct {
+	Description string
+	Force       bool
+	Interactive bool
+	ProjectDir  string
+}
+
 var AddToolCmd = &cobra.Command{
 	Use:   "add-tool [tool-name]",
 	Short: "Add a new MCP tool to your project",
@@ -35,18 +43,13 @@ Examples:
 	RunE: runAddTool,
 }
 
-var (
-	addToolDescription string
-	addToolForce       bool
-	addToolInteractive bool
-	addToolDir         string
-)
+var addToolCfg = &AddToolCfg{}
 
 func init() {
-	AddToolCmd.Flags().StringVarP(&addToolDescription, "description", "d", "", "Tool description")
-	AddToolCmd.Flags().BoolVarP(&addToolForce, "force", "f", false, "Overwrite existing tool file")
-	AddToolCmd.Flags().BoolVarP(&addToolInteractive, "interactive", "i", false, "Interactive tool creation")
-	AddToolCmd.Flags().StringVar(&addToolDir, "project-dir", "", "Project directory (default: current directory)")
+	AddToolCmd.Flags().StringVarP(&addToolCfg.Description, "description", "d", "", "Tool description")
+	AddToolCmd.Flags().BoolVarP(&addToolCfg.Force, "force", "f", false, "Overwrite existing tool file")
+	AddToolCmd.Flags().BoolVarP(&addToolCfg.Interactive, "interactive", "i", false, "Interactive tool creation")
+	AddToolCmd.Flags().StringVar(&addToolCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 }
 
 func runAddTool(_ *cobra.Command, args []string) error {
@@ -63,7 +66,7 @@ func runAddTool(_ *cobra.Command, args []string) error {
 	}
 
 	// Determine project directory
-	projectDirectory := addToolDir
+	projectDirectory := addToolCfg.ProjectDir
 	if projectDirectory == "" {
 		var err error
 		projectDirectory, err = os.Getwd()
@@ -97,11 +100,11 @@ func runAddTool(_ *cobra.Command, args []string) error {
 		fmt.Printf("Tool exists: %v\n", toolExists)
 	}
 
-	if toolExists && !addToolForce {
+	if toolExists && !addToolCfg.Force {
 		return fmt.Errorf("tool '%s' already exists. Use --force to overwrite", toolName)
 	}
 
-	if addToolInteractive {
+	if addToolCfg.Interactive {
 		return createToolInteractive(toolName, projectDirectory, framework)
 	}
 
@@ -163,14 +166,14 @@ func createToolInteractive(toolName, projectRoot, framework string) error {
 	fmt.Printf("Creating tool '%s' interactively...\n", toolName)
 
 	// Get tool description
-	if addToolDescription == "" {
+	if addToolCfg.Description == "" {
 		fmt.Printf("Enter tool description (optional): ")
 		var desc string
 		_, err := fmt.Scanln(&desc)
 		if err != nil {
 			return fmt.Errorf("failed to read description: %w", err)
 		}
-		addToolDescription = desc
+		addToolCfg.Description = desc
 	}
 
 	return generateTool(toolName, projectRoot, framework)
@@ -196,7 +199,7 @@ func generateTool(toolName, projectRoot, framework string) error {
 
 	config := mcp.ToolConfig{
 		ToolName:    toolName,
-		Description: addToolDescription,
+		Description: addToolCfg.Description,
 	}
 
 	if err := generator.GenerateTool(projectRoot, config); err != nil {

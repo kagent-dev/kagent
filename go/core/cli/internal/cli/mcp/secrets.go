@@ -16,6 +16,13 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// SecretsCfg contains configuration for MCP secrets command
+type SecretsCfg struct {
+	SourceFile string
+	DryRun     bool
+	ProjectDir string
+}
+
 // secretsCmd represents the secrets command
 var SecretsCmd = &cobra.Command{
 	Use:   "secrets",
@@ -23,11 +30,7 @@ var SecretsCmd = &cobra.Command{
 	Long:  `Manage secrets for MCP server projects.`,
 }
 
-var (
-	secretSourceFile string
-	secretDryRun     bool
-	secretDir        string
-)
+var secretsCfg = &SecretsCfg{}
 
 // syncCmd creates or updates a Kubernetes secret from an environment file
 var syncCmd = &cobra.Command{
@@ -63,16 +66,16 @@ func init() {
 	SecretsCmd.AddCommand(syncCmd)
 
 	// create-k8s-secret-from-env flags
-	syncCmd.Flags().StringVar(&secretSourceFile, "from-file", ".env", "Source .env file to sync from")
-	syncCmd.Flags().BoolVar(&secretDryRun, "dry-run", false, "Output the generated secret YAML instead of applying it")
-	syncCmd.Flags().StringVarP(&secretDir, "project-dir", "d", "", "Project directory (default: current directory)")
+	syncCmd.Flags().StringVar(&secretsCfg.SourceFile, "from-file", ".env", "Source .env file to sync from")
+	syncCmd.Flags().BoolVar(&secretsCfg.DryRun, "dry-run", false, "Output the generated secret YAML instead of applying it")
+	syncCmd.Flags().StringVarP(&secretsCfg.ProjectDir, "project-dir", "d", "", "Project directory (default: current directory)")
 }
 
 func runSync(_ *cobra.Command, args []string) error {
 	environment := args[0]
 
 	// Determine project root
-	projectRoot := secretDir
+	projectRoot := secretsCfg.ProjectDir
 	if projectRoot == "" {
 		var err error
 		projectRoot, err = os.Getwd()
@@ -115,7 +118,7 @@ func runSync(_ *cobra.Command, args []string) error {
 	}
 
 	// Resolve .env file path relative to project directory
-	envFilePath := secretSourceFile
+	envFilePath := secretsCfg.SourceFile
 	if !filepath.IsAbs(envFilePath) {
 		envFilePath = filepath.Join(projectRoot, envFilePath)
 	}
@@ -147,7 +150,7 @@ func runSync(_ *cobra.Command, args []string) error {
 		secret.Data[key] = []byte(value)
 	}
 
-	if secretDryRun {
+	if secretsCfg.DryRun {
 		yamlData, err := yaml.Marshal(secret)
 		if err != nil {
 			return fmt.Errorf("failed to marshal secret to YAML: %w", err)

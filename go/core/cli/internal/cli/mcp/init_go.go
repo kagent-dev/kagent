@@ -41,7 +41,7 @@ func runInitGo(_ *cobra.Command, args []string) error {
 
 	customize := func(p *mcp.ProjectConfig) error {
 		// Interactively get module name if not provided
-		if goModuleName == "" && !initNonInteractive {
+		if goModuleName == "" && !initMcpCfg.NonInteractive {
 			var err error
 			goModuleName, err = commonprompt.PromptForInput("Enter Go module name (e.g., github.com/my-org/my-project): ")
 			if err != nil {
@@ -55,7 +55,7 @@ func runInitGo(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := runInitFramework(projectName, framework, customize); err != nil {
+	if err := runInitFramework(initMcpCfg, projectName, framework, customize); err != nil {
 		return err
 	}
 
