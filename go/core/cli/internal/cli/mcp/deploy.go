@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -46,137 +45,23 @@ type DeployCfg struct {
 	PackageSecrets []string
 }
 
-var DeployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Deploy MCP server to Kubernetes",
-	Long: `Deploy an MCP server to Kubernetes by generating MCPServer CRDs.
-
-This command generates MCPServer Custom Resource Definitions (CRDs) based on:
-- Project configuration from manifest.yaml
-- Docker image built with 'kagent mcp build --docker'
-- Deployment configuration options
-
-The generated MCPServer will include:
-- Docker image reference from the build
-- Transport configuration (stdio/http)
-- Port and command configuration
-- Environment variables and secrets
-
-The command can also apply Kubernetes secret YAML files to the cluster before deploying the MCPServer.
-The secrets will be referenced in the MCPServer CRD for mounting as volumes to the MCP server container.
-Secret namespace will be overridden with the deployment namespace to avoid the need for reference grants
-to enable cross-namespace references.
-
-Examples:
-  kagent mcp deploy                               # Deploy with project name to cluster
-  kagent mcp deploy my-server                     # Deploy with custom name
-  kagent mcp deploy --namespace staging           # Deploy to staging namespace
-  kagent mcp deploy --dry-run                     # Generate manifest without applying to cluster
-  kagent mcp deploy --image custom:tag            # Use custom image
-  kagent mcp deploy --transport http              # Use HTTP transport
-  kagent mcp deploy --output deploy.yaml          # Save to file
-  kagent mcp deploy --file /path/to/manifest.yaml # Use custom manifest.yaml file
-  kagent mcp deploy --environment staging         # Target environment for deployment (e.g., staging, production)`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runDeployMCP,
-}
-
-var deployCfg = &DeployCfg{}
-
-func init() {
-	// Get current namespace from kubeconfig
-	currentNamespace, err := commonk8s.GetCurrentNamespace()
-	if err != nil {
-		// Fallback to default if unable to get current namespace
-		currentNamespace = "default"
-	}
-
-	// MCP deployment flags
-	DeployCmd.Flags().StringVarP(&deployCfg.Namespace, "namespace", "n", currentNamespace, "Kubernetes namespace")
-	DeployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Generate manifest without applying to cluster")
-	DeployCmd.Flags().StringVarP(&deployCfg.Output, "output", "", "", "Output file for the generated YAML")
-	DeployCmd.Flags().StringVar(&deployCfg.Image, "image", "", "Docker image to deploy (overrides build image)")
-	DeployCmd.Flags().StringVar(&deployCfg.Transport, "transport", "", "Transport type (stdio, http)")
-	DeployCmd.Flags().IntVar(&deployCfg.Port, "port", 0, "Container port (default: from project config)")
-	DeployCmd.Flags().StringVar(&deployCfg.Command, "command", "", "Command to run (overrides project config)")
-	DeployCmd.Flags().StringSliceVar(&deployCfg.Args, "args", []string{}, "Command arguments")
-	DeployCmd.Flags().StringSliceVar(&deployCfg.Env, "env", []string{}, "Environment variables (KEY=VALUE)")
-	DeployCmd.Flags().BoolVar(&deployCfg.Force, "force", false, "Force deployment even if validation fails")
-	DeployCmd.Flags().StringVarP(&deployCfg.File, "file", "f", "", "Path to manifest.yaml file (default: current directory)")
-	DeployCmd.Flags().BoolVar(&deployCfg.NoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
-	DeployCmd.Flags().StringVar(
-		&deployCfg.Environment,
-		"environment",
-		"staging",
-		"Target environment for deployment (e.g., staging, production)",
-	)
-
-	// Add package subcommand
-	DeployCmd.AddCommand(packageDeployCmd)
-}
-
-// package subcommand - supports both npm and uvx
-var packageDeployCmd = &cobra.Command{
-	Use:   "package",
-	Short: "Deploy an MCP server using a package manager (npx, uvx)",
-	Long: `Deploy an MCP server using a package manager to run Model Context Protocol servers.
-
-This subcommand creates an MCPServer Custom Resource Definition (CRD) that runs
-an MCP server using npx (for npm packages) or uvx (for Python packages).
-
-The deployment name, manager, and args are required. The package manager must be either 'npx' or 'uvx'.
-
-Examples:
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github                             # Deploy GitHub MCP server
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github  --dry-run                  # Print YAML without deploying
-  kagent mcp deploy package --deployment-name my-server --manager npx --args my-package --env "KEY1=value1,KEY2=value2"                          # Set environment variables
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github  --secrets secret1,secret2  # Mount Kubernetes secrets
-  kagent mcp deploy package --deployment-name my-server --manager npx --args my-package --no-inspector                                           # Deploy without starting inspector
-  kagent mcp deploy package --deployment-name my-server --manager uvx --args mcp-server-git                                                      # Use UV and write managed tools and installables to /tmp directories`,
-	Args: cobra.NoArgs,
-	RunE: runPackageDeploy,
-}
-
-func init() {
-	// package subcommand flags
-	packageDeployCmd.Flags().StringVar(&deployCfg.PackageName, "deployment-name", "", "Name for the deployment (required)")
-	packageDeployCmd.Flags().StringVar(&deployCfg.PackageManager, "manager", "", "Package manager to use (npx or uvx) (required)")
-	packageDeployCmd.Flags().StringSliceVar(&deployCfg.PackageSecrets, "secrets", []string{}, "List of Kubernetes secret names to mount")
-
-	// Add common deployment flags
-	packageDeployCmd.Flags().StringSliceVar(&deployCfg.Args, "args", []string{}, "Arguments to pass to the package manager (e.g., package names) (required)")
-	packageDeployCmd.Flags().StringSliceVar(&deployCfg.Env, "env", []string{}, "Environment variables (KEY=VALUE)")
-	packageDeployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Generate manifest without applying to cluster")
-	packageDeployCmd.Flags().StringVarP(&deployCfg.Namespace, "namespace", "n", "", "Kubernetes namespace")
-	packageDeployCmd.Flags().StringVar(&deployCfg.Image, "image", "", "Docker image to deploy (overrides default)")
-	packageDeployCmd.Flags().StringVar(&deployCfg.Transport, "transport", "", "Transport type (stdio, http)")
-	packageDeployCmd.Flags().IntVar(&deployCfg.Port, "port", 0, "Container port (default: 3000)")
-	packageDeployCmd.Flags().BoolVar(&deployCfg.NoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
-	packageDeployCmd.Flags().StringVarP(&deployCfg.Output, "output", "", "", "Output file for the generated YAML")
-
-	// Mark required flags
-	_ = packageDeployCmd.MarkFlagRequired("deployment-name")
-	_ = packageDeployCmd.MarkFlagRequired("manager")
-	_ = packageDeployCmd.MarkFlagRequired("args")
-}
-
-func runPackageDeploy(_ *cobra.Command, args []string) error {
+func PackageDeployMcp(cfg *DeployCfg) error {
 	// Validate package manager
-	if deployCfg.PackageManager != "npx" && deployCfg.PackageManager != "uvx" {
-		return fmt.Errorf("unsupported package manager: %s (must be 'npx' or 'uvx')", deployCfg.PackageManager)
+	if cfg.PackageManager != "npx" && cfg.PackageManager != "uvx" {
+		return fmt.Errorf("unsupported package manager: %s (must be 'npx' or 'uvx')", cfg.PackageManager)
 	}
 
 	// Validate args
-	if len(deployCfg.Args) == 0 {
+	if len(cfg.Args) == 0 {
 		return fmt.Errorf("args are required (e.g., --args package-name)")
 	}
 
 	// Parse environment variables
-	envMap := parseEnvVars(deployCfg.Env)
+	envMap := parseEnvVars(cfg.Env)
 
 	// Convert secret names to ObjectReferences
-	secretRefs := make([]corev1.LocalObjectReference, 0, len(deployCfg.PackageSecrets))
-	for _, secretName := range deployCfg.PackageSecrets {
+	secretRefs := make([]corev1.LocalObjectReference, 0, len(cfg.PackageSecrets))
+	for _, secretName := range cfg.PackageSecrets {
 		secretRefs = append(secretRefs, corev1.LocalObjectReference{
 			Name: secretName,
 		})
@@ -184,8 +69,8 @@ func runPackageDeploy(_ *cobra.Command, args []string) error {
 
 	// Set default port if none specified
 	port := 3000
-	if deployCfg.Port != 0 {
-		port = deployCfg.Port
+	if cfg.Port != 0 {
+		port = cfg.Port
 	}
 
 	// Create MCPServer for package deployment
@@ -195,19 +80,19 @@ func runPackageDeploy(_ *cobra.Command, args []string) error {
 			Kind:       "MCPServer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      deployCfg.PackageName,
-			Namespace: deployCfg.Namespace,
+			Name:      cfg.PackageName,
+			Namespace: cfg.Namespace,
 		},
 		Spec: v1alpha1.MCPServerSpec{
 			Deployment: v1alpha1.MCPServerDeployment{
-				Image:      deployCfg.Image,
+				Image:      cfg.Image,
 				Port:       uint16(port),
-				Cmd:        deployCfg.PackageManager,
-				Args:       deployCfg.Args,
+				Cmd:        cfg.PackageManager,
+				Args:       cfg.Args,
 				Env:        envMap,
 				SecretRefs: secretRefs,
 			},
-			TransportType: getTransportType(),
+			TransportType: getTransportType(cfg),
 		},
 	}
 
@@ -230,27 +115,27 @@ func runPackageDeploy(_ *cobra.Command, args []string) error {
 	// Create YAML content with header
 	yamlContent := fmt.Sprintf(
 		"# MCPServer deployment generated by kagent mcp deploy package cmd\n# Deployment: %s\n# Manager: %s\n# Args: %v\n%s",
-		deployCfg.PackageName,
-		deployCfg.PackageManager,
-		deployCfg.Args,
+		cfg.PackageName,
+		cfg.PackageManager,
+		cfg.Args,
 		string(mcpServerYAML),
 	)
 
 	// Handle output
-	if deployCfg.Output != "" {
+	if cfg.Output != "" {
 		// Write to file
-		if err := os.WriteFile(deployCfg.Output, []byte(yamlContent), 0644); err != nil {
+		if err := os.WriteFile(cfg.Output, []byte(yamlContent), 0644); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
-		fmt.Printf("✅ MCPServer manifest written to: %s\n", deployCfg.Output)
+		fmt.Printf("✅ MCPServer manifest written to: %s\n", cfg.Output)
 	}
 
-	if deployCfg.DryRun {
+	if cfg.DryRun {
 		// Print to stdout
 		fmt.Print(yamlContent)
 	} else {
 		// Apply MCPServer to cluster
-		if err := applyToCluster("", yamlContent, mcpServer); err != nil {
+		if err := applyToCluster(cfg, "", yamlContent, mcpServer); err != nil {
 			return fmt.Errorf("failed to apply to cluster: %w", err)
 		}
 	}
@@ -259,9 +144,9 @@ func runPackageDeploy(_ *cobra.Command, args []string) error {
 }
 
 // getTransportType determines the transport type based on flags
-func getTransportType() v1alpha1.TransportType {
-	if deployCfg.Transport != "" {
-		switch deployCfg.Transport {
+func getTransportType(cfg *DeployCfg) v1alpha1.TransportType {
+	if cfg.Transport != "" {
+		switch cfg.Transport {
 		case transportHTTP:
 			return v1alpha1.TransportTypeHTTP
 		case transportStdio:
@@ -275,19 +160,19 @@ func getTransportType() v1alpha1.TransportType {
 	return v1alpha1.TransportTypeStdio
 }
 
-func runDeployMCP(_ *cobra.Command, args []string) error {
+func DeployMcp(cfg *DeployCfg) error {
 	// Determine project directory
 	var projectDir string
 	var err error
 
-	cfg, err := config.Get()
+	appCfg, err := config.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
 	}
 
-	if deployCfg.File != "" {
+	if cfg.File != "" {
 		// Use specified file path
-		projectDir, err = getProjectDirFromFile(deployCfg.File)
+		projectDir, err = getProjectDirFromFile(cfg.File)
 		if err != nil {
 			return fmt.Errorf("failed to get project directory from file: %w", err)
 		}
@@ -312,20 +197,17 @@ func runDeployMCP(_ *cobra.Command, args []string) error {
 
 	// Determine deployment name
 	deploymentName := projectManifest.Name
-	if len(args) > 0 {
-		deploymentName = args[0]
-	}
 
 	// Generate MCPServer resource
-	mcpServer, err := generateMCPServer(projectManifest, deploymentName, deployCfg.Environment)
+	mcpServer, err := generateMCPServer(cfg, projectManifest, deploymentName, cfg.Environment)
 	if err != nil {
 		return fmt.Errorf("failed to generate MCPServer: %w", err)
 	}
 
 	// Set namespace
-	mcpServer.Namespace = deployCfg.Namespace
+	mcpServer.Namespace = cfg.Namespace
 
-	if cfg.Verbose {
+	if appCfg.Verbose {
 		fmt.Printf("Generated MCPServer: %s/%s\n", mcpServer.Namespace, mcpServer.Name)
 	}
 
@@ -344,20 +226,20 @@ func runDeployMCP(_ *cobra.Command, args []string) error {
 	)
 
 	// Handle output
-	if deployCfg.Output != "" {
+	if cfg.Output != "" {
 		// Write to file
-		if err := os.WriteFile(deployCfg.Output, []byte(yamlContent), 0644); err != nil {
+		if err := os.WriteFile(cfg.Output, []byte(yamlContent), 0644); err != nil {
 			return fmt.Errorf("failed to write to file: %w", err)
 		}
-		fmt.Printf("✅ MCPServer manifest written to: %s\n", deployCfg.Output)
+		fmt.Printf("✅ MCPServer manifest written to: %s\n", cfg.Output)
 	}
 
-	if deployCfg.DryRun {
+	if cfg.DryRun {
 		// Print to stdout
 		fmt.Print(yamlContent)
 	} else {
 		// Apply MCPServer to cluster
-		if err := applyToCluster(projectDir, yamlContent, mcpServer); err != nil {
+		if err := applyToCluster(cfg, projectDir, yamlContent, mcpServer); err != nil {
 			return fmt.Errorf("failed to apply to cluster: %w", err)
 		}
 	}
@@ -385,12 +267,13 @@ func getProjectDirFromFile(filePath string) (string, error) {
 }
 
 func generateMCPServer(
+	cfg *DeployCfg,
 	projectManifest *manifests.ProjectManifest,
 	deploymentName,
 	environment string,
 ) (*v1alpha1.MCPServer, error) {
 	// Determine image name
-	imageName := deployCfg.Image
+	imageName := cfg.Image
 	if imageName == "" {
 		// Generate default image name
 		imageName = fmt.Sprintf("%s:%s",
@@ -400,27 +283,27 @@ func generateMCPServer(
 	}
 
 	// Determine transport type
-	transportType := getTransportType()
+	transportType := getTransportType(cfg)
 
 	// Determine port
-	port := deployCfg.Port
+	port := cfg.Port
 	if port == 0 {
 		port = 3000 // Default port
 	}
 
 	// Determine command and args
-	command := deployCfg.Command
-	args := deployCfg.Args
+	command := cfg.Command
+	args := cfg.Args
 	if command == "" {
 		// Set default command based on framework
 		command = getDefaultCommand(projectManifest.Framework)
 		if len(args) == 0 {
-			args = getDefaultArgs(projectManifest.Framework, port)
+			args = getDefaultArgs(cfg, projectManifest.Framework, port)
 		}
 	}
 
 	// Parse environment variables
-	envVars := parseEnvVars(deployCfg.Env)
+	envVars := parseEnvVars(cfg.Env)
 
 	// Get secret reference from manifest for the specified environment
 	secretRef, err := getSecretRefFromManifest(projectManifest, environment)
@@ -526,10 +409,10 @@ func getDefaultCommand(framework string) string {
 	}
 }
 
-func getDefaultArgs(framework string, targetPort int) []string {
+func getDefaultArgs(cfg *DeployCfg, framework string, targetPort int) []string {
 	switch framework {
 	case manifests.FrameworkFastMCPPython:
-		if deployCfg.Transport == transportHTTP {
+		if cfg.Transport == transportHTTP {
 			return []string{"src/main.py", "--transport", "http", "--host", "0.0.0.0", "--port", fmt.Sprintf("%d", targetPort)}
 		}
 		return []string{"src/main.py"}
@@ -538,7 +421,7 @@ func getDefaultArgs(framework string, targetPort int) []string {
 	case manifests.FrameworkTypeScript:
 		return []string{"dist/index.js"}
 	case manifests.FrameworkJava:
-		if deployCfg.Transport == transportHTTP {
+		if cfg.Transport == transportHTTP {
 			return []string{"-jar", "app.jar", "--transport", "http", "--host", "0.0.0.0", "--port", fmt.Sprintf("%d", targetPort)}
 		}
 		return []string{"-jar", "app.jar"}
@@ -558,14 +441,14 @@ func parseEnvVars(envVars []string) map[string]string {
 	return result
 }
 
-func applyToCluster(projectDir, yamlContent string, mcpServer *v1alpha1.MCPServer) error {
-	cfg, err := config.Get()
+func applyToCluster(cfg *DeployCfg, projectDir, yamlContent string, mcpServer *v1alpha1.MCPServer) error {
+	appCfg, err := config.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
 	}
 
 	// Create kubectl executor with namespace and verbose settings
-	kubectl := commonexec.NewKubectlExecutor(cfg.Verbose, mcpServer.Namespace)
+	kubectl := commonexec.NewKubectlExecutor(appCfg.Verbose, mcpServer.Namespace)
 
 	fmt.Printf("🚀 Applying MCPServer to cluster...\n")
 
@@ -592,7 +475,7 @@ func applyToCluster(projectDir, yamlContent string, mcpServer *v1alpha1.MCPServe
 	}
 
 	var configPath string
-	if !deployCfg.NoInspector {
+	if !cfg.NoInspector {
 		// Create inspector config
 		port := uint16(3000) // default port
 		if mcpServer.Spec.Deployment.Port != 0 {
@@ -657,4 +540,13 @@ func runPortForward(mcpServer *v1alpha1.MCPServer) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("failed to start port-forward: %w", err)
 	}
 	return cmd, nil
+}
+
+// GetCurrentNamespace returns the current namespace from kubeconfig for use in root.go
+func GetCurrentNamespace() string {
+	currentNamespace, err := commonk8s.GetCurrentNamespace()
+	if err != nil {
+		return "default"
+	}
+	return currentNamespace
 }

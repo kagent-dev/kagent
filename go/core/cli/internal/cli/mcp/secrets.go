@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
-	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -23,59 +22,9 @@ type SecretsCfg struct {
 	ProjectDir string
 }
 
-// secretsCmd represents the secrets command
-var SecretsCmd = &cobra.Command{
-	Use:   "secrets",
-	Short: "Manage project secrets",
-	Long:  `Manage secrets for MCP server projects.`,
-}
-
-var secretsCfg = &SecretsCfg{}
-
-// syncCmd creates or updates a Kubernetes secret from an environment file
-var syncCmd = &cobra.Command{
-	Use:   "sync [environment]",
-	Short: "Sync secrets to a Kubernetes environment from a local .env file",
-	Long: `Sync secrets from a local .env file to a Kubernetes secret.
-
-This command reads a .env file and the project's manifest.yaml file to determine
-the correct secret name and namespace for the specified environment. It then
-creates or updates the Kubernetes secret directly in the cluster.
-
-The command will look for a ".env" file in the project root by default.
-
-Examples:
-  # Sync secrets to the "staging" environment defined in manifest.yaml
-  kagent mcp secrets sync staging
-
-  # Sync secrets from a custom .env file
-  kagent mcp secrets sync staging --from-file .env.staging
-
-  # Sync secrets from a specific project directory
-  kagent mcp secrets sync staging --project-dir ./my-project
-
-  # Perform a dry run to see the generated secret without applying it
-  kagent mcp secrets sync production --dry-run
-`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSync,
-}
-
-func init() {
-	// Add subcommands
-	SecretsCmd.AddCommand(syncCmd)
-
-	// create-k8s-secret-from-env flags
-	syncCmd.Flags().StringVar(&secretsCfg.SourceFile, "from-file", ".env", "Source .env file to sync from")
-	syncCmd.Flags().BoolVar(&secretsCfg.DryRun, "dry-run", false, "Output the generated secret YAML instead of applying it")
-	syncCmd.Flags().StringVarP(&secretsCfg.ProjectDir, "project-dir", "d", "", "Project directory (default: current directory)")
-}
-
-func runSync(_ *cobra.Command, args []string) error {
-	environment := args[0]
-
+func SyncSecretsMcp(cfg *SecretsCfg, environment string) error {
 	// Determine project root
-	projectRoot := secretsCfg.ProjectDir
+	projectRoot := cfg.ProjectDir
 	if projectRoot == "" {
 		var err error
 		projectRoot, err = os.Getwd()
@@ -118,7 +67,7 @@ func runSync(_ *cobra.Command, args []string) error {
 	}
 
 	// Resolve .env file path relative to project directory
-	envFilePath := secretsCfg.SourceFile
+	envFilePath := cfg.SourceFile
 	if !filepath.IsAbs(envFilePath) {
 		envFilePath = filepath.Join(projectRoot, envFilePath)
 	}
@@ -150,7 +99,7 @@ func runSync(_ *cobra.Command, args []string) error {
 		secret.Data[key] = []byte(value)
 	}
 
-	if secretsCfg.DryRun {
+	if cfg.DryRun {
 		yamlData, err := yaml.Marshal(secret)
 		if err != nil {
 			return fmt.Errorf("failed to marshal secret to YAML: %w", err)

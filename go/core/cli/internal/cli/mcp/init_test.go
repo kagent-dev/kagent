@@ -287,9 +287,10 @@ func TestInitFlags(t *testing.T) {
 		},
 	}
 
+	cmd := newInitCmd()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			flag := InitCmd.PersistentFlags().Lookup(tt.flagName)
+			flag := cmd.PersistentFlags().Lookup(tt.flagName)
 			require.NotNil(t, flag, "Flag %s should exist", tt.flagName)
 			assert.Equal(t, tt.expectedDefValue, flag.DefValue)
 		})
@@ -352,18 +353,21 @@ func TestProjectNameEdgeCases(t *testing.T) {
 	}
 }
 
-func TestRunInit_NoArgs(t *testing.T) {
-	// Test that runInit shows help when no arguments provided
-	err := runInit(InitCmd, []string{})
+func TestInitCmd_NoArgs(t *testing.T) {
+	// Test that the init command shows help when no arguments provided
+	cmd := newInitCmd()
+	cmd.SetArgs([]string{})
 
-	// runInit returns nil when showing help (calls cmd.Help())
+	// RunE returns nil when showing help (calls cmd.Help())
+	err := cmd.RunE(cmd, []string{})
 	assert.NoError(t, err)
 }
 
-func TestRunInit_WithArgs(t *testing.T) {
-	// Test that runInit returns nil when args are provided
+func TestInitCmd_WithArgs(t *testing.T) {
+	// Test that the init command returns nil when args are provided
 	// (actual init is delegated to subcommands like python, go, etc.)
-	err := runInit(InitCmd, []string{"test-project"})
+	cmd := newInitCmd()
 
+	err := cmd.RunE(cmd, []string{"test-project"})
 	assert.NoError(t, err)
 }

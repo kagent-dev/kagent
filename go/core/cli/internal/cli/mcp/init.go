@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
@@ -33,36 +31,7 @@ type InitMcpCfg struct {
 	Namespace      string
 }
 
-var InitCmd = &cobra.Command{
-	Use:   "init [project-name]",
-	Short: "Initialize a new MCP server project",
-	Long: `Initialize a new MCP server project with dynamic tool loading.
-
-This command provides subcommands to initialize a new MCP server project
-using one of the supported frameworks.`,
-	RunE: runInit,
-}
-
-var initMcpCfg = &InitMcpCfg{}
-
-func init() {
-	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.Force, "force", false, "Overwrite existing directory")
-	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.NoGit, "no-git", false, "Skip git initialization")
-	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Author, "author", "", "Author name for the project")
-	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Email, "email", "", "Author email for the project")
-	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Description, "description", "", "Description for the project")
-	InitCmd.PersistentFlags().BoolVar(&initMcpCfg.NonInteractive, "non-interactive", false, "Run in non-interactive mode")
-	InitCmd.PersistentFlags().StringVar(&initMcpCfg.Namespace, "namespace", "default", "Default namespace for project resources")
-}
-
-func runInit(cmd *cobra.Command, args []string) error {
-	if len(args) == 0 {
-		return cmd.Help()
-	}
-	return nil
-}
-
-func runInitFramework(
+func InitMcp(
 	cfg *InitMcpCfg,
 	projectName, framework string,
 	customizeProjectConfig func(*mcp.ProjectConfig) error,

@@ -11,45 +11,32 @@ import (
 )
 
 func TestGetProjectDir(t *testing.T) {
-	// Save original config
-	origCfg := *runCfg
-	defer func() {
-		*runCfg = origCfg
-	}()
-
 	tests := []struct {
 		name      string
-		setup     func(t *testing.T)
+		cfg       *RunCfg
 		wantErr   bool
 		checkFunc func(t *testing.T, dir string)
 	}{
 		{
-			name: "use current directory when not specified",
-			setup: func(t *testing.T) {
-				runCfg.ProjectDir = ""
-			},
+			name:    "use current directory when not specified",
+			cfg:     &RunCfg{ProjectDir: ""},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
 				assert.NotEmpty(t, dir)
-				// Should be absolute path
 				assert.True(t, filepath.IsAbs(dir))
 			},
 		},
 		{
-			name: "use specified absolute path",
-			setup: func(t *testing.T) {
-				runCfg.ProjectDir = "/tmp/test-project"
-			},
+			name:    "use specified absolute path",
+			cfg:     &RunCfg{ProjectDir: "/tmp/test-project"},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
 				assert.Equal(t, "/tmp/test-project", dir)
 			},
 		},
 		{
-			name: "convert relative path to absolute",
-			setup: func(t *testing.T) {
-				runCfg.ProjectDir = "./test-project"
-			},
+			name:    "convert relative path to absolute",
+			cfg:     &RunCfg{ProjectDir: "./test-project"},
 			wantErr: false,
 			checkFunc: func(t *testing.T, dir string) {
 				assert.True(t, filepath.IsAbs(dir))
@@ -60,9 +47,7 @@ func TestGetProjectDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.setup(t)
-
-			dir, err := getProjectDir()
+			dir, err := getProjectDir(tt.cfg)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -114,7 +99,6 @@ secrets: {}
 			setup: func(t *testing.T) string {
 				tmpDir := t.TempDir()
 				manifestPath := filepath.Join(tmpDir, "manifest.yaml")
-				// Invalid YAML
 				content := `name: test-server
 framework: [invalid yaml
 `
@@ -146,33 +130,21 @@ framework: [invalid yaml
 }
 
 func TestRunCmd_Flags(t *testing.T) {
-	// Test that run command flags are properly configured
+	cmd := newRunCmd()
 
 	tests := []struct {
 		name         string
 		flagName     string
 		expectedType string
 	}{
-		{
-			name:         "project-dir flag",
-			flagName:     "project-dir",
-			expectedType: "string",
-		},
-		{
-			name:         "no-inspector flag",
-			flagName:     "no-inspector",
-			expectedType: "bool",
-		},
-		{
-			name:         "transport flag",
-			flagName:     "transport",
-			expectedType: "string",
-		},
+		{name: "project-dir flag", flagName: "project-dir", expectedType: "string"},
+		{name: "no-inspector flag", flagName: "no-inspector", expectedType: "bool"},
+		{name: "transport flag", flagName: "transport", expectedType: "string"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			flag := RunCmd.Flags().Lookup(tt.flagName)
+			flag := cmd.Flags().Lookup(tt.flagName)
 			require.NotNil(t, flag, "Flag %s should exist", tt.flagName)
 			assert.Equal(t, tt.expectedType, flag.Value.Type())
 		})
@@ -180,45 +152,26 @@ func TestRunCmd_Flags(t *testing.T) {
 }
 
 func TestRunCmd_TransportDefault(t *testing.T) {
-	// Save original config
-	origCfg := *runCfg
-	defer func() {
-		*runCfg = origCfg
-	}()
+	cmd := newRunCmd()
 
-	// Reset to default
-	runCfg.Transport = "stdio"
-
-	flag := RunCmd.Flags().Lookup("transport")
+	flag := cmd.Flags().Lookup("transport")
 	require.NotNil(t, flag)
 	assert.Equal(t, "stdio", flag.DefValue)
 }
 
-func TestExecuteRun_MissingManifest(t *testing.T) {
-	// Save original config
-	origCfg := *runCfg
-	defer func() {
-		*runCfg = origCfg
-	}()
+func TestRunMcp_MissingManifest(t *testing.T) {
+	cfg := &RunCfg{
+		ProjectDir: t.TempDir(),
+	}
 
-	tmpDir := t.TempDir()
-	runCfg.ProjectDir = tmpDir
-
-	err := executeRun(RunCmd, []string{})
+	err := RunMcp(cfg)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "manifest.yaml not found")
 }
 
-func TestExecuteRun_UnsupportedFramework(t *testing.T) {
-	// Save original config
-	origCfg := *runCfg
-	defer func() {
-		*runCfg = origCfg
-	}()
-
+func TestRunMcp_UnsupportedFramework(t *testing.T) {
 	tmpDir := t.TempDir()
-	runCfg.ProjectDir = tmpDir
 
 	// Create manifest with unsupported framework
 	manifestPath := filepath.Join(tmpDir, "manifest.yaml")
@@ -232,7 +185,11 @@ secrets: {}
 	err := os.WriteFile(manifestPath, []byte(content), 0644)
 	require.NoError(t, err)
 
-	err = executeRun(RunCmd, []string{})
+	cfg := &RunCfg{
+		ProjectDir: tmpDir,
+	}
+
+	err = RunMcp(cfg)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported framework")
@@ -268,18 +225,13 @@ secrets: {}
 }
 
 func TestRunCmd_NoInspectorFlag(t *testing.T) {
-	// Save original config
-	origCfg := *runCfg
-	defer func() {
-		*runCfg = origCfg
-	}()
+	cfg := &RunCfg{}
 
-	// Test setting the flag
-	runCfg.NoInspector = true
-	assert.True(t, runCfg.NoInspector)
+	cfg.NoInspector = true
+	assert.True(t, cfg.NoInspector)
 
-	runCfg.NoInspector = false
-	assert.False(t, runCfg.NoInspector)
+	cfg.NoInspector = false
+	assert.False(t, cfg.NoInspector)
 }
 
 func TestManifestValidation(t *testing.T) {
