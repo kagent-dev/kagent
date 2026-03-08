@@ -70,6 +70,11 @@ type DeployCfg struct {
 
 // DeployCmd deploys an agent to Kubernetes
 func DeployCmd(ctx context.Context, k8sClient client.Client, cfg *DeployCfg) error {
+	// Validate that k8sClient is provided when not in dry-run mode
+	if k8sClient == nil && !cfg.DryRun {
+		return fmt.Errorf("kubernetes client is required for non-dry-run deployments")
+	}
+
 	// Step 1: Validate and load project
 	manifest, err := validateAndLoadProject(cfg)
 	if err != nil {

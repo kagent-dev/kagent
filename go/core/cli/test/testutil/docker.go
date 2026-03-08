@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"testing"
+	"time"
 )
 
 // RequireDocker skips the test if Docker is not available.
@@ -11,9 +12,12 @@ import (
 func RequireDocker(t *testing.T) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "docker", "info")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "info")
 	if err := cmd.Run(); err != nil {
-		t.Skip("Docker daemon is not available, skipping test")
+		t.Skipf("Docker daemon is not available, skipping test: %v", err)
 	}
 }
 
@@ -22,20 +26,29 @@ func RequireDocker(t *testing.T) {
 func RequireKind(t *testing.T) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "kind", "version")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kind", "version")
 	if err := cmd.Run(); err != nil {
-		t.Skip("kind is not available, skipping test")
+		t.Skipf("kind is not available, skipping test: %v", err)
 	}
 }
 
 // IsDockerAvailable returns true if Docker daemon is available.
 func IsDockerAvailable() bool {
-	cmd := exec.CommandContext(context.Background(), "docker", "info")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "info")
 	return cmd.Run() == nil
 }
 
 // IsKindAvailable returns true if kind is available.
 func IsKindAvailable() bool {
-	cmd := exec.CommandContext(context.Background(), "kind", "version")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kind", "version")
 	return cmd.Run() == nil
 }
