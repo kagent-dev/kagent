@@ -15,7 +15,11 @@ import (
 // NewModelInvoker returns a temporal.ModelInvoker that creates an LLM from
 // the serialized AgentConfig, converts the conversation history to genai
 // format, and invokes the model.
-func NewModelInvoker(logger logr.Logger) temporal.ModelInvoker {
+//
+// toolDecls are the MCP tool declarations discovered at startup. They are
+// passed to the LLM so it knows which tools are available and can generate
+// FunctionCall responses. If nil, the LLM will not produce tool calls.
+func NewModelInvoker(logger logr.Logger, toolDecls []*genai.FunctionDeclaration) temporal.ModelInvoker {
 	return func(ctx context.Context, configBytes []byte, historyBytes []byte, onToken func(string)) (*temporal.LLMResponse, error) {
 		log := logger.WithName("model-invoker")
 
@@ -44,7 +48,7 @@ func NewModelInvoker(logger logr.Logger) temporal.ModelInvoker {
 		// 4. Convert history to genai.Content format.
 		contents := historyToContents(history)
 
-		// 5. Build LLM request with system instruction.
+		// 5. Build LLM request with system instruction and tool declarations.
 		genConfig := &genai.GenerateContentConfig{}
 		if agentConfig.Instruction != "" {
 			genConfig.SystemInstruction = &genai.Content{
@@ -53,6 +57,13 @@ func NewModelInvoker(logger logr.Logger) temporal.ModelInvoker {
 					genai.NewPartFromText(agentConfig.Instruction),
 				},
 			}
+		}
+
+		// Include tool declarations so the LLM can generate FunctionCall responses.
+		if len(toolDecls) > 0 {
+			genConfig.Tools = []*genai.Tool{{
+				FunctionDeclarations: toolDecls,
+			}}
 		}
 
 		req := &adkmodel.LLMRequest{
@@ -92,11 +103,11 @@ func NewModelInvoker(logger logr.Logger) temporal.ModelInvoker {
 
 // conversationEntry mirrors the workflow's conversation history format.
 type conversationEntry struct {
-	Role       string          `json:"role"`
-	Content    string          `json:"content,omitempty"`
+	Role       string              `json:"role"`
+	Content    string              `json:"content,omitempty"`
 	ToolCalls  []temporal.ToolCall `json:"toolCalls,omitempty"`
-	ToolCallID string          `json:"toolCallID,omitempty"`
-	ToolResult json.RawMessage `json:"toolResult,omitempty"`
+	ToolCallID string              `json:"toolCallID,omitempty"`
+	ToolResult json.RawMessage     `json:"toolResult,omitempty"`
 }
 
 // historyToContents converts conversation entries to genai.Content slices.

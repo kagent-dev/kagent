@@ -58,7 +58,6 @@ func (s *WorkflowTestSuite) TestSingleTurnCompletion() {
 			Terminal: true,
 		}, nil)
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -102,7 +101,6 @@ func (s *WorkflowTestSuite) TestMultiTurnWithToolCalls() {
 			Terminal: true,
 		}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -151,7 +149,6 @@ func (s *WorkflowTestSuite) TestParallelToolExecution() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Weather is 72F and time is 3:00 PM.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -260,7 +257,6 @@ func (s *WorkflowTestSuite) TestToolErrorInResponsePassedToLLM() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Sorry, I couldn't get that data.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -285,7 +281,6 @@ func (s *WorkflowTestSuite) TestImplicitTerminal() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Here's your answer."}, nil)
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -322,7 +317,6 @@ func (s *WorkflowTestSuite) TestCustomRetryConfig() {
 		Return(&SessionResponse{SessionID: "sess-1", Created: true}, nil)
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Done.", Terminal: true}, nil)
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -406,7 +400,6 @@ func (s *WorkflowTestSuite) TestHITLApprovalContinues() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "File deleted successfully.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -491,7 +484,6 @@ func (s *WorkflowTestSuite) TestHITLAfterToolCalls() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Done.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -530,7 +522,6 @@ func (s *WorkflowTestSuite) TestChildWorkflowSuccess() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "The specialist says the answer is 42.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -605,7 +596,6 @@ func (s *WorkflowTestSuite) TestParallelChildWorkflows() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "Both experts agree.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
@@ -650,7 +640,6 @@ func (s *WorkflowTestSuite) TestAgentCallsWithToolCalls() {
 	s.env.OnActivity(s.act.LLMInvokeActivity, mock.Anything, mock.Anything).
 		Return(&LLMResponse{Content: "All done.", Terminal: true}, nil).Once()
 
-	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 

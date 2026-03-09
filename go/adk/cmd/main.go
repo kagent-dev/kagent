@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/streaming"
@@ -26,6 +27,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/adk/server/adka2a"
+	"google.golang.org/genai"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -206,6 +208,18 @@ func main() {
 		}
 		logger.Info("Connected to Temporal", "addr", temporalConfig.HostAddr)
 
+		// Terminate orphaned workflows from previous pod lifecycle.
+		// These workflows have no A2A executor waiting for their completion.
+		taskQueue := temporalConfig.TaskQueue
+		if taskQueue == "" {
+			taskQueue = temporalpkg.TaskQueueForAgent(kagentName)
+		}
+		if n, err := temporalClient.TerminateRunningWorkflows(ctx, taskQueue); err != nil {
+			logger.Error(err, "Failed to terminate orphaned workflows")
+		} else if n > 0 {
+			logger.Info("Terminated orphaned workflows from previous pod lifecycle", "count", n, "taskQueue", taskQueue)
+		}
+
 		// Create task store for persisting A2A tasks via the KAgent controller API.
 		var taskStoreInstance *taskstore.KAgentTaskStore
 		if kagentURL != "" {
@@ -215,13 +229,23 @@ func main() {
 			logger.Info("No KAGENT_URL set, task persistence disabled for Temporal workflows")
 		}
 
-		// Create activities and worker.
-		modelInvoker := agentpkg.NewModelInvoker(logger)
-		activities := temporalpkg.NewActivities(sessionService, taskStoreInstance, natsConn, modelInvoker, nil)
-		taskQueue := temporalConfig.TaskQueue
-		if taskQueue == "" {
-			taskQueue = temporalpkg.TaskQueueForAgent(kagentName)
+		// Create MCP tool executor and discover tool declarations for the LLM.
+		var toolExecutor temporalpkg.ToolExecutor
+		var toolDecls []*genai.FunctionDeclaration
+		if len(agentConfig.HttpTools) > 0 || len(agentConfig.SseTools) > 0 {
+			result, err := mcp.CreateToolExecutor(ctx, agentConfig.HttpTools, agentConfig.SseTools)
+			if err != nil {
+				logger.Error(err, "Failed to create tool executor, tools will be unavailable")
+			} else if result != nil {
+				toolExecutor = result.Executor
+				toolDecls = result.ToolDeclarations
+				logger.Info("MCP tools ready", "executorTools", len(result.ToolDeclarations))
+			}
 		}
+
+		// Create activities and worker.
+		modelInvoker := agentpkg.NewModelInvoker(logger, toolDecls)
+		activities := temporalpkg.NewActivities(sessionService, taskStoreInstance, natsConn, modelInvoker, toolExecutor)
 		temporalWorker, err := temporalpkg.NewWorker(temporalClient.Temporal(), taskQueue, activities)
 		if err != nil {
 			temporalClient.Close()

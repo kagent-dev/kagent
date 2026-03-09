@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -148,10 +149,13 @@ func processMessage(
 	history *[]conversationEntry,
 	msg *MessageSignal,
 ) (*ExecutionResult, error) {
+	// Extract text from A2A message parts for the LLM conversation history.
+	userText := extractTextFromA2AMessage(msg.Message)
+
 	// Add user message to conversation history.
 	*history = append(*history, conversationEntry{
 		Role:    "user",
-		Content: string(msg.Message),
+		Content: userText,
 	})
 
 	natsSubject := msg.NATSSubject
@@ -185,36 +189,24 @@ func processMessage(
 				Content: llmResp.Content,
 			})
 
-			// Append final event to session.
-			eventBytes, _ := json.Marshal(map[string]string{
-				"type":    "assistant_message",
-				"content": llmResp.Content,
-			})
-			_ = workflow.ExecuteActivity(taskCtx, activities.AppendEventActivity, &AppendEventRequest{
-				SessionID: req.SessionID,
-				AppName:   req.AgentName,
-				UserID:    req.UserID,
-				Event:     eventBytes,
-			}).Get(taskCtx, nil)
-
-			// Save task with completed status.
+			// Build A2A task with proper history containing both user and agent messages.
 			responseBytes, _ := json.Marshal(llmResp)
-			now := workflow.Now(ctx).Format(time.RFC3339)
-			taskData, _ := json.Marshal(map[string]interface{}{
-				"id":        req.SessionID,
-				"contextId": req.SessionID,
-				"status": map[string]interface{}{
-					"state": "completed",
-					"message": map[string]interface{}{
-						"kind": "message",
-						"role": "agent",
-						"parts": []map[string]interface{}{
-							{"kind": "text", "text": llmResp.Content},
-						},
-					},
-					"timestamp": now,
+			now := workflow.Now(ctx)
+
+			userMsg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: userText})
+			agentMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: llmResp.Content})
+
+			task := &a2atype.Task{
+				ID:        a2atype.TaskID(req.SessionID),
+				ContextID: req.SessionID,
+				History:   []*a2atype.Message{userMsg, agentMsg},
+				Status: a2atype.TaskStatus{
+					State:     a2atype.TaskStateCompleted,
+					Message:   agentMsg,
+					Timestamp: &now,
 				},
-			})
+			}
+			taskData, _ := json.Marshal(task)
 			_ = workflow.ExecuteActivity(taskCtx, activities.SaveTaskActivity, &TaskSaveRequest{
 				SessionID: req.SessionID,
 				TaskData:  taskData,
@@ -483,4 +475,41 @@ func taskActivityOptions() workflow.ActivityOptions {
 			BackoffCoefficient: 2.0,
 		},
 	}
+}
+
+// extractTextFromA2AMessage extracts the text content from a JSON-encoded A2A Message.
+// Falls back to treating the bytes as plain text if parsing fails.
+func extractTextFromA2AMessage(msgBytes []byte) string {
+	if len(msgBytes) == 0 {
+		return ""
+	}
+
+	// Try to parse as an A2A Message with structured parts.
+	var msg struct {
+		Parts []json.RawMessage `json:"parts"`
+	}
+	if err := json.Unmarshal(msgBytes, &msg); err == nil && len(msg.Parts) > 0 {
+		var text string
+		for _, raw := range msg.Parts {
+			var part struct {
+				Kind string `json:"kind"`
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(raw, &part) == nil && part.Kind == "text" {
+				text += part.Text
+			}
+		}
+		if text != "" {
+			return text
+		}
+	}
+
+	// Fallback: try as a plain JSON string.
+	var plain string
+	if json.Unmarshal(msgBytes, &plain) == nil {
+		return plain
+	}
+
+	// Last resort: use raw bytes as text.
+	return string(msgBytes)
 }

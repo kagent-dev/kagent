@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 )
 
@@ -97,6 +98,45 @@ func (c *Client) WaitForResult(ctx context.Context, workflowID string) (*Executi
 // Temporal returns the underlying Temporal SDK client for worker creation.
 func (c *Client) Temporal() client.Client {
 	return c.temporal
+}
+
+// TerminateRunningWorkflows terminates all running workflows on the given task queue.
+// This should be called on pod startup to clean up orphaned workflows from a previous
+// pod lifecycle. Workflows mid-processing have no A2A executor waiting for their
+// completion events, so they must be terminated to avoid hanging in "working" state.
+func (c *Client) TerminateRunningWorkflows(ctx context.Context, taskQueue string) (int, error) {
+	query := fmt.Sprintf("TaskQueue = %q AND ExecutionStatus = \"Running\"", taskQueue)
+
+	terminated := 0
+	var nextPageToken []byte
+
+	for {
+		resp, err := c.temporal.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+			Query:         query,
+			NextPageToken: nextPageToken,
+		})
+		if err != nil {
+			return terminated, fmt.Errorf("failed to list running workflows: %w", err)
+		}
+
+		for _, exec := range resp.GetExecutions() {
+			wfID := exec.GetExecution().GetWorkflowId()
+			runID := exec.GetExecution().GetRunId()
+			err := c.temporal.TerminateWorkflow(ctx, wfID, runID, "agent pod restarted")
+			if err != nil {
+				// Log but continue — the workflow may have already completed.
+				continue
+			}
+			terminated++
+		}
+
+		nextPageToken = resp.GetNextPageToken()
+		if len(nextPageToken) == 0 {
+			break
+		}
+	}
+
+	return terminated, nil
 }
 
 // Close closes the underlying Temporal client connection.
