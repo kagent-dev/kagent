@@ -184,21 +184,22 @@ func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequ
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
 	}
 
-	// Generate embedding for the query
+	// Generate embedding for the query. Without a valid embedding we cannot
+	// perform similarity search, so return empty results on failure.
 	var vector []float32
 	if s.embeddingClient != nil {
 		embeddings, err := s.embeddingClient.Generate(ctx, []string{req.Query})
 		if err != nil {
-			log.Error(err, "Failed to generate query embedding, using placeholder")
-			vector = make([]float32, 768)
-		} else if len(embeddings) > 0 {
-			vector = embeddings[0]
-		} else {
-			vector = make([]float32, 768)
+			log.Error(err, "Failed to generate query embedding, returning empty results")
+			return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
 		}
-	} else {
-		log.V(1).Info("No embedding client, using placeholder vector")
-		vector = make([]float32, 768)
+		if len(embeddings) > 0 {
+			vector = embeddings[0]
+		}
+	}
+	if vector == nil {
+		log.V(1).Info("No embedding available for query, returning empty results")
+		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
 	}
 
 	// Prepare API request

@@ -132,7 +132,7 @@
       "name": "generate_embedding_request",
       "match": {
         "match_type": "contains",
-        "input": "User prefers dark mode and Go over Python"
+        "input": "dark mode"
       },
       "response": {
         "object": "list",

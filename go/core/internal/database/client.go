@@ -618,10 +618,11 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
 		}
 	} else {
-		// Postgres pgvector syntax: uses <=> operator for cosine distance
+		// Postgres pgvector syntax: uses <=> operator for cosine distance.
+		// COALESCE guards against NaN when either vector has zero magnitude.
 		// pgvector.Vector implements sql.Scanner and driver.Valuer
 		query := `
-			SELECT *, 1 - (embedding <=> ?) as score
+			SELECT *, COALESCE(1 - (embedding <=> ?), 0) as score
 			FROM memory
 			WHERE agent_name = ? AND user_id = ?
 			ORDER BY embedding <=> ? ASC

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/memory"
 	adksession "google.golang.org/adk/session"
@@ -208,12 +209,33 @@ func TestKagentMemoryService_Search(t *testing.T) {
 			}))
 			defer server.Close()
 
+			// Create a mock embedding server that returns a fixed non-zero vector
+			embServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				vec := make([]float64, 768)
+				vec[0] = 1.0 // non-zero to avoid NaN in cosine distance
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"data":  []map[string]any{{"embedding": vec, "index": 0}},
+					"model": "test",
+				})
+			}))
+			defer embServer.Close()
+
+			embClient, _ := embedding.New(embedding.Config{
+				EmbeddingConfig: &adk.EmbeddingConfig{
+					Provider: "openai",
+					Model:    "test-model",
+					BaseUrl:  embServer.URL + "/v1",
+				},
+				HTTPClient: embServer.Client(),
+			})
+
 			svc := &KagentMemoryService{
 				agentName:       "test-agent",
 				apiURL:          server.URL,
 				client:          server.Client(),
 				ttlDays:         15,
-				embeddingClient: nil, // Use placeholder vectors
+				embeddingClient: embClient,
 				model:           nil,
 			}
 
