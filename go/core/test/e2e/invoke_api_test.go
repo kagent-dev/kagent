@@ -1043,10 +1043,11 @@ func TestE2EInvokeGolangADKAgent(t *testing.T) {
 	})
 }
 
-// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
-// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
-// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
-func TestE2EMemoryWithAgent(t *testing.T) {
+// runMemoryAgentTest is a helper that sets up an agent with memory enabled and
+// runs save/load memory subtests. extraOpts are merged into the base AgentOptions.
+func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
+	t.Helper()
+
 	llmURL, stopLLM := setupMockServer(t, "mocks/invoke_memory_agent.json")
 	defer stopLLM()
 
@@ -1055,13 +1056,12 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 	llmModelCfg := setupModelConfig(t, cli, llmURL)
 	embeddingModelCfg := setupEmbeddingModelConfig(t, cli, llmURL)
 
-	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, AgentOptions{
-		Name: "memory-test-agent",
-		Memory: &v1alpha2.MemorySpec{
-			ModelConfig: embeddingModelCfg.Name,
-		},
-	})
+	opts := extraOpts
+	opts.Memory = &v1alpha2.MemorySpec{
+		ModelConfig: embeddingModelCfg.Name,
+	}
 
+	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, opts)
 	a2aClient := setupA2AClient(t, agent)
 
 	var saveResult *protocol.Task
@@ -1080,6 +1080,23 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 			nil,
 			saveResult.ContextID,
 		)
+	})
+}
+
+// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
+// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
+// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+func TestE2EMemoryWithAgent(t *testing.T) {
+	runMemoryAgentTest(t, AgentOptions{Name: "memory-test-agent"})
+}
+
+// TestE2EMemoryWithGoADKAgent is the same as TestE2EMemoryWithAgent but uses
+// the Go ADK runtime to verify memory works end-to-end with the Go runtime.
+func TestE2EMemoryWithGoADKAgent(t *testing.T) {
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
+	runMemoryAgentTest(t, AgentOptions{
+		Name:    "memory-go-adk-test",
+		Runtime: &goRuntime,
 	})
 }
 

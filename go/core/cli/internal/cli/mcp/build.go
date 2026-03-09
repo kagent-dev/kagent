@@ -8,8 +8,6 @@ import (
 
 	"github.com/stoewer/go-strcase"
 
-	"github.com/spf13/cobra"
-
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -17,47 +15,24 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 )
 
-var BuildCmd = &cobra.Command{
-	Use:   "build",
-	Short: "Build MCP server as a Docker image",
-	Long: `Build an MCP server from the current project.
-	
-This command will detect the project type and build the appropriate
-MCP server Docker image.
-
-Examples:
-  kagent mcp build                    # Build Docker image from current directory
-  kagent mcp build --project-dir ./my-project  # Build Docker image from specific directory`,
-	RunE: runBuild,
+// BuildCfg contains configuration for MCP build command
+type BuildCfg struct {
+	Tag             string
+	Push            bool
+	KindLoad        bool
+	ProjectDir      string
+	Platform        string
+	KindLoadCluster string
 }
 
-var (
-	buildTag             string
-	buildPush            bool
-	buildKindLoad        bool
-	buildDir             string
-	buildPlatform        string
-	buildKindLoadCluster string
-)
-
-func init() {
-	BuildCmd.Flags().StringVarP(&buildTag, "tag", "t", "", "Docker image tag (alias for --output)")
-	BuildCmd.Flags().BoolVar(&buildPush, "push", false, "Push Docker image to registry")
-	BuildCmd.Flags().BoolVar(&buildKindLoad, "kind-load", false, "Load image into kind cluster (requires kind)")
-	BuildCmd.Flags().StringVar(&buildKindLoadCluster, "kind-load-cluster", "",
-		"Name of the kind cluster to load image into (default: current cluster)")
-	BuildCmd.Flags().StringVarP(&buildDir, "project-dir", "d", "", "Build directory (default: current directory)")
-	BuildCmd.Flags().StringVar(&buildPlatform, "platform", "", "Target platform (e.g., linux/amd64,linux/arm64)")
-}
-
-func runBuild(_ *cobra.Command, _ []string) error {
-	cfg, err := config.Get()
+func BuildMcp(cfg *BuildCfg) error {
+	appCfg, err := config.Get()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
 	}
 
 	// Determine build directory
-	buildDirectory := buildDir
+	buildDirectory := cfg.ProjectDir
 	if buildDirectory == "" {
 		var err error
 		buildDirectory, err = os.Getwd()
@@ -66,7 +41,7 @@ func runBuild(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	imageName := buildTag
+	imageName := cfg.Tag
 	if imageName == "" {
 		// Load project manifest
 		manifestManager := manifests.NewManager(buildDirectory)
@@ -94,30 +69,30 @@ func runBuild(_ *cobra.Command, _ []string) error {
 	opts := builder.Options{
 		ProjectDir: buildDirectory,
 		Tag:        imageName,
-		Platform:   buildPlatform,
-		Verbose:    cfg.Verbose,
+		Platform:   cfg.Platform,
+		Verbose:    appCfg.Verbose,
 	}
 
 	if err := mcpBuilder.Build(opts); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
 
-	if buildPush {
+	if cfg.Push {
 		fmt.Printf("Pushing Docker image %s...\n", imageName)
-		docker := commonexec.NewDockerExecutor(cfg.Verbose, "")
+		docker := commonexec.NewDockerExecutor(appCfg.Verbose, "")
 		if err := docker.Push(imageName); err != nil {
 			return fmt.Errorf("docker push failed: %w", err)
 		}
 	}
-	if buildKindLoad || buildKindLoadCluster != "" {
+	if cfg.KindLoad || cfg.KindLoadCluster != "" {
 		fmt.Printf("Loading Docker image %s into kind cluster...\n", imageName)
 		kindArgs := []string{"load", "docker-image", imageName}
-		clusterName := buildKindLoadCluster
+		clusterName := cfg.KindLoadCluster
 		if clusterName == "" {
 			var err error
 			clusterName, err = commonk8s.GetCurrentKindClusterName()
 			if err != nil {
-				if cfg.Verbose {
+				if appCfg.Verbose {
 					fmt.Printf("could not detect kind cluster name: %v, using default\n", err)
 				}
 				clusterName = "kind" // default to kind cluster

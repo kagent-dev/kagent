@@ -29,7 +29,7 @@ type Client interface {
 	StoreEvents(messages ...*Event) error
 
 	// Delete methods
-	DeleteSession(sessionName string, userID string) error
+	DeleteSession(sessionID string, userID string) error
 	DeleteAgent(agentID string) error
 	DeleteToolServer(serverName string, groupKind string) error
 	DeleteTask(taskID string) error
@@ -37,7 +37,7 @@ type Client interface {
 	DeleteToolsForServer(serverName string, groupKind string) error
 
 	// Get methods
-	GetSession(name string, userID string) (*Session, error)
+	GetSession(sessionID string, userID string) (*Session, error)
 	GetAgent(name string) (*Agent, error)
 	GetTask(id string) (*protocol.Task, error)
 	GetTool(name string) (*Tool, error)
