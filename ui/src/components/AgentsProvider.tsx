@@ -53,6 +53,7 @@ export interface AgentFormData {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
+  serviceAccountName?: string;
 }
 
 interface AgentsContextType {

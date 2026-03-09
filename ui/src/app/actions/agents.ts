@@ -129,6 +129,12 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     if (agentFormData.context) {
       base.spec!.declarative!.context = agentFormData.context;
     }
+
+    if (agentFormData.serviceAccountName) {
+      base.spec!.declarative!.deployment = {
+        serviceAccountName: agentFormData.serviceAccountName,
+      };
+    }
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {
@@ -143,6 +149,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         annotations: agentFormData.annotations,
         env: agentFormData.env,
         imagePullPolicy: agentFormData.imagePullPolicy,
+        serviceAccountName: agentFormData.serviceAccountName,
       },
     };
   }

@@ -175,9 +175,13 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
-	// If not specified, use the agent name as the service account name
+	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
-		dep.ServiceAccountName = serviceAccountName
+		if DefaultServiceAccountName != "" {
+			dep.ServiceAccountName = ptr.To(DefaultServiceAccountName)
+		} else {
+			dep.ServiceAccountName = serviceAccountName
+		}
 	}
 
 	return dep, nil
@@ -252,8 +256,13 @@ func resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
+	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
-		dep.ServiceAccountName = ptr.To(agent.Name)
+		if DefaultServiceAccountName != "" {
+			dep.ServiceAccountName = ptr.To(DefaultServiceAccountName)
+		} else {
+			dep.ServiceAccountName = ptr.To(agent.Name)
+		}
 	}
 
 	return dep, nil

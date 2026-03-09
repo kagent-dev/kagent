@@ -246,6 +246,10 @@ export interface AgentSpec {
   memory?: MemorySpec;
 }
 
+export interface DeclarativeDeploymentSpec {
+  serviceAccountName?: string;
+}
+
 export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
@@ -254,6 +258,7 @@ export interface DeclarativeAgentSpec {
   stream?: boolean;
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
+  deployment?: DeclarativeDeploymentSpec;
 }
 
 export interface ContextConfig {
@@ -296,6 +301,7 @@ export interface BYODeploymentSpec {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
+  serviceAccountName?: string;
 }
 
 export interface A2AConfig {
