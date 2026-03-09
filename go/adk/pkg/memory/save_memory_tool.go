@@ -68,18 +68,16 @@ func (t *saveMemoryTool) Run(toolCtx tool.Context, args any) (map[string]any, er
 	}
 
 	// Generate embedding for the content.
+	embeddings, err := t.svc.embeddingClient.Generate(toolCtx, []string{content})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embedding: %w", err)
+	}
 	var vector []float32
-	if t.svc.embeddingClient != nil {
-		embeddings, err := t.svc.embeddingClient.Generate(toolCtx, []string{content})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate embedding: %w", err)
-		}
-		if len(embeddings) > 0 {
-			vector = embeddings[0]
-		}
+	if len(embeddings) > 0 {
+		vector = embeddings[0]
 	}
 	if vector == nil {
-		vector = make([]float32, 768)
+		return nil, fmt.Errorf("embedding generation returned no vectors")
 	}
 
 	if err := t.svc.storeMemory(toolCtx, toolCtx.UserID(), content, vector); err != nil {

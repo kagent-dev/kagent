@@ -58,17 +58,15 @@ func New(cfg Config) (*KagentMemoryService, error) {
 		client = http.DefaultClient
 	}
 
-	// Create embedding client if config provided
-	var embClient *embedding.Client
-	if cfg.EmbeddingConfig != nil {
-		var err error
-		embClient, err = embedding.New(embedding.Config{
-			EmbeddingConfig: cfg.EmbeddingConfig,
-			HTTPClient:      client,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create embedding client: %w", err)
-		}
+	if cfg.EmbeddingConfig == nil {
+		return nil, fmt.Errorf("embedding config is required")
+	}
+	embClient, err := embedding.New(embedding.Config{
+		EmbeddingConfig: cfg.EmbeddingConfig,
+		HTTPClient:      client,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create embedding client: %w", err)
 	}
 
 	return &KagentMemoryService{
@@ -108,17 +106,6 @@ func (s *KagentMemoryService) AddSession(ctx context.Context, session adksession
 	}
 
 	// Generate embeddings
-	if s.embeddingClient == nil {
-		log.V(1).Info("No embedding client, using placeholder vectors")
-		// Use placeholder vectors if no embedding config
-		for _, content := range contents {
-			if err := s.storeMemory(ctx, session.UserID(), content, make([]float32, 768)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
 	embeddings, err := s.embeddingClient.Generate(ctx, contents)
 	if err != nil {
 		return fmt.Errorf("failed to generate embeddings: %w", err)
@@ -186,19 +173,16 @@ func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequ
 
 	// Generate embedding for the query. Without a valid embedding we cannot
 	// perform similarity search, so return empty results on failure.
+	embeddings, err := s.embeddingClient.Generate(ctx, []string{req.Query})
+	if err != nil {
+		log.Error(err, "Failed to generate query embedding, returning empty results")
+		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
+	}
 	var vector []float32
-	if s.embeddingClient != nil {
-		embeddings, err := s.embeddingClient.Generate(ctx, []string{req.Query})
-		if err != nil {
-			log.Error(err, "Failed to generate query embedding, returning empty results")
-			return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
-		}
-		if len(embeddings) > 0 {
-			vector = embeddings[0]
-		}
+	if len(embeddings) > 0 {
+		vector = embeddings[0]
 	}
 	if vector == nil {
-		log.V(1).Info("No embedding available for query, returning empty results")
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
 	}
 

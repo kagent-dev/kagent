@@ -16,6 +16,33 @@ import (
 	"google.golang.org/genai"
 )
 
+// newMockEmbeddingClient creates a mock embedding client backed by a test HTTP server
+// that returns a fixed non-zero vector for any input.
+func newMockEmbeddingClient(t *testing.T) (*embedding.Client, *httptest.Server) {
+	t.Helper()
+	embServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vec := make([]float64, 768)
+		vec[0] = 1.0
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"data":  []map[string]any{{"embedding": vec, "index": 0}},
+			"model": "test",
+		})
+	}))
+	client, err := embedding.New(embedding.Config{
+		EmbeddingConfig: &adk.EmbeddingConfig{
+			Provider: "openai",
+			Model:    "test-model",
+			BaseUrl:  embServer.URL + "/v1",
+		},
+		HTTPClient: embServer.Client(),
+	})
+	if err != nil {
+		t.Fatalf("failed to create mock embedding client: %v", err)
+	}
+	return client, embServer
+}
+
 func TestKagentMemoryService_AddSession(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -107,12 +134,15 @@ func TestKagentMemoryService_AddSession(t *testing.T) {
 			}))
 			defer server.Close()
 
+			embClient, embServer := newMockEmbeddingClient(t)
+			defer embServer.Close()
+
 			svc := &KagentMemoryService{
 				agentName:       "test-agent",
 				apiURL:          server.URL,
 				client:          server.Client(),
 				ttlDays:         15,
-				embeddingClient: nil, // Use placeholder vectors
+				embeddingClient: embClient,
 				model:           nil, // No summarization
 			}
 
@@ -209,26 +239,8 @@ func TestKagentMemoryService_Search(t *testing.T) {
 			}))
 			defer server.Close()
 
-			// Create a mock embedding server that returns a fixed non-zero vector
-			embServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				vec := make([]float64, 768)
-				vec[0] = 1.0 // non-zero to avoid NaN in cosine distance
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{
-					"data":  []map[string]any{{"embedding": vec, "index": 0}},
-					"model": "test",
-				})
-			}))
+			embClient, embServer := newMockEmbeddingClient(t)
 			defer embServer.Close()
-
-			embClient, _ := embedding.New(embedding.Config{
-				EmbeddingConfig: &adk.EmbeddingConfig{
-					Provider: "openai",
-					Model:    "test-model",
-					BaseUrl:  embServer.URL + "/v1",
-				},
-				HTTPClient: embServer.Client(),
-			})
 
 			svc := &KagentMemoryService{
 				agentName:       "test-agent",
@@ -413,6 +425,10 @@ func TestNew(t *testing.T) {
 			config: Config{
 				AgentName: "test-agent",
 				APIURL:    "http://localhost:8083",
+				EmbeddingConfig: &adk.EmbeddingConfig{
+					Provider: "openai",
+					Model:    "text-embedding-3-small",
+				},
 			},
 			wantErr: false,
 		},
@@ -431,16 +447,12 @@ func TestNew(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "with_embedding_config",
+			name: "missing_embedding_config",
 			config: Config{
 				AgentName: "test-agent",
 				APIURL:    "http://localhost:8083",
-				EmbeddingConfig: &adk.EmbeddingConfig{
-					Provider: "openai",
-					Model:    "text-embedding-3-small",
-				},
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
