@@ -29,8 +29,8 @@ import (
 // TestInput represents the structure of input test files
 type TestInput struct {
 	Objects                   []map[string]any `yaml:"objects"`
-	Operation                 string           `yaml:"operation"`                           // "translateAgent", "translateTeam", "translateToolServer"
-	TargetObject              string           `yaml:"targetObject"`                        // name of the object to translate
+	Operation                 string           `yaml:"operation"`    // "translateAgent", "translateTeam", "translateToolServer"
+	TargetObject              string           `yaml:"targetObject"` // name of the object to translate
 	Namespace                 string           `yaml:"namespace"`
 	ProxyURL                  string           `yaml:"proxyURL,omitempty"`                  // Optional proxy URL for internally-built k8s URLs
 	DefaultServiceAccountName string           `yaml:"defaultServiceAccountName,omitempty"` // Optional global default SA name
