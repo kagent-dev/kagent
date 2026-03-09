@@ -31,7 +31,7 @@ constraints = [
 
 [manifest.dependency-groups]
 dev = [
-    { name = "authlib", specifier = ">=1.6.4" },
+    { name = "authlib", specifier = ">=1.6.7" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", specifier = ">=0.25.3" },
     { name = "ruff", specifier = ">=0.11.5" },
@@ -73,6 +73,7 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "pydantic" },
+    { name = "pyjwt" },
     { name = "typing-extensions" },
 ]
 
@@ -93,6 +94,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.21.1" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.5" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.25.3" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.0.0" },
@@ -373,14 +375,14 @@ wheels = [
 
 [[package]]
 name = "authlib"
-version = "1.6.6"
+version = "1.6.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/9b/b1661026ff24bc641b76b78c5222d614776b0c085bcfdac9bd15a1cb4b35/authlib-1.6.6.tar.gz", hash = "sha256:45770e8e056d0f283451d9996fbb59b70d45722b45d854d58f32878d0a40c38e", size = 164894, upload-time = "2025-12-12T08:01:41.464Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/98/00d3dd826d46959ad8e32af2dbb2398868fd9fd0683c26e56d0789bd0e68/authlib-1.6.9.tar.gz", hash = "sha256:d8f2421e7e5980cc1ddb4e32d3f5fa659cfaf60d8eaf3281ebed192e4ab74f04", size = 165134, upload-time = "2026-03-02T07:44:01.998Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/51/321e821856452f7386c4e9df866f196720b1ad0c5ea1623ea7399969ae3b/authlib-1.6.6-py2.py3-none-any.whl", hash = "sha256:7d9e9bc535c13974313a87f53e8430eb6ea3d1cf6ae4f6efcd793f2e949143fd", size = 244005, upload-time = "2025-12-12T08:01:40.209Z" },
+    { url = "https://files.pythonhosted.org/packages/53/23/b65f568ed0c22f1efacb744d2db1a33c8068f384b8c9b482b52ebdbc3ef6/authlib-1.6.9-py2.py3-none-any.whl", hash = "sha256:f08b4c14e08f0861dc18a32357b33fbcfd2ea86cfe3fe149484b4d764c4a0ac3", size = 244197, upload-time = "2026-03-02T07:44:00.307Z" },
 ]
 
 [[package]]
@@ -3658,15 +3660,15 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-semantic-conventions-ai"
-version = "0.4.14"
+version = "0.4.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/33/f77151a8c9bf93094074533ea751305e9f3fec1a4197b0f218d09cb8dce2/opentelemetry_semantic_conventions_ai-0.4.14.tar.gz", hash = "sha256:0495774011933010db7dbfa5111a2fa649edeedef922e39c898154c81eae89d8", size = 18418, upload-time = "2026-02-22T20:25:34.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/75/455c15f8360b475dd31101a87eab316420388486f7941bf019cbf4e63d5b/opentelemetry_semantic_conventions_ai-0.4.15.tar.gz", hash = "sha256:12de172d1e11d21c6e82bbf578c7e8a713589a7fda76af9ed785632564a28b81", size = 18595, upload-time = "2026-03-02T15:36:50.254Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/d5/cdc62ce0f7357cd91682bb1e31d7a68a3c0da5abdbd8c69ffa9aec555f1b/opentelemetry_semantic_conventions_ai-0.4.14-py3-none-any.whl", hash = "sha256:218e0bf656b1d459c5bc608e2a30272b7ab0a4a5b69c1bd5b659c3918f4ad144", size = 5824, upload-time = "2026-02-22T20:25:33.307Z" },
+    { url = "https://files.pythonhosted.org/packages/12/49/819fb212386f77cfd93f81bd916d674f0e735f87c8ac2262ed14e3b852c2/opentelemetry_semantic_conventions_ai-0.4.15-py3-none-any.whl", hash = "sha256:011461f1fba30f27035c49ab3b8344367adc72da0a6c8d3c7428303c6779edc9", size = 5999, upload-time = "2026-03-02T15:36:51.44Z" },
 ]
 
 [[package]]

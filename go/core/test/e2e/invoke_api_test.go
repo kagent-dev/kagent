@@ -124,6 +124,27 @@ func setupMCPServer(t *testing.T, cli client.Client) *v1alpha1.MCPServer {
 		t.Fatalf("failed to create mcp server: %v", err)
 	}
 	cleanup(t, cli, mcpServer)
+
+	// Wait for MCP server to be ready before returning
+	// This prevents race conditions where agents try to connect before the server is available
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=2m", // MCP servers need time for npx to download packages
+		"mcpservers.kagent.dev",
+		mcpServer.Name,
+		"-n",
+		mcpServer.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to wait for MCP server to be ready: %v", err)
+	}
+
 	return mcpServer
 }
 
@@ -134,15 +155,15 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
-	Name            string
-	SystemMessage   string
-	Stream          bool
-	Env             []corev1.EnvVar
-	Skills          *v1alpha2.SkillForAgent
-	ExecuteCode     *bool
-	ImageRepository *string
-	Memory          *v1alpha2.MemorySpec
-	PromptTemplate  *v1alpha2.PromptTemplateSpec
+	Name           string
+	SystemMessage  string
+	Stream         bool
+	Env            []corev1.EnvVar
+	Skills         *v1alpha2.SkillForAgent
+	ExecuteCode    *bool
+	Runtime        *v1alpha2.DeclarativeRuntime
+	Memory         *v1alpha2.MemorySpec
+	PromptTemplate *v1alpha2.PromptTemplateSpec
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -413,8 +434,8 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 	// Apply optional configurations
 	agent.Spec.Declarative.Stream = opts.Stream
 
-	if opts.ImageRepository != nil {
-		agent.Spec.Declarative.Deployment.ImageRepository = opts.ImageRepository
+	if opts.Runtime != nil {
+		agent.Spec.Declarative.Runtime = *opts.Runtime
 	}
 
 	if len(opts.Env) > 0 {
@@ -1001,13 +1022,12 @@ func TestE2EInvokeGolangADKAgent(t *testing.T) {
 	// Setup model config pointing at mock server
 	modelCfg := setupModelConfig(t, cli, baseURL)
 
-	// Create a declarative agent that uses the Go ADK image instead of the
-	// default Python ADK image by overriding ImageRepository.
-	golangADKRepo := "kagent-dev/kagent/golang-adk"
+	// Create a declarative agent that uses the Go ADK runtime
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-		Name:            "golang-adk-test",
-		SystemMessage:   "You are a helpful test agent. Answer concisely.",
-		ImageRepository: &golangADKRepo,
+		Name:          "golang-adk-test",
+		SystemMessage: "You are a helpful test agent. Answer concisely.",
+		Runtime:       &goRuntime,
 	})
 
 	// Setup A2A client
@@ -1023,10 +1043,11 @@ func TestE2EInvokeGolangADKAgent(t *testing.T) {
 	})
 }
 
-// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
-// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
-// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
-func TestE2EMemoryWithAgent(t *testing.T) {
+// runMemoryAgentTest is a helper that sets up an agent with memory enabled and
+// runs save/load memory subtests. extraOpts are merged into the base AgentOptions.
+func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
+	t.Helper()
+
 	llmURL, stopLLM := setupMockServer(t, "mocks/invoke_memory_agent.json")
 	defer stopLLM()
 
@@ -1035,13 +1056,12 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 	llmModelCfg := setupModelConfig(t, cli, llmURL)
 	embeddingModelCfg := setupEmbeddingModelConfig(t, cli, llmURL)
 
-	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, AgentOptions{
-		Name: "memory-test-agent",
-		Memory: &v1alpha2.MemorySpec{
-			ModelConfig: embeddingModelCfg.Name,
-		},
-	})
+	opts := extraOpts
+	opts.Memory = &v1alpha2.MemorySpec{
+		ModelConfig: embeddingModelCfg.Name,
+	}
 
+	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, opts)
 	a2aClient := setupA2AClient(t, agent)
 
 	var saveResult *protocol.Task
@@ -1060,6 +1080,23 @@ func TestE2EMemoryWithAgent(t *testing.T) {
 			nil,
 			saveResult.ContextID,
 		)
+	})
+}
+
+// TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
+// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
+// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+func TestE2EMemoryWithAgent(t *testing.T) {
+	runMemoryAgentTest(t, AgentOptions{Name: "memory-test-agent"})
+}
+
+// TestE2EMemoryWithGoADKAgent is the same as TestE2EMemoryWithAgent but uses
+// the Go ADK runtime to verify memory works end-to-end with the Go runtime.
+func TestE2EMemoryWithGoADKAgent(t *testing.T) {
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
+	runMemoryAgentTest(t, AgentOptions{
+		Name:    "memory-go-adk-test",
+		Runtime: &goRuntime,
 	})
 }
 

@@ -4,6 +4,7 @@ This server automatically discovers and loads tools from the tools directory.
 Each tool file should contain a function decorated with @mcp.tool().
 """
 
+import asyncio
 import importlib.util
 import logging
 import sys
@@ -75,14 +76,14 @@ class DynamicMCPServer:
         for tool_file in tool_files:
             try:
                 # Get the number of tools before importing
-                tools_before = len(self.mcp._tool_manager._tools)
+                tools_before = len(asyncio.run(self.mcp.list_tools()))
 
                 # Simply import the module - tools auto-register via @mcp.tool()
                 # decorator
                 tool_name = tool_file.stem
                 if self._import_tool_module(tool_file, tool_name):
                     # Check if any tools were actually registered
-                    tools_after = len(self.mcp._tool_manager._tools)
+                    tools_after = len(asyncio.run(self.mcp.list_tools()))
                     if tools_after > tools_before:
                         self.loaded_tools.append(tool_name)
                         loaded_count += 1
@@ -140,22 +141,36 @@ class DynamicMCPServer:
             return False
 
     def get_tools_sync(self) -> dict[str, Any]:
-        """Get tools synchronously for testing purposes."""
-        # This is a simplified version for testing - in real usage, use get_tools()
-        # async
-        return self.mcp._tool_manager._tools
+        """Get tools synchronously for testing purposes.
 
-    def run(self, transport_mode: str = "stdio", host: str = "localhost", port: int = 3000) -> None:
+        This prefers returning the internal tool mapping (name -> tool object)
+        to preserve compatibility with existing tests/code, and falls back to
+        using list_tools() if no such mapping is available.
+        """
+        # Prefer an internal mapping if FastMCP exposes one (e.g., for tests
+        # that rely on direct access to the underlying tool objects/callables).
+        internal_tools = getattr(self.mcp, "tools", None)
+        if isinstance(internal_tools, dict):
+            return internal_tools
+
+        # Fallback: build a mapping from the async list_tools() API.
+        tools_list = asyncio.run(self.mcp.list_tools())
+        return {t.name: t for t in tools_list}
+
+    def run(self, transport_mode: str = "stdio", host: str = "localhost",
+            port: int = 3000, stateless_http: bool = False) -> None:
         """Run the FastMCP server.
 
         Args:
             transport_mode: Transport mode - "stdio", or "http"
             host: Host to bind to in HTTP mode
             port: Port to bind to in HTTP mode
+            stateless_http: Whether to use stateless HTTP mode
         """
 
         if transport_mode == "http":
-            self.mcp.run(transport="http", host=host, port=port, path="/mcp")
+            self.mcp.run(transport="http", host=host, port=port, path="/mcp",
+                         stateless_http=stateless_http)
         elif transport_mode == "stdio":
             # Default to stdio mode
             self.mcp.run()

@@ -69,7 +69,12 @@ type DeployCfg struct {
 }
 
 // DeployCmd deploys an agent to Kubernetes
-func DeployCmd(ctx context.Context, cfg *DeployCfg) error {
+func DeployCmd(ctx context.Context, k8sClient client.Client, cfg *DeployCfg) error {
+	// Validate that k8sClient is provided when not in dry-run mode
+	if k8sClient == nil && !cfg.DryRun {
+		return fmt.Errorf("kubernetes client is required for non-dry-run deployments")
+	}
+
 	// Step 1: Validate and load project
 	manifest, err := validateAndLoadProject(cfg)
 	if err != nil {
@@ -95,10 +100,9 @@ func DeployCmd(ctx context.Context, cfg *DeployCfg) error {
 		return err
 	}
 
-	// Step 6: Setup Kubernetes client and namespace
-	k8sClient, err := setupKubernetesEnvironment(cfg)
-	if err != nil {
-		return err
+	// Step 6: Setup namespace
+	if cfg.Config.Namespace == "" {
+		cfg.Config.Namespace = defaultNamespace
 	}
 
 	// Step 7: Handle env file secret (contains API key and other env vars)
@@ -181,21 +185,6 @@ func validateDeploymentRequirements(manifest *common.AgentManifest) (string, err
 	}
 
 	return apiKeyEnvVar, nil
-}
-
-// setupKubernetesEnvironment creates Kubernetes client and sets up namespace
-func setupKubernetesEnvironment(cfg *DeployCfg) (client.Client, error) {
-	k8sClient, err := createKubernetesClient()
-	if err != nil && !cfg.DryRun {
-		return nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
-	}
-
-	// Set default namespace if not provided
-	if cfg.Config.Namespace == "" {
-		cfg.Config.Namespace = defaultNamespace
-	}
-
-	return k8sClient, nil
 }
 
 // envFileData holds both the secret name and the parsed env var keys
@@ -553,8 +542,8 @@ func getAPIKeyEnvVar(modelProvider string) string {
 	}
 }
 
-// createKubernetesClient creates a Kubernetes client
-func createKubernetesClient() (client.Client, error) {
+// CreateKubernetesClient creates a Kubernetes client
+func CreateKubernetesClient() (client.Client, error) {
 	// Use the standard kubeconfig loading rules
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}

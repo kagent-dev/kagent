@@ -38,6 +38,15 @@ const (
 	AgentType_BYO         AgentType = "BYO"
 )
 
+// DeclarativeRuntime represents the runtime implementation for declarative agents
+// +kubebuilder:validation:Enum=python;go
+type DeclarativeRuntime string
+
+const (
+	DeclarativeRuntime_Python DeclarativeRuntime = "python"
+	DeclarativeRuntime_Go     DeclarativeRuntime = "go"
+)
+
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
@@ -118,6 +127,14 @@ type GitRepo struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
+	// Runtime specifies which ADK implementation to use for this agent.
+	// - "python": Uses the Python ADK (default, slower startup, full feature set)
+	// - "go": Uses the Go ADK (faster startup, most features supported)
+	// The runtime determines both the container image and readiness probe configuration.
+	// +optional
+	// +kubebuilder:default=python
+	// +kubebuilder:validation:Enum=python;go
+	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
 	// with access to an include("source/key") function and agent context variables
@@ -261,9 +278,6 @@ type MemorySpec struct {
 type DeclarativeDeploymentSpec struct {
 	// +optional
 	ImageRegistry string `json:"imageRegistry,omitempty"`
-
-	// +optional
-	ImageRepository *string `json:"imageRepository,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
 }
@@ -460,8 +474,9 @@ type A2AConfig struct {
 type AgentSkill server.AgentSkill
 
 const (
-	AgentConditionTypeAccepted = "Accepted"
-	AgentConditionTypeReady    = "Ready"
+	AgentConditionTypeAccepted            = "Accepted"
+	AgentConditionTypeReady               = "Ready"
+	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
 // AgentStatus defines the observed state of Agent.
@@ -473,6 +488,7 @@ type AgentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
+// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.declarative.runtime",description="The runtime implementation for declarative agents."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
 // +kubebuilder:storageversion

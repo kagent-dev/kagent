@@ -63,9 +63,9 @@ func (c *clientImpl) DeleteTask(taskID string) error {
 }
 
 // DeleteSession deletes a session by id and user ID
-func (c *clientImpl) DeleteSession(sessionName string, userID string) error {
+func (c *clientImpl) DeleteSession(sessionID string, userID string) error {
 	return delete[dbpkg.Session](c.db,
-		Clause{Key: "id", Value: sessionName},
+		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 
@@ -106,10 +106,10 @@ func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
 	return protocolMessages, nil
 }
 
-// GetSession retrieves a session by name and user ID
-func (c *clientImpl) GetSession(sessionName string, userID string) (*dbpkg.Session, error) {
+// GetSession retrieves a session by id and user ID
+func (c *clientImpl) GetSession(sessionID string, userID string) (*dbpkg.Session, error) {
 	return get[dbpkg.Session](c.db,
-		Clause{Key: "id", Value: sessionName},
+		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 
@@ -618,10 +618,11 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
 		}
 	} else {
-		// Postgres pgvector syntax: uses <=> operator for cosine distance
+		// Postgres pgvector syntax: uses <=> operator for cosine distance.
+		// COALESCE guards against NaN when either vector has zero magnitude.
 		// pgvector.Vector implements sql.Scanner and driver.Valuer
 		query := `
-			SELECT *, 1 - (embedding <=> ?) as score
+			SELECT *, COALESCE(1 - (embedding <=> ?), 0) as score
 			FROM memory
 			WHERE agent_name = ? AND user_id = ?
 			ORDER BY embedding <=> ? ASC
