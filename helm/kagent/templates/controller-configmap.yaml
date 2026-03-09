@@ -66,6 +66,6 @@ data:
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
-  {{- if and .Values.controller.defaultServiceAccountName (not (eq .Values.controller.defaultServiceAccountName "")) }}
-  DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.defaultServiceAccountName | quote }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
+  DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
   {{- end }}
