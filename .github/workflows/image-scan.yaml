@@ -23,12 +23,14 @@ env:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         image:
           - controller
           - ui
           - app
           - skills-init
+          - golang-adk
     runs-on: ubuntu-latest
     services:
       registry:
