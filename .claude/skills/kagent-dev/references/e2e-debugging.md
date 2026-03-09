@@ -264,50 +264,6 @@ uv run kagent-adk test --filepath ${AGENT_CONFIG_DIR} --task "Your test prompt"
 
 ---
 
-## Golden File Mismatches
-
-**Symptom:** Translator tests fail with diff showing unexpected changes
-
-### Cause
-
-Generated Kubernetes manifests don't match expected golden files.
-
-### Debugging
-
-```bash
-# Run test to see diff
-make -C go test
-
-# Look at specific diff
-git diff go/core/internal/controller/translator/agent/testdata/outputs/
-```
-
-### Fix Options
-
-**Option 1: Changes are intentional (you modified translator)**
-
-```bash
-# Regenerate golden files
-UPDATE_GOLDEN=true make -C go test
-
-# Review changes
-git diff go/core/internal/controller/translator/agent/testdata/outputs/
-
-# If correct, commit them
-git add go/core/internal/controller/translator/agent/testdata/outputs/
-git commit -s -m "test: regenerate golden files after translator change"
-```
-
-**Option 2: Changes are unintentional (bug in translator)**
-
-Fix the translator logic, then run tests again.
-
-**Option 3: Unrelated changes (env vars, timestamps, etc.)**
-
-Check if golden files include non-deterministic data that should be excluded.
-
----
-
 ## Specific Test Failures
 
 ### TestE2EInvokeInlineAgent Fails
