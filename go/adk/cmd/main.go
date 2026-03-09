@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"go.uber.org/zap"
@@ -124,7 +125,25 @@ func main() {
 
 	ctx := logr.NewContext(context.Background(), logger)
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName)
+	// Build memory service if configured.
+	var memoryService *kagentmemory.KagentMemoryService
+	if agentConfig.Memory != nil && kagentURL != "" {
+		memSvc, err := kagentmemory.New(kagentmemory.Config{
+			AgentName:       appName,
+			APIURL:          kagentURL,
+			HTTPClient:      httpClient,
+			TTLDays:         agentConfig.Memory.TTLDays,
+			EmbeddingConfig: agentConfig.Memory.Embedding,
+		})
+		if err != nil {
+			logger.Error(err, "Failed to create memory service")
+			os.Exit(1)
+		}
+		memoryService = memSvc
+		logger.Info("Memory service enabled", "appName", appName)
+	}
+
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
