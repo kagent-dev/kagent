@@ -166,7 +166,11 @@ func (e *TemporalExecutor) forwardStreamEvent(
 	switch event.Type {
 	case streaming.EventTypeToken:
 		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: event.Data})
+		// Mark as partial so the task store filters out individual token messages.
+		partialMeta := map[string]any{"adk_partial": true}
+		msg.Metadata = partialMeta
 		status := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
+		status.Metadata = partialMeta
 		if err := queue.Write(ctx, status); err != nil {
 			e.log.V(1).Info("Failed to forward token event", "error", err)
 		}
@@ -253,7 +257,15 @@ func (e *TemporalExecutor) writeFinalStatus(
 		state = a2atype.TaskStateCompleted
 		text := "Task completed"
 		if len(result.Response) > 0 {
-			text = string(result.Response)
+			// Response is a serialized LLMResponse; extract the content field.
+			var llmResp struct {
+				Content string `json:"content"`
+			}
+			if err := json.Unmarshal(result.Response, &llmResp); err == nil && llmResp.Content != "" {
+				text = llmResp.Content
+			} else {
+				text = string(result.Response)
+			}
 		}
 		msg = a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: text})
 

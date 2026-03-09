@@ -189,17 +189,17 @@ func processMessage(
 				Content: llmResp.Content,
 			})
 
-			// Build A2A task with proper history containing both user and agent messages.
+			// Build A2A task with full history including tool calls/results.
 			responseBytes, _ := json.Marshal(llmResp)
 			now := workflow.Now(ctx)
 
-			userMsg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: userText})
+			taskHistory := buildA2AHistory(*history)
 			agentMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: llmResp.Content})
 
 			task := &a2atype.Task{
 				ID:        a2atype.TaskID(req.SessionID),
 				ContextID: req.SessionID,
-				History:   []*a2atype.Message{userMsg, agentMsg},
+				History:   taskHistory,
 				Status: a2atype.TaskStatus{
 					State:     a2atype.TaskStateCompleted,
 					Message:   agentMsg,
@@ -475,6 +475,75 @@ func taskActivityOptions() workflow.ActivityOptions {
 			BackoffCoefficient: 2.0,
 		},
 	}
+}
+
+// buildA2AHistory converts the internal conversation history into A2A Messages
+// suitable for task persistence. Each entry becomes a properly typed message:
+// user text, assistant text, function_call DataParts, and function_response DataParts.
+func buildA2AHistory(history []conversationEntry) []*a2atype.Message {
+	// Build a mapping from tool call ID to tool name for result entries.
+	toolNameByID := make(map[string]string)
+	for _, entry := range history {
+		for _, tc := range entry.ToolCalls {
+			toolNameByID[tc.ID] = tc.Name
+		}
+	}
+
+	var msgs []*a2atype.Message
+	for _, entry := range history {
+		switch entry.Role {
+		case "user":
+			msgs = append(msgs, a2atype.NewMessage(a2atype.MessageRoleUser,
+				a2atype.TextPart{Text: entry.Content}))
+
+		case "assistant":
+			if len(entry.ToolCalls) > 0 {
+				// Emit each tool call as a separate message with function_call metadata.
+				for _, tc := range entry.ToolCalls {
+					var args map[string]any
+					if len(tc.Args) > 0 {
+						_ = json.Unmarshal(tc.Args, &args)
+					}
+					msgs = append(msgs, a2atype.NewMessage(a2atype.MessageRoleAgent,
+						a2atype.DataPart{
+							Data: map[string]any{
+								"id":   tc.ID,
+								"name": tc.Name,
+								"args": args,
+							},
+							Metadata: map[string]any{"adk_type": "function_call"},
+						}))
+				}
+			}
+			if entry.Content != "" && len(entry.ToolCalls) == 0 {
+				msgs = append(msgs, a2atype.NewMessage(a2atype.MessageRoleAgent,
+					a2atype.TextPart{Text: entry.Content}))
+			}
+
+		case "tool":
+			var result any
+			if len(entry.ToolResult) > 0 {
+				_ = json.Unmarshal(entry.ToolResult, &result)
+			}
+			toolName := toolNameByID[entry.ToolCallID]
+			if toolName == "" {
+				toolName = entry.ToolCallID
+			}
+			msgs = append(msgs, a2atype.NewMessage(a2atype.MessageRoleAgent,
+				a2atype.DataPart{
+					Data: map[string]any{
+						"id":   entry.ToolCallID,
+						"name": toolName,
+						"response": map[string]any{
+							"isError": false,
+							"result":  result,
+						},
+					},
+					Metadata: map[string]any{"adk_type": "function_response"},
+				}))
+		}
+	}
+	return msgs
 }
 
 // extractTextFromA2AMessage extracts the text content from a JSON-encoded A2A Message.
