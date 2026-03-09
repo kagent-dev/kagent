@@ -1,6 +1,9 @@
 package streaming
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // StreamEvent represents a real-time event published over NATS for LLM tokens,
 // tool progress, approval requests, and errors.
@@ -39,6 +42,21 @@ type ApprovalRequest struct {
 	Message    string `json:"message"`
 	ToolName   string `json:"toolName,omitempty"`
 	ToolID     string `json:"toolID,omitempty"`
+}
+
+// ToolCallEvent carries structured tool call data for the UI.
+type ToolCallEvent struct {
+	ID   string          `json:"id"`
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args,omitempty"`
+}
+
+// ToolResultEvent carries structured tool result data for the UI.
+type ToolResultEvent struct {
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Response json.RawMessage `json:"response,omitempty"`
+	IsError  bool            `json:"isError,omitempty"`
 }
 
 // SubjectForAgent returns the NATS subject for an agent's session stream.

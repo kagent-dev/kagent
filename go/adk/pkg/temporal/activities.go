@@ -106,29 +106,42 @@ func (a *Activities) LLMInvokeActivity(ctx context.Context, req *LLMRequest) (*L
 }
 
 // ToolExecuteActivity executes a single MCP tool call.
-// Publishes tool start/end events to NATS.
+// Publishes structured tool_start/tool_end events to NATS so the UI can
+// render tool call widgets with name, args, and results.
 func (a *Activities) ToolExecuteActivity(ctx context.Context, req *ToolRequest) (*ToolResponse, error) {
 	if a.toolExecutor == nil {
 		return nil, fmt.Errorf("tool executor is not configured")
 	}
 
-	// Publish tool_start event.
+	// Publish tool_start event with structured tool call data.
 	if a.publisher != nil && req.NATSSubject != "" {
-		startEvent := streaming.NewStreamEvent(streaming.EventTypeToolStart, req.ToolName)
+		callEvent := streaming.ToolCallEvent{
+			ID:   req.ToolCallID,
+			Name: req.ToolName,
+			Args: req.Args,
+		}
+		callData, _ := json.Marshal(callEvent)
+		startEvent := streaming.NewStreamEvent(streaming.EventTypeToolStart, string(callData))
 		_ = a.publisher.PublishToolProgress(req.NATSSubject, startEvent)
 	}
 
 	result, err := a.toolExecutor(ctx, req.ToolName, req.Args)
 
-	// Publish tool_end event regardless of success/failure.
+	// Publish tool_end event with structured result data.
 	if a.publisher != nil && req.NATSSubject != "" {
-		var endData string
-		if err != nil {
-			endData = fmt.Sprintf("%s:error:%s", req.ToolName, err.Error())
-		} else {
-			endData = req.ToolName
+		resultEvent := streaming.ToolResultEvent{
+			ID:   req.ToolCallID,
+			Name: req.ToolName,
 		}
-		endEvent := streaming.NewStreamEvent(streaming.EventTypeToolEnd, endData)
+		if err != nil {
+			resultEvent.IsError = true
+			errResp, _ := json.Marshal(map[string]any{"result": err.Error()})
+			resultEvent.Response = errResp
+		} else {
+			resultEvent.Response = result
+		}
+		resultData, _ := json.Marshal(resultEvent)
+		endEvent := streaming.NewStreamEvent(streaming.EventTypeToolEnd, string(resultData))
 		_ = a.publisher.PublishToolProgress(req.NATSSubject, endEvent)
 	}
 

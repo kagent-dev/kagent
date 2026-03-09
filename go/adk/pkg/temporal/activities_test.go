@@ -55,9 +55,9 @@ type mockSessionService struct {
 	events   map[string][]any
 	mu       sync.Mutex
 
-	createErr    error
-	getErr       error
-	appendErr    error
+	createErr     error
+	getErr        error
+	appendErr     error
 	getReturnsNil bool
 }
 
@@ -448,11 +448,30 @@ func TestToolExecuteActivity_WithNATSEvents(t *testing.T) {
 	if received[0].Type != streaming.EventTypeToolStart {
 		t.Errorf("expected tool_start, got %q", received[0].Type)
 	}
-	if received[0].Data != "my-tool" {
-		t.Errorf("expected tool name in start event, got %q", received[0].Data)
+	// Start event now carries structured JSON with tool call details.
+	var callEvent streaming.ToolCallEvent
+	if err := json.Unmarshal([]byte(received[0].Data), &callEvent); err != nil {
+		t.Fatalf("failed to parse start event data: %v", err)
+	}
+	if callEvent.Name != "my-tool" {
+		t.Errorf("expected tool name 'my-tool', got %q", callEvent.Name)
+	}
+	if callEvent.ID != "call-3" {
+		t.Errorf("expected tool call ID 'call-3', got %q", callEvent.ID)
 	}
 	if received[1].Type != streaming.EventTypeToolEnd {
 		t.Errorf("expected tool_end, got %q", received[1].Type)
+	}
+	// End event carries structured JSON with result.
+	var resultEvent streaming.ToolResultEvent
+	if err := json.Unmarshal([]byte(received[1].Data), &resultEvent); err != nil {
+		t.Fatalf("failed to parse end event data: %v", err)
+	}
+	if resultEvent.Name != "my-tool" {
+		t.Errorf("expected tool name 'my-tool' in result, got %q", resultEvent.Name)
+	}
+	if resultEvent.IsError {
+		t.Error("expected IsError=false in result")
 	}
 }
 
@@ -689,4 +708,3 @@ func TestToolExecuteActivity_ErrorPublishesEndEvent(t *testing.T) {
 		t.Errorf("expected tool_end, got %q", received[1].Type)
 	}
 }
-

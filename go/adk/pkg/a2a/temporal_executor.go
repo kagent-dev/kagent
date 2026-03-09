@@ -154,6 +154,8 @@ func (e *TemporalExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestCon
 }
 
 // forwardStreamEvent converts a NATS streaming event to an A2A status update event.
+// Tool events are formatted as DataParts with metadata matching the ADK convention
+// (type: "function_call" / "function_response") so the UI renders tool call widgets.
 func (e *TemporalExecutor) forwardStreamEvent(
 	ctx context.Context,
 	reqCtx *a2asrv.RequestContext,
@@ -170,16 +172,55 @@ func (e *TemporalExecutor) forwardStreamEvent(
 		}
 
 	case streaming.EventTypeToolStart:
+		// Parse structured tool call event and emit as function_call DataPart.
+		var callEvent streaming.ToolCallEvent
+		if err := json.Unmarshal([]byte(event.Data), &callEvent); err != nil {
+			e.log.V(1).Info("Failed to parse tool start event", "error", err)
+			return
+		}
+		var args map[string]any
+		if len(callEvent.Args) > 0 {
+			_ = json.Unmarshal(callEvent.Args, &args)
+		}
+		data := map[string]any{
+			"id":   callEvent.ID,
+			"name": callEvent.Name,
+			"args": args,
+		}
 		msg := a2atype.NewMessage(a2atype.MessageRoleAgent,
-			a2atype.DataPart{Data: map[string]any{"tool": event.Data, "status": "started"}})
+			a2atype.DataPart{
+				Data:     data,
+				Metadata: map[string]any{"adk_type": "function_call"},
+			})
 		status := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
 		if err := queue.Write(ctx, status); err != nil {
 			e.log.V(1).Info("Failed to forward tool start event", "error", err)
 		}
 
 	case streaming.EventTypeToolEnd:
+		// Parse structured tool result event and emit as function_response DataPart.
+		var resultEvent streaming.ToolResultEvent
+		if err := json.Unmarshal([]byte(event.Data), &resultEvent); err != nil {
+			e.log.V(1).Info("Failed to parse tool end event", "error", err)
+			return
+		}
+		var response map[string]any
+		if len(resultEvent.Response) > 0 {
+			_ = json.Unmarshal(resultEvent.Response, &response)
+		}
+		data := map[string]any{
+			"id":   resultEvent.ID,
+			"name": resultEvent.Name,
+			"response": map[string]any{
+				"isError": resultEvent.IsError,
+				"result":  response,
+			},
+		}
 		msg := a2atype.NewMessage(a2atype.MessageRoleAgent,
-			a2atype.DataPart{Data: map[string]any{"tool": event.Data, "status": "completed"}})
+			a2atype.DataPart{
+				Data:     data,
+				Metadata: map[string]any{"adk_type": "function_response"},
+			})
 		status := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
 		if err := queue.Write(ctx, status); err != nil {
 			e.log.V(1).Info("Failed to forward tool end event", "error", err)
