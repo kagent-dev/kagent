@@ -237,9 +237,9 @@ type AgentMemorySearchResult struct {
 // Plugin represents an MCP server that provides a web UI.
 // Populated by the controller from RemoteMCPServer CRDs with ui.enabled=true.
 type Plugin struct {
-	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// Name is the RemoteMCPServer ref (namespace/name format)
 	Name string `gorm:"primaryKey;not null" json:"name"`
@@ -253,6 +253,10 @@ type Plugin struct {
 	Section string `json:"section"`
 	// UpstreamURL is the base URL to proxy to (derived from spec.url)
 	UpstreamURL string `json:"upstream_url"`
+	// DefaultPath is the initial path to redirect to when the plugin root is loaded (e.g. "/namespaces/kagent")
+	DefaultPath string `json:"default_path,omitempty"`
+	// InjectCSS is custom CSS injected into proxied HTML responses to customize the plugin UI
+	InjectCSS string `json:"inject_css,omitempty"`
 }
 
 // TableName methods to match Python table names

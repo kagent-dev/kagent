@@ -55,6 +55,12 @@ func (h *PluginProxyHandler) HandleProxy(w http.ResponseWriter, r *http.Request)
 		r.URL.Path = "/"
 	}
 
+	// Redirect plugin root to default path if configured
+	if r.URL.Path == "/" && plugin.DefaultPath != "" {
+		http.Redirect(w, r, prefix+plugin.DefaultPath, http.StatusTemporaryRedirect)
+		return
+	}
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -74,7 +80,7 @@ func (h *PluginProxyHandler) getOrCreateProxy(plugin *database.Plugin) *httputil
 			// Remove Accept-Encoding so we get uncompressed responses for rewriting
 			req.Header.Del("Accept-Encoding")
 		},
-		ModifyResponse: makePathRewriter(proxyPrefix),
+		ModifyResponse: makePathRewriter(proxyPrefix, plugin.InjectCSS),
 		// Flush immediately for SSE support
 		FlushInterval: -1,
 	}
@@ -90,7 +96,8 @@ var cspMetaRe = regexp.MustCompile(`(?i)<meta[^>]+http-equiv=["']content-securit
 // makePathRewriter returns a ModifyResponse function that rewrites absolute
 // paths in HTML responses so that SPA assets load through the plugin proxy.
 // For example, href="/_app/foo.js" becomes href="/_p/temporal/_app/foo.js".
-func makePathRewriter(proxyPrefix string) func(*http.Response) error {
+// If injectCSS is non-empty, a <style> tag is injected before </head>.
+func makePathRewriter(proxyPrefix, injectCSS string) func(*http.Response) error {
 	return func(resp *http.Response) error {
 		ct := resp.Header.Get("Content-Type")
 		if !strings.Contains(ct, "text/html") {
@@ -130,6 +137,12 @@ func makePathRewriter(proxyPrefix string) func(*http.Response) error {
 
 		// Rewrite absolute asset paths in link/script tags and dynamic imports
 		content = strings.ReplaceAll(content, `"/_app/`, `"`+proxyPrefix+`/_app/`)
+
+		// Inject custom CSS before </head> if configured
+		if injectCSS != "" {
+			styleTag := "<style>" + injectCSS + "</style>"
+			content = strings.Replace(content, "</head>", styleTag+"</head>", 1)
+		}
 
 		rewritten := []byte(content)
 		resp.Body = io.NopCloser(bytes.NewReader(rewritten))

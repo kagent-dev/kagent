@@ -65,6 +65,16 @@ type PluginUISpec struct {
 	// +kubebuilder:default="PLUGINS"
 	// +kubebuilder:validation:Enum=OVERVIEW;AGENTS;RESOURCES;ADMIN;PLUGINS
 	Section string `json:"section,omitempty"`
+
+	// DefaultPath is the initial path to redirect to when the plugin root is loaded.
+	// For example, "/namespaces/kagent" makes the plugin open at that path by default.
+	// +optional
+	DefaultPath string `json:"defaultPath,omitempty"`
+
+	// InjectCSS is custom CSS injected into proxied HTML responses to customize the plugin UI.
+	// For example, `[data-testid="navigation-header"] { display: none !important; }` hides the nav.
+	// +optional
+	InjectCSS string `json:"injectCSS,omitempty"`
 }
 
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.

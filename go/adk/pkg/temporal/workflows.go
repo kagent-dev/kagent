@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	// MaxTurns is the safety bound on the number of LLM turns per workflow execution.
+	// MaxTurns is the safety bound on the number of LLM turns per single message processing.
 	MaxTurns = 100
+
+	// SessionIdleTimeout is how long the workflow waits for a new message before exiting.
+	SessionIdleTimeout = 1 * time.Hour
 
 	// DefaultLLMActivityTimeout is the per-activity timeout for LLM invocations.
 	DefaultLLMActivityTimeout = 5 * time.Minute
@@ -37,23 +40,24 @@ type conversationEntry struct {
 	ToolResult json.RawMessage `json:"toolResult,omitempty"`
 }
 
-// AgentExecutionWorkflow orchestrates a single agent execution run.
-// Each LLM turn and tool call is a separate activity for maximum durability.
+// AgentExecutionWorkflow is a long-running session workflow.
+// It initializes a session, then loops waiting for message signals.
+// Each message triggers an LLM+tool processing cycle. The workflow
+// stays alive across multiple messages in the same session, producing
+// a single workflow execution in the Temporal UI.
 //
 // Flow:
 //  1. Initialize session (activity)
-//  2. Loop: LLM invoke -> tool execution -> append events
-//  3. Save task on completion
-//  4. Return result
+//  2. Drain any buffered message signal (from SignalWithStart)
+//  3. Loop: wait for message signal -> LLM+tool cycle -> publish result via NATS -> repeat
+//  4. Exit on idle timeout (no messages for SessionIdleTimeout)
 func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*ExecutionResult, error) {
 	if req == nil {
 		return nil, fmt.Errorf("execution request must not be nil")
 	}
 
-	// Parse the temporal config from the agent config for retry policies.
 	config := extractTemporalConfig(req.Config)
 
-	// Set up activity options for each activity type.
 	sessionCtx := workflow.WithActivityOptions(ctx, sessionActivityOptions())
 	llmCtx := workflow.WithActivityOptions(ctx, llmActivityOptions(config))
 	toolCtx := workflow.WithActivityOptions(ctx, toolActivityOptions(config))
@@ -71,15 +75,90 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 		return nil, fmt.Errorf("session initialization failed: %w", err)
 	}
 
-	// Build initial conversation history from the incoming message.
-	history := []conversationEntry{
-		{Role: "user", Content: string(req.Message)},
+	// Conversation history persists across messages within the session.
+	var history []conversationEntry
+
+	// Message signal channel — receives new user messages.
+	msgCh := workflow.GetSignalChannel(ctx, MessageSignalName)
+
+	// Step 2: Drain the initial message from SignalWithStart (or from the req itself).
+	// The first message comes either via signal (SignalWithStart) or via req.Message (backward compat).
+	var firstMsg MessageSignal
+	if msgCh.ReceiveAsync(&firstMsg) {
+		// Got message from signal channel (SignalWithStart path).
+	} else if len(req.Message) > 0 {
+		// Backward compatibility: message in the request itself.
+		firstMsg = MessageSignal{
+			Message:     req.Message,
+			NATSSubject: req.NATSSubject,
+		}
 	}
 
-	// Step 2: LLM + tool loop.
+	if len(firstMsg.Message) > 0 {
+		result, err := processMessage(ctx, llmCtx, toolCtx, taskCtx, activities, req, config, &history, &firstMsg)
+		if result != nil || err != nil {
+			return result, err
+		}
+	}
+
+	// Step 3: Main loop — wait for new messages or idle timeout.
+	for {
+		var msg MessageSignal
+		timerCtx, cancelTimer := workflow.WithCancel(ctx)
+		timer := workflow.NewTimer(timerCtx, SessionIdleTimeout)
+
+		// Create a selector to wait for either a message or the idle timeout.
+		sel := workflow.NewSelector(ctx)
+
+		var gotMessage bool
+		sel.AddReceive(msgCh, func(ch workflow.ReceiveChannel, more bool) {
+			ch.Receive(ctx, &msg)
+			gotMessage = true
+		})
+		sel.AddFuture(timer, func(f workflow.Future) {
+			// Timer fired — idle timeout reached.
+		})
+
+		sel.Select(ctx)
+		cancelTimer()
+
+		if !gotMessage {
+			// Idle timeout — gracefully exit.
+			return &ExecutionResult{
+				SessionID: req.SessionID,
+				Status:    "completed",
+				Reason:    "session idle timeout",
+			}, nil
+		}
+
+		result, err := processMessage(ctx, llmCtx, toolCtx, taskCtx, activities, req, config, &history, &msg)
+		if result != nil || err != nil {
+			return result, err
+		}
+	}
+}
+
+// processMessage handles a single user message through the LLM+tool loop.
+func processMessage(
+	ctx workflow.Context,
+	llmCtx, toolCtx, taskCtx workflow.Context,
+	activities *Activities,
+	req *ExecutionRequest,
+	config TemporalConfig,
+	history *[]conversationEntry,
+	msg *MessageSignal,
+) (*ExecutionResult, error) {
+	// Add user message to conversation history.
+	*history = append(*history, conversationEntry{
+		Role:    "user",
+		Content: string(msg.Message),
+	})
+
+	natsSubject := msg.NATSSubject
+
+	// LLM + tool loop for this message.
 	for turn := 0; turn < MaxTurns; turn++ {
-		// Serialize conversation history for the LLM activity.
-		historyBytes, err := json.Marshal(history)
+		historyBytes, err := json.Marshal(*history)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize history at turn %d: %w", turn, err)
 		}
@@ -89,7 +168,7 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 		err = workflow.ExecuteActivity(llmCtx, activities.LLMInvokeActivity, &LLMRequest{
 			Config:      req.Config,
 			History:     historyBytes,
-			NATSSubject: req.NATSSubject,
+			NATSSubject: natsSubject,
 		}).Get(llmCtx, &llmResp)
 		if err != nil {
 			return &ExecutionResult{
@@ -101,8 +180,7 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 
 		// Terminal response: no tool calls, no agent calls, no HITL.
 		if llmResp.Terminal || (len(llmResp.ToolCalls) == 0 && len(llmResp.AgentCalls) == 0 && !llmResp.NeedsApproval) {
-			// Append assistant response to history for the final event.
-			history = append(history, conversationEntry{
+			*history = append(*history, conversationEntry{
 				Role:    "assistant",
 				Content: llmResp.Content,
 			})
@@ -119,7 +197,7 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 				Event:     eventBytes,
 			}).Get(taskCtx, nil)
 
-			// Step 3: Save task.
+			// Save task with completed status.
 			responseBytes, _ := json.Marshal(llmResp)
 			now := workflow.Now(ctx).Format(time.RFC3339)
 			taskData, _ := json.Marshal(map[string]interface{}{
@@ -142,15 +220,20 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 				TaskData:  taskData,
 			}).Get(taskCtx, nil)
 
-			return &ExecutionResult{
-				SessionID: req.SessionID,
-				Status:    "completed",
-				Response:  responseBytes,
-			}, nil
+			// Publish completion event via NATS so the executor knows this message is done.
+			_ = workflow.ExecuteActivity(taskCtx, activities.PublishCompletionActivity, &PublishCompletionRequest{
+				SessionID:   req.SessionID,
+				Status:      "completed",
+				Response:    responseBytes,
+				NATSSubject: natsSubject,
+			}).Get(taskCtx, nil)
+
+			// Return to the main loop to wait for the next message (don't exit the workflow).
+			return nil, nil
 		}
 
 		// Append assistant turn with tool calls to history.
-		history = append(history, conversationEntry{
+		*history = append(*history, conversationEntry{
 			Role:      "assistant",
 			Content:   llmResp.Content,
 			ToolCalls: llmResp.ToolCalls,
@@ -158,7 +241,7 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 
 		// Execute tool calls in parallel.
 		if len(llmResp.ToolCalls) > 0 {
-			toolResults, err := executeToolsInParallel(toolCtx, activities, llmResp.ToolCalls, req.NATSSubject)
+			toolResults, err := executeToolsInParallel(toolCtx, activities, llmResp.ToolCalls, natsSubject)
 			if err != nil {
 				return &ExecutionResult{
 					SessionID: req.SessionID,
@@ -167,9 +250,8 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 				}, nil
 			}
 
-			// Append tool results to history.
 			for _, tr := range toolResults {
-				history = append(history, conversationEntry{
+				*history = append(*history, conversationEntry{
 					Role:       "tool",
 					ToolCallID: tr.ToolCallID,
 					ToolResult: tr.Result,
@@ -177,7 +259,7 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 			}
 		}
 
-		// Handle A2A agent calls as child workflows on target agent task queues.
+		// Handle A2A agent calls as child workflows.
 		if len(llmResp.AgentCalls) > 0 {
 			childResults, err := executeChildWorkflows(ctx, req, llmResp.AgentCalls, config)
 			if err != nil {
@@ -188,10 +270,9 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 				}, nil
 			}
 
-			// Append child results to history as tool-like responses for the LLM.
 			for _, cr := range childResults {
 				resultBytes, _ := json.Marshal(cr)
-				history = append(history, conversationEntry{
+				*history = append(*history, conversationEntry{
 					Role:       "tool",
 					ToolCallID: "agent-" + cr.AgentName,
 					ToolResult: resultBytes,
@@ -199,34 +280,32 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 			}
 		}
 
-		// HITL approval: block on signal if the LLM requested human approval.
+		// HITL approval: block on signal.
 		if llmResp.NeedsApproval {
-			// Publish approval request to NATS so the UI/client knows to prompt the user.
 			wfInfo := workflow.GetInfo(ctx)
 			_ = workflow.ExecuteActivity(taskCtx, activities.PublishApprovalActivity, &PublishApprovalRequest{
 				WorkflowID:  wfInfo.WorkflowExecution.ID,
 				RunID:       wfInfo.WorkflowExecution.RunID,
 				SessionID:   req.SessionID,
 				Message:     llmResp.ApprovalMsg,
-				NATSSubject: req.NATSSubject,
+				NATSSubject: natsSubject,
 			}).Get(taskCtx, nil)
 
-			// Block until a signal is received on the "approval" channel.
-			// This is durable: survives pod restarts, waits up to workflow timeout (default 48h).
 			approvalCh := workflow.GetSignalChannel(ctx, ApprovalSignalName)
 			var decision ApprovalDecision
 			approvalCh.Receive(ctx, &decision)
 
 			if !decision.Approved {
-				return &ExecutionResult{
-					SessionID: req.SessionID,
-					Status:    "rejected",
-					Reason:    decision.Reason,
-				}, nil
+				_ = workflow.ExecuteActivity(taskCtx, activities.PublishCompletionActivity, &PublishCompletionRequest{
+					SessionID:   req.SessionID,
+					Status:      "rejected",
+					Reason:      decision.Reason,
+					NATSSubject: natsSubject,
+				}).Get(taskCtx, nil)
+				return nil, nil
 			}
 
-			// Approved: add the approval context to history and continue the loop.
-			history = append(history, conversationEntry{
+			*history = append(*history, conversationEntry{
 				Role:    "user",
 				Content: fmt.Sprintf("[APPROVED] %s", decision.Reason),
 			})
@@ -272,14 +351,13 @@ func executeChildWorkflows(ctx workflow.Context, parentReq *ExecutionRequest, ag
 			UserID:      parentReq.UserID,
 			AgentName:   ac.TargetAgent,
 			Message:     ac.Message,
-			Config:      parentReq.Config, // child inherits parent config
+			Config:      parentReq.Config,
 			NATSSubject: childNATSSubject,
 		}
 
 		futures[i] = workflow.ExecuteChildWorkflow(childCtx, AgentExecutionWorkflow, childReq)
 	}
 
-	// Wait for all child workflows to complete.
 	for i, f := range futures {
 		var childResult ExecutionResult
 		err := f.Get(ctx, &childResult)
@@ -303,7 +381,6 @@ func executeToolsInParallel(ctx workflow.Context, activities *Activities, toolCa
 	results := make([]ToolResponse, len(toolCalls))
 	errs := make([]error, len(toolCalls))
 
-	// Launch each tool call as a workflow goroutine.
 	futures := make([]workflow.Future, len(toolCalls))
 	for i, tc := range toolCalls {
 		futures[i] = workflow.ExecuteActivity(ctx, activities.ToolExecuteActivity, &ToolRequest{
@@ -314,7 +391,6 @@ func executeToolsInParallel(ctx workflow.Context, activities *Activities, toolCa
 		})
 	}
 
-	// Wait for all tool calls to complete.
 	for i, f := range futures {
 		err := f.Get(ctx, &results[i])
 		if err != nil {
@@ -322,9 +398,6 @@ func executeToolsInParallel(ctx workflow.Context, activities *Activities, toolCa
 		}
 	}
 
-	// Check for errors. Tool execution errors in the response (ToolResponse.Error)
-	// are not activity errors -- they're returned to the LLM for handling.
-	// Only propagate actual activity failures.
 	for _, err := range errs {
 		if err != nil {
 			return nil, err
@@ -343,7 +416,6 @@ func extractTemporalConfig(configBytes []byte) TemporalConfig {
 		return cfg
 	}
 
-	// Try to extract just the temporal section from the config.
 	var wrapper struct {
 		Temporal *TemporalConfig `json:"temporal"`
 	}

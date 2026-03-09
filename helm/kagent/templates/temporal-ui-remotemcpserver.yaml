@@ -20,4 +20,6 @@ spec:
     displayName: "Workflows"
     icon: "git-branch"
     section: "AGENTS"
+    defaultPath: {{ printf "/namespaces/%s/workflows" (.Values.temporal.namespace | default "kagent") | quote }}
+    injectCSS: '[data-testid="navigation-header"] { display: none !important; }'
 {{- end }}

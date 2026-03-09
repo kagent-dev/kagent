@@ -18,6 +18,7 @@ const (
 	EventTypeToolStart       EventType = "tool_start"
 	EventTypeToolEnd         EventType = "tool_end"
 	EventTypeApprovalRequest EventType = "approval_request"
+	EventTypeCompletion      EventType = "completion"
 	EventTypeError           EventType = "error"
 )
 

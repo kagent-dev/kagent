@@ -30,15 +30,21 @@ func NewClientFromExisting(c client.Client) *Client {
 	return &Client{temporal: c}
 }
 
-// ExecuteAgent starts an AgentExecutionWorkflow and returns the workflow run handle.
+// ExecuteAgent sends a message to a session workflow using SignalWithStartWorkflow.
+// If the workflow is already running, the message is delivered as a signal.
+// If not, a new workflow is started and the message is delivered atomically.
+// This ensures one workflow per session with multiple LLM invocations.
 func (c *Client) ExecuteAgent(ctx context.Context, req *ExecutionRequest, cfg TemporalConfig) (client.WorkflowRun, error) {
 	taskQueue := cfg.TaskQueue
 	if taskQueue == "" {
 		taskQueue = TaskQueueForAgent(req.AgentName)
 	}
-	// Use the task queue name (K8s agent name) for the workflow ID prefix,
-	// since AgentName may contain __NS__ encoding for session/DB compatibility.
 	workflowID := WorkflowIDForSession(taskQueue, req.SessionID)
+
+	msg := MessageSignal{
+		Message:     req.Message,
+		NATSSubject: req.NATSSubject,
+	}
 
 	opts := client.StartWorkflowOptions{
 		ID:                       workflowID,
@@ -46,9 +52,9 @@ func (c *Client) ExecuteAgent(ctx context.Context, req *ExecutionRequest, cfg Te
 		WorkflowExecutionTimeout: cfg.WorkflowTimeout,
 	}
 
-	run, err := c.temporal.ExecuteWorkflow(ctx, opts, AgentExecutionWorkflow, req)
+	run, err := c.temporal.SignalWithStartWorkflow(ctx, workflowID, MessageSignalName, msg, opts, AgentExecutionWorkflow, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start workflow %s: %w", workflowID, err)
+		return nil, fmt.Errorf("failed to signal-with-start workflow %s: %w", workflowID, err)
 	}
 	return run, nil
 }

@@ -52,7 +52,7 @@ func TestExecuteAgent(t *testing.T) {
 			},
 			cfg:     DefaultTemporalConfig(),
 			wantErr: true,
-			errMsg:  "failed to start workflow",
+			errMsg:  "failed to signal-with-start workflow",
 		},
 	}
 
@@ -64,12 +64,12 @@ func TestExecuteAgent(t *testing.T) {
 			workflowID := WorkflowIDForSession(tt.req.AgentName, tt.req.SessionID)
 
 			if tt.wantErr {
-				mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, tt.req).
+				mockClient.On("SignalWithStartWorkflow", mock.Anything, workflowID, MessageSignalName, mock.Anything, mock.Anything, mock.Anything, tt.req).
 					Return(nil, fmt.Errorf("connection refused"))
 			} else {
 				mockRun.On("GetID").Return(workflowID)
 				mockRun.On("GetRunID").Return("run-1")
-				mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, tt.req).
+				mockClient.On("SignalWithStartWorkflow", mock.Anything, workflowID, MessageSignalName, mock.Anything, mock.Anything, mock.Anything, tt.req).
 					Return(mockRun, nil)
 			}
 
@@ -103,10 +103,8 @@ func TestExecuteAgentWorkflowOptions(t *testing.T) {
 	}
 	cfg := DefaultTemporalConfig()
 
-	// Capture the StartWorkflowOptions to verify them.
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.MatchedBy(func(opts interface{}) bool {
-		return true // we verify in the assertions below
-	}), mock.Anything, req).
+	workflowID := WorkflowIDForSession(req.AgentName, req.SessionID)
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, workflowID, MessageSignalName, mock.Anything, mock.Anything, mock.Anything, req).
 		Return(mockRun, nil)
 	mockRun.On("GetID").Return("my-agent:sess-1")
 	mockRun.On("GetRunID").Return("run-1")
@@ -116,9 +114,9 @@ func TestExecuteAgentWorkflowOptions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-agent:sess-1", run.GetID())
 
-	// Verify the workflow was started with the correct task queue (derived from agent name).
+	// Verify the workflow was started with SignalWithStartWorkflow.
 	call := mockClient.Calls[0]
-	assert.Equal(t, "ExecuteWorkflow", call.Method)
+	assert.Equal(t, "SignalWithStartWorkflow", call.Method)
 }
 
 func TestSignalApproval(t *testing.T) {

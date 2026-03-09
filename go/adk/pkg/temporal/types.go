@@ -108,6 +108,15 @@ type PublishApprovalRequest struct {
 	NATSSubject string `json:"natsSubject"`
 }
 
+// PublishCompletionRequest is the input to PublishCompletionActivity.
+type PublishCompletionRequest struct {
+	SessionID   string `json:"sessionID"`
+	Status      string `json:"status"` // "completed", "rejected", "failed"
+	Response    []byte `json:"response,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	NATSSubject string `json:"natsSubject"`
+}
+
 // ApprovalDecision is the payload for HITL approval signals.
 type ApprovalDecision struct {
 	Approved bool   `json:"approved"`
@@ -165,8 +174,19 @@ func TaskQueueForAgent(agentName string) string {
 	return agentName
 }
 
-// ApprovalSignalName is the Temporal signal channel name for HITL approvals.
-const ApprovalSignalName = "approval"
+// Signal names for the session workflow.
+const (
+	// ApprovalSignalName is the Temporal signal channel name for HITL approvals.
+	ApprovalSignalName = "approval"
+	// MessageSignalName is the signal channel for sending new messages to a running session workflow.
+	MessageSignalName = "message"
+)
+
+// MessageSignal is the payload sent via the message signal channel.
+type MessageSignal struct {
+	Message     []byte `json:"message"`     // serialized A2A message
+	NATSSubject string `json:"natsSubject"` // NATS subject for streaming events back
+}
 
 // FromRuntimeConfig converts a TemporalRuntimeConfig (from config.json) to
 // a TemporalConfig (used at runtime by the workflow/worker infrastructure).

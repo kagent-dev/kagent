@@ -43,6 +43,9 @@ func basicRequest() *ExecutionRequest {
 }
 
 // Test: simple single-turn execution (no tool calls).
+// The workflow processes the message from req.Message (backward compat),
+// then waits for more signals. The test env auto-advances time so the
+// idle timeout fires and the workflow completes.
 func (s *WorkflowTestSuite) TestSingleTurnCompletion() {
 	req := basicRequest()
 
@@ -57,6 +60,7 @@ func (s *WorkflowTestSuite) TestSingleTurnCompletion() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -66,7 +70,6 @@ func (s *WorkflowTestSuite) TestSingleTurnCompletion() {
 	var result ExecutionResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
-	s.Equal("sess-1", result.SessionID)
 }
 
 // Test: multi-turn execution with tool calls.
@@ -101,6 +104,7 @@ func (s *WorkflowTestSuite) TestMultiTurnWithToolCalls() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -149,6 +153,7 @@ func (s *WorkflowTestSuite) TestParallelToolExecution() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -257,6 +262,7 @@ func (s *WorkflowTestSuite) TestToolErrorInResponsePassedToLLM() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -281,6 +287,7 @@ func (s *WorkflowTestSuite) TestImplicitTerminal() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -317,6 +324,7 @@ func (s *WorkflowTestSuite) TestCustomRetryConfig() {
 		Return(&LLMResponse{Content: "Done.", Terminal: true}, nil)
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -400,6 +408,7 @@ func (s *WorkflowTestSuite) TestHITLApprovalContinues() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -411,7 +420,7 @@ func (s *WorkflowTestSuite) TestHITLApprovalContinues() {
 	s.Equal("completed", result.Status)
 }
 
-// Test: HITL rejection signal stops workflow with "rejected" status.
+// Test: HITL rejection signal publishes completion and returns to message loop.
 func (s *WorkflowTestSuite) TestHITLRejectionStopsWorkflow() {
 	req := basicRequest()
 
@@ -427,6 +436,7 @@ func (s *WorkflowTestSuite) TestHITLRejectionStopsWorkflow() {
 		}, nil)
 
 	s.env.OnActivity(s.act.PublishApprovalActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	// Send rejection signal.
 	s.env.RegisterDelayedCallback(func() {
@@ -441,10 +451,11 @@ func (s *WorkflowTestSuite) TestHITLRejectionStopsWorkflow() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
+	// After rejection, processMessage returns nil,nil and workflow enters idle loop.
+	// Test env auto-advances time, so idle timeout fires.
 	var result ExecutionResult
 	s.NoError(s.env.GetWorkflowResult(&result))
-	s.Equal("rejected", result.Status)
-	s.Equal("Too dangerous", result.Reason)
+	s.Equal("completed", result.Status)
 }
 
 // Test: HITL approval after tool calls in the same turn.
@@ -482,6 +493,7 @@ func (s *WorkflowTestSuite) TestHITLAfterToolCalls() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -494,7 +506,6 @@ func (s *WorkflowTestSuite) TestHITLAfterToolCalls() {
 }
 
 // Test: parent workflow starts child workflow for A2A agent call and receives result.
-// Child workflow executes inline with mocked activities (no OnWorkflow mock needed).
 func (s *WorkflowTestSuite) TestChildWorkflowSuccess() {
 	req := basicRequest()
 
@@ -521,6 +532,7 @@ func (s *WorkflowTestSuite) TestChildWorkflowSuccess() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -533,7 +545,6 @@ func (s *WorkflowTestSuite) TestChildWorkflowSuccess() {
 }
 
 // Test: child workflow failure propagates to parent as failed result.
-// Child fails at session init, which is a workflow error that propagates to parent.
 func (s *WorkflowTestSuite) TestChildWorkflowFailurePropagates() {
 	req := basicRequest()
 
@@ -565,7 +576,6 @@ func (s *WorkflowTestSuite) TestChildWorkflowFailurePropagates() {
 }
 
 // Test: parallel child workflows (multiple A2A calls in one turn).
-// Both children execute inline with mocked activities.
 func (s *WorkflowTestSuite) TestParallelChildWorkflows() {
 	req := basicRequest()
 
@@ -597,6 +607,7 @@ func (s *WorkflowTestSuite) TestParallelChildWorkflows() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 
@@ -641,6 +652,7 @@ func (s *WorkflowTestSuite) TestAgentCallsWithToolCalls() {
 
 	s.env.OnActivity(s.act.AppendEventActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.act.SaveTaskActivity, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.act.PublishCompletionActivity, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(AgentExecutionWorkflow, req)
 

@@ -83,20 +83,32 @@ func (e *TemporalExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCo
 		return fmt.Errorf("failed to write submitted status: %w", err)
 	}
 
-	// Subscribe to NATS for streaming events before starting workflow.
-	var sub *nats.Subscription
+	// Subscribe to NATS for streaming events AND completion tracking before starting workflow.
+	// Both must be set up before signaling to avoid race conditions.
+	completionCh := make(chan *temporal.ExecutionResult, 1)
 	if e.natsConn != nil {
-		subscriber := streaming.NewStreamSubscriber(e.natsConn)
 		var once sync.Once
-		sub, err = subscriber.Subscribe(req.NATSSubject, func(event *streaming.StreamEvent) {
-			e.forwardStreamEvent(ctx, reqCtx, queue, event, &once)
+		sub, subErr := e.natsConn.Subscribe(req.NATSSubject, func(msg *nats.Msg) {
+			var event streaming.StreamEvent
+			if err := json.Unmarshal(msg.Data, &event); err != nil {
+				return
+			}
+			if event.Type == streaming.EventTypeCompletion {
+				var result temporal.ExecutionResult
+				if err := json.Unmarshal([]byte(event.Data), &result); err == nil {
+					select {
+					case completionCh <- &result:
+					default:
+					}
+				}
+				return
+			}
+			e.forwardStreamEvent(ctx, reqCtx, queue, &event, &once)
 		})
-		if err != nil {
-			e.log.Error(err, "Failed to subscribe to NATS, continuing without streaming", "subject", req.NATSSubject)
+		if subErr != nil {
+			e.log.Error(subErr, "Failed to subscribe to NATS, continuing without streaming", "subject", req.NATSSubject)
 		} else {
-			defer func() {
-				_ = sub.Unsubscribe()
-			}()
+			defer func() { _ = sub.Unsubscribe() }()
 		}
 	}
 
@@ -106,30 +118,31 @@ func (e *TemporalExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCo
 		return fmt.Errorf("failed to write working status: %w", err)
 	}
 
-	// Start workflow.
+	// Signal-with-start: starts workflow if not running, or signals existing one.
 	run, err := e.client.ExecuteAgent(ctx, req, e.config)
 	if err != nil {
 		failMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: fmt.Sprintf("Failed to start workflow: %v", err)})
 		failEvent := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, failMsg)
 		failEvent.Final = true
 		_ = queue.Write(ctx, failEvent)
-		return fmt.Errorf("failed to start temporal workflow: %w", err)
+		return fmt.Errorf("failed to signal-with-start temporal workflow: %w", err)
 	}
 
-	e.log.Info("Workflow started", "workflowID", run.GetID(), "runID", run.GetRunID(), "sessionID", sessionID)
+	e.log.Info("Workflow signaled", "workflowID", run.GetID(), "runID", run.GetRunID(), "sessionID", sessionID)
 
-	// Wait for workflow result.
-	var result temporal.ExecutionResult
-	if err := run.Get(ctx, &result); err != nil {
-		failMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: fmt.Sprintf("Workflow execution failed: %v", err)})
+	// Wait for the completion event via NATS.
+	// The workflow publishes a completion event after processing each message,
+	// so we don't need to wait for the entire session workflow to end.
+	select {
+	case result := <-completionCh:
+		return e.writeFinalStatus(ctx, reqCtx, queue, result)
+	case <-ctx.Done():
+		failMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: "Request context cancelled"})
 		failEvent := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, failMsg)
 		failEvent.Final = true
 		_ = queue.Write(ctx, failEvent)
-		return fmt.Errorf("workflow execution failed: %w", err)
+		return ctx.Err()
 	}
-
-	// Map workflow result to final A2A status.
-	return e.writeFinalStatus(ctx, reqCtx, queue, &result)
 }
 
 // Cancel sends a cancellation for the workflow associated with the task.

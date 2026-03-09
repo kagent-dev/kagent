@@ -548,6 +548,8 @@ func (a *kagentReconciler) reconcilePluginUI(server *v1alpha2.RemoteMCPServer) e
 		Icon:        icon,
 		Section:     section,
 		UpstreamURL: upstreamURL,
+		DefaultPath: ui.DefaultPath,
+		InjectCSS:   ui.InjectCSS,
 	}
 
 	_, err = a.dbClient.StorePlugin(plugin)

@@ -183,6 +183,25 @@ func (a *Activities) PublishApprovalActivity(ctx context.Context, req *PublishAp
 	return nil
 }
 
+// PublishCompletionActivity publishes a message completion event to NATS.
+// This tells the executor that processing for the current message is done.
+func (a *Activities) PublishCompletionActivity(ctx context.Context, req *PublishCompletionRequest) error {
+	if a.publisher == nil {
+		return nil
+	}
+
+	result := &ExecutionResult{
+		SessionID: req.SessionID,
+		Status:    req.Status,
+		Response:  req.Response,
+		Reason:    req.Reason,
+	}
+	resultBytes, _ := json.Marshal(result)
+	event := streaming.NewStreamEvent(streaming.EventTypeCompletion, string(resultBytes))
+	_ = a.publisher.PublishToolProgress(req.NATSSubject, event)
+	return nil
+}
+
 // AppendEventActivity appends an event to a session.
 func (a *Activities) AppendEventActivity(ctx context.Context, req *AppendEventRequest) error {
 	if a.sessionSvc == nil {

@@ -84,6 +84,17 @@ func startEmbeddedNATS(t *testing.T) (*natsserver.Server, *nats.Conn) {
 	return ns, nc
 }
 
+// publishCompletion publishes a completion event to NATS after a short delay.
+func publishCompletion(nc *nats.Conn, subject string, result *temporal.ExecutionResult, delay time.Duration) {
+	go func() {
+		time.Sleep(delay)
+		resultBytes, _ := json.Marshal(result)
+		event := streaming.NewStreamEvent(streaming.EventTypeCompletion, string(resultBytes))
+		eventBytes, _ := json.Marshal(event)
+		_ = nc.Publish(subject, eventBytes)
+	}()
+}
+
 func TestTemporalExecutor_NilMessage(t *testing.T) {
 	exec := NewTemporalExecutor(nil, temporal.TemporalConfig{}, nil, "test-agent", "test-agent", nil, logr.Discard())
 	reqCtx := &a2asrv.RequestContext{TaskID: "t1", ContextID: "s1"}
@@ -95,23 +106,27 @@ func TestTemporalExecutor_NilMessage(t *testing.T) {
 }
 
 func TestTemporalExecutor_WorkflowCompleted(t *testing.T) {
+	_, nc := startEmbeddedNATS(t)
+
 	mockClient := &temporalmocks.Client{}
 	mockRun := &temporalmocks.WorkflowRun{}
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	subject := streaming.SubjectForAgent("test-agent", "session-456")
+
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*temporal.ExecutionResult)
-		*result = temporal.ExecutionResult{
-			SessionID: "session-456",
-			Status:    "completed",
-			Response:  []byte("Agent response text"),
-		}
-	})
+
+	// Simulate the workflow publishing a completion event via NATS.
+	completionResult := &temporal.ExecutionResult{
+		SessionID: "session-456",
+		Status:    "completed",
+		Response:  []byte("Agent response text"),
+	}
+	publishCompletion(nc, subject, completionResult, 50*time.Millisecond)
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -159,23 +174,26 @@ func TestTemporalExecutor_WorkflowCompleted(t *testing.T) {
 }
 
 func TestTemporalExecutor_WorkflowFailed(t *testing.T) {
+	_, nc := startEmbeddedNATS(t)
+
 	mockClient := &temporalmocks.Client{}
 	mockRun := &temporalmocks.WorkflowRun{}
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	subject := streaming.SubjectForAgent("test-agent", "session-456")
+
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*temporal.ExecutionResult)
-		*result = temporal.ExecutionResult{
-			SessionID: "session-456",
-			Status:    "failed",
-			Reason:    "LLM timeout",
-		}
-	})
+
+	completionResult := &temporal.ExecutionResult{
+		SessionID: "session-456",
+		Status:    "failed",
+		Reason:    "LLM timeout",
+	}
+	publishCompletion(nc, subject, completionResult, 50*time.Millisecond)
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -197,23 +215,26 @@ func TestTemporalExecutor_WorkflowFailed(t *testing.T) {
 }
 
 func TestTemporalExecutor_WorkflowRejected(t *testing.T) {
+	_, nc := startEmbeddedNATS(t)
+
 	mockClient := &temporalmocks.Client{}
 	mockRun := &temporalmocks.WorkflowRun{}
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	subject := streaming.SubjectForAgent("test-agent", "session-456")
+
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*temporal.ExecutionResult)
-		*result = temporal.ExecutionResult{
-			SessionID: "session-456",
-			Status:    "rejected",
-			Reason:    "User declined",
-		}
-	})
+
+	completionResult := &temporal.ExecutionResult{
+		SessionID: "session-456",
+		Status:    "rejected",
+		Reason:    "User declined",
+	}
+	publishCompletion(nc, subject, completionResult, 50*time.Millisecond)
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -232,11 +253,13 @@ func TestTemporalExecutor_WorkflowRejected(t *testing.T) {
 }
 
 func TestTemporalExecutor_StartWorkflowError(t *testing.T) {
+	_, nc := startEmbeddedNATS(t)
+
 	mockClient := &temporalmocks.Client{}
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("connection refused"))
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("connection refused"))
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -246,7 +269,6 @@ func TestTemporalExecutor_StartWorkflowError(t *testing.T) {
 	}
 
 	events := queue.getEvents()
-	// Should have submitted + failed events
 	foundFailed := false
 	for _, ev := range events {
 		if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateFailed {
@@ -258,34 +280,31 @@ func TestTemporalExecutor_StartWorkflowError(t *testing.T) {
 	}
 }
 
-func TestTemporalExecutor_WorkflowGetError(t *testing.T) {
+func TestTemporalExecutor_ContextCancelled(t *testing.T) {
+	_, nc := startEmbeddedNATS(t)
+
 	mockClient := &temporalmocks.Client{}
 	mockRun := &temporalmocks.WorkflowRun{}
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(errors.New("workflow timeout"))
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a short delay to simulate timeout
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
-	err := exec.Execute(context.Background(), reqCtx, queue)
+	err := exec.Execute(ctx, reqCtx, queue)
 	if err == nil {
-		t.Fatal("Expected error when workflow Get fails")
-	}
-
-	events := queue.getEvents()
-	foundFailed := false
-	for _, ev := range events {
-		if se, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && se.Status.State == a2atype.TaskStateFailed {
-			foundFailed = true
-		}
-	}
-	if !foundFailed {
-		t.Error("Expected a failed status event")
+		t.Fatal("Expected error when context is cancelled")
 	}
 }
 
@@ -297,11 +316,13 @@ func TestTemporalExecutor_NATSStreaming(t *testing.T) {
 
 	subject := streaming.SubjectForAgent("test-agent", "session-456")
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
-		// Simulate publishing NATS events before workflow completes.
+
+	// Publish streaming events then completion after a short delay.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
 		pub := streaming.NewStreamPublisher(nc)
 		tokenEvent := streaming.NewStreamEvent(streaming.EventTypeToken, "Hello")
 		_ = pub.PublishToken(subject, tokenEvent)
@@ -309,16 +330,19 @@ func TestTemporalExecutor_NATSStreaming(t *testing.T) {
 		_ = pub.PublishToolProgress(subject, toolStart)
 		toolEnd := streaming.NewStreamEvent(streaming.EventTypeToolEnd, "search")
 		_ = pub.PublishToolProgress(subject, toolEnd)
-		// Give time for NATS messages to be delivered.
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(30 * time.Millisecond)
 
-		result := args.Get(1).(*temporal.ExecutionResult)
-		*result = temporal.ExecutionResult{
+		// Publish completion
+		completionResult := &temporal.ExecutionResult{
 			SessionID: "session-456",
 			Status:    "completed",
 			Response:  []byte("done"),
 		}
-	})
+		resultBytes, _ := json.Marshal(completionResult)
+		completionEvent := streaming.NewStreamEvent(streaming.EventTypeCompletion, string(resultBytes))
+		completionBytes, _ := json.Marshal(completionEvent)
+		_ = nc.Publish(subject, completionBytes)
+	}()
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
 	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
@@ -331,7 +355,6 @@ func TestTemporalExecutor_NATSStreaming(t *testing.T) {
 	}
 
 	events := queue.getEvents()
-	// Should have: submitted, working, token, tool_start, tool_end, completed
 	if len(events) < 4 {
 		t.Errorf("Expected at least 4 events with streaming, got %d", len(events))
 	}
@@ -379,19 +402,25 @@ func TestTemporalExecutor_ForwardApprovalRequest(t *testing.T) {
 
 	subject := streaming.SubjectForAgent("test-agent", "session-456")
 
-	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
+	mockClient.On("SignalWithStartWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockRun, nil)
 	mockRun.On("GetID").Return("wf-id")
 	mockRun.On("GetRunID").Return("run-id")
-	mockRun.On("Get", mock.Anything, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+
+	// Publish approval event then completion.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
 		pub := streaming.NewStreamPublisher(nc)
 		approvalData, _ := json.Marshal(map[string]string{"tool": "dangerous_tool"})
 		approvalEvent := streaming.NewStreamEvent(streaming.EventTypeApprovalRequest, string(approvalData))
 		_ = pub.PublishToken(subject, approvalEvent)
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(30 * time.Millisecond)
 
-		result := args.Get(1).(*temporal.ExecutionResult)
-		*result = temporal.ExecutionResult{Status: "completed"}
-	})
+		completionResult := &temporal.ExecutionResult{Status: "completed"}
+		resultBytes, _ := json.Marshal(completionResult)
+		completionEvent := streaming.NewStreamEvent(streaming.EventTypeCompletion, string(resultBytes))
+		completionBytes, _ := json.Marshal(completionEvent)
+		_ = nc.Publish(subject, completionBytes)
+	}()
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
 	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
@@ -414,4 +443,3 @@ func TestTemporalExecutor_ForwardApprovalRequest(t *testing.T) {
 		t.Error("Expected an input_required event for approval request")
 	}
 }
-

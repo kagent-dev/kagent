@@ -182,6 +182,11 @@ spec:
                   When ui.enabled is true, the server's UI is accessible via /_p/{ui.pathPrefix}/ (proxy)
                   and browser URL /plugins/{ui.pathPrefix} (Next.js wrapper with sidebar + iframe)
                 properties:
+                  defaultPath:
+                    description: |-
+                      DefaultPath is the initial path to redirect to when the plugin root is loaded.
+                      For example, "/namespaces/kagent" makes the plugin open at that path by default.
+                    type: string
                   displayName:
                     description: |-
                       DisplayName is the human-readable name shown in the sidebar.
@@ -196,6 +201,11 @@ spec:
                     default: puzzle
                     description: Icon is a lucide-react icon name (e.g., "kanban",
                       "git-fork", "database").
+                    type: string
+                  injectCSS:
+                    description: |-
+                      InjectCSS is custom CSS injected into proxied HTML responses to customize the plugin UI.
+                      For example, `[data-testid="navigation-header"] { display: none !important; }` hides the nav.
                     type: string
                   pathPrefix:
                     description: |-
