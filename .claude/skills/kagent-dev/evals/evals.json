@@ -1,0 +1,113 @@
+{
+  "skill_name": "kagent-dev",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to add a `maxRetries` field to the Agent CRD in kagent — optional integer, default 3, minimum 1. It should flow through to the agent runtime config so the Python agent can read it. Walk me through the complete workflow.",
+      "expected_output": "Complete step-by-step workflow covering: (0) check if field exists, (1) edit agent_types.go with correct struct choice + kubebuilder markers, (2) run make controller-manifests, (3) update adk_api_translator.go, (4) update go/api/adk/types.go and python types.py since it flows to Python runtime, (5) regenerate golden files with UPDATE_GOLDEN=true, (6) add E2E test, (7) run tests",
+      "assertions": [
+        {
+          "name": "mentions_check_existing_first",
+          "description": "Recommends checking if the field already exists before writing code"
+        },
+        {
+          "name": "correct_make_command",
+          "description": "Uses 'make controller-manifests' (not just 'make -C go generate' + manual cp)"
+        },
+        {
+          "name": "mentions_translator_file",
+          "description": "Mentions updating adk_api_translator.go or deployments.go"
+        },
+        {
+          "name": "mentions_python_runtime_step",
+          "description": "Mentions updating go/api/adk/types.go and python types.py since field flows to Python runtime"
+        },
+        {
+          "name": "mentions_golden_files",
+          "description": "Mentions regenerating golden files with UPDATE_GOLDEN=true"
+        },
+        {
+          "name": "mentions_e2e_test",
+          "description": "Mentions adding an E2E test in invoke_api_test.go"
+        },
+        {
+          "name": "correct_struct_choice",
+          "description": "Suggests DeclarativeAgentSpec (not a generic AgentSpec) since this is agent runtime config"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "My E2E test TestE2EInvokeInlineAgent is timing out with 'context deadline exceeded' in CI but passes locally on my Mac. How do I debug this?",
+      "expected_output": "Diagnosis should mention: KAGENT_LOCAL_HOST detection difference (macOS vs Linux CI), mock LLM server unreachability from Kind pods, how to check pod status and controller logs, CI matrix (sqlite/postgres), the 'fail print info' step in CI logs, and possibly suggest SKIP_CLEANUP=1 for debugging",
+      "assertions": [
+        {
+          "name": "mentions_kagent_local_host",
+          "description": "Mentions KAGENT_LOCAL_HOST as the likely cause of mac-local-passes-but-CI-fails pattern"
+        },
+        {
+          "name": "mentions_mock_llm_reachability",
+          "description": "Explains the mock LLM server reachability issue from Kind pods"
+        },
+        {
+          "name": "mentions_pod_status_check",
+          "description": "Suggests checking kubectl get pods or kubectl logs"
+        },
+        {
+          "name": "mentions_ci_logs_approach",
+          "description": "Mentions how to get CI logs (gh run view or 'fail print info' step)"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "The manifests-check CI job is failing on my PR. What happened and how do I fix it?",
+      "expected_output": "Should explain that CRD manifests are out of date, the fix is to run make controller-manifests, review the diff, and commit the generated files",
+      "assertions": [
+        {
+          "name": "correct_fix_command",
+          "description": "Gives 'make controller-manifests' as the fix (not just 'make -C go generate' without the copy step)"
+        },
+        {
+          "name": "mentions_commit_generated_files",
+          "description": "Tells user to commit the regenerated files"
+        },
+        {
+          "name": "explains_root_cause",
+          "description": "Explains that CRD type changes require regenerating manifests"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I'm reviewing a PR that adds a `logLevel` field to the Agent CRD spec and updates adk_api_translator.go to pass it as an env var to the container. What should I check to make sure the PR is complete and correct?",
+      "expected_output": "Should check: correct struct placement (DeclarativeAgentSpec), kubebuilder markers (enum validation), codegen files committed (zz_generated.deepcopy.go, CRD YAML, helm templates), golden files regenerated and committed, E2E test added, no Helm template syntax in comments, conventional commit format with -s signing",
+      "assertions": [
+        {
+          "name": "checks_codegen_committed",
+          "description": "Verifies generated files (deepcopy, CRD YAML, helm templates) are committed"
+        },
+        {
+          "name": "checks_golden_files",
+          "description": "Checks that golden files are regenerated and committed"
+        },
+        {
+          "name": "checks_e2e_test",
+          "description": "Looks for an E2E test for the new field"
+        },
+        {
+          "name": "checks_kubebuilder_markers",
+          "description": "Checks kubebuilder validation markers (e.g., enum for log levels)"
+        },
+        {
+          "name": "checks_commit_conventions",
+          "description": "Checks conventional commit format and signed commits (-s)"
+        }
+      ],
+      "files": []
+    }
+  ]
+}
