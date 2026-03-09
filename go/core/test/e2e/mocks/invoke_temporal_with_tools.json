@@ -1,0 +1,76 @@
+{
+  "openai": [
+    {
+      "name": "temporal_tool_call_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What tools do you have?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-temporal-tools-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_echo_1",
+                  "type": "function",
+                  "function": {
+                    "name": "echo",
+                    "arguments": "{\"message\": \"hello from temporal\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 15,
+          "total_tokens": 35
+        }
+      }
+    },
+    {
+      "name": "temporal_tool_result_response",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "hello from temporal",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-temporal-tools-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "I used the echo tool and got: hello from temporal"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 12,
+          "total_tokens": 42
+        }
+      }
+    }
+  ]
+}

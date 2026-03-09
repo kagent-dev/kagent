@@ -85,7 +85,7 @@ func startEmbeddedNATS(t *testing.T) (*natsserver.Server, *nats.Conn) {
 }
 
 func TestTemporalExecutor_NilMessage(t *testing.T) {
-	exec := NewTemporalExecutor(nil, temporal.TemporalConfig{}, nil, "test-agent", nil, logr.Discard())
+	exec := NewTemporalExecutor(nil, temporal.TemporalConfig{}, nil, "test-agent", "test-agent", nil, logr.Discard())
 	reqCtx := &a2asrv.RequestContext{TaskID: "t1", ContextID: "s1"}
 	queue := &testEventQueue{}
 	err := exec.Execute(context.Background(), reqCtx, queue)
@@ -111,7 +111,7 @@ func TestTemporalExecutor_WorkflowCompleted(t *testing.T) {
 	})
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -175,7 +175,7 @@ func TestTemporalExecutor_WorkflowFailed(t *testing.T) {
 	})
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -213,7 +213,7 @@ func TestTemporalExecutor_WorkflowRejected(t *testing.T) {
 	})
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -236,7 +236,7 @@ func TestTemporalExecutor_StartWorkflowError(t *testing.T) {
 	mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("connection refused"))
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -268,7 +268,7 @@ func TestTemporalExecutor_WorkflowGetError(t *testing.T) {
 	mockRun.On("Get", mock.Anything, mock.Anything).Return(errors.New("workflow timeout"))
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nil, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -321,7 +321,7 @@ func TestTemporalExecutor_NATSStreaming(t *testing.T) {
 	})
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
@@ -349,7 +349,7 @@ func TestTemporalExecutor_NATSStreaming(t *testing.T) {
 }
 
 func TestTemporalExecutor_Cancel(t *testing.T) {
-	exec := NewTemporalExecutor(nil, temporal.TemporalConfig{}, nil, "test-agent", nil, logr.Discard())
+	exec := NewTemporalExecutor(nil, temporal.TemporalConfig{}, nil, "test-agent", "test-agent", nil, logr.Discard())
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}
 	err := exec.Cancel(context.Background(), reqCtx, queue)
@@ -394,7 +394,7 @@ func TestTemporalExecutor_ForwardApprovalRequest(t *testing.T) {
 	})
 
 	temporalClient := temporal.NewClientFromExisting(mockClient)
-	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", []byte(`{}`), logr.Discard())
+	exec := NewTemporalExecutor(temporalClient, temporal.DefaultTemporalConfig(), nc, "test-agent", "test-agent", []byte(`{}`), logr.Discard())
 
 	reqCtx := newTestReqCtx()
 	queue := &testEventQueue{}

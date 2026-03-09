@@ -143,6 +143,7 @@ type AgentOptions struct {
 	ImageRepository *string
 	Memory          *v1alpha2.MemorySpec
 	PromptTemplate  *v1alpha2.PromptTemplateSpec
+	Tools           []*v1alpha2.Tool
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options

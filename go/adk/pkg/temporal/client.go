@@ -32,11 +32,13 @@ func NewClientFromExisting(c client.Client) *Client {
 
 // ExecuteAgent starts an AgentExecutionWorkflow and returns the workflow run handle.
 func (c *Client) ExecuteAgent(ctx context.Context, req *ExecutionRequest, cfg TemporalConfig) (client.WorkflowRun, error) {
-	workflowID := WorkflowIDForSession(req.AgentName, req.SessionID)
 	taskQueue := cfg.TaskQueue
 	if taskQueue == "" {
 		taskQueue = TaskQueueForAgent(req.AgentName)
 	}
+	// Use the task queue name (K8s agent name) for the workflow ID prefix,
+	// since AgentName may contain __NS__ encoding for session/DB compatibility.
+	workflowID := WorkflowIDForSession(taskQueue, req.SessionID)
 
 	opts := client.StartWorkflowOptions{
 		ID:                       workflowID,

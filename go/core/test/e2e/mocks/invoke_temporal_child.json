@@ -1,0 +1,76 @@
+{
+  "openai": [
+    {
+      "name": "temporal_parent_invokes_child",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "ask the specialist",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-temporal-child-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_a2a_1",
+                  "type": "function",
+                  "function": {
+                    "name": "invoke_agent",
+                    "arguments": "{\"agent\": \"temporal-child-test\", \"message\": \"What is the capital of France?\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 15,
+          "total_tokens": 35
+        }
+      }
+    },
+    {
+      "name": "temporal_parent_after_child",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Paris",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-temporal-child-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "The specialist says the capital of France is Paris."
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 10,
+          "total_tokens": 40
+        }
+      }
+    }
+  ]
+}

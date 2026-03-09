@@ -668,7 +668,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 	if agent.Spec.Temporal != nil && agent.Spec.Temporal.Enabled {
 		tc := &adk.TemporalRuntimeConfig{
 			Enabled:   true,
-			TaskQueue: fmt.Sprintf("agent-%s", agent.Name),
+			Namespace: agent.Namespace,
+			TaskQueue: agent.Name,
 		}
 		if agent.Spec.Temporal.WorkflowTimeout != nil {
 			tc.WorkflowTimeout = agent.Spec.Temporal.WorkflowTimeout.Duration.String()

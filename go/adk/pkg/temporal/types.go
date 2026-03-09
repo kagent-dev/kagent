@@ -94,6 +94,8 @@ type TaskSaveRequest struct {
 // AppendEventRequest is the input to AppendEventActivity.
 type AppendEventRequest struct {
 	SessionID string `json:"sessionID"`
+	AppName   string `json:"appName"`
+	UserID    string `json:"userID"`
 	Event     []byte `json:"event"`
 }
 
@@ -123,9 +125,9 @@ type WorkflowStatus struct {
 // WorkerConfig holds configuration for a Temporal worker.
 type WorkerConfig struct {
 	TemporalAddr string `json:"temporalAddr"` // e.g. "temporal-server:7233"
-	Namespace    string `json:"namespace"`     // Temporal namespace
-	TaskQueue    string `json:"taskQueue"`     // per-agent: "agent-{agentName}"
-	NATSAddr     string `json:"natsAddr"`      // e.g. "nats://nats:4222"
+	Namespace    string `json:"namespace"`    // Temporal namespace
+	TaskQueue    string `json:"taskQueue"`    // per-agent: "agent-{agentName}"
+	NATSAddr     string `json:"natsAddr"`     // e.g. "nats://nats:4222"
 }
 
 // ClientConfig holds configuration for a Temporal client.
@@ -140,7 +142,7 @@ type TemporalConfig struct {
 	Enabled         bool          `json:"enabled"`
 	HostAddr        string        `json:"hostAddr"`
 	Namespace       string        `json:"namespace"`
-	TaskQueue       string        `json:"taskQueue"`       // "agent-{agentName}"
+	TaskQueue       string        `json:"taskQueue"` // "agent-{agentName}"
 	NATSAddr        string        `json:"natsAddr"`
 	WorkflowTimeout time.Duration `json:"workflowTimeout"` // default 48h
 	LLMMaxAttempts  int           `json:"llmMaxAttempts"`  // default 5
@@ -158,8 +160,9 @@ func DefaultTemporalConfig() TemporalConfig {
 }
 
 // TaskQueueForAgent returns the Temporal task queue name for an agent.
+// Uses the Kubernetes agent name directly for readability.
 func TaskQueueForAgent(agentName string) string {
-	return "agent-" + agentName
+	return agentName
 }
 
 // ApprovalSignalName is the Temporal signal channel name for HITL approvals.
@@ -200,11 +203,13 @@ func FromRuntimeConfig(rc *adk.TemporalRuntimeConfig) TemporalConfig {
 }
 
 // WorkflowIDForSession returns a deterministic workflow ID for a session.
+// Format: "{agentName}:{sessionID}" — colon separator is URL-safe so Temporal UI
+// deep links work (slash would break the UI's client-side routing).
 func WorkflowIDForSession(agentName, sessionID string) string {
-	return "agent-" + agentName + "-" + sessionID
+	return agentName + ":" + sessionID
 }
 
 // ChildWorkflowID returns the workflow ID for a child workflow.
 func ChildWorkflowID(parentSessionID, targetAgentName string) string {
-	return parentSessionID + "-child-" + targetAgentName
+	return targetAgentName + ":child:" + parentSessionID
 }

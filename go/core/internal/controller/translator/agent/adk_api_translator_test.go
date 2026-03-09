@@ -1342,7 +1342,8 @@ func Test_AdkApiTranslator_TemporalSpec(t *testing.T) {
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.Temporal)
 				assert.True(t, cfg.Temporal.Enabled)
-				assert.Equal(t, "agent-temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Equal(t, "temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Equal(t, "test-ns", cfg.Temporal.Namespace)
 				assert.Empty(t, cfg.Temporal.WorkflowTimeout)
 				assert.Zero(t, cfg.Temporal.LLMMaxAttempts)
 				assert.Zero(t, cfg.Temporal.ToolMaxAttempts)
@@ -1363,7 +1364,8 @@ func Test_AdkApiTranslator_TemporalSpec(t *testing.T) {
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.Temporal)
 				assert.True(t, cfg.Temporal.Enabled)
-				assert.Equal(t, "agent-temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Equal(t, "temporal-agent", cfg.Temporal.TaskQueue)
+				assert.Equal(t, "test-ns", cfg.Temporal.Namespace)
 				assert.Equal(t, "24h0m0s", cfg.Temporal.WorkflowTimeout)
 				assert.Equal(t, 10, cfg.Temporal.LLMMaxAttempts)
 				assert.Equal(t, 5, cfg.Temporal.ToolMaxAttempts)

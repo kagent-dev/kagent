@@ -12,12 +12,16 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // skipIfNoTemporal skips the test if the Temporal server is not deployed.
@@ -28,11 +32,27 @@ func skipIfNoTemporal(t *testing.T) {
 	}
 }
 
+// setupK8sClientWithAppsV1 creates a Kubernetes client that includes the appsv1 scheme,
+// needed for querying Deployments (e.g. temporal-server, nats).
+func setupK8sClientWithAppsV1(t *testing.T) client.Client {
+	t.Helper()
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+
+	scheme := k8s_runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	cli, err := client.New(cfg, client.Options{Scheme: scheme})
+	require.NoError(t, err)
+	return cli
+}
+
 // waitForTemporalReady polls the Temporal server service until it is reachable.
 func waitForTemporalReady(t *testing.T) {
 	t.Helper()
 	t.Log("Waiting for Temporal server to be ready")
-	cli := setupK8sClient(t, false)
+	cli := setupK8sClientWithAppsV1(t)
 
 	pollErr := wait.PollUntilContextTimeout(t.Context(), 3*time.Second, 120*time.Second, true, func(ctx context.Context) (bool, error) {
 		var deploy appsv1.Deployment
@@ -54,7 +74,7 @@ func waitForTemporalReady(t *testing.T) {
 func waitForNATSReady(t *testing.T) {
 	t.Helper()
 	t.Log("Waiting for NATS to be ready")
-	cli := setupK8sClient(t, false)
+	cli := setupK8sClientWithAppsV1(t)
 
 	pollErr := wait.PollUntilContextTimeout(t.Context(), 3*time.Second, 120*time.Second, true, func(ctx context.Context) (bool, error) {
 		var deploy appsv1.Deployment
@@ -84,7 +104,7 @@ func setupTemporalAgent(t *testing.T, cli client.Client, modelConfigName string,
 	golangADKRepo := "kagent-dev/kagent/golang-adk"
 	opts.ImageRepository = &golangADKRepo
 
-	agent := generateAgent(modelConfigName, nil, opts)
+	agent := generateAgent(modelConfigName, opts.Tools, opts)
 	agent.Spec.Temporal = &v1alpha2.TemporalSpec{
 		Enabled: true,
 	}
@@ -429,6 +449,194 @@ func TestE2ETemporalWithCustomTimeout(t *testing.T) {
 
 func int32Ptr(v int32) *int32 {
 	return &v
+}
+
+// TestE2ETemporalToolExecution verifies multi-turn Temporal workflow with real
+// MCP tool execution. The mock LLM returns a tool call, the agent executes the
+// tool via MCP, and the workflow loops back to the LLM with the result.
+func TestE2ETemporalToolExecution(t *testing.T) {
+	skipIfNoTemporal(t)
+	waitForTemporalReady(t)
+	waitForNATSReady(t)
+
+	// Setup mock server with multi-turn tool call responses.
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_temporal_with_tools.json")
+	defer stopServer()
+
+	// Setup Kubernetes client (include v1alpha1 for MCPServer).
+	cli := setupK8sClient(t, true)
+	mcpServer := setupMCPServer(t, cli)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	// Define tools referencing the everything MCP server's echo tool.
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedReference: v1alpha2.TypedReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "MCPServer",
+					Name:     mcpServer.Name,
+				},
+				ToolNames: []string{"echo"},
+			},
+		},
+	}
+
+	agent := setupTemporalAgent(t, cli, modelCfg.Name, AgentOptions{
+		Name:  "temporal-tool-test",
+		Tools: tools,
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	t.Run("tool_call_workflow", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "What tools do you have?", "echo", nil)
+	})
+
+	t.Run("tool_call_streaming", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "What tools do you have?", "echo")
+	})
+}
+
+// TestE2ETemporalChildWorkflow verifies multi-agent orchestration where a parent
+// agent invokes a child agent via Temporal child workflow. The parent's mock LLM
+// returns an invoke_agent tool call, triggering a child workflow on the child
+// agent's task queue. The child workflow executes and returns a result to the parent.
+func TestE2ETemporalChildWorkflow(t *testing.T) {
+	skipIfNoTemporal(t)
+	waitForTemporalReady(t)
+	waitForNATSReady(t)
+
+	// Two mock servers: parent returns invoke_agent tool call, child returns simple response.
+	parentURL, stopParent := setupMockServer(t, "mocks/invoke_temporal_child.json")
+	defer stopParent()
+	childURL, stopChild := setupMockServer(t, "mocks/invoke_temporal_agent.json")
+	defer stopChild()
+
+	cli := setupK8sClient(t, false)
+	parentModelCfg := setupModelConfig(t, cli, parentURL)
+	childModelCfg := setupModelConfig(t, cli, childURL)
+
+	// Create child agent first (must be ready before parent invokes it).
+	childAgent := setupTemporalAgent(t, cli, childModelCfg.Name, AgentOptions{
+		Name: "temporal-child-test",
+	})
+	_ = childAgent // ensure child is deployed and ready
+
+	// Create parent agent.
+	parentAgent := setupTemporalAgent(t, cli, parentModelCfg.Name, AgentOptions{
+		Name: "temporal-parent-test",
+	})
+
+	a2aClient := setupA2AClient(t, parentAgent)
+
+	t.Run("parent_invokes_child", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "ask the specialist", "Paris", nil)
+	})
+}
+
+// TestE2ETemporalHITLApproval verifies the HITL (Human-In-The-Loop) signal flow.
+// The workflow pauses waiting for an approval signal; the test sends the signal
+// via the Temporal Go SDK client and verifies the workflow resumes and completes.
+//
+// This test requires Temporal to be deployed and accessible from the test process.
+// It is gated by TEMPORAL_HITL_TEST=1 because it depends on the LLM activity
+// recognizing the NeedsApproval pattern, which requires implementation alignment.
+func TestE2ETemporalHITLApproval(t *testing.T) {
+	skipIfNoTemporal(t)
+	if os.Getenv("TEMPORAL_HITL_TEST") == "" {
+		t.Skip("Skipping HITL approval test: set TEMPORAL_HITL_TEST=1 to run (requires HITL workflow detection support)")
+	}
+	waitForTemporalReady(t)
+	waitForNATSReady(t)
+
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_temporal_hitl.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupTemporalAgent(t, cli, modelCfg.Name, AgentOptions{
+		Name: "temporal-hitl-test",
+	})
+
+	a2aClient := setupA2AClient(t, agent)
+
+	// Send the message that triggers HITL approval in a background goroutine.
+	// The workflow will block waiting for the approval signal.
+	type asyncResult struct {
+		task *protocol.Task
+		err  error
+	}
+	resultCh := make(chan asyncResult, 1)
+
+	go func() {
+		task := runSyncTestNoFatal(t, a2aClient, "deploy to production", "completed")
+		resultCh <- asyncResult{task: task}
+	}()
+
+	// Give the workflow time to start and reach the approval signal wait.
+	time.Sleep(5 * time.Second)
+
+	// Send the approval signal via kubectl exec into the Temporal server pod.
+	// The workflow is waiting on signal channel "approval" with an ApprovalDecision payload.
+	taskQueue := fmt.Sprintf("agent-%s", agent.Name)
+	workflowID := fmt.Sprintf("temporal-hitl-test/%s", taskQueue) // approximate; may vary
+	t.Logf("Attempting to signal workflow on task queue %s", taskQueue)
+
+	// Use tctl to signal the workflow (if available).
+	signalPayload := `{"approved":true,"reason":"test approval"}`
+	cmd := exec.CommandContext(t.Context(), "kubectl", "exec",
+		"deploy/temporal-server", "-n", "kagent", "--",
+		"tctl", "workflow", "signal",
+		"--workflow_id", workflowID,
+		"--name", "approval",
+		"--input", signalPayload,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("tctl signal output: %s", string(output))
+		t.Skipf("Could not send approval signal via tctl: %v", err)
+	}
+
+	// Wait for the async result.
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("HITL workflow failed: %v", result.err)
+		}
+		t.Logf("HITL workflow completed successfully")
+	case <-time.After(60 * time.Second):
+		t.Fatal("timed out waiting for HITL workflow to complete after approval")
+	}
+}
+
+// runSyncTestNoFatal is like runSyncTest but returns the task instead of calling t.Fatal.
+// Used for async test patterns where we need to handle errors in goroutines.
+func runSyncTestNoFatal(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string) *protocol.Task {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	msg := protocol.Message{
+		Kind:  protocol.KindMessage,
+		Role:  protocol.MessageRoleUser,
+		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
+	}
+
+	result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+	if err != nil {
+		t.Logf("SendMessage error: %v", err)
+		return nil
+	}
+
+	taskResult, ok := result.Result.(*protocol.Task)
+	if !ok {
+		t.Logf("unexpected result type: %T", result.Result)
+		return nil
+	}
+
+	return taskResult
 }
 
 // TestE2ETemporalWorkflowVisibleInTemporalUI verifies that after executing

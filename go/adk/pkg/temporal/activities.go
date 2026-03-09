@@ -196,7 +196,7 @@ func (a *Activities) AppendEventActivity(ctx context.Context, req *AppendEventRe
 	}
 
 	// Get the session to pass to AppendEvent.
-	sess, err := a.sessionSvc.GetSession(ctx, "", "", req.SessionID)
+	sess, err := a.sessionSvc.GetSession(ctx, req.AppName, req.UserID, req.SessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session %s for event append: %w", req.SessionID, err)
 	}

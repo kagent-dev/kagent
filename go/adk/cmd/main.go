@@ -14,12 +14,14 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	agentpkg "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/streaming"
+	"github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	temporalpkg "github.com/kagent-dev/kagent/go/adk/pkg/temporal"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -156,10 +158,25 @@ func main() {
 		if temporalConfig.NATSAddr == "" {
 			temporalConfig.NATSAddr = os.Getenv("NATS_ADDR")
 		}
+		// Use Kubernetes namespace as Temporal namespace if not explicitly set.
+		if temporalConfig.Namespace == "" {
+			if ns := os.Getenv("KAGENT_NAMESPACE"); ns != "" {
+				temporalConfig.Namespace = ns
+			}
+		}
+
+		// Use the Kubernetes agent name (KAGENT_NAME) for Temporal task queue
+		// and workflow IDs — not the __NS__-encoded appName.
+		kagentName := os.Getenv("KAGENT_NAME")
+		if kagentName == "" {
+			kagentName = appName // fallback for local development
+		}
+
 		logger.Info("Temporal execution enabled",
 			"hostAddr", temporalConfig.HostAddr,
 			"namespace", temporalConfig.Namespace,
 			"taskQueue", temporalConfig.TaskQueue,
+			"agentName", kagentName,
 			"natsAddr", temporalConfig.NATSAddr)
 
 		// Serialize agent config for workflow input.
@@ -189,11 +206,21 @@ func main() {
 		}
 		logger.Info("Connected to Temporal", "addr", temporalConfig.HostAddr)
 
+		// Create task store for persisting A2A tasks via the KAgent controller API.
+		var taskStoreInstance *taskstore.KAgentTaskStore
+		if kagentURL != "" {
+			taskStoreInstance = taskstore.NewKAgentTaskStoreWithClient(kagentURL, httpClient)
+			logger.Info("Temporal activities using KAgent task store", "url", kagentURL)
+		} else {
+			logger.Info("No KAGENT_URL set, task persistence disabled for Temporal workflows")
+		}
+
 		// Create activities and worker.
-		activities := temporalpkg.NewActivities(sessionService, nil, natsConn, nil, nil)
+		modelInvoker := agentpkg.NewModelInvoker(logger)
+		activities := temporalpkg.NewActivities(sessionService, taskStoreInstance, natsConn, modelInvoker, nil)
 		taskQueue := temporalConfig.TaskQueue
 		if taskQueue == "" {
-			taskQueue = temporalpkg.TaskQueueForAgent(appName)
+			taskQueue = temporalpkg.TaskQueueForAgent(kagentName)
 		}
 		temporalWorker, err := temporalpkg.NewWorker(temporalClient.Temporal(), taskQueue, activities)
 		if err != nil {
@@ -203,7 +230,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		executor := a2a.NewTemporalExecutor(temporalClient, temporalConfig, natsConn, appName, configJSON, logger)
+		executor := a2a.NewTemporalExecutor(temporalClient, temporalConfig, natsConn, kagentName, appName, configJSON, logger)
 
 		// Create app with temporal executor.
 		kagentApp, err := app.New(app.AppConfig{

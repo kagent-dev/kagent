@@ -22,7 +22,8 @@ type TemporalExecutor struct {
 	client     *temporal.Client
 	config     temporal.TemporalConfig
 	natsConn   *nats.Conn
-	agentName  string
+	agentName  string // K8s agent name for Temporal workflow/task queue naming
+	appName    string // __NS__-encoded app name for session/DB lookups
 	configJSON []byte // serialized AgentConfig for workflow input
 	log        logr.Logger
 }
@@ -30,11 +31,14 @@ type TemporalExecutor struct {
 var _ a2asrv.AgentExecutor = (*TemporalExecutor)(nil)
 
 // NewTemporalExecutor creates an executor that delegates to Temporal workflows.
+// agentName is the Kubernetes agent name (e.g., "istio-agent") used for Temporal naming.
+// appName is the encoded identifier (e.g., "kagent__NS__istio_agent") used for session/DB lookups.
 func NewTemporalExecutor(
 	client *temporal.Client,
 	cfg temporal.TemporalConfig,
 	natsConn *nats.Conn,
 	agentName string,
+	appName string,
 	configJSON []byte,
 	logger logr.Logger,
 ) *TemporalExecutor {
@@ -43,6 +47,7 @@ func NewTemporalExecutor(
 		config:     cfg,
 		natsConn:   natsConn,
 		agentName:  agentName,
+		appName:    appName,
 		configJSON: configJSON,
 		log:        logger.WithName("temporal-executor"),
 	}
@@ -66,7 +71,7 @@ func (e *TemporalExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCo
 	req := &temporal.ExecutionRequest{
 		SessionID:   sessionID,
 		UserID:      userID,
-		AgentName:   e.agentName,
+		AgentName:   e.appName,
 		Message:     msgBytes,
 		Config:      e.configJSON,
 		NATSSubject: streaming.SubjectForAgent(e.agentName, sessionID),

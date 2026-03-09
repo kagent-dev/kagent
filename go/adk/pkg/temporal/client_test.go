@@ -108,13 +108,13 @@ func TestExecuteAgentWorkflowOptions(t *testing.T) {
 		return true // we verify in the assertions below
 	}), mock.Anything, req).
 		Return(mockRun, nil)
-	mockRun.On("GetID").Return("agent-my-agent-sess-1")
+	mockRun.On("GetID").Return("my-agent:sess-1")
 	mockRun.On("GetRunID").Return("run-1")
 
 	c := NewClientFromExisting(mockClient)
 	run, err := c.ExecuteAgent(context.Background(), req, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "agent-my-agent-sess-1", run.GetID())
+	assert.Equal(t, "my-agent:sess-1", run.GetID())
 
 	// Verify the workflow was started with the correct task queue (derived from agent name).
 	call := mockClient.Calls[0]
@@ -123,10 +123,10 @@ func TestExecuteAgentWorkflowOptions(t *testing.T) {
 
 func TestSignalApproval(t *testing.T) {
 	tests := []struct {
-		name     string
-		decision *ApprovalDecision
+		name      string
+		decision  *ApprovalDecision
 		signalErr error
-		wantErr  bool
+		wantErr   bool
 	}{
 		{
 			name:     "approval approved",
@@ -168,13 +168,13 @@ func TestSignalApproval(t *testing.T) {
 
 func TestGetWorkflowStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		workflowID string
-		resp       *workflowservice.DescribeWorkflowExecutionResponse
+		name        string
+		workflowID  string
+		resp        *workflowservice.DescribeWorkflowExecutionResponse
 		describeErr error
-		wantStatus string
-		wantErr    bool
-		errMsg     string
+		wantStatus  string
+		wantErr     bool
+		errMsg      string
 	}{
 		{
 			name:       "running workflow",

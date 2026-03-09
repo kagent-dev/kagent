@@ -118,6 +118,10 @@ e2e: ## Run end-to-end tests.
 e2e-temporal: ## Run Temporal E2E tests (requires Temporal + NATS in cluster).
 	cd core && TEMPORAL_ENABLED=1 go test -v -run 'TestE2ETemporal.*' github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
+.PHONY: e2e-cli
+e2e-cli: ## Run CLI E2E tests (requires kagent cluster with deployed agents).
+	cd core && CLI_TEST=1 go test -v -run 'TestE2ECLI.*' github.com/kagent-dev/kagent/go/core/test/e2e -failfast -timeout=10m
+
 ##@ Dependencies
 
 ## Location to install dependencies to

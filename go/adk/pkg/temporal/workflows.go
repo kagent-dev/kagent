@@ -30,10 +30,10 @@ const (
 // conversationEntry represents a single turn in the conversation history
 // passed between LLM activity invocations within the workflow.
 type conversationEntry struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCalls  []ToolCall     `json:"toolCalls,omitempty"`
-	ToolCallID string         `json:"toolCallID,omitempty"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content,omitempty"`
+	ToolCalls  []ToolCall      `json:"toolCalls,omitempty"`
+	ToolCallID string          `json:"toolCallID,omitempty"`
 	ToolResult json.RawMessage `json:"toolResult,omitempty"`
 }
 
@@ -114,16 +114,28 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 			})
 			_ = workflow.ExecuteActivity(taskCtx, activities.AppendEventActivity, &AppendEventRequest{
 				SessionID: req.SessionID,
+				AppName:   req.AgentName,
+				UserID:    req.UserID,
 				Event:     eventBytes,
 			}).Get(taskCtx, nil)
 
 			// Step 3: Save task.
 			responseBytes, _ := json.Marshal(llmResp)
+			now := workflow.Now(ctx).Format(time.RFC3339)
 			taskData, _ := json.Marshal(map[string]interface{}{
-				"sessionID": req.SessionID,
-				"agentName": req.AgentName,
-				"status":    "completed",
-				"response":  llmResp.Content,
+				"id":        req.SessionID,
+				"contextId": req.SessionID,
+				"status": map[string]interface{}{
+					"state": "completed",
+					"message": map[string]interface{}{
+						"kind": "message",
+						"role": "agent",
+						"parts": []map[string]interface{}{
+							{"kind": "text", "text": llmResp.Content},
+						},
+					},
+					"timestamp": now,
+				},
 			})
 			_ = workflow.ExecuteActivity(taskCtx, activities.SaveTaskActivity, &TaskSaveRequest{
 				SessionID: req.SessionID,
