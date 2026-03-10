@@ -25,7 +25,6 @@ import (
 
 	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/compiler"
-	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -339,39 +338,6 @@ func executeActionStep(ctx workflow.Context, action string, inputs map[string]st
 		return nil, fmt.Errorf("action %q returned error: %s", action, result.Error)
 	}
 	return result.Output, nil
-}
-
-// executeAgentStep dispatches an agent step as a child workflow.
-func executeAgentStep(
-	ctx workflow.Context,
-	step compiler.ExecutionStep,
-	prompt string,
-	inputs map[string]string,
-	plan *compiler.ExecutionPlan,
-) (json.RawMessage, error) {
-	childID := fmt.Sprintf("%s:agent:%s", plan.WorkflowID, step.Name)
-
-	childOpts := workflow.ChildWorkflowOptions{
-		WorkflowID: childID,
-		TaskQueue:  step.AgentRef,
-		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-	}
-	childCtx := workflow.WithChildOptions(ctx, childOpts)
-
-	// Build agent input combining prompt and step inputs.
-	agentInput := map[string]string{
-		"prompt": prompt,
-	}
-	for k, v := range inputs {
-		agentInput[k] = v
-	}
-
-	var result json.RawMessage
-	err := workflow.ExecuteChildWorkflow(childCtx, "AgentExecutionWorkflow", agentInput).Get(childCtx, &result)
-	if err != nil {
-		return nil, fmt.Errorf("agent %q failed: %w", step.AgentRef, err)
-	}
-	return result, nil
 }
 
 // buildActivityOptions creates Temporal ActivityOptions from a step policy.
