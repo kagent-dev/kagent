@@ -68,6 +68,16 @@ database:
 controller:
   replicas: 1
   loglevel: "info"
+  # -- Global deployment defaults applied to all agent pods.
+  # Per-agent settings in the Agent CRD take precedence over these defaults.
+  agentDeployment:
+    # -- Default ServiceAccount name for agent pods.
+    # When set, agent pods that don't specify an explicit serviceAccountName
+    # will use this ServiceAccount instead of creating a per-agent one.
+    # Useful for Workload Identity (GCP, AWS IRSA, Azure Workload Identity).
+    # Precedence: agent-level serviceAccountName > this default > auto-created SA.
+    # @default -- "" (auto-create per-agent ServiceAccount)
+    serviceAccountName: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""

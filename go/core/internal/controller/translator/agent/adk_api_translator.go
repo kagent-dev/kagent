@@ -107,6 +107,11 @@ var DefaultSkillsInitImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/skills-init",
 }
 
+// DefaultServiceAccountName is the global default ServiceAccount name for agent pods.
+// When set, agent pods that don't specify an explicit serviceAccountName will use this
+// instead of auto-creating a per-agent ServiceAccount.
+var DefaultServiceAccountName string
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
