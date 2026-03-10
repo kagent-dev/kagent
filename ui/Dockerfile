@@ -9,10 +9,8 @@ ENV LC_ALL=C.UTF-8
 ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
-RUN --mount=type=cache,target=/var/cache/apk,rw \
-    echo "Installing on $BUILDPLATFORM" \
-    && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" npm \
+RUN echo "Installing on $BUILDPLATFORM" \
+    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" npm \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
@@ -48,10 +46,8 @@ ENV NODE_ENV=production
 ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
-RUN --mount=type=cache,target=/var/cache/apk,rw \
-    echo "Installing on $BUILDPLATFORM" \
-    && apk update \
-    && apk add curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" \
+RUN echo "Installing on $BUILDPLATFORM" \
+    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" \
     && update-ca-certificates
 
 RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
