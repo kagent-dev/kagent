@@ -20,6 +20,7 @@ class STSIntegrationBase:
         fetch_actor_token: Optional[Union[Callable[[], str], Callable[[], Awaitable[str]]]] = None,
         timeout: int = 30,
         verify_ssl: bool = True,
+        use_issuer_host: bool = False,
         additional_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the STS integration.
@@ -30,6 +31,7 @@ class STSIntegrationBase:
             fetch_actor_token: Optional callable (sync or async) that returns an actor token
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
+            use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
             additional_config: Additional configuration for the specific framework
         """
         self.well_known_uri = well_known_uri
@@ -43,6 +45,7 @@ class STSIntegrationBase:
             well_known_uri=well_known_uri,
             timeout=timeout,
             verify_ssl=verify_ssl,
+            use_issuer_host=use_issuer_host,
         )
         self.sts_client = STSClient(config)
         self.access_token = None  # cached access token
