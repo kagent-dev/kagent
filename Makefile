@@ -438,7 +438,7 @@ open-dev-container:
 otel-local:
 	docker rm -f jaeger-desktop || true
 	docker run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
-	open http://localhost:16686/
+	@echo "Jaeger UI available at http://localhost:16686/"
 
 .PHONY: kind-debug
 kind-debug:
