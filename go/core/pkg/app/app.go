@@ -494,6 +494,14 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Retention controller periodically cleans up old WorkflowRuns based on history limits and TTL.
+	if err := mgr.Add(&controller.WorkflowRunRetentionController{
+		K8sClient: mgr.GetClient(),
+	}); err != nil {
+		setupLog.Error(err, "unable to add retention controller")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
