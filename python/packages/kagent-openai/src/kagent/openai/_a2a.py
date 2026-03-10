@@ -32,19 +32,9 @@ from openai import AsyncOpenAI
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 from ._session_service import KAgentSessionFactory
 
-# Configure logging
+# Logging is configured by kagent.core (imported above) which sets
+# timestamp format via configure_logging() at import time.
 logger = logging.getLogger(__name__)
-
-
-def configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    numeric_level = getattr(logging, log_level, logging.INFO)
-    logging.basicConfig(level=numeric_level)
-    logging.info(f"Logging configured with level: {log_level}")
-
-
-configure_logging()
 
 
 def health_check(request: Request) -> PlainTextResponse:
@@ -54,12 +44,12 @@ def health_check(request: Request) -> PlainTextResponse:
 
 def thread_dump(request: Request) -> PlainTextResponse:
     """Thread dump endpoint for debugging."""
-    import io
+    import tempfile
 
-    buf = io.StringIO()
-    faulthandler.dump_traceback(file=buf)
-    buf.seek(0)
-    return PlainTextResponse(buf.read())
+    with tempfile.TemporaryFile(mode="w+") as tmp:
+        faulthandler.dump_traceback(file=tmp, all_threads=True)
+        tmp.seek(0)
+        return PlainTextResponse(tmp.read())
 
 
 # Environment variables
@@ -176,7 +166,7 @@ class KAgentApp:
             try:
                 # Set OpenAI tracing disabled and set custom OTEL tracing to be enabled
                 logger.info("Configuring tracing for KAgent OpenAI app")
-                configure_tracing(app)
+                configure_tracing(self.config.name, self.config.namespace, app)
 
                 # Configure tracing for OpenAI Agents SDK
                 tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"

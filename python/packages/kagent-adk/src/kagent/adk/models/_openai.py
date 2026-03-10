@@ -122,7 +122,7 @@ def _convert_content_to_openai_messages(
                     elif func_response.response and "content" in func_response.response:
                         content_list = func_response.response["content"]
                         if len(content_list) > 0:
-                            content = content_list[0]["text"]
+                            content = "\n".join(item["text"] for item in content_list if "text" in item)
                     elif func_response.response and "result" in func_response.response:
                         content = func_response.response["result"]
 
@@ -307,6 +307,12 @@ class BaseOpenAI(BaseLlm):
     tls_ca_cert_path: Optional[str] = None
     tls_disable_system_cas: Optional[bool] = None
 
+    # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
+    api_key_passthrough: Optional[bool] = None
+
+    def set_passthrough_key(self, token: str) -> None:
+        self.api_key = token
+
     @classmethod
     def supported_models(cls) -> list[str]:
         """Returns a list of supported models in regex for LlmRegistry."""
@@ -434,7 +440,11 @@ class BaseOpenAI(BaseLlm):
                 # Accumulate tool calls - keyed by index since they arrive in chunks
                 tool_calls_acc: dict[int, dict[str, Any]] = {}
 
-                async for chunk in await self._client.chat.completions.create(stream=True, **kwargs):
+                # Request usage metadata in streaming mode (OpenAI API feature since Nov 2023)
+                # Without this option, chunk.usage is always None in streaming responses
+                async for chunk in await self._client.chat.completions.create(
+                    stream=True, stream_options={"include_usage": True}, **kwargs
+                ):
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta
 

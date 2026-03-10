@@ -1,0 +1,54 @@
+operation: translateAgent
+targetObject: git-skills-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+      openAI:
+        temperature: "0.7"
+        maxTokens: 1024
+        topP: "0.95"
+        reasoningEffort: "low"
+      defaultHeaders:
+        User-Agent: "kagent/1.0"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: git-skills-agent
+      namespace: test
+    spec:
+      skills:
+        refs:
+          - ghcr.io/org/oci-skill:v1.0
+        gitAuthSecretRef:
+          name: github-token
+        gitRefs:
+          - url: https://github.com/org/my-skills
+            ref: v2.0.0
+            path: skills/k8s
+            name: k8s-skill
+          - url: https://github.com/org/another-skill
+            ref: abc123def456abc123def456abc123def456abc1
+          - url: https://github.com/org/private-skill
+            ref: main
+      type: Declarative
+      declarative:
+        description: An agent with git-based skills
+        systemMessage: You are a helpful assistant with skills from git.
+        modelConfig: basic-model
+        tools: []

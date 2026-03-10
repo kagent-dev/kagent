@@ -1,4 +1,4 @@
-name: Tag and Push 
+name: Tag and Push
 
 on:
   push:
@@ -20,6 +20,8 @@ jobs:
           - controller
           - ui
           - app
+          - golang-adk
+          - skills-init
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,8 +114,16 @@ jobs:
         uv build --package kagent-langgraph
         uv version $VERSION --package kagent-crewai
         uv build --package kagent-crewai
+        uv version $VERSION --package kagent-skills
+        uv build --package kagent-skills
+        uv version $VERSION --package kagent-openai
+        uv build --package kagent-openai
+        uv version $VERSION --package agentsts-adk
+        uv build --package agentsts-adk
+        uv version $VERSION --package agentsts-core
+        uv build --package agentsts-core
         uv publish --token ${{ secrets.PYPI_TOKEN }}
-      
+
   release:
     # Only run release after images and helm chart are pushed
     # In the future we can take the chart from the helm action,
@@ -143,5 +153,5 @@ jobs:
       with:
         generate_release_notes: true
         files: |
-          go/bin/kagent-*
+          go/core/bin/kagent-*
           kagent-*.tgz

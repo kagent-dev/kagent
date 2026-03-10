@@ -91,9 +91,13 @@ class MockLLMHandler(BaseHTTPRequestHandler):
 
 
 class TestHTTPSServer:
-    """Context manager for running a test HTTPS server in a background thread."""
+    """Context manager for running a test HTTPS server in a background thread.
 
-    def __init__(self, port: int = 8443, use_ssl: bool = True):
+    Uses port 0 by default to let the OS assign a free port, avoiding
+    conflicts with other processes or parallel test runs.
+    """
+
+    def __init__(self, port: int = 0, use_ssl: bool = True):
         self.port = port
         self.use_ssl = use_ssl
         self.server: HTTPServer | None = None
@@ -105,6 +109,9 @@ class TestHTTPSServer:
             self.server = HTTPServer(("localhost", self.port), MockLLMHandler)
         except OSError as e:
             raise RuntimeError(f"Failed to bind to port {self.port}. Error: {e}") from e
+
+        # Update port to the actual bound port (important when using port 0)
+        self.port = self.server.server_address[1]
 
         if self.use_ssl:
             # Configure SSL context for server
@@ -159,7 +166,7 @@ async def test_e2e_with_self_signed_cert_with_custom_ca():
     Note: This tests SSL context creation and httpx client integration directly.
     For BaseOpenAI integration tests, see tests that use generate_content_async().
     """
-    with TestHTTPSServer(port=8443):
+    with TestHTTPSServer() as server:
         # Create SSL context with custom CA (no system CAs to isolate test)
         ssl_context = create_ssl_context(
             disable_verify=False,
@@ -170,7 +177,7 @@ async def test_e2e_with_self_signed_cert_with_custom_ca():
         # Create httpx client with custom SSL context
         async with httpx.AsyncClient(verify=ssl_context) as client:
             # Make request to test server
-            response = await client.get("https://localhost:8443/health")
+            response = await client.get(f"{server.url}/health")
 
             # Verify response
             assert response.status_code == 200
@@ -189,7 +196,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca():
     Note: This tests SSL context creation and httpx client integration directly.
     For BaseOpenAI integration tests, see test_e2e_openai_generate_content_fails_without_custom_ca.
     """
-    with TestHTTPSServer(port=8444):
+    with TestHTTPSServer() as server:
         # Create SSL context WITHOUT custom CA (should fail verification)
         ssl_context = create_ssl_context(
             disable_verify=False,
@@ -200,7 +207,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca():
         # Attempt to connect should fail with SSL verification error
         async with httpx.AsyncClient(verify=ssl_context) as client:
             with pytest.raises(httpx.ConnectError):
-                await client.get("https://localhost:8444/health")
+                await client.get(f"{server.url}/health")
 
 
 @pytest.mark.asyncio
@@ -215,7 +222,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca_or_system_cas()
     Note: This tests SSL context creation and httpx client integration directly.
     For BaseOpenAI integration tests, see test_e2e_openai_generate_content_fails_without_custom_ca.
     """
-    with TestHTTPSServer(port=8444):
+    with TestHTTPSServer() as server:
         # Create SSL context WITHOUT custom CA (should fail verification)
         ssl_context = create_ssl_context(
             disable_verify=False,
@@ -226,7 +233,7 @@ async def test_e2e_with_self_signed_cert_fails_without_custom_ca_or_system_cas()
         # Attempt to connect should fail with SSL verification error
         async with httpx.AsyncClient(verify=ssl_context) as client:
             with pytest.raises(httpx.ConnectError):
-                await client.get("https://localhost:8444/health")
+                await client.get(f"{server.url}/health")
 
 
 @pytest.mark.asyncio
@@ -243,7 +250,7 @@ async def test_e2e_with_verification_disabled():
     Note: This tests SSL context creation and httpx client integration directly.
     For BaseOpenAI integration tests, see test_e2e_openai_client_with_verification_disabled.
     """
-    with TestHTTPSServer(port=8445):
+    with TestHTTPSServer() as server:
         # Create SSL context with verification disabled
         ssl_context = create_ssl_context(
             disable_verify=True,
@@ -257,7 +264,7 @@ async def test_e2e_with_verification_disabled():
         # Create httpx client with verification disabled
         async with httpx.AsyncClient(verify=False) as client:
             # Make request to test server - should succeed despite untrusted cert
-            response = await client.get("https://localhost:8445/health")
+            response = await client.get(f"{server.url}/health")
 
             # Verify response
             assert response.status_code == 200
@@ -289,12 +296,12 @@ async def test_e2e_with_system_and_custom_ca():
     This test verifies the additive behavior where both system CAs
     and custom CA are trusted.
     """
-    with TestHTTPSServer(port=8446):
+    with TestHTTPSServer() as server:
         # Create OpenAI client with both system and custom CAs
         model = BaseOpenAI(
             model="gpt-4",
             api_key="test-key",
-            base_url="https://localhost:8446/v1",
+            base_url=f"{server.url}/v1",
             tls_disable_verify=False,
             tls_ca_cert_path=str(CA_CERT),
             tls_disable_system_cas=False,  # Use both system and custom CAs
@@ -327,12 +334,12 @@ async def test_e2e_fails_without_custom_ca():
     3. Call generate_content_async() which should fail due to SSL verification
     4. Verify the error is properly handled
     """
-    with TestHTTPSServer(port=8452):
+    with TestHTTPSServer() as server:
         # Create OpenAI client WITHOUT custom CA (should fail verification)
         model = BaseOpenAI(
             model="gpt-4",
             api_key="test-key",
-            base_url="https://localhost:8452/v1",
+            base_url=f"{server.url}/v1",
             tls_disable_verify=False,
             tls_ca_cert_path=None,  # No custom CA
             tls_disable_system_cas=True,  # Empty trust store - no CAs at all
@@ -380,12 +387,12 @@ async def test_e2e_with_custom_ca_no_system_cas():
     3. Make actual API call through OpenAI SDK
     4. Verify response works end-to-end
     """
-    with TestHTTPSServer(port=8447):
+    with TestHTTPSServer() as server:
         # Create OpenAI client with custom TLS configuration
         model = BaseOpenAI(
             model="gpt-4",
             api_key="test-key",
-            base_url="https://localhost:8447/v1",
+            base_url=f"{server.url}/v1",
             tls_disable_verify=False,
             tls_ca_cert_path=str(CA_CERT),
             tls_disable_system_cas=True,
@@ -428,13 +435,13 @@ async def test_e2e_backward_compatibility_default_behavior():
     Note: We can't test with zero TLS config because our test server requires
     a custom CA. But we test that defaults work correctly (system CAs enabled).
     """
-    with TestHTTPSServer(port=8453):
+    with TestHTTPSServer() as server:
         # Create OpenAI client with minimal TLS config (only custom CA for test server)
         # tls_disable_verify and tls_disable_system_cas are NOT set (use defaults)
         model = BaseOpenAI(
             model="gpt-4",
             api_key="test-key",
-            base_url="https://localhost:8453/v1",
+            base_url=f"{server.url}/v1",
             tls_disable_verify=None,  # Not set - defaults to False (verification enabled)
             tls_ca_cert_path=None,
             tls_disable_system_cas=None,  # Not set - defaults to False (system CAs enabled)
@@ -465,12 +472,12 @@ async def test_e2e_with_verification_disabled_no_system_cas():
     This test verifies that OpenAI client can connect to servers with
     untrusted certificates when verification is disabled.
     """
-    with TestHTTPSServer(port=8448):
+    with TestHTTPSServer() as server:
         # Create OpenAI client with verification disabled
         model = BaseOpenAI(
             model="gpt-4",
             api_key="test-key",
-            base_url="https://localhost:8448/v1",
+            base_url=f"{server.url}/v1",
             tls_disable_verify=True,
             tls_ca_cert_path=None,
             tls_disable_system_cas=True,
@@ -504,7 +511,7 @@ async def test_e2e_multiple_requests_with_connection_pooling():
     Note: This tests SSL context creation and httpx client integration directly.
     For BaseOpenAI integration tests, see tests that use generate_content_async().
     """
-    with TestHTTPSServer(port=8449):
+    with TestHTTPSServer() as server:
         # Create SSL context with custom CA
         ssl_context = create_ssl_context(
             disable_verify=False,
@@ -516,9 +523,9 @@ async def test_e2e_multiple_requests_with_connection_pooling():
         async with httpx.AsyncClient(verify=ssl_context) as client:
             # Make multiple requests
             responses = await asyncio.gather(
-                client.get("https://localhost:8449/health"),
-                client.get("https://localhost:8449/health"),
-                client.get("https://localhost:8449/health"),
+                client.get(f"{server.url}/health"),
+                client.get(f"{server.url}/health"),
+                client.get(f"{server.url}/health"),
             )
 
             # Verify all requests succeeded

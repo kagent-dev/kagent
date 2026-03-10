@@ -70,19 +70,17 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
     cd opt && \
-    git clone --depth 1 --revision=771f18664f97f6606c9ed64fc65f988b3ecf2e69 https://github.com/anthropic-experimental/sandbox-runtime.git && \
+    git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install && \
     npm run build && \
-    npm install -g
+    # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
+    # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.
+    npm prune --omit=dev && \
+    npm install -g --ignore-scripts
 
 # Ensure the sandbox runtime binaries are on PATH
 ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
-
-# Install anthropic sandbox runtime and dependencies
-RUN --mount=type=cache,target=/var/cache/apk,rw \
-    apk add \
-    crane
 
 USER python
 WORKDIR /.kagent
@@ -102,6 +100,8 @@ COPY --chown=python:pythongroup uv.lock .
 COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
 COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
 COPY --chown=python:pythongroup packages/kagent-skills packages/kagent-skills
+COPY --chown=python:pythongroup packages/agentsts-adk packages/agentsts-adk
+COPY --chown=python:pythongroup packages/agentsts-core packages/agentsts-core
 COPY --chown=python:pythongroup README.md .
 
 ARG VERSION

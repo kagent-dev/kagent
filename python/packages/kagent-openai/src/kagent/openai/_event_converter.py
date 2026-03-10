@@ -8,7 +8,14 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+
+try:
+    from datetime import UTC  # Python 3.11+
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
 
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (

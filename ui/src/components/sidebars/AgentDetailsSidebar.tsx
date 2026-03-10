@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit } from "lucide-react";
+import { ChevronRight, Edit, ShieldAlert } from "lucide-react";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -55,6 +55,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     displayName,
     providerTooltip,
     description,
+    requiresApproval,
     isExpanded,
     onToggleExpansion,
   }: {
@@ -62,6 +63,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     displayName: string;
     providerTooltip: string;
     description: string;
+    requiresApproval?: boolean;
     isExpanded: boolean;
     onToggleExpansion: () => void;
   }) => {
@@ -77,18 +79,26 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             <SidebarMenuButton tooltip={providerTooltip} className="w-full">
               <div className="flex items-center justify-between w-full">
                 <span className="truncate max-w-[200px]">{displayName}</span>
-                <ChevronRight
-                  className={cn(
-                    "h-4 w-4 transition-transform duration-200",
-                    isExpanded && "rotate-90"
+                <div className="flex items-center gap-1">
+                  {requiresApproval && (
+                    <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   )}
-                />
+                  <ChevronRight
+                    className={cn(
+                      "h-4 w-4 transition-transform duration-200",
+                      isExpanded && "rotate-90"
+                    )}
+                  />
+                </div>
               </div>
             </SidebarMenuButton>
           </CollapsibleTrigger>
           <CollapsibleContent className="px-2 py-1">
             <div className="rounded-md bg-muted/50 p-2">
               <p className="text-sm text-muted-foreground">{description}</p>
+              {requiresApproval && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Requires approval before execution</p>
+              )}
             </div>
           </CollapsibleContent>
         </SidebarMenuItem>
@@ -160,6 +170,8 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
       );
     }
 
+    const agentNamespace = currentAgent.agent.metadata.namespace || "";
+
     return (
       <SidebarMenu>
         {tools.flatMap((tool) => {
@@ -169,19 +181,23 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             const mcpProvider = tool.mcpServer.name || "mcp_server";
             const mcpProviderParts = mcpProvider.split(".");
             const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
+            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
+            const approvalSet = new Set(tool.mcpServer.requireApproval || []);
 
             return tool.mcpServer.toolNames.map((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
               const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
               const isExpanded = expandedTools[subToolIdentifier] || false;
+              const displayName = `${mcpToolName} (${serverDisplayName})`;
 
               return (
                 <RenderToolCollapsibleItem
                   key={subToolIdentifier}
                   itemKey={subToolIdentifier}
-                  displayName={mcpToolName}
+                  displayName={displayName}
                   providerTooltip={mcpProviderNameTooltip}
                   description={description}
+                  requiresApproval={approvalSet.has(mcpToolName)}
                   isExpanded={isExpanded}
                   onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
                 />
@@ -190,7 +206,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
           } else {
             const toolIdentifier = baseToolIdentifier;
             const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
-            const displayName = getToolDisplayName(tool);
+            const displayName = getToolDisplayName(tool, agentNamespace);
             const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
             const isExpanded = expandedTools[toolIdentifier] || false;
 
@@ -259,22 +275,52 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                 </div>
                 <SidebarMenu>
                   <TooltipProvider>
-                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => (
-                      <SidebarMenuItem key={index}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <SidebarMenuButton className="w-full">
-                              <div className="flex items-center justify-between w-full">
-                                <span className="truncate max-w-[200px] text-sm">{skillRef}</span>
-                              </div>
-                            </SidebarMenuButton>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">
-                            <p className="max-w-xs break-all">{skillRef}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </SidebarMenuItem>
-                    ))}
+                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => {
+                      // Parse OCI image reference: [registry/]repository[:tag][@digest]
+                      // Groups: (1) registry, (2) repository, (3) tag, (4) digest
+                      const refMatch = skillRef.match(
+                        /^(?:((?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?|localhost(?::\d+)?|[a-zA-Z0-9-]+:\d+)\/)?([^:@]+)(?::([^@]+))?(?:@(.+))?$/
+                      );
+                      const registry = refMatch?.[1] ?? null;
+                      const repoName = refMatch?.[2] ?? null;
+                      const tag = refMatch?.[3] ?? null;
+                      const digest = refMatch?.[4] ?? null;
+
+                      // Only show a version badge when the ref was successfully parsed.
+                      // Truncate digests to keep the badge compact.
+                      const versionBadge = refMatch
+                        ? tag ?? (digest ? (digest.length > 16 ? digest.substring(0, 16) + "\u2026" : digest) : "latest")
+                        : null;
+                      const displayName = repoName ?? skillRef;
+                      return (
+                        <SidebarMenuItem key={index}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2">
+                                <div className="flex flex-col items-start w-full min-w-0 gap-0.5">
+                                  <div className="flex items-center w-full justify-between gap-2">
+                                    <span className="truncate text-sm font-medium leading-tight">{displayName}</span>
+                                    {versionBadge && (
+                                      <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                        {versionBadge}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {registry && (
+                                    <span className="truncate w-full text-xs text-muted-foreground leading-tight" title={registry}>
+                                      {registry}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <p className="max-w-xs break-all">{skillRef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </TooltipProvider>
                 </SidebarMenu>
               </SidebarGroup>

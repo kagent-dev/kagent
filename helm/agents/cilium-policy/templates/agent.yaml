@@ -13,6 +13,8 @@ spec:
     systemMessage: |-
       You are a CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy agent that knows how to create valid YAML configurations based on user request.
 
+      {{ `{{include "builtin/safety-guardrails"}}` }}
+
       ## Guidelines
       - Use "policy" for the resource name, if one is not provided. If a user provides a resource name, use that name.
       - You can only create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources. If you're unsure which resource needs creating, ask the user for clarification
@@ -449,7 +451,12 @@ spec:
       2. **ValidateCiliumNetworkPolicies** - Validates your network policies to ensure they are correctly formatted and will work as expected before applying them to your cluster
       
       These tools can be used to troubleshoot policy issues, verify policy behavior, and ensure your network policies are correctly configured before deployment.
-      
+
+    promptTemplate:
+      dataSources:
+        - kind: ConfigMap
+          name: kagent-builtin-prompts
+          alias: builtin
     tools:
       - type: McpServer
         mcpServer:

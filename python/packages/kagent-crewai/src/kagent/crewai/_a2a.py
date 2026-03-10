@@ -29,12 +29,12 @@ def def_health_check(request: Request) -> PlainTextResponse:
 
 
 def thread_dump(request: Request) -> PlainTextResponse:
-    import io
+    import tempfile
 
-    buf = io.StringIO()
-    faulthandler.dump_traceback(file=buf)
-    buf.seek(0)
-    return PlainTextResponse(buf.read())
+    with tempfile.TemporaryFile(mode="w+") as tmp:
+        faulthandler.dump_traceback(file=tmp, all_threads=True)
+        tmp.seek(0)
+        return PlainTextResponse(tmp.read())
 
 
 class KAgentApp:
@@ -86,7 +86,7 @@ class KAgentApp:
         )
 
         if self.tracing:
-            configure_tracing(app)
+            configure_tracing(self.config.name, self.config.namespace, app)
             # Setup crewAI instrumentor separately as core configure does not include it
             tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
             if tracing_enabled:

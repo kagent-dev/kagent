@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
+import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar, ContextConfig } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -17,6 +17,8 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   skills?: string;
+  memoryModel?: string;
+  memoryTtl?: string;
 }
 
 export interface AgentFormData {
@@ -31,6 +33,13 @@ export interface AgentFormData {
   stream?: boolean;
   // Skills
   skillRefs?: string[];
+  // Memory
+  memory?: {
+    modelConfig?: string;
+    ttlDays?: number;
+  };
+  // Context management
+  context?: ContextConfig;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -54,6 +63,7 @@ interface AgentsContextType {
   tools: ToolsResponse[];
   refreshAgents: () => Promise<void>;
   refreshModels: () => Promise<void>;
+  refreshTools: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
@@ -162,6 +172,15 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (!data.modelName || data.modelName.trim() === "") {
         errors.model = "Please select a model";
       }
+
+      if (data.memory) {
+        if (!data.memory.modelConfig || data.memory.modelConfig.trim() === "") {
+          errors.memoryModel = "Please select an embedding model";
+        }
+        if (data.memory.ttlDays !== undefined && data.memory.ttlDays < 1) {
+          errors.memoryTtl = "TTL must be at least 1 day";
+        }
+      }
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
@@ -264,6 +283,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     tools,
     refreshAgents: fetchAgents,
     refreshModels: fetchModels,
+    refreshTools: fetchTools,
     createNewAgent,
     updateAgent,
     getAgent,

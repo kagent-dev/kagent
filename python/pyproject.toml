@@ -6,11 +6,20 @@ dev = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
   "ruff>=0.11.5",
-  "authlib>=1.6.4"
+  "authlib>=1.6.7"
+]
+
+[tool.uv]
+constraint-dependencies = [
+    "cryptography>=46.0.5",
+    "jaraco-context>=6.1.0",
+    "wheel>=0.46.2",
 ]
 
 [tool.uv.sources]
 kagent-adk = { workspace = true }
+agentsts-adk = { workspace = true }
+agentsts-core = { workspace = true }
 
 [tool.ruff]
 line-length = 120
@@ -19,7 +28,7 @@ exclude = [
   "notebooks/",
 ]
 
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.format]
 docstring-code-format = true

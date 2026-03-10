@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -97,20 +97,29 @@ export function ToolSelectionStep({
         }, {} as Record<string, ToolsResponse[]>);
     }, [filteredToolsByCategory, searchQuery]);
 
+    // Track if we've initialized to avoid re-running initialization logic
+    const hasInitializedExpandedRef = useRef(false);
+    const hasInitializedSelectionRef = useRef(false);
+
+    // Initialize expanded categories when tools load
+    // This is a one-time initialization effect when data becomes available
     useEffect(() => {
-        if (availableTools && Object.keys(expandedCategories).length === 0) {
+        if (availableTools && Object.keys(expandedCategories).length === 0 && !hasInitializedExpandedRef.current) {
+            hasInitializedExpandedRef.current = true;
             const initialExpandedState: { [key: string]: boolean } = {};
             Object.keys(toolsByCategory).forEach(category => {
                 initialExpandedState[category] = true;
             });
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time initialization
             setExpandedCategories(initialExpandedState);
         }
     }, [availableTools, toolsByCategory, expandedCategories]);
 
     // Pre-select specific K8s tools if none are initially selected
+    // This is a one-time initialization effect when data becomes available
     useEffect(() => {
-        // Only run when tools are loaded and no tools are initially selected from props
-        if (availableTools && initialSelectedTools.length === 0 && selectedTools.length === 0) {
+        if (availableTools && initialSelectedTools.length === 0 && selectedTools.length === 0 && !hasInitializedSelectionRef.current) {
+            hasInitializedSelectionRef.current = true;
             const desiredIds: string[] = [
                 "k8s_get_available_api_resources",
                 "k8s_get_resources",
@@ -125,6 +134,7 @@ export function ToolSelectionStep({
             });
 
             if (initialSelection.length > 0) {
+                // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time initialization
                 setSelectedTools(initialSelection);
             }
         }

@@ -1,3 +1,13 @@
+{{- if index .Values "kagent-tools" "enabled" }}
+{{- $toolsValues := index .Values "kagent-tools" }}
+{{- $toolsFullname := "" }}
+{{- if $toolsValues.fullnameOverride }}
+  {{- $toolsFullname = $toolsValues.fullnameOverride }}
+{{- else if $toolsValues.nameOverride }}
+  {{- $toolsFullname = printf "%s-%s" .Release.Name $toolsValues.nameOverride }}
+{{- else }}
+  {{- $toolsFullname = .Release.Name }}
+{{- end }}
 apiVersion: kagent.dev/v1alpha2
 kind: RemoteMCPServer
 metadata:
@@ -6,7 +16,8 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  url: "http://{{ include "kagent.fullname" . }}-tools.{{ include "kagent.namespace" . }}:8084/mcp"
+  url: "http://{{ $toolsFullname }}.{{ include "kagent.namespace" . }}:8084/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s
   description: "Official KAgent tool server"
+{{- end }}

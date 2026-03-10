@@ -14,7 +14,6 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
 from ._span_processor import KagentAttributesSpanProcessor
 
 
@@ -43,17 +42,32 @@ def _instrument_google_generativeai():
         pass
 
 
-def configure(fastapi_app: FastAPI | None = None):
+def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
+    """Configure OpenTelemetry tracing and logging for this service.
+
+    This sets up OpenTelemetry providers and exporters for tracing and logging,
+    using environment variables to determine whether each is enabled.
+
+    Args:
+        name: service name to report to OpenTelemetry (used as ``service.name``). Default is "kagent".
+        namespace: logical namespace for the service (used as ``service.namespace``). Default is "kagent".
+        fastapi_app: Optional FastAPI application instance to instrument. If
+            provided and tracing is enabled, FastAPI routes will be instrumented.
+    """
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
-    resource = Resource({"service.name": "kagent"})
+    resource = Resource({"service.name": name, "service.namespace": namespace})
 
     # Configure tracing if enabled
     if tracing_enabled:
         logging.info("Enabling tracing")
-        # Check new env var first, fall back to old one for backward compatibility
-        trace_endpoint = os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
+        trace_endpoint = (
+            os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+            or os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        )
         logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
             processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint))
@@ -75,15 +89,24 @@ def configure(fastapi_app: FastAPI | None = None):
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")
 
-        HTTPXClientInstrumentor().instrument()
+        # Exclude agent-card endpoint from traces — this is used as a health
+        # check endpoint (high-frequency polling requests) and has little
+        # diagnostic value.
+        _excluded_urls = ".*/\\.well-known/agent-card\\.json"
+        HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
         if fastapi_app:
-            FastAPIInstrumentor().instrument_app(fastapi_app)
+            FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")
         logger_provider = LoggerProvider(resource=resource)
-        log_endpoint = os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")
-        logging.info(f"Log endpoint configured: {log_endpoint}")
+        # Check standard OTEL env vars: signal-specific endpoint first, then general endpoint
+        log_endpoint = (
+            os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+            or os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        )
+        logging.info("Log endpoint: %s", log_endpoint or "<default>")
 
         # Add OTLP exporter
         if log_endpoint:

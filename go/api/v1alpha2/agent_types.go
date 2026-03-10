@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -35,6 +36,15 @@ type AgentType string
 const (
 	AgentType_Declarative AgentType = "Declarative"
 	AgentType_BYO         AgentType = "BYO"
+)
+
+// DeclarativeRuntime represents the runtime implementation for declarative agents
+// +kubebuilder:validation:Enum=python;go
+type DeclarativeRuntime string
+
+const (
+	DeclarativeRuntime_Python DeclarativeRuntime = "python"
+	DeclarativeRuntime_Go     DeclarativeRuntime = "go"
 )
 
 // AgentSpec defines the desired state of Agent.
@@ -58,8 +68,17 @@ type AgentSpec struct {
 	// and made available to the agent under the `/skills` folder.
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
+
+	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+	// This follows the Gateway API pattern for cross-namespace route attachments.
+	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
+	// This field only applies when this Agent is used as a tool by another Agent.
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// +optional
+	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
+// +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
 	// Meant for development and testing purposes only.
@@ -67,19 +86,70 @@ type SkillForAgent struct {
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 
 	// The list of skill images to fetch.
-	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
 	Refs []string `json:"refs,omitempty"`
+
+	// Reference to a Secret containing git credentials.
+	// Applied to all gitRefs entries.
+	// The secret should contain a `token` key for HTTPS auth,
+	// or `ssh-privatekey` for SSH auth.
+	// +optional
+	GitAuthSecretRef *corev1.LocalObjectReference `json:"gitAuthSecretRef,omitempty"`
+
+	// Git repositories to fetch skills from.
+	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+}
+
+// GitRepo specifies a single Git repository to fetch skills from.
+type GitRepo struct {
+	// URL of the git repository (HTTPS or SSH).
+	// +kubebuilder:validation:Required
+	URL string `json:"url"`
+
+	// Git reference: branch name, tag, or commit SHA.
+	// +optional
+	// +kubebuilder:default="main"
+	Ref string `json:"ref,omitempty"`
+
+	// Subdirectory within the repo to use as the skill root.
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// Name for the skill directory under /skills. Defaults to the repo name.
+	// +optional
+	Name string `json:"name,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// SystemMessage is a string specifying the system message for the agent
+	// Runtime specifies which ADK implementation to use for this agent.
+	// - "python": Uses the Python ADK (default, slower startup, full feature set)
+	// - "go": Uses the Go ADK (faster startup, most features supported)
+	// The runtime determines both the container image and readiness probe configuration.
+	// +optional
+	// +kubebuilder:default=python
+	// +kubebuilder:validation:Enum=python;go
+	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
+	// SystemMessage is a string specifying the system message for the agent.
+	// When PromptTemplate is set, this field is treated as a Go text/template
+	// with access to an include("source/key") function and agent context variables
+	// such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+	// When PromptTemplate is set, the resolved value is treated as a Go text/template.
 	// +optional
 	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
+	// PromptTemplate enables Go text/template processing on the systemMessage field.
+	// When set, systemMessage is treated as a Go template with access to the include function
+	// and agent context variables.
+	// +optional
+	PromptTemplate *PromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// The name of the model config to use.
 	// If not specified, the default value is "default-model-config".
 	// Must be in the same namespace as the Agent.
@@ -109,6 +179,100 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
+
+	// Memory configuration for the agent.
+	// +optional
+	Memory *MemorySpec `json:"memory,omitempty"`
+
+	// Context configures context management for this agent.
+	// This includes event compaction (compression) and context caching.
+	// +optional
+	Context *ContextConfig `json:"context,omitempty"`
+}
+
+// ContextConfig configures context management for an agent.
+type ContextConfig struct {
+	// Compaction configures event history compaction.
+	// When enabled, older events in the conversation are compacted (compressed/summarized)
+	// to reduce context size while preserving key information.
+	// +optional
+	Compaction *ContextCompressionConfig `json:"compaction,omitempty"`
+}
+
+// ContextCompressionConfig configures event history compaction/compression.
+type ContextCompressionConfig struct {
+	// The number of *new* user-initiated invocations that, once fully represented in the session's events, will trigger a compaction.
+	// +optional
+	// +kubebuilder:default=5
+	// +kubebuilder:validation:Minimum=1
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// The number of preceding invocations to include from the end of the last compacted range. This creates an overlap between consecutive compacted summaries, maintaining context.
+	// +optional
+	// +kubebuilder:default=2
+	// +kubebuilder:validation:Minimum=0
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// Summarizer configures an LLM-based summarizer for event compaction.
+	// If not specified, compacted events are dropped from the context without summarization.
+	// +optional
+	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
+	// Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+	// observed prompt token count meets or exceeds this threshold.
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events to always retain.
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+}
+
+// ContextSummarizerConfig configures the LLM-based event summarizer.
+type ContextSummarizerConfig struct {
+	// ModelConfig is the name of a ModelConfig resource to use for summarization.
+	// Must be in the same namespace as the Agent.
+	// If not specified, uses the agent's own model.
+	// +optional
+	ModelConfig *string `json:"modelConfig,omitempty"`
+	// PromptTemplate is a custom prompt template for the summarizer.
+	// See the ADK LlmEventSummarizer for template details:
+	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
+	// +optional
+	PromptTemplate *string `json:"promptTemplate,omitempty"`
+}
+
+// PromptTemplateSpec configures prompt template processing for an agent's system message.
+type PromptTemplateSpec struct {
+	// DataSources defines the ConfigMaps whose keys can be included in the systemMessage
+	// using Go template syntax, e.g. include("alias/key") or include("name/key").
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	DataSources []PromptSource `json:"dataSources,omitempty"`
+}
+
+// PromptSource references a ConfigMap whose keys are available as prompt fragments.
+// In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
+// to insert the value of a specific key from this source.
+type PromptSource struct {
+	// Inline reference to the Kubernetes resource.
+	// For ConfigMaps: kind=ConfigMap, apiGroup="" (empty for core API group).
+	TypedLocalReference `json:",inline"`
+
+	// Alias is an optional short identifier for use in include directives.
+	// If set, use include("alias/key") instead of include("name/key").
+	// +optional
+	Alias string `json:"alias,omitempty"`
+}
+
+// MemorySpec enables long-term memory for an agent.
+type MemorySpec struct {
+	// ModelConfig is the name of the ModelConfig object whose embedding
+	// provider will be used to generate memory vectors.
+	// +kubebuilder:validation:Required
+	ModelConfig string `json:"modelConfig"`
+
+	// TTLDays controls how many days a stored memory entry remains valid before
+	// it is eligible for pruning. Defaults to 15 days when unset or zero.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	TTLDays int `json:"ttlDays,omitempty"`
 }
 
 type DeclarativeDeploymentSpec struct {
@@ -135,6 +299,7 @@ type ByoDeploymentSpec struct {
 	SharedDeploymentSpec `json:",inline"`
 }
 
+// +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
@@ -164,6 +329,24 @@ type SharedDeploymentSpec struct {
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 	// +optional
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	// ServiceAccountName specifies the name of an existing ServiceAccount to use.
+	// If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+	// This field is mutually exclusive with ServiceAccountConfig.
+	// +optional
+	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
+	// ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+	// This field can only be used when ServiceAccountName is not set.
+	// If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+	// is created, and this config will be applied to it.
+	// +optional
+	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+}
+
+type ServiceAccountConfig struct {
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -185,7 +368,7 @@ type Tool struct {
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
-	Agent *TypedLocalReference `json:"agent,omitempty"`
+	Agent *TypedReference `json:"agent,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
@@ -211,16 +394,39 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 	return result, nil
 }
 
+// +kubebuilder:validation:XValidation:message="each RequireApproval entry must also appear in ToolNames",rule="!has(self.requireApproval) || self.requireApproval.all(x, has(self.toolNames) && x in self.toolNames)"
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
-	// Can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
 	// +optional
-	TypedLocalReference `json:",inline"`
+	TypedReference `json:",inline"`
 
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
+	// +kubebuilder:validation:MaxItems=50
 	ToolNames []string `json:"toolNames,omitempty"`
+
+	// RequireApproval lists tool names that require human approval before
+	// execution. Each name must also appear in ToolNames. When a tool in
+	// this list is invoked by the agent, execution pauses and the user is
+	// prompted to approve or reject the call.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	RequireApproval []string `json:"requireApproval,omitempty"`
+
+	// AllowedHeaders specifies which headers from the A2A request should be
+	// propagated to MCP tool calls. Header names are case-insensitive.
+	//
+	// Authorization header behavior:
+	// - Authorization headers CAN be propagated if explicitly listed in allowedHeaders
+	// - When STS token propagation is enabled, STS-generated Authorization headers
+	//   will take precedence and replace any Authorization header from the A2A request
+	// - This is a security measure to prevent request headers from overwriting
+	//   authentication tokens generated by the STS integration
+	//
+	// Example: ["x-user-email", "x-tenant-id"]
+	// +optional
+	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
 }
 
 type TypedLocalReference struct {
@@ -231,10 +437,32 @@ type TypedLocalReference struct {
 	Name     string `json:"name"`
 }
 
-func (t *TypedLocalReference) GroupKind() schema.GroupKind {
+type TypedReference struct {
+	// +optional
+	Kind string `json:"kind"`
+	// +optional
+	ApiGroup string `json:"apiGroup"`
+	Name     string `json:"name"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+func (t *TypedReference) GroupKind() schema.GroupKind {
 	return schema.GroupKind{
 		Group: t.ApiGroup,
 		Kind:  t.Kind,
+	}
+}
+
+func (t *TypedReference) NamespacedName(defaultNamespace string) types.NamespacedName {
+	namespace := t.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+
+	return types.NamespacedName{
+		Namespace: namespace,
+		Name:      t.Name,
 	}
 }
 
@@ -246,8 +474,9 @@ type A2AConfig struct {
 type AgentSkill server.AgentSkill
 
 const (
-	AgentConditionTypeAccepted = "Accepted"
-	AgentConditionTypeReady    = "Ready"
+	AgentConditionTypeAccepted            = "Accepted"
+	AgentConditionTypeReady               = "Ready"
+	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
 // AgentStatus defines the observed state of Agent.
@@ -259,6 +488,7 @@ type AgentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
+// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.declarative.runtime",description="The runtime implementation for declarative agents."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
 // +kubebuilder:storageversion
