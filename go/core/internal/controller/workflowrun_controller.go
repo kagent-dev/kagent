@@ -42,12 +42,35 @@ const (
 	workflowTaskQueue = "kagent-workflows"
 )
 
+// WorkflowExecutionStatus describes the overall status of a Temporal workflow execution.
+type WorkflowExecutionStatus string
+
+const (
+	WorkflowExecutionRunning    WorkflowExecutionStatus = "RUNNING"
+	WorkflowExecutionCompleted  WorkflowExecutionStatus = "COMPLETED"
+	WorkflowExecutionFailed     WorkflowExecutionStatus = "FAILED"
+	WorkflowExecutionCancelled  WorkflowExecutionStatus = "CANCELLED"
+	WorkflowExecutionTerminated WorkflowExecutionStatus = "TERMINATED"
+	WorkflowExecutionTimedOut   WorkflowExecutionStatus = "TIMED_OUT"
+)
+
+// WorkflowDescription holds the result of describing a Temporal workflow execution.
+type WorkflowDescription struct {
+	Status WorkflowExecutionStatus
+	// Error message if the workflow failed.
+	Error string
+}
+
 // TemporalWorkflowClient abstracts Temporal client operations for testability.
 type TemporalWorkflowClient interface {
 	// StartWorkflow starts a new Temporal workflow and returns the workflow ID.
 	StartWorkflow(ctx context.Context, workflowID, taskQueue string, plan *compiler.ExecutionPlan) error
 	// CancelWorkflow cancels a running Temporal workflow.
 	CancelWorkflow(ctx context.Context, workflowID string) error
+	// DescribeWorkflow returns the execution status of a Temporal workflow.
+	DescribeWorkflow(ctx context.Context, workflowID string) (*WorkflowDescription, error)
+	// QueryWorkflow queries a running workflow and unmarshals the result into valuePtr.
+	QueryWorkflow(ctx context.Context, workflowID, queryType string, valuePtr any) error
 }
 
 // WorkflowRunController reconciles WorkflowRun objects.

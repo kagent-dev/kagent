@@ -485,6 +485,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Status syncer runs as a background goroutine, polling Temporal for workflow status updates.
+	if err := mgr.Add(&controller.WorkflowRunStatusSyncer{
+		K8sClient: mgr.GetClient(),
+		// TemporalClient will be injected when Temporal integration is enabled.
+	}); err != nil {
+		setupLog.Error(err, "unable to add status syncer")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)

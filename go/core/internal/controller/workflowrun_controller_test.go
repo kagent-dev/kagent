@@ -21,6 +21,11 @@ type mockTemporalClient struct {
 	startErr     error
 	cancelErr    error
 	lastPlan     *compiler.ExecutionPlan
+
+	describeResult *WorkflowDescription
+	describeErr    error
+	queryResult    interface{}
+	queryErr       error
 }
 
 func (m *mockTemporalClient) StartWorkflow(_ context.Context, _, _ string, plan *compiler.ExecutionPlan) error {
@@ -32,6 +37,14 @@ func (m *mockTemporalClient) StartWorkflow(_ context.Context, _, _ string, plan 
 func (m *mockTemporalClient) CancelWorkflow(_ context.Context, _ string) error {
 	m.cancelCalled = true
 	return m.cancelErr
+}
+
+func (m *mockTemporalClient) DescribeWorkflow(_ context.Context, _ string) (*WorkflowDescription, error) {
+	return m.describeResult, m.describeErr
+}
+
+func (m *mockTemporalClient) QueryWorkflow(_ context.Context, _, _ string, _ any) error {
+	return m.queryErr
 }
 
 // validTemplate returns a validated WorkflowTemplate for testing.
