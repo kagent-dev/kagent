@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/compiler"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/core/internal/metrics"
@@ -460,6 +461,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		A2ABaseURL: cfg.A2ABaseUrl,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentCronJob")
+		os.Exit(1)
+	}
+
+	if err := (&controller.WorkflowTemplateController{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Compiler: compiler.NewDAGCompiler(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkflowTemplate")
 		os.Exit(1)
 	}
 
