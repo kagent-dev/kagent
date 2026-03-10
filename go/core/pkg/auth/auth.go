@@ -59,9 +59,7 @@ type Authorizer interface {
 
 type sessionKeyType struct{}
 
-var (
-	sessionKey = sessionKeyType{}
-)
+var sessionKey = sessionKeyType{}
 
 func AuthSessionFrom(ctx context.Context) (Session, bool) {
 	v, ok := ctx.Value(sessionKey).(Session)
