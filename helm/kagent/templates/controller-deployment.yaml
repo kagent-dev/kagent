@@ -67,6 +67,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- if eq .Values.database.type "sqlite" }}
+            - name: XDG_CACHE_HOME
+              value: /sqlite-volume/.cache
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
