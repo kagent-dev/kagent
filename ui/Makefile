@@ -24,6 +24,6 @@ audit:
 .PHONY: update
 update:
 	@echo "Updating UI lock file..."
-	npm ci
-	npm audit fix
+	npm install
+	npm audit fix --package-lock-only
 	@echo "Updating UI lock file done."
