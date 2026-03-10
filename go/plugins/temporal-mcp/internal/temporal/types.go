@@ -36,4 +36,5 @@ type ActivityInfo struct {
 	Duration  string    `json:"Duration"`
 	Attempt   int       `json:"Attempt"`
 	Error     string    `json:"Error,omitempty"`
+	ToolName  string    `json:"ToolName,omitempty"`
 }

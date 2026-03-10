@@ -41,6 +41,8 @@ spec:
             {{- if .Values.temporal.ui.enabled }}
             - name: TEMPORAL_WEBUI_URL
               value: "http://{{ include "kagent.fullname" . }}-temporal-ui:{{ .Values.temporal.ui.port }}"
+            - name: TEMPORAL_PROXY_PREFIX
+              value: "/_p/temporal"
             {{- end }}
           resources:
             {{- toYaml .Values.temporal.mcp.resources | nindent 12 }}

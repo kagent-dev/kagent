@@ -12,6 +12,7 @@ COPY adk/go.mod adk/go.sum adk/
 COPY plugins/kanban-mcp/go.mod plugins/kanban-mcp/go.sum plugins/kanban-mcp/
 COPY plugins/gitrepo-mcp/go.mod plugins/gitrepo-mcp/go.sum plugins/gitrepo-mcp/
 COPY plugins/temporal-mcp/go.mod plugins/temporal-mcp/go.sum plugins/temporal-mcp/
+COPY plugins/nats-activity-feed/go.mod plugins/nats-activity-feed/go.sum plugins/nats-activity-feed/
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
     --mount=type=cache,target=/root/.cache/go-build,rw \
      go work sync && go mod download

@@ -37,7 +37,7 @@ spec:
             - name: TEMPORAL_UI_PORT
               value: {{ .Values.temporal.ui.port | quote }}
             - name: TEMPORAL_UI_PUBLIC_PATH
-              value: "/webui"
+              value: "/_p/temporal/webui"
             - name: TEMPORAL_CORS_ORIGINS
               value: "http://localhost:3000"
           resources:

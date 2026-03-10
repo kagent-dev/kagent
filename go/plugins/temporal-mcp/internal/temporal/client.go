@@ -2,11 +2,13 @@ package temporal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
@@ -192,6 +194,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 
 	type activityState struct {
 		Name      string
+		ToolName  string
 		StartTime time.Time
 		Attempt   int
 	}
@@ -208,9 +211,14 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 		switch {
 		case event.GetActivityTaskScheduledEventAttributes() != nil:
 			attrs := event.GetActivityTaskScheduledEventAttributes()
-			pending[event.EventId] = &activityState{
+			state := &activityState{
 				Name: attrs.ActivityType.Name,
 			}
+			// Extract tool name from ToolExecuteActivity input payload.
+			if attrs.ActivityType.Name == "ToolExecuteActivity" {
+				state.ToolName = extractToolName(attrs.Input)
+			}
+			pending[event.EventId] = state
 
 		case event.GetActivityTaskStartedEventAttributes() != nil:
 			attrs := event.GetActivityTaskStartedEventAttributes()
@@ -229,6 +237,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 					StartTime: state.StartTime,
 					Duration:  duration.String(),
 					Attempt:   state.Attempt,
+					ToolName:  state.ToolName,
 				})
 				delete(pending, attrs.ScheduledEventId)
 			}
@@ -248,6 +257,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 					Duration:  duration.String(),
 					Attempt:   state.Attempt,
 					Error:     errMsg,
+					ToolName:  state.ToolName,
 				})
 				delete(pending, attrs.ScheduledEventId)
 			}
@@ -262,6 +272,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 					StartTime: state.StartTime,
 					Duration:  duration.String(),
 					Attempt:   state.Attempt,
+					ToolName:  state.ToolName,
 				})
 				delete(pending, attrs.ScheduledEventId)
 			}
@@ -276,6 +287,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 					StartTime: state.StartTime,
 					Duration:  duration.String(),
 					Attempt:   state.Attempt,
+					ToolName:  state.ToolName,
 				})
 				delete(pending, attrs.ScheduledEventId)
 			}
@@ -291,6 +303,7 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 				StartTime: state.StartTime,
 				Duration:  time.Since(state.StartTime).Truncate(time.Second).String(),
 				Attempt:   state.Attempt,
+				ToolName:  state.ToolName,
 			})
 		}
 	}
@@ -299,6 +312,27 @@ func (c *Client) fetchActivities(ctx context.Context, workflowID, runID string) 
 		activities = []ActivityInfo{}
 	}
 	return activities
+}
+
+// extractToolName attempts to extract the toolName field from a ToolExecuteActivity input payload.
+// Temporal encodes activity inputs as Payloads. We try to decode the first payload as JSON
+// and extract the "toolName" field. Returns empty string on any error.
+func extractToolName(input *common.Payloads) string {
+	if input == nil || len(input.Payloads) == 0 {
+		return ""
+	}
+	// The first payload contains the serialized ToolRequest.
+	data := input.Payloads[0].Data
+	if len(data) == 0 {
+		return ""
+	}
+	var req struct {
+		ToolName string `json:"toolName"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		return ""
+	}
+	return req.ToolName
 }
 
 // CancelWorkflow cancels a running workflow execution.

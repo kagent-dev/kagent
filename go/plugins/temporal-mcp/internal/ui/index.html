@@ -153,7 +153,8 @@
     padding: 8px 12px; border-radius: 8px;
     background: var(--secondary); font-size: 0.8rem;
   }
-  .activity-name { font-weight: 500; flex: 1; }
+  .activity-name { font-weight: 500; }
+  .activity-tool { color: var(--muted-foreground); font-size: 0.75rem; flex: 1; }
   .activity-duration { color: var(--muted-foreground); }
   .activity-attempt { color: var(--muted-foreground); font-size: 0.75rem; }
   .activity-error {
@@ -526,6 +527,8 @@
         html += '<div class="activity-item">';
         html += '<span class="status-badge status-' + esc((a.Status || '').toLowerCase()) + '">' + esc(a.Status) + '</span>';
         html += '<span class="activity-name">' + esc(a.Name) + '</span>';
+        if (a.ToolName) html += '<span class="activity-tool">' + esc(a.ToolName) + '</span>';
+        if (!a.ToolName) html += '<span class="activity-tool"></span>';
         if (a.Duration) html += '<span class="activity-duration">' + esc(a.Duration) + '</span>';
         if (a.Attempt > 1) html += '<span class="activity-attempt">attempt ' + a.Attempt + '</span>';
         html += '</div>';
@@ -682,6 +685,8 @@
         html += '<div class="activity-item">';
         html += '<span class="status-badge status-' + esc((a.Status || '').toLowerCase()) + '">' + esc(a.Status) + '</span>';
         html += '<span class="activity-name">' + esc(a.Name) + '</span>';
+        if (a.ToolName) html += '<span class="activity-tool">' + esc(a.ToolName) + '</span>';
+        if (!a.ToolName) html += '<span class="activity-tool"></span>';
         if (a.Duration) html += '<span class="activity-duration">' + esc(a.Duration) + '</span>';
         if (a.Attempt > 1) html += '<span class="activity-attempt">attempt ' + a.Attempt + '</span>';
         html += '</div>';

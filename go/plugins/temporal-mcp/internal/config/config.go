@@ -15,6 +15,7 @@ type Config struct {
 	PollInterval      time.Duration // --poll-interval / TEMPORAL_POLL_INTERVAL
 	LogLevel          string        // --log-level / TEMPORAL_LOG_LEVEL
 	WebUIURL          string        // --webui-url / TEMPORAL_WEBUI_URL, URL of official Temporal Web UI
+	ProxyPrefix       string        // --proxy-prefix / TEMPORAL_PROXY_PREFIX, external path prefix (e.g. "/_p/temporal")
 }
 
 func envOrDefault(key, def string) string {
@@ -40,6 +41,7 @@ func LoadArgs(args []string) (*Config, error) {
 	pollIntervalStr := fs.String("poll-interval", envOrDefault("TEMPORAL_POLL_INTERVAL", "5s"), "SSE poll interval")
 	logLevel := fs.String("log-level", envOrDefault("TEMPORAL_LOG_LEVEL", "info"), "log level: debug, info, warn, error")
 	webuiURL := fs.String("webui-url", envOrDefault("TEMPORAL_WEBUI_URL", ""), "URL of official Temporal Web UI (optional)")
+	proxyPrefix := fs.String("proxy-prefix", envOrDefault("TEMPORAL_PROXY_PREFIX", ""), "external path prefix for reverse proxy path rewriting (e.g. /_p/temporal)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -58,5 +60,6 @@ func LoadArgs(args []string) (*Config, error) {
 		PollInterval:      pollInterval,
 		LogLevel:          *logLevel,
 		WebUIURL:          *webuiURL,
+		ProxyPrefix:       *proxyPrefix,
 	}, nil
 }
