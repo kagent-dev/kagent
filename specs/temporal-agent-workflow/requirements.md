@@ -61,3 +61,21 @@ Which approach do you prefer?
 **Q14:** Should there be a maximum workflow execution timeout (e.g., 1 hour, 24 hours)? Some agent tasks could potentially run very long with HITL waits. Should the timeout be configurable per-agent in the CRD spec?
 
 **A14:** 48 hours default workflow execution timeout. Configurable per-agent in the CRD spec.
+
+**Q15:** For Temporal identity semantics in the executor, should each new user message create a new workflow run, or should all messages in the same session be routed to a single long-lived workflow execution?
+
+**A15:** Single long-lived workflow execution per session. The executor must use deterministic workflow IDs and `SignalWithStart` so follow-up messages signal the existing workflow instead of creating a new execution.
+
+**Q16:** How should `runID` be handled for HITL and status APIs if the session is modeled as a single workflow execution?
+
+**A16:** Treat `workflowID` as the stable routing key. `runID` is diagnostic/telemetry metadata only and can change if Temporal restarts/replays/continues execution. Approval signaling should target `workflowID` (current run), while streamed approval payloads and status responses may include `runID` for observability.
+
+## Addendum: Implemented Behavior for Single Session Workflow
+
+The current Temporal executor implementation reflects these additional requirements:
+
+1. **Single workflow per session:** execution starts with `SignalWithStartWorkflow` using a deterministic workflow ID (`{agentOrQueue}:{sessionID}` style) so repeated messages reuse the same workflow identity.
+2. **Message-level completion over side-channel:** each message emits a completion event over NATS; the A2A executor waits for that event instead of waiting for the session workflow to terminate.
+3. **Initial signal race protection:** NATS subscription and completion listener are established before signaling/starting workflow execution to avoid missing early stream events.
+4. **HITL metadata completeness:** approval request stream payload includes both `workflowID` and `runID` so the UI/API has full execution context even when signaling by stable workflow ID.
+5. **Session workflow model:** workflow remains alive across multiple turns/messages and exits on idle timeout, preserving a single Temporal execution context for that session window.

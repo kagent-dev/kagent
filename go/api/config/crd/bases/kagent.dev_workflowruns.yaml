@@ -368,7 +368,7 @@ spec:
                         prompt:
                           description: |-
                             Prompt is a template rendered before agent invocation (for type=agent).
-                            Supports ${{ params.* }} and ${{ context.* }} interpolation.
+                            Supports expression interpolation for params and context values.
                           type: string
                         type:
                           allOf:
@@ -385,7 +385,7 @@ spec:
                             type: string
                           description: |-
                             With provides input key-value pairs for the step.
-                            Values support ${{ }} expression interpolation.
+                            Values support expression interpolation.
                           type: object
                       required:
                       - name

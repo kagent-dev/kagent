@@ -7,18 +7,18 @@
 
 ## Checklist
 
-- [ ] Step 1: CRD Types and Code Generation
-- [ ] Step 2: DAG Compiler and Validation
-- [ ] Step 3: Expression Interpolation Engine
-- [ ] Step 4: DAGWorkflow Temporal Interpreter
-- [ ] Step 5: Action Activity Framework
-- [ ] Step 6: Agent Step (Child Workflow)
-- [ ] Step 7: WorkflowTemplate Controller
-- [ ] Step 8: WorkflowRun Controller
-- [ ] Step 9: Status Syncer
-- [ ] Step 10: HTTP API Endpoints
-- [ ] Step 11: Retention Controller
-- [ ] Step 12: E2E Tests and Examples
+- [x] Step 1: CRD Types and Code Generation
+- [x] Step 2: DAG Compiler and Validation
+- [x] Step 3: Expression Interpolation Engine
+- [x] Step 4: DAGWorkflow Temporal Interpreter
+- [x] Step 5: Action Activity Framework
+- [x] Step 6: Agent Step (Child Workflow)
+- [x] Step 7: WorkflowTemplate Controller
+- [x] Step 8: WorkflowRun Controller
+- [x] Step 9: Status Syncer
+- [x] Step 10: HTTP API Endpoints
+- [x] Step 11: Retention Controller
+- [x] Step 12: E2E Tests and Examples
 
 ---
 

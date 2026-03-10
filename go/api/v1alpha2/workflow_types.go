@@ -220,12 +220,12 @@ type StepSpec struct {
 	AgentRef string `json:"agentRef,omitempty"`
 
 	// Prompt is a template rendered before agent invocation (for type=agent).
-	// Supports ${{ params.* }} and ${{ context.* }} interpolation.
+	// Supports expression interpolation for params and context values.
 	// +optional
 	Prompt string `json:"prompt,omitempty"`
 
 	// With provides input key-value pairs for the step.
-	// Values support ${{ }} expression interpolation.
+	// Values support expression interpolation.
 	// +optional
 	With map[string]string `json:"with,omitempty"`
 
