@@ -95,6 +95,7 @@ func main() {
 	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
 	invokeCmd.Flags().StringVarP(&invokeCfg.URLOverride, "url-override", "u", "", "URL override")
 	invokeCmd.Flags().MarkHidden("url-override") //nolint:errcheck
+	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Bearer token to include in A2A requests (for API key passthrough)")
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",

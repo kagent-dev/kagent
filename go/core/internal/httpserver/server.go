@@ -16,6 +16,7 @@ import (
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -94,10 +95,18 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	// Setup routes
 	s.setupRoutes()
 
-	// Create HTTP server
+	// Create HTTP server, wrapping the router with otelhttp for span creation
+	// and W3C TraceContext propagation on every incoming request.
 	s.httpServer = &http.Server{
-		Addr:    s.config.BindAddr,
-		Handler: s.router,
+		Addr: s.config.BindAddr,
+		Handler: otelhttp.NewHandler(s.router, "http.server",
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				return r.Method + " " + r.URL.Path
+			}),
+			otelhttp.WithFilter(func(r *http.Request) bool {
+				return r.URL.Path != APIPathHealth
+			}),
+		),
 	}
 
 	// Start the server in a separate goroutine
