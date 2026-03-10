@@ -14,6 +14,7 @@ type Config struct {
 	TemporalNamespace string        // --temporal-namespace / TEMPORAL_NAMESPACE
 	PollInterval      time.Duration // --poll-interval / TEMPORAL_POLL_INTERVAL
 	LogLevel          string        // --log-level / TEMPORAL_LOG_LEVEL
+	WebUIURL          string        // --webui-url / TEMPORAL_WEBUI_URL, URL of official Temporal Web UI
 }
 
 func envOrDefault(key, def string) string {
@@ -38,6 +39,7 @@ func LoadArgs(args []string) (*Config, error) {
 	namespace := fs.String("temporal-namespace", envOrDefault("TEMPORAL_NAMESPACE", "kagent"), "Temporal namespace")
 	pollIntervalStr := fs.String("poll-interval", envOrDefault("TEMPORAL_POLL_INTERVAL", "5s"), "SSE poll interval")
 	logLevel := fs.String("log-level", envOrDefault("TEMPORAL_LOG_LEVEL", "info"), "log level: debug, info, warn, error")
+	webuiURL := fs.String("webui-url", envOrDefault("TEMPORAL_WEBUI_URL", ""), "URL of official Temporal Web UI (optional)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -55,5 +57,6 @@ func LoadArgs(args []string) (*Config, error) {
 		TemporalNamespace: *namespace,
 		PollInterval:      pollInterval,
 		LogLevel:          *logLevel,
+		WebUIURL:          *webuiURL,
 	}, nil
 }

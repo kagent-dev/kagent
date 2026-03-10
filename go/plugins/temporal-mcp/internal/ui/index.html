@@ -211,13 +211,14 @@
   .truncate { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
   .truncate-sm { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
 
-  .temporal-link {
+  .temporal-link, .kagent-link {
     display: inline-flex; align-items: center; gap: 4px;
     color: var(--primary); text-decoration: none; font-size: 0.75rem;
     opacity: 0.7; transition: opacity 0.15s;
   }
-  .temporal-link:hover { opacity: 1; text-decoration: underline; }
-  .temporal-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .temporal-link:hover, .kagent-link:hover { opacity: 1; text-decoration: underline; }
+  .temporal-link svg, .kagent-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .link-group { display: flex; gap: 8px; align-items: center; }
 
   .detail-view-panel { padding: 20px 16px; }
   .detail-view-panel h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
@@ -313,17 +314,27 @@
     return m ? m[1] + '/' : './';
   })();
 
-  // Extract Temporal namespace from the URL path (e.g. /_p/temporal/namespaces/kagent/...)
-  var temporalNamespace = (function() {
+  // Server-injected config (Temporal Web UI URL, namespace)
+  var serverConfig = window.__TEMPORAL_CONFIG__ || {};
+
+  // Extract Temporal namespace from server config or URL path
+  var temporalNamespace = serverConfig.namespace || (function() {
     var m = window.location.pathname.match(/\/namespaces\/([^/]+)/);
     return m ? m[1] : 'default';
   })();
 
-  // Temporal Web UI base — use the plugin proxy prefix so the link navigates
-  // within the parent kagent UI (iframe src changes, SPA re-renders).
-  var temporalUIBase = (function() {
-    var m = window.location.pathname.match(/^(.*\/_p\/[^/]+)/);
-    return m ? m[1] : '';
+  // Temporal Web UI URL — official temporalio/ui for deep-linking workflow history.
+  // When configured, the external link icon opens the real Temporal UI.
+  // The value is a relative path (e.g. "webui") served by the temporal-mcp proxy.
+  var temporalWebUIURL = serverConfig.webuiURL ? (baseUrl + serverConfig.webuiURL) : '';
+
+  // Kagent UI URL — when embedded in an iframe at /_p/temporal/, the kagent
+  // parent frame serves the plugin page at /plugins/temporal/. Build the parent
+  // URL so users can open workflow details within the full kagent UI.
+  var kagentBaseUrl = (function() {
+    var m = window.location.pathname.match(/^(.*)\/_p\/([^/]+)\//);
+    if (m) return m[1] + '/plugins/' + m[2] + '/';
+    return '';
   })();
 
   // URL routing — detect deep-link to a specific workflow
@@ -451,7 +462,6 @@
       var startStr = formatTime(w.StartTime);
 
       var shortRunId = (w.RunID || '').substring(0, 8);
-      var temporalUrl = temporalUIBase + '/namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows/' + encodeURIComponent(w.WorkflowID) + '/' + encodeURIComponent(w.RunID || '') + '/history';
       var linkIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
       html += '<tr class="clickable' + (isExpanded ? ' expanded' : '') + '" data-wfid="' + esc(w.WorkflowID) + '">';
@@ -461,7 +471,17 @@
       html += '<td><span class="status-badge status-' + esc((w.Status || '').toLowerCase()) + '">' + esc(w.Status) + '</span></td>';
       html += '<td>' + startStr + '</td>';
       html += '<td>' + dur + '</td>';
-      html += '<td><a class="temporal-link" href="#" title="View workflow details" onclick="event.stopPropagation();event.preventDefault();showWorkflowDetail(\'' + esc(w.WorkflowID) + '\',\'' + esc(w.RunID || '') + '\');">' + linkIcon + '</a></td>';
+      var kagentIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M14 9l3 3-3 3"/></svg>';
+      html += '<td><div class="link-group">';
+      if (kagentBaseUrl) {
+        var kagentUrl = kagentBaseUrl + 'namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows/' + encodeURIComponent(w.WorkflowID) + '/' + encodeURIComponent(w.RunID || '');
+        html += '<a class="kagent-link" href="' + esc(kagentUrl) + '" target="_top" title="Open in Kagent UI" onclick="event.stopPropagation();">' + kagentIcon + '</a>';
+      }
+      if (temporalWebUIURL) {
+        var temporalUrl = temporalWebUIURL + '/namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows/' + encodeURIComponent(w.WorkflowID) + '/' + encodeURIComponent(w.RunID || '');
+        html += '<a class="temporal-link" href="' + esc(temporalUrl) + '" target="_top" title="Open in Temporal UI" onclick="event.stopPropagation();">' + linkIcon + '</a>';
+      }
+      html += '</div></td>';
       html += '</tr>';
 
       if (isExpanded) {
@@ -608,10 +628,6 @@
   }
 
   // --- Detail View (deep-link routing) ---
-  window.showWorkflowDetail = function(wfId, runId) {
-    showDetailView(wfId, runId);
-  };
-
   function showDetailView(wfId, runId) {
     listFilters.style.display = 'none';
     tableWrap.style.display = 'none';
@@ -620,7 +636,7 @@
     backLink.style.display = '';
     headerTitle.textContent = 'Workflow Detail';
 
-    var listUrl = temporalUIBase + '/namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows';
+    var listUrl = baseUrl + 'namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows';
     backLink.href = listUrl;
     backLink.onclick = function(e) {
       e.preventDefault();
@@ -645,6 +661,10 @@
     html += '<dl class="detail-meta">';
     html += '<dt>Workflow ID</dt><dd>' + esc(w.WorkflowID) + '</dd>';
     html += '<dt>Run ID</dt><dd>' + esc(w.RunID || '-') + '</dd>';
+    if (kagentBaseUrl) {
+      var kagentDetailUrl = kagentBaseUrl + 'namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows/' + encodeURIComponent(w.WorkflowID) + '/' + encodeURIComponent(w.RunID || '');
+      html += '<dt>Kagent UI</dt><dd><a class="kagent-link" href="' + esc(kagentDetailUrl) + '" target="_top">Open in Kagent UI &rarr;</a></dd>';
+    }
     html += '<dt>Status</dt><dd><span class="status-badge status-' + esc((w.Status || '').toLowerCase()) + '">' + esc(w.Status) + '</span></dd>';
     html += '<dt>Agent</dt><dd>' + esc(w.AgentName || '-') + '</dd>';
     if (w.SessionID) html += '<dt>Session ID</dt><dd>' + esc(w.SessionID) + '</dd>';

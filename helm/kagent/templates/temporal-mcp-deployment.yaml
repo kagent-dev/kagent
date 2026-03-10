@@ -1,0 +1,53 @@
+{{- if and .Values.temporal.enabled .Values.temporal.mcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-mcp
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: temporal-mcp
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: temporal-mcp
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: temporal-mcp
+          image: {{ .Values.temporal.mcp.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.temporal.mcp.port }}
+              protocol: TCP
+          env:
+            - name: TEMPORAL_HOST_PORT
+              value: "{{ include "kagent.fullname" . }}-temporal-server:{{ .Values.temporal.server.port }}"
+            - name: TEMPORAL_ADDR
+              value: ":{{ .Values.temporal.mcp.port }}"
+            - name: TEMPORAL_NAMESPACE
+              value: {{ .Values.temporal.server.namespace | quote }}
+            {{- if .Values.temporal.ui.enabled }}
+            - name: TEMPORAL_WEBUI_URL
+              value: "http://{{ include "kagent.fullname" . }}-temporal-ui:{{ .Values.temporal.ui.port }}"
+            {{- end }}
+          resources:
+            {{- toYaml .Values.temporal.mcp.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+{{- end }}

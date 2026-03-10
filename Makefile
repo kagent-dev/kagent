@@ -407,22 +407,12 @@ helm-install-provider: helm-version check-api-key
 		--set-string gitrepo-mcp.config.GITREPO_ADDR=:8080 \
 		--set-string gitrepo-mcp.config.GITREPO_DATA_DIR=/tmp/gitrepo \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set temporal.mcp.image=$(TEMPORAL_MCP_IMG) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
 helm-install: build
 helm-install: helm-install-provider
-
-.PHONY: helm-install-temporal
-helm-install-temporal: KAGENT_HELM_EXTRA_ARGS+=--set temporal.enabled=true --set nats.enabled=true --set temporal.ui.image=$(TEMPORAL_MCP_IMG) \
-	--set k8s-agent.temporal.enabled=true \
-	--set kgateway-agent.temporal.enabled=true \
-	--set istio-agent.temporal.enabled=true \
-	--set promql-agent.temporal.enabled=true \
-	--set observability-agent.temporal.enabled=true \
-	--set argo-rollouts-agent.temporal.enabled=true \
-	--set helm-agent.temporal.enabled=true
-helm-install-temporal: helm-install
 
 .PHONY: helm-test-install
 helm-test-install: HELM_ACTION+="--dry-run"

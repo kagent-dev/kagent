@@ -439,10 +439,21 @@ temporal:
       password: "kagent"
       existingSecret: ""
       existingSecretKey: TEMPORAL_DB_PASSWORD
-  ui:
+  mcp:
     enabled: true
     image: temporalio/ui:2.34.0
     port: 8080
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  ui:
+    enabled: true
+    image: temporalio/ui:2.34.0
+    port: 8081
     resources:
       requests:
         cpu: 50m
@@ -456,7 +467,7 @@ temporal:
 # ==============================================================================
 
 nats:
-  enabled: false        # auto-enabled when temporal.enabled=true
+  enabled: true
   image: nats:2-alpine
   port: 4222
   resources:

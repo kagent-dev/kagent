@@ -1,0 +1,20 @@
+{{- if and .Values.temporal.enabled .Values.temporal.mcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-mcp
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-mcp
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.temporal.mcp.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-mcp
+{{- end }}

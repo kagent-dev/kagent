@@ -7,4 +7,5 @@ use (
 	./plugins/kanban-mcp
 	./plugins/gitrepo-mcp
 	./plugins/temporal-mcp
+	./plugins/nats-activity-feed
 )

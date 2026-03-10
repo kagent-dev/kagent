@@ -20,7 +20,7 @@ func TestUI_Handler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 
-	Handler().ServeHTTP(w, req)
+	Handler(Config{WebUIURL: "http://temporal:8080", Namespace: "test"}).ServeHTTP(w, req)
 
 	resp := w.Result()
 	if resp.StatusCode != http.StatusOK {

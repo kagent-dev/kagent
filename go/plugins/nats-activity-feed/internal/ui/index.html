@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity Feed — kagent</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --blue: #58a6ff;
+    --gray: #8b949e;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+  }
+  .status-dot.disconnected { background: var(--red); }
+  .status-dot.connecting { background: var(--orange); }
+
+  .controls label {
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .controls input[type="checkbox"] { accent-color: var(--accent); }
+
+  button {
+    background: var(--bg);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  button:hover { color: var(--text); border-color: var(--text-dim); }
+  button.active { color: var(--accent); border-color: var(--accent); }
+
+  .counter {
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .feed {
+    padding: 8px 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .event-row {
+    display: grid;
+    grid-template-columns: 100px 120px 90px 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .event-row:hover { background: rgba(88, 166, 255, 0.04); }
+
+  .ts {
+    color: var(--text-dim);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+  }
+
+  .agent-badge {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--blue);
+  }
+
+  .type-token           { background: rgba(139,148,158,0.15); color: var(--gray); }
+  .type-tool_start      { background: rgba(88,166,255,0.15);  color: var(--blue); }
+  .type-tool_end        { background: rgba(63,185,80,0.15);   color: var(--green); }
+  .type-error           { background: rgba(248,81,73,0.15);   color: var(--red); }
+  .type-approval_request { background: rgba(210,153,34,0.15); color: var(--orange); }
+  .type-completion      { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+  .data-preview {
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .data-preview .json-key { color: var(--blue); }
+  .data-preview .json-str { color: var(--green); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span class="status-dot connecting" id="statusDot"></span>&nbsp; Activity Feed</h1>
+  <div class="controls">
+    <label><input type="checkbox" data-type="token" checked> token</label>
+    <label><input type="checkbox" data-type="tool_start" checked> tool_start</label>
+    <label><input type="checkbox" data-type="tool_end" checked> tool_end</label>
+    <label><input type="checkbox" data-type="error" checked> error</label>
+    <label><input type="checkbox" data-type="approval_request" checked> approval</label>
+    <label><input type="checkbox" data-type="completion" checked> completion</label>
+    <button id="pauseBtn" title="Pause/Resume">Pause</button>
+    <button id="clearBtn" title="Clear feed">Clear</button>
+    <span class="counter" id="counter">0 events</span>
+  </div>
+</div>
+
+<div class="feed" id="feed">
+  <div class="empty-state" id="emptyState">Waiting for activity...</div>
+</div>
+
+<script>
+(function() {
+  const feed = document.getElementById('feed');
+  const emptyState = document.getElementById('emptyState');
+  const statusDot = document.getElementById('statusDot');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const counter = document.getElementById('counter');
+
+  const MAX_VISIBLE = 500;
+  let eventCount = 0;
+  let paused = false;
+  let pendingWhilePaused = [];
+
+  // Event type filters
+  const filters = {};
+  document.querySelectorAll('[data-type]').forEach(cb => {
+    filters[cb.dataset.type] = cb.checked;
+    cb.addEventListener('change', () => {
+      filters[cb.dataset.type] = cb.checked;
+      applyFilters();
+    });
+  });
+
+  function applyFilters() {
+    feed.querySelectorAll('.event-row').forEach(row => {
+      const type = row.dataset.eventType;
+      row.style.display = filters[type] === false ? 'none' : '';
+    });
+  }
+
+  pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    pauseBtn.classList.toggle('active', paused);
+    if (!paused) {
+      pendingWhilePaused.forEach(addEvent);
+      pendingWhilePaused = [];
+    }
+  });
+
+  clearBtn.addEventListener('click', () => {
+    feed.querySelectorAll('.event-row').forEach(el => el.remove());
+    eventCount = 0;
+    counter.textContent = '0 events';
+    emptyState.style.display = '';
+  });
+
+  function formatTime(ts) {
+    const d = new Date(ts);
+    const pad = (n, w) => String(n).padStart(w, '0');
+    return pad(d.getHours(),2) + ':' + pad(d.getMinutes(),2) + ':' + pad(d.getSeconds(),2) + '.' + pad(d.getMilliseconds(),3);
+  }
+
+  function truncate(s, max) {
+    if (!s) return '';
+    return s.length > max ? s.substring(0, max) + '...' : s;
+  }
+
+  function addEvent(evt) {
+    emptyState.style.display = 'none';
+
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    row.dataset.eventType = evt.type || 'unknown';
+
+    if (filters[evt.type] === false) {
+      row.style.display = 'none';
+    }
+
+    const typeClass = 'type-' + (evt.type || 'unknown');
+
+    row.innerHTML =
+      '<span class="ts">' + formatTime(evt.timestamp) + '</span>' +
+      '<span class="badge agent-badge" title="' + (evt.agent || '') + '">' + (evt.agent || 'unknown') + '</span>' +
+      '<span class="badge ' + typeClass + '">' + (evt.type || 'unknown') + '</span>' +
+      '<span class="data-preview" title="' + escapeAttr(evt.data || '') + '">' + truncate(evt.data || '', 200) + '</span>';
+
+    // Insert at top (newest first)
+    if (feed.firstChild && feed.firstChild !== emptyState) {
+      feed.insertBefore(row, feed.firstChild.nextSibling || null);
+    } else {
+      feed.appendChild(row);
+    }
+
+    eventCount++;
+    counter.textContent = eventCount + ' events';
+
+    // Cap visible events
+    const rows = feed.querySelectorAll('.event-row');
+    if (rows.length > MAX_VISIBLE) {
+      rows[rows.length - 1].remove();
+    }
+  }
+
+  function escapeAttr(s) {
+    return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // SSE connection with auto-reconnect
+  let es;
+  let reconnectTimer;
+
+  function connect() {
+    statusDot.className = 'status-dot connecting';
+
+    es = new EventSource('/events');
+
+    es.addEventListener('activity', function(e) {
+      try {
+        const evt = JSON.parse(e.data);
+        if (paused) {
+          pendingWhilePaused.push(evt);
+        } else {
+          addEvent(evt);
+        }
+      } catch(err) {
+        console.warn('Failed to parse event:', err);
+      }
+    });
+
+    es.onopen = function() {
+      statusDot.className = 'status-dot';
+    };
+
+    es.onerror = function() {
+      statusDot.className = 'status-dot disconnected';
+      es.close();
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2000);
+    };
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>

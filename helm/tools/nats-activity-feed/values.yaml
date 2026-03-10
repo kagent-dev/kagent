@@ -1,0 +1,39 @@
+replicas: 1
+
+image:
+  registry: localhost:5001
+  repository: kagent-dev/kagent/nats-activity-feed
+  pullPolicy: Always
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+securityContext: {}
+
+tolerations: []
+
+nodeSelector: {}
+
+service:
+  type: ClusterIP
+  port: 8090
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+config:
+  NATS_ADDR: "nats://nats:4222"
+  ACTIVITY_FEED_ADDR: ":8090"
+  ACTIVITY_FEED_BUFFER: "100"
+  ACTIVITY_FEED_SUBJECT: "agent.>"

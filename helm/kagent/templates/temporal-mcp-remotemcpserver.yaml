@@ -1,0 +1,25 @@
+{{- if and .Values.temporal.enabled .Values.temporal.mcp.enabled }}
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "kagent.fullname" . }}-temporal-mcp
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: temporal-mcp
+spec:
+  description: Temporal Workflow UI for monitoring agent workflow executions
+  protocol: STREAMABLE_HTTP
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  timeout: 30s
+  url: {{ printf "http://%s-temporal-mcp.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.temporal.mcp.port | int) }}
+  ui:
+    enabled: true
+    pathPrefix: "temporal"
+    displayName: "Workflows"
+    icon: "git-branch"
+    section: "AGENTS"
+    defaultPath: {{ printf "/namespaces/%s/workflows" (.Values.temporal.namespace | default "kagent") | quote }}
+    injectCSS: '[data-testid="navigation-header"] { display: none !important; }'
+{{- end }}

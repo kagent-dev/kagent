@@ -32,12 +32,14 @@ spec:
               containerPort: {{ .Values.temporal.ui.port }}
               protocol: TCP
           env:
-            - name: TEMPORAL_HOST_PORT
+            - name: TEMPORAL_ADDRESS
               value: "{{ include "kagent.fullname" . }}-temporal-server:{{ .Values.temporal.server.port }}"
-            - name: TEMPORAL_ADDR
-              value: ":{{ .Values.temporal.ui.port }}"
-            - name: TEMPORAL_NAMESPACE
-              value: {{ .Values.temporal.server.namespace | quote }}
+            - name: TEMPORAL_UI_PORT
+              value: {{ .Values.temporal.ui.port | quote }}
+            - name: TEMPORAL_UI_PUBLIC_PATH
+              value: "/webui"
+            - name: TEMPORAL_CORS_ORIGINS
+              value: "http://localhost:3000"
           resources:
             {{- toYaml .Values.temporal.ui.resources | nindent 12 }}
           readinessProbe:
