@@ -36,6 +36,7 @@ interface ValidationErrors {
   skills?: string;
   memoryModel?: string;
   memoryTtl?: string;
+  serviceAccountName?: string;
 }
 
 interface AgentPageContentProps {
@@ -229,6 +230,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         }
         : undefined,
       context: state.contextConfig,
+      serviceAccountName: state.serviceAccountName,
     };
 
     const newErrors = validateAgentData(formData);
@@ -293,6 +295,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           };
         }
         break;
+      case 'serviceAccountName': formData.serviceAccountName = value; break;
     }
 
     const fieldErrors = validateAgentData(formData);
@@ -367,7 +370,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             return { name, value: ev.value ?? "" } as EnvVar;
           })
           .filter((e): e is EnvVar => e !== null),
-        serviceAccountName: state.serviceAccountName || undefined,
+        serviceAccountName: state.serviceAccountName.trim() || undefined,
       };
 
       let result;
@@ -530,9 +533,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       <Input
                         value={state.serviceAccountName}
                         onChange={(e) => setState(prev => ({ ...prev, serviceAccountName: e.target.value }))}
+                        onBlur={() => validateField('serviceAccountName', state.serviceAccountName)}
+                        className={`${state.errors.serviceAccountName ? "border-red-500" : ""}`}
                         placeholder="e.g. my-workload-identity-sa"
                         disabled={state.isSubmitting || state.isLoading}
                       />
+                      {state.errors.serviceAccountName && <p className="text-red-500 text-sm mt-1">{state.errors.serviceAccountName}</p>}
                     </div>
 
                   </>
@@ -686,9 +692,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       <Input
                         value={state.serviceAccountName}
                         onChange={(e) => setState(prev => ({ ...prev, serviceAccountName: e.target.value }))}
+                        onBlur={() => validateField('serviceAccountName', state.serviceAccountName)}
+                        className={`${state.errors.serviceAccountName ? "border-red-500" : ""}`}
                         placeholder="e.g. my-workload-identity-sa"
                         disabled={state.isSubmitting || state.isLoading}
                       />
+                      {state.errors.serviceAccountName && <p className="text-red-500 text-sm mt-1">{state.errors.serviceAccountName}</p>}
                     </div>
 
                   </div>

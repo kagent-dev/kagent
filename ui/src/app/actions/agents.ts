@@ -130,9 +130,11 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.declarative!.context = agentFormData.context;
     }
 
-    if (agentFormData.serviceAccountName) {
+    const trimmedSA = agentFormData.serviceAccountName?.trim();
+    if (trimmedSA) {
       base.spec!.declarative!.deployment = {
-        serviceAccountName: agentFormData.serviceAccountName,
+        ...base.spec!.declarative!.deployment,
+        serviceAccountName: trimmedSA,
       };
     }
   } else if (type === "BYO") {
