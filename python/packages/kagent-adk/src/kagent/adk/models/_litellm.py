@@ -46,7 +46,9 @@ def _sanitize_llm_response(response: LlmResponse, idx: int) -> LlmResponse:
         for i, part in enumerate(response.content.parts):
             fc = getattr(part, "function_call", None)
             if fc is not None and hasattr(fc, "name"):
-                fc.name = _sanitize_tool_name(fc.name or "", idx * 100 + i)
+                # Use a composite suffix to avoid collisions across responses/parts.
+                composite_suffix = f"{idx}_{i}"
+                fc.name = _sanitize_tool_name(fc.name or "", composite_suffix)
     return response
 
 
