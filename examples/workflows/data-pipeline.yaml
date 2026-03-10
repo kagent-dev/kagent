@@ -1,0 +1,76 @@
+# Example: Data Pipeline Workflow
+# Simple ETL pipeline: extract data, transform it, then load results.
+# Demonstrates linear step dependencies and output chaining.
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowTemplate
+metadata:
+  name: data-pipeline
+  namespace: default
+spec:
+  description: "ETL pipeline: extract, transform, load"
+  params:
+    - name: source
+      type: string
+      description: "Data source identifier"
+    - name: destination
+      type: string
+      description: "Target destination"
+    - name: format
+      type: string
+      default: "json"
+      enum: ["json", "csv", "parquet"]
+      description: "Output format"
+
+  defaults:
+    timeout:
+      startToClose: 30m
+
+  steps:
+    - name: extract
+      type: action
+      action: etl.extract
+      with:
+        source: "${{ params.source }}"
+        format: "${{ params.format }}"
+      output:
+        as: extractResult
+
+    - name: transform
+      type: action
+      action: etl.transform
+      dependsOn: [extract]
+      with:
+        data: "${{ context.extractResult.data }}"
+        format: "${{ params.format }}"
+      policy:
+        retry:
+          maxAttempts: 2
+      output:
+        as: transformResult
+
+    - name: load
+      type: action
+      action: etl.load
+      dependsOn: [transform]
+      with:
+        data: "${{ context.transformResult.data }}"
+        destination: "${{ params.destination }}"
+      policy:
+        timeout:
+          startToClose: 15m
+          heartbeat: 60s
+---
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowRun
+metadata:
+  name: data-pipeline-run-001
+  namespace: default
+spec:
+  workflowTemplateRef: data-pipeline
+  params:
+    - name: source
+      value: "s3://data-bucket/input"
+    - name: destination
+      value: "postgres://db/results"
+    - name: format
+      value: "json"

@@ -1,0 +1,109 @@
+# Example: Multi-Agent Analysis Workflow
+# Demonstrates agent steps with parallel fan-out and aggregation.
+# Three specialist agents analyze different aspects concurrently,
+# then a synthesizer agent combines the results.
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowTemplate
+metadata:
+  name: agent-analysis
+  namespace: default
+spec:
+  description: "Multi-agent analysis: gather data, analyze in parallel, synthesize"
+  params:
+    - name: topic
+      type: string
+      description: "Topic to analyze"
+    - name: depth
+      type: string
+      default: "standard"
+      enum: ["quick", "standard", "deep"]
+      description: "Analysis depth"
+
+  defaults:
+    timeout:
+      startToClose: 15m
+
+  retention:
+    successfulRunsHistoryLimit: 5
+    failedRunsHistoryLimit: 3
+
+  steps:
+    - name: gather
+      type: action
+      action: data.gather
+      with:
+        topic: "${{ params.topic }}"
+        depth: "${{ params.depth }}"
+      output:
+        as: rawData
+
+    - name: security-review
+      type: agent
+      agentRef: security-analyst
+      dependsOn: [gather]
+      prompt: |
+        Analyze the following data for security concerns.
+        Topic: ${{ params.topic }}
+        Data: ${{ context.rawData }}
+        Provide a JSON response with "findings" array and "riskLevel" (low/medium/high).
+      output:
+        keys:
+          findings: securityFindings
+          riskLevel: securityRisk
+
+    - name: performance-review
+      type: agent
+      agentRef: performance-analyst
+      dependsOn: [gather]
+      prompt: |
+        Analyze the following data for performance characteristics.
+        Topic: ${{ params.topic }}
+        Data: ${{ context.rawData }}
+        Provide a JSON response with "metrics" and "recommendations" arrays.
+      onFailure: continue
+      output:
+        keys:
+          metrics: perfMetrics
+          recommendations: perfRecommendations
+
+    - name: compliance-review
+      type: agent
+      agentRef: compliance-analyst
+      dependsOn: [gather]
+      prompt: |
+        Review the following data for compliance with standards.
+        Topic: ${{ params.topic }}
+        Data: ${{ context.rawData }}
+        Provide a JSON response with "status" (pass/fail) and "issues" array.
+      onFailure: continue
+      output:
+        keys:
+          status: complianceStatus
+          issues: complianceIssues
+
+    - name: synthesize
+      type: agent
+      agentRef: report-synthesizer
+      dependsOn: [security-review, performance-review, compliance-review]
+      prompt: |
+        Synthesize the following analysis results into a comprehensive report.
+        Security: risk=${{ context.securityRisk }}, findings=${{ context.securityFindings }}
+        Performance: metrics=${{ context.perfMetrics }}, recommendations=${{ context.perfRecommendations }}
+        Compliance: status=${{ context.complianceStatus }}, issues=${{ context.complianceIssues }}
+        Provide a JSON response with "executiveSummary", "overallRisk", and "actionItems".
+      output:
+        as: finalReport
+---
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowRun
+metadata:
+  name: agent-analysis-run-001
+  namespace: default
+spec:
+  workflowTemplateRef: agent-analysis
+  params:
+    - name: topic
+      value: "kubernetes-cluster-health"
+    - name: depth
+      value: "deep"
+  ttlSecondsAfterFinished: 3600

@@ -1,0 +1,117 @@
+# Example: CI Pipeline Workflow
+# This workflow demonstrates a build-and-test pipeline with:
+# - Sequential and parallel steps
+# - Action steps (Temporal activities) and agent steps (child workflows)
+# - Expression interpolation for parameter passing
+# - Per-step retry and timeout policies
+# - Retention policy for run history cleanup
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowTemplate
+metadata:
+  name: build-and-test
+  namespace: default
+spec:
+  description: "CI pipeline: checkout, test, lint, analyze, build"
+  params:
+    - name: repoUrl
+      type: string
+      description: "Git repository URL"
+    - name: commitSha
+      type: string
+      description: "Commit SHA to build"
+    - name: runLint
+      type: boolean
+      default: "true"
+      description: "Whether to run linting"
+
+  defaults:
+    retry:
+      maxAttempts: 3
+      initialInterval: 1s
+      maximumInterval: 60s
+      backoffCoefficient: "2.0"
+    timeout:
+      startToClose: 10m
+
+  retention:
+    successfulRunsHistoryLimit: 10
+    failedRunsHistoryLimit: 5
+
+  steps:
+    - name: checkout
+      type: action
+      action: git.clone
+      with:
+        repoUrl: "${{ params.repoUrl }}"
+        commitSha: "${{ params.commitSha }}"
+      output:
+        as: checkout
+
+    - name: unit-tests
+      type: action
+      action: ci.runTests
+      dependsOn: [checkout]
+      with:
+        workdir: "${{ context.checkout.path }}"
+      policy:
+        timeout:
+          startToClose: 15m
+          heartbeat: 30s
+      output:
+        keys:
+          report: testReport
+
+    - name: lint
+      type: action
+      action: ci.runLint
+      dependsOn: [checkout]
+      with:
+        workdir: "${{ context.checkout.path }}"
+      onFailure: continue
+      output:
+        keys:
+          report: lintReport
+
+    - name: analyze
+      type: agent
+      agentRef: code-quality-analyst
+      dependsOn: [unit-tests, lint]
+      prompt: |
+        Review these CI results and provide a quality assessment.
+        Test report: ${{ context.testReport }}
+        Lint report: ${{ context.lintReport }}
+        Return a JSON object with "summary" and "qualityGate" (PASS or FAIL).
+      output:
+        keys:
+          summary: analysisSummary
+          qualityGate: qualityGateStatus
+
+    - name: build
+      type: action
+      action: ci.buildImage
+      dependsOn: [analyze]
+      with:
+        tag: "${{ params.commitSha }}"
+        qualityGate: "${{ context.qualityGateStatus }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          nonRetryableErrors: ["INVALID_DOCKERFILE"]
+        timeout:
+          startToClose: 20m
+          heartbeat: 60s
+---
+# Example: Triggering a run of the build-and-test workflow
+apiVersion: kagent.dev/v1alpha2
+kind: WorkflowRun
+metadata:
+  name: build-and-test-run-001
+  namespace: default
+spec:
+  workflowTemplateRef: build-and-test
+  params:
+    - name: repoUrl
+      value: "https://github.com/kagent-dev/kagent"
+    - name: commitSha
+      value: "abc123def"
+  ttlSecondsAfterFinished: 86400
