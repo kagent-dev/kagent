@@ -40,6 +40,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/core/internal/metrics"
+	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
@@ -239,6 +240,19 @@ func Start(getExtensionConfig GetExtensionConfig) {
 
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	ctrl.SetLogger(logger)
+
+	shutdownTracing, err := telemetry.InitTracerProvider(ctx, Version)
+	if err != nil {
+		setupLog.Error(err, "failed to initialize tracing")
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			setupLog.Error(err, "failed to shutdown tracing")
+		}
+	}()
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
 
