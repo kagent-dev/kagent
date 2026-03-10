@@ -55,9 +55,7 @@ class KAgentMCPSessionManager(MCPSessionManager):
     the session from the cache and create a new one.
     """
 
-    async def _close_and_recreate_session(
-        self, headers: dict[str, str] | None, reason: str
-    ) -> ClientSession:
+    async def _close_and_recreate_session(self, headers: dict[str, str] | None, reason: str) -> ClientSession:
         """Close the cached session (best-effort) and create a new one."""
         logger.warning("%s", reason)
         try:
