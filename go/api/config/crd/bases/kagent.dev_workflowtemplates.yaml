@@ -1,0 +1,361 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: workflowtemplates.kagent.dev
+spec:
+  group: kagent.dev
+  names:
+    kind: WorkflowTemplate
+    listKind: WorkflowTemplateList
+    plural: workflowtemplates
+    singular: workflowtemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.stepCount
+      name: Steps
+      type: integer
+    - jsonPath: .status.validated
+      name: Validated
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: WorkflowTemplate is the Schema for the workflowtemplates API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WorkflowTemplateSpec defines the desired state of a WorkflowTemplate.
+            properties:
+              defaults:
+                description: Defaults for step policies when not specified per-step.
+                properties:
+                  retry:
+                    description: Retry default policy.
+                    properties:
+                      backoffCoefficient:
+                        default: "2.0"
+                        description: |-
+                          BackoffCoefficient is the multiplier for retry delays.
+                          Serialized as string to avoid float precision issues across languages.
+                        type: string
+                      initialInterval:
+                        default: 1s
+                        description: InitialInterval is the initial retry delay.
+                        type: string
+                      maxAttempts:
+                        default: 3
+                        description: MaxAttempts is the maximum number of attempts.
+                        format: int32
+                        type: integer
+                      maximumInterval:
+                        default: 60s
+                        description: MaximumInterval is the maximum retry delay.
+                        type: string
+                      nonRetryableErrors:
+                        description: NonRetryableErrors lists error types that should
+                          not be retried.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  timeout:
+                    description: Timeout default policy.
+                    properties:
+                      heartbeat:
+                        description: Heartbeat is the max time between heartbeats.
+                        type: string
+                      scheduleToClose:
+                        description: ScheduleToClose is the max total time including
+                          retries.
+                        type: string
+                      startToClose:
+                        default: 5m
+                        description: StartToClose is the max time for a single attempt.
+                        type: string
+                    type: object
+                type: object
+              description:
+                description: Description of the workflow.
+                type: string
+              params:
+                description: Params declares input parameters.
+                items:
+                  description: ParamSpec declares an input parameter for a workflow
+                    template.
+                  properties:
+                    default:
+                      description: Default value for the parameter.
+                      type: string
+                    description:
+                      description: Description of the parameter.
+                      type: string
+                    enum:
+                      description: Enum restricts the parameter to a set of allowed
+                        values.
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      description: Name is the parameter name.
+                      pattern: ^[a-zA-Z_][a-zA-Z0-9_]*$
+                      type: string
+                    type:
+                      allOf:
+                      - enum:
+                        - string
+                        - number
+                        - boolean
+                      - enum:
+                        - string
+                        - number
+                        - boolean
+                      default: string
+                      description: Type is the parameter type.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              retention:
+                description: Retention controls run history cleanup.
+                properties:
+                  failedRunsHistoryLimit:
+                    default: 5
+                    description: FailedRunsHistoryLimit is the max number of failed
+                      runs to keep.
+                    format: int32
+                    type: integer
+                  successfulRunsHistoryLimit:
+                    default: 10
+                    description: SuccessfulRunsHistoryLimit is the max number of successful
+                      runs to keep.
+                    format: int32
+                    type: integer
+                type: object
+              steps:
+                description: Steps defines the workflow DAG.
+                items:
+                  description: StepSpec defines a single step in the workflow DAG.
+                  properties:
+                    action:
+                      description: Action is the registered activity name (for type=action).
+                      type: string
+                    agentRef:
+                      description: AgentRef is the kagent Agent name (for type=agent).
+                      type: string
+                    dependsOn:
+                      description: DependsOn lists step names that must complete before
+                        this step runs.
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      description: Name uniquely identifies this step within the workflow.
+                      pattern: ^[a-z][a-z0-9-]*$
+                      type: string
+                    onFailure:
+                      default: stop
+                      description: OnFailure determines behavior when this step fails.
+                      enum:
+                      - stop
+                      - continue
+                      type: string
+                    output:
+                      description: Output configures how step results are stored in
+                        context.
+                      properties:
+                        as:
+                          description: |-
+                            As stores the full step result at context.<alias>.
+                            Defaults to step name if omitted.
+                          type: string
+                        keys:
+                          additionalProperties:
+                            type: string
+                          description: Keys maps selected output fields to top-level
+                            context keys.
+                          type: object
+                      type: object
+                    policy:
+                      description: Policy overrides workflow-level defaults for this
+                        step.
+                      properties:
+                        retry:
+                          description: Retry configures retry behavior.
+                          properties:
+                            backoffCoefficient:
+                              default: "2.0"
+                              description: |-
+                                BackoffCoefficient is the multiplier for retry delays.
+                                Serialized as string to avoid float precision issues across languages.
+                              type: string
+                            initialInterval:
+                              default: 1s
+                              description: InitialInterval is the initial retry delay.
+                              type: string
+                            maxAttempts:
+                              default: 3
+                              description: MaxAttempts is the maximum number of attempts.
+                              format: int32
+                              type: integer
+                            maximumInterval:
+                              default: 60s
+                              description: MaximumInterval is the maximum retry delay.
+                              type: string
+                            nonRetryableErrors:
+                              description: NonRetryableErrors lists error types that
+                                should not be retried.
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        timeout:
+                          description: Timeout configures timeout behavior.
+                          properties:
+                            heartbeat:
+                              description: Heartbeat is the max time between heartbeats.
+                              type: string
+                            scheduleToClose:
+                              description: ScheduleToClose is the max total time including
+                                retries.
+                              type: string
+                            startToClose:
+                              default: 5m
+                              description: StartToClose is the max time for a single
+                                attempt.
+                              type: string
+                          type: object
+                      type: object
+                    prompt:
+                      description: |-
+                        Prompt is a template rendered before agent invocation (for type=agent).
+                        Supports ${{ params.* }} and ${{ context.* }} interpolation.
+                      type: string
+                    type:
+                      allOf:
+                      - enum:
+                        - action
+                        - agent
+                      - enum:
+                        - action
+                        - agent
+                      description: Type is the step execution mode.
+                      type: string
+                    with:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        With provides input key-value pairs for the step.
+                        Values support ${{ }} expression interpolation.
+                      type: object
+                  required:
+                  - name
+                  - type
+                  type: object
+                maxItems: 200
+                minItems: 1
+                type: array
+            required:
+            - steps
+            type: object
+          status:
+            description: WorkflowTemplateStatus defines the observed state of a WorkflowTemplate.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed.
+                format: int64
+                type: integer
+              stepCount:
+                description: StepCount is the number of steps in the template.
+                format: int32
+                type: integer
+              validated:
+                description: Validated indicates the template passed DAG and reference
+                  validation.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
