@@ -175,61 +175,87 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
 
     const agentNamespace = currentAgent.agent.metadata.namespace || "";
 
+    // Group MCP tools by server, collect agent tools separately
+    const mcpServerGroups = new Map<string, { serverDisplayName: string; toolNames: string[]; approvalSet: Set<string>; baseToolIdentifier: string }>();
+    const agentTools: Tool[] = [];
+
+    tools.forEach((tool) => {
+      if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
+        const serverKey = tool.mcpServer.name || "unknown";
+        const existing = mcpServerGroups.get(serverKey);
+        if (existing) {
+          tool.mcpServer.toolNames.forEach(name => existing.toolNames.push(name));
+          (tool.mcpServer.requireApproval || []).forEach(name => existing.approvalSet.add(name));
+        } else {
+          mcpServerGroups.set(serverKey, {
+            serverDisplayName: `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`,
+            toolNames: [...tool.mcpServer.toolNames],
+            approvalSet: new Set(tool.mcpServer.requireApproval || []),
+            baseToolIdentifier: getToolIdentifier(tool),
+          });
+        }
+      } else {
+        agentTools.push(tool);
+      }
+    });
+
     return (
-      <SidebarMenu>
-        {tools.flatMap((tool) => {
-          const baseToolIdentifier = getToolIdentifier(tool);
+      <div className="space-y-3">
+        {Array.from(mcpServerGroups.entries()).map(([serverKey, group]) => (
+          <div key={serverKey}>
+            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              {group.serverDisplayName}
+            </div>
+            <SidebarMenu>
+              {group.toolNames.map((mcpToolName) => {
+                const subToolIdentifier = `${group.baseToolIdentifier}::${mcpToolName}`;
+                const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
+                const isExpanded = expandedTools[subToolIdentifier] || false;
 
-          if (tool.mcpServer && tool.mcpServer?.toolNames && tool.mcpServer.toolNames.length > 0) {
-            const mcpProvider = tool.mcpServer.name || "mcp_server";
-            const mcpProviderParts = mcpProvider.split(".");
-            const mcpProviderNameTooltip = mcpProviderParts[mcpProviderParts.length - 1];
-            const serverDisplayName = `${tool.mcpServer.namespace || agentNamespace}/${tool.mcpServer.name || ""}`;
-            const approvalSet = new Set(tool.mcpServer.requireApproval || []);
+                return (
+                  <RenderToolCollapsibleItem
+                    key={subToolIdentifier}
+                    itemKey={subToolIdentifier}
+                    displayName={mcpToolName}
+                    providerTooltip={serverKey}
+                    description={description}
+                    requiresApproval={group.approvalSet.has(mcpToolName)}
+                    isExpanded={isExpanded}
+                    onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
+                  />
+                );
+              })}
+            </SidebarMenu>
+          </div>
+        ))}
+        {agentTools.length > 0 && (
+          <div>
+            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Agents
+            </div>
+            <SidebarMenu>
+              {agentTools.map((tool) => {
+                const toolIdentifier = getToolIdentifier(tool);
+                const displayName = getToolDisplayName(tool, agentNamespace);
+                const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
+                const isExpanded = expandedTools[toolIdentifier] || false;
 
-            return tool.mcpServer.toolNames.map((mcpToolName) => {
-              const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
-              const description = toolDescriptions[subToolIdentifier] || "Description loading or unavailable";
-              const isExpanded = expandedTools[subToolIdentifier] || false;
-              const displayName = `${mcpToolName} (${serverDisplayName})`;
-
-              return (
-                <RenderToolCollapsibleItem
-                  key={subToolIdentifier}
-                  itemKey={subToolIdentifier}
-                  displayName={displayName}
-                  providerTooltip={mcpProviderNameTooltip}
-                  description={description}
-                  requiresApproval={approvalSet.has(mcpToolName)}
-                  isExpanded={isExpanded}
-                  onToggleExpansion={() => toggleToolExpansion(subToolIdentifier)}
-                />
-              );
-            });
-          } else {
-            const toolIdentifier = baseToolIdentifier;
-            const provider = isAgentTool(tool) ? (tool.agent?.name || "unknown") : (tool.mcpServer?.name || "unknown");
-            const displayName = getToolDisplayName(tool, agentNamespace);
-            const description = toolDescriptions[toolIdentifier] || "Description loading or unavailable";
-            const isExpanded = expandedTools[toolIdentifier] || false;
-
-            const providerParts = provider.split(".");
-            const providerNameTooltip = providerParts[providerParts.length - 1];
-
-            return [(
-              <RenderToolCollapsibleItem
-                key={toolIdentifier}
-                itemKey={toolIdentifier}
-                displayName={displayName}
-                providerTooltip={providerNameTooltip}
-                description={description}
-                isExpanded={isExpanded}
-                onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
-              />
-            )];
-          }
-        })}
-      </SidebarMenu>
+                return (
+                  <RenderToolCollapsibleItem
+                    key={toolIdentifier}
+                    itemKey={toolIdentifier}
+                    displayName={displayName}
+                    providerTooltip={isAgentTool(tool) ? (tool.agent?.name || "unknown") : "unknown"}
+                    description={description}
+                    isExpanded={isExpanded}
+                    onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
+                  />
+                );
+              })}
+            </SidebarMenu>
+          </div>
+        )}
+      </div>
     );
   };
 

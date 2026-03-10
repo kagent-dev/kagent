@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -18,15 +19,39 @@ type Client struct {
 }
 
 // NewClient creates a new Temporal client connected to the given host:port.
+// It retries with exponential backoff for up to ~60 seconds to handle
+// startup ordering (e.g. temporal-ui starting before temporal-server is ready).
 func NewClient(hostPort, namespace string) (*Client, error) {
-	c, err := client.Dial(client.Options{
-		HostPort:  hostPort,
-		Namespace: namespace,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Temporal at %s: %w", hostPort, err)
+	var c client.Client
+	var err error
+
+	backoff := time.Second
+	const maxBackoff = 10 * time.Second
+	const maxAttempts = 10
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		c, err = client.Dial(client.Options{
+			HostPort:  hostPort,
+			Namespace: namespace,
+		})
+		if err == nil {
+			return &Client{client: c, namespace: namespace}, nil
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		log.Printf("failed to connect to Temporal at %s (attempt %d/%d): %v — retrying in %s",
+			hostPort, attempt, maxAttempts, err, backoff)
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
 	}
-	return &Client{client: c, namespace: namespace}, nil
+
+	return nil, fmt.Errorf("failed to connect to Temporal at %s after %d attempts: %w", hostPort, maxAttempts, err)
 }
 
 // NewClientFromSDK wraps an existing Temporal SDK client (useful for testing).

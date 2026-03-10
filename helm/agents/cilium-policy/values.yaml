@@ -3,6 +3,7 @@ imagePullSecrets: []
 
 temporal:
   enabled: false
+  workflowTimeout: 3m
 
 
 resources:

@@ -153,7 +153,7 @@ type TemporalConfig struct {
 	Namespace       string        `json:"namespace"`
 	TaskQueue       string        `json:"taskQueue"` // "agent-{agentName}"
 	NATSAddr        string        `json:"natsAddr"`
-	WorkflowTimeout time.Duration `json:"workflowTimeout"` // default 48h
+	WorkflowTimeout time.Duration `json:"workflowTimeout"` // default 3m
 	LLMMaxAttempts  int           `json:"llmMaxAttempts"`  // default 5
 	ToolMaxAttempts int           `json:"toolMaxAttempts"` // default 3
 }
@@ -162,7 +162,7 @@ type TemporalConfig struct {
 func DefaultTemporalConfig() TemporalConfig {
 	return TemporalConfig{
 		Namespace:       "default",
-		WorkflowTimeout: 48 * time.Hour,
+		WorkflowTimeout: 3 * time.Minute,
 		LLMMaxAttempts:  5,
 		ToolMaxAttempts: 3,
 	}

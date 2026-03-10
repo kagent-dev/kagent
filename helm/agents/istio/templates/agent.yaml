@@ -11,6 +11,9 @@ spec:
   {{- if .Values.temporal.enabled }}
   temporal:
     enabled: true
+    {{- if .Values.temporal.workflowTimeout }}
+    workflowTimeout: {{ .Values.temporal.workflowTimeout }}
+    {{- end }}
   {{- end }}
   declarative:
     systemMessage: |

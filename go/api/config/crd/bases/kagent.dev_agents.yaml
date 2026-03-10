@@ -10244,7 +10244,7 @@ spec:
                   workflowTimeout:
                     description: |-
                       WorkflowTimeout is the maximum duration for a workflow execution.
-                      Default: 48h.
+                      Default: 3m.
                     type: string
                 type: object
               type:

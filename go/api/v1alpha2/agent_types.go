@@ -348,7 +348,7 @@ type TemporalSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// WorkflowTimeout is the maximum duration for a workflow execution.
-	// Default: 48h.
+	// Default: 3m.
 	// +optional
 	WorkflowTimeout *metav1.Duration `json:"workflowTimeout,omitempty"`
 

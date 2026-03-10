@@ -207,20 +207,47 @@
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
   .wf-id { font-family: monospace; font-size: 0.8rem; }
+  .run-id { font-family: monospace; font-size: 0.75rem; color: var(--muted-foreground); }
   .truncate { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+  .truncate-sm { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+
+  .temporal-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--primary); text-decoration: none; font-size: 0.75rem;
+    opacity: 0.7; transition: opacity 0.15s;
+  }
+  .temporal-link:hover { opacity: 1; text-decoration: underline; }
+  .temporal-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+  .detail-view-panel { padding: 20px 16px; }
+  .detail-view-panel h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+  .detail-meta {
+    display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
+    font-size: 0.85rem; margin-bottom: 20px; padding: 16px;
+    background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  }
+  .detail-meta dt { color: var(--muted-foreground); font-weight: 500; white-space: nowrap; }
+  .detail-meta dd { font-family: monospace; font-size: 0.82rem; user-select: all; word-break: break-all; }
+  .detail-meta dd code { font-size: inherit; }
 </style>
 </head>
 <body>
   <header>
     <div class="header-dot" id="connDot"></div>
-    <h1>Temporal Workflows</h1>
+    <a id="backLink" href="#" style="display:none;color:var(--muted-foreground);text-decoration:none;font-size:0.85rem;" title="Back to list">&larr;</a>
+    <h1 id="headerTitle">Temporal Workflows</h1>
     <span class="badge" id="runningBadge" style="display:none">0</span>
     <div id="status">Connecting&hellip;</div>
   </header>
 
   <div class="error-banner" id="errorBanner"></div>
 
-  <div class="filters">
+  <!-- Workflow detail view (deep-link) -->
+  <div id="detailView" style="display:none">
+    <div class="detail-view-panel" id="detailViewContent"></div>
+  </div>
+
+  <div class="filters" id="listFilters">
     <button class="filter-btn active" data-filter="">All</button>
     <button class="filter-btn" data-filter="Running">Running</button>
     <button class="filter-btn" data-filter="Completed">Completed</button>
@@ -234,9 +261,11 @@
         <tr>
           <th>Agent</th>
           <th>Workflow ID</th>
+          <th>Run ID</th>
           <th>Status</th>
           <th>Start Time</th>
           <th>Duration</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="workflowBody"></tbody>
@@ -276,12 +305,48 @@
   var connected = false;
   var es = null;
 
+  // Compute base URL for API calls. When served behind /_p/temporal/ proxy with
+  // a defaultPath redirect (e.g. /namespaces/kagent/workflows), relative URLs
+  // would resolve against the redirected path. Extract the plugin prefix instead.
+  var baseUrl = (function() {
+    var m = window.location.pathname.match(/^(.*\/_p\/[^/]+)\//);
+    return m ? m[1] + '/' : './';
+  })();
+
+  // Extract Temporal namespace from the URL path (e.g. /_p/temporal/namespaces/kagent/...)
+  var temporalNamespace = (function() {
+    var m = window.location.pathname.match(/\/namespaces\/([^/]+)/);
+    return m ? m[1] : 'default';
+  })();
+
+  // Temporal Web UI base — use the plugin proxy prefix so the link navigates
+  // within the parent kagent UI (iframe src changes, SPA re-renders).
+  var temporalUIBase = (function() {
+    var m = window.location.pathname.match(/^(.*\/_p\/[^/]+)/);
+    return m ? m[1] : '';
+  })();
+
+  // URL routing — detect deep-link to a specific workflow
+  var deepLinkMatch = window.location.pathname.match(/\/workflows\/([^/]+)\/([^/]+)/);
+  var deepLinkWorkflowId = deepLinkMatch ? decodeURIComponent(deepLinkMatch[1]) : null;
+  var deepLinkRunId = deepLinkMatch && deepLinkMatch[2] !== 'history' ? decodeURIComponent(deepLinkMatch[2]) : null;
+  // If path ends with just workflowId (no runId), still capture it
+  if (deepLinkMatch && !deepLinkRunId && deepLinkMatch[2] === 'history') {
+    deepLinkRunId = null;
+  }
+
   var body = document.getElementById('workflowBody');
   var emptyEl = document.getElementById('emptyState');
   var connDot = document.getElementById('connDot');
   var statusEl = document.getElementById('status');
   var badgeEl = document.getElementById('runningBadge');
   var errorBanner = document.getElementById('errorBanner');
+  var detailView = document.getElementById('detailView');
+  var detailViewContent = document.getElementById('detailViewContent');
+  var listFilters = document.getElementById('listFilters');
+  var tableWrap = document.querySelector('.table-wrap');
+  var backLink = document.getElementById('backLink');
+  var headerTitle = document.getElementById('headerTitle');
 
   // --- Theme bridge ---
   if (window.kagent && window.kagent.onContext) {
@@ -303,7 +368,7 @@
   // --- SSE ---
   function connectSSE() {
     if (es) { es.close(); }
-    es = new EventSource('events');
+    es = new EventSource(baseUrl + 'events');
 
     es.addEventListener('snapshot', function(e) {
       setConnected(true);
@@ -385,16 +450,22 @@
       var dur = formatDuration(w.StartTime, w.CloseTime);
       var startStr = formatTime(w.StartTime);
 
+      var shortRunId = (w.RunID || '').substring(0, 8);
+      var temporalUrl = temporalUIBase + '/namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows/' + encodeURIComponent(w.WorkflowID) + '/' + encodeURIComponent(w.RunID || '') + '/history';
+      var linkIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+
       html += '<tr class="clickable' + (isExpanded ? ' expanded' : '') + '" data-wfid="' + esc(w.WorkflowID) + '">';
       html += '<td>' + esc(w.AgentName || '-') + '</td>';
       html += '<td><span class="wf-id truncate" title="' + esc(w.WorkflowID) + '">' + esc(w.WorkflowID) + '</span></td>';
+      html += '<td><span class="run-id truncate-sm" title="' + esc(w.RunID || '') + '">' + esc(shortRunId) + '</span></td>';
       html += '<td><span class="status-badge status-' + esc((w.Status || '').toLowerCase()) + '">' + esc(w.Status) + '</span></td>';
       html += '<td>' + startStr + '</td>';
       html += '<td>' + dur + '</td>';
+      html += '<td><a class="temporal-link" href="#" title="View workflow details" onclick="event.stopPropagation();event.preventDefault();showWorkflowDetail(\'' + esc(w.WorkflowID) + '\',\'' + esc(w.RunID || '') + '\');">' + linkIcon + '</a></td>';
       html += '</tr>';
 
       if (isExpanded) {
-        html += '<tr class="detail-row"><td colspan="5"><div class="detail-panel" id="detail-' + esc(w.WorkflowID) + '">';
+        html += '<tr class="detail-row"><td colspan="7"><div class="detail-panel" id="detail-' + esc(w.WorkflowID) + '">';
         html += renderDetail(w);
         html += '</div></td></tr>';
       }
@@ -420,6 +491,13 @@
   function renderDetail(w) {
     var detail = detailCache[w.WorkflowID];
     var html = '';
+
+    // Workflow metadata
+    html += '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:12px;font-size:0.8rem;">';
+    html += '<div><span style="color:var(--muted-foreground);">Workflow ID:</span> <code style="user-select:all;font-size:0.78rem;">' + esc(w.WorkflowID) + '</code></div>';
+    html += '<div><span style="color:var(--muted-foreground);">Run ID:</span> <code style="user-select:all;font-size:0.78rem;">' + esc(w.RunID || '-') + '</code></div>';
+    if (w.TaskQueue) html += '<div><span style="color:var(--muted-foreground);">Task Queue:</span> <code style="font-size:0.78rem;">' + esc(w.TaskQueue) + '</code></div>';
+    html += '</div>';
 
     if (detail && detail.Activities && detail.Activities.length > 0) {
       html += '<h3>Activities</h3><div class="activity-list">';
@@ -450,7 +528,7 @@
   }
 
   function fetchDetail(wfid) {
-    fetch('api/workflows/' + encodeURIComponent(wfid))
+    fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfid))
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.data) { detailCache[wfid] = d.data; }
@@ -462,7 +540,7 @@
   // --- Actions ---
   window.cancelWorkflow = function(wfid) {
     if (!confirm('Cancel workflow ' + wfid + '?')) return;
-    fetch('api/workflows/' + encodeURIComponent(wfid) + '/cancel', { method: 'POST' })
+    fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfid) + '/cancel', { method: 'POST' })
       .then(function(r) { if (!r.ok) throw new Error('Cancel failed'); })
       .catch(function(err) { showError(err.message); });
   };
@@ -490,7 +568,7 @@
       catch(e) { alert('Invalid JSON data'); return; }
     }
 
-    fetch('api/workflows/' + encodeURIComponent(wfid) + '/signal', {
+    fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfid) + '/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -529,8 +607,97 @@
     return hrs + 'h ' + (mins % 60) + 'm';
   }
 
+  // --- Detail View (deep-link routing) ---
+  window.showWorkflowDetail = function(wfId, runId) {
+    showDetailView(wfId, runId);
+  };
+
+  function showDetailView(wfId, runId) {
+    listFilters.style.display = 'none';
+    tableWrap.style.display = 'none';
+    detailView.style.display = '';
+    badgeEl.style.display = 'none';
+    backLink.style.display = '';
+    headerTitle.textContent = 'Workflow Detail';
+
+    var listUrl = temporalUIBase + '/namespaces/' + encodeURIComponent(temporalNamespace) + '/workflows';
+    backLink.href = listUrl;
+    backLink.onclick = function(e) {
+      e.preventDefault();
+      showListView();
+    };
+
+    detailViewContent.innerHTML = '<p style="color:var(--muted-foreground);font-size:0.85rem;">Loading workflow details&hellip;</p>';
+
+    fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfId))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var w = d.data || d;
+        renderDetailView(w);
+      })
+      .catch(function(err) {
+        detailViewContent.innerHTML = '<div class="error-banner" style="display:block;">Failed to load workflow: ' + esc(err.message) + '</div>';
+      });
+  }
+
+  function renderDetailView(w) {
+    var html = '';
+    html += '<dl class="detail-meta">';
+    html += '<dt>Workflow ID</dt><dd>' + esc(w.WorkflowID) + '</dd>';
+    html += '<dt>Run ID</dt><dd>' + esc(w.RunID || '-') + '</dd>';
+    html += '<dt>Status</dt><dd><span class="status-badge status-' + esc((w.Status || '').toLowerCase()) + '">' + esc(w.Status) + '</span></dd>';
+    html += '<dt>Agent</dt><dd>' + esc(w.AgentName || '-') + '</dd>';
+    if (w.SessionID) html += '<dt>Session ID</dt><dd>' + esc(w.SessionID) + '</dd>';
+    if (w.TaskQueue) html += '<dt>Task Queue</dt><dd>' + esc(w.TaskQueue) + '</dd>';
+    html += '<dt>Start Time</dt><dd>' + formatTime(w.StartTime) + '</dd>';
+    if (w.CloseTime) html += '<dt>Close Time</dt><dd>' + formatTime(w.CloseTime) + '</dd>';
+    html += '<dt>Duration</dt><dd>' + formatDuration(w.StartTime, w.CloseTime) + '</dd>';
+    html += '</dl>';
+
+    if (w.Activities && w.Activities.length > 0) {
+      html += '<h3 style="font-size:0.85rem;font-weight:600;margin-bottom:8px;color:var(--muted-foreground);">Activities (' + w.Activities.length + ')</h3>';
+      html += '<div class="activity-list">';
+      for (var j = 0; j < w.Activities.length; j++) {
+        var a = w.Activities[j];
+        html += '<div class="activity-item">';
+        html += '<span class="status-badge status-' + esc((a.Status || '').toLowerCase()) + '">' + esc(a.Status) + '</span>';
+        html += '<span class="activity-name">' + esc(a.Name) + '</span>';
+        if (a.Duration) html += '<span class="activity-duration">' + esc(a.Duration) + '</span>';
+        if (a.Attempt > 1) html += '<span class="activity-attempt">attempt ' + a.Attempt + '</span>';
+        html += '</div>';
+        if (a.Error) html += '<div class="activity-error">' + esc(a.Error) + '</div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<p style="color:var(--muted-foreground);font-size:0.85rem;">No activities recorded.</p>';
+    }
+
+    if (w.Status === 'Running') {
+      html += '<div class="actions">';
+      html += '<button class="btn btn-danger" onclick="cancelWorkflow(\'' + esc(w.WorkflowID) + '\')">Cancel</button>';
+      html += '<button class="btn" onclick="openSignalModal(\'' + esc(w.WorkflowID) + '\')">Signal</button>';
+      html += '</div>';
+    }
+
+    detailViewContent.innerHTML = html;
+  }
+
+  function showListView() {
+    listFilters.style.display = '';
+    tableWrap.style.display = '';
+    detailView.style.display = 'none';
+    backLink.style.display = 'none';
+    headerTitle.textContent = 'Temporal Workflows';
+    render();
+  }
+
   // --- Init ---
   connectSSE();
+
+  // If deep-linked to a specific workflow, show detail view
+  if (deepLinkWorkflowId) {
+    showDetailView(deepLinkWorkflowId, deepLinkRunId);
+  }
 })();
 </script>
 </body>
