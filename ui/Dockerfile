@@ -108,6 +108,6 @@ LABEL org.opencontainers.image.description="Kagent app is the UI and apiserver f
 LABEL org.opencontainers.image.authors="Kagent Creators 🤖"
 LABEL org.opencontainers.image.version="$VERSION"
 
-USER nextjs
+USER 1001
 
 CMD ["/usr/local/bin/init.sh"]
