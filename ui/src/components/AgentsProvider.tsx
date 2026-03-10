@@ -19,6 +19,7 @@ interface ValidationErrors {
   skills?: string;
   memoryModel?: string;
   memoryTtl?: string;
+  serviceAccountName?: string;
 }
 
 export interface AgentFormData {
@@ -53,6 +54,7 @@ export interface AgentFormData {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
+  serviceAccountName?: string;
 }
 
 interface AgentsContextType {
@@ -184,6 +186,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
+      }
+    }
+
+    if (data.serviceAccountName !== undefined) {
+      const trimmedSA = data.serviceAccountName.trim();
+      if (trimmedSA && !isResourceNameValid(trimmedSA)) {
+        errors.serviceAccountName = `Service account name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
       }
     }
 
