@@ -2,9 +2,11 @@ suite: test temporal infrastructure
 templates:
   - templates/temporal-server-deployment.yaml
   - templates/temporal-server-service.yaml
+  - templates/temporal-mcp-deployment.yaml
+  - templates/temporal-mcp-service.yaml
+  - templates/temporal-mcp-remotemcpserver.yaml
   - templates/temporal-ui-deployment.yaml
   - templates/temporal-ui-service.yaml
-  - templates/temporal-ui-remotemcpserver.yaml
   - templates/nats-deployment.yaml
   - templates/nats-service.yaml
   - templates/controller-configmap.yaml
@@ -26,13 +28,19 @@ tests:
         template: templates/temporal-server-service.yaml
       - hasDocuments:
           count: 0
+        template: templates/temporal-mcp-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-mcp-service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-mcp-remotemcpserver.yaml
+      - hasDocuments:
+          count: 0
         template: templates/temporal-ui-deployment.yaml
       - hasDocuments:
           count: 0
         template: templates/temporal-ui-service.yaml
-      - hasDocuments:
-          count: 0
-        template: templates/temporal-ui-remotemcpserver.yaml
 
   - it: should not render nats when both temporal and nats disabled
     set:
@@ -61,13 +69,19 @@ tests:
         template: templates/temporal-server-service.yaml
       - hasDocuments:
           count: 1
+        template: templates/temporal-mcp-deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-mcp-service.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/temporal-mcp-remotemcpserver.yaml
+      - hasDocuments:
+          count: 1
         template: templates/temporal-ui-deployment.yaml
       - hasDocuments:
           count: 1
         template: templates/temporal-ui-service.yaml
-      - hasDocuments:
-          count: 1
-        template: templates/temporal-ui-remotemcpserver.yaml
       - hasDocuments:
           count: 1
         template: templates/nats-deployment.yaml
@@ -177,19 +191,36 @@ tests:
       - equal:
           path: spec.ui.pathPrefix
           value: temporal
-        template: templates/temporal-ui-remotemcpserver.yaml
+        template: templates/temporal-mcp-remotemcpserver.yaml
       - equal:
           path: spec.ui.displayName
-          value: "Temporal Workflows"
-        template: templates/temporal-ui-remotemcpserver.yaml
+          value: "Workflows"
+        template: templates/temporal-mcp-remotemcpserver.yaml
       - equal:
           path: spec.ui.enabled
           value: true
-        template: templates/temporal-ui-remotemcpserver.yaml
+        template: templates/temporal-mcp-remotemcpserver.yaml
       - equal:
           path: spec.ui.section
-          value: "PLUGINS"
-        template: templates/temporal-ui-remotemcpserver.yaml
+          value: "AGENTS"
+        template: templates/temporal-mcp-remotemcpserver.yaml
+
+  - it: should not render Temporal MCP when mcp.enabled is false
+    set:
+      temporal:
+        enabled: true
+        mcp:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-mcp-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-mcp-service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/temporal-mcp-remotemcpserver.yaml
 
   - it: should not render Temporal UI when ui.enabled is false
     set:
@@ -204,9 +235,6 @@ tests:
       - hasDocuments:
           count: 0
         template: templates/temporal-ui-service.yaml
-      - hasDocuments:
-          count: 0
-        template: templates/temporal-ui-remotemcpserver.yaml
 
   - it: should inject TEMPORAL_HOST_ADDR and NATS_ADDR in controller configmap when temporal enabled
     set:
