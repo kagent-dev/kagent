@@ -1,6 +1,7 @@
 suite: test security context configuration
 templates:
   - _helpers.tpl
+  - controller-configmap.yaml
   - controller-deployment.yaml
   - ui-deployment.yaml
 tests:

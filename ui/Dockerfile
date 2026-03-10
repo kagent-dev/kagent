@@ -86,6 +86,7 @@ RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/ng
 WORKDIR /app
 COPY conf/nginx.conf /etc/nginx/nginx.conf
 COPY conf/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY scripts/init.sh /usr/local/bin/init.sh
 
 WORKDIR /app/ui
 COPY --from=builder /app/ui/next.config.ts ./
@@ -96,7 +97,8 @@ COPY --from=builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
 
 # Ensure correct permissions
 RUN chown -R nextjs:nginx /app/ui && \
-    chmod -R 755 /app
+    chmod -R 755 /app && \
+    chmod +x /usr/local/bin/init.sh
 
 EXPOSE 8080
 ARG VERSION
@@ -108,4 +110,4 @@ LABEL org.opencontainers.image.version="$VERSION"
 
 USER nextjs
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/usr/local/bin/init.sh"]
