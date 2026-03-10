@@ -464,12 +464,24 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	dagCompiler := compiler.NewDAGCompiler()
+
 	if err := (&controller.WorkflowTemplateController{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Compiler: compiler.NewDAGCompiler(),
+		Compiler: dagCompiler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkflowTemplate")
+		os.Exit(1)
+	}
+
+	if err := (&controller.WorkflowRunController{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Compiler: dagCompiler,
+		// TemporalClient will be injected when Temporal integration is enabled.
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WorkflowRun")
 		os.Exit(1)
 	}
 
