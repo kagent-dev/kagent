@@ -2,12 +2,12 @@
 
 ## Checklist
 
-- [ ] Step 1: Project scaffold + config + health endpoint
-- [ ] Step 2: SSE hub with ring buffer
-- [ ] Step 3: NATS subscriber → FeedEvent → hub broadcast
-- [ ] Step 4: Embedded SPA UI
-- [ ] Step 5: Dockerfile + Helm chart
-- [ ] Step 6: Integration test with embedded NATS
+- [x] Step 1: Project scaffold + config + health endpoint
+- [x] Step 2: SSE hub with ring buffer
+- [x] Step 3: NATS subscriber → FeedEvent → hub broadcast
+- [x] Step 4: Embedded SPA UI
+- [x] Step 5: Dockerfile + Helm chart
+- [x] Step 6: Integration test with embedded NATS
 
 ---
 
