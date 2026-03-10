@@ -31,6 +31,7 @@ type Handlers struct {
 	Plugins             *PluginsHandler
 	PluginProxy         *PluginProxyHandler
 	Dashboard           *DashboardHandler
+	Workflows           *WorkflowsHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -73,5 +74,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Plugins:             NewPluginsHandler(base),
 		PluginProxy:         NewPluginProxyHandler(base),
 		Dashboard:           NewDashboardHandler(base),
+		Workflows:           NewWorkflowsHandler(base),
 	}
 }

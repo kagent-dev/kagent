@@ -226,3 +226,19 @@ type RecentEvent struct {
 	Summary   string `json:"summary"`
 	CreatedAt string `json:"createdAt"`
 }
+
+// Workflow types
+
+// CreateWorkflowRunRequest represents a request to create a workflow run.
+type CreateWorkflowRunRequest struct {
+	// Name for the WorkflowRun resource.
+	Name string `json:"name"`
+	// Namespace for the WorkflowRun resource. Defaults to the resource namespace.
+	Namespace string `json:"namespace,omitempty"`
+	// WorkflowTemplateRef is the name of the WorkflowTemplate.
+	WorkflowTemplateRef string `json:"workflowTemplateRef"`
+	// Params provides values for template parameters.
+	Params []v1alpha2.Param `json:"params,omitempty"`
+	// TTLSecondsAfterFinished controls automatic deletion after completion.
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+}

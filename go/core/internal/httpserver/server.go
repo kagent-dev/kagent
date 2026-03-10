@@ -46,6 +46,8 @@ const (
 	APIPathGitRepos             = "/api/gitrepos"
 	APIPathPlugins              = "/api/plugins"
 	APIPathDashboard            = "/api/dashboard"
+	APIPathWorkflowTemplates    = "/api/workflow-templates"
+	APIPathWorkflowRuns         = "/api/workflow-runs"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -295,6 +297,16 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Dashboard
 	s.router.HandleFunc(APIPathDashboard+"/stats", adaptHandler(s.handlers.Dashboard.HandleDashboardStats)).Methods(http.MethodGet)
+
+	// Workflow Templates
+	s.router.HandleFunc(APIPathWorkflowTemplates, adaptHandler(s.handlers.Workflows.HandleListWorkflowTemplates)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathWorkflowTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.Workflows.HandleGetWorkflowTemplate)).Methods(http.MethodGet)
+
+	// Workflow Runs
+	s.router.HandleFunc(APIPathWorkflowRuns, adaptHandler(s.handlers.Workflows.HandleListWorkflowRuns)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathWorkflowRuns, adaptHandler(s.handlers.Workflows.HandleCreateWorkflowRun)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathWorkflowRuns+"/{namespace}/{name}", adaptHandler(s.handlers.Workflows.HandleGetWorkflowRun)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathWorkflowRuns+"/{namespace}/{name}", adaptHandler(s.handlers.Workflows.HandleDeleteWorkflowRun)).Methods(http.MethodDelete)
 
 	// Plugins
 	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
