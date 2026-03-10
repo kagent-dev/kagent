@@ -16,6 +16,8 @@ rules:
   - memories
   - remotemcpservers
   - mcpservers
+  - workflowtemplates
+  - workflowruns
   verbs:
   - get
   - list
@@ -31,6 +33,8 @@ rules:
   - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
+  - workflowtemplates/finalizers
+  - workflowruns/finalizers
   verbs:
   - update
 - apiGroups:
@@ -44,6 +48,8 @@ rules:
   - memories/status
   - remotemcpservers/status
   - mcpservers/status
+  - workflowtemplates/status
+  - workflowruns/status
   verbs:
   - get
   - patch
@@ -116,6 +122,8 @@ rules:
   - memories
   - remotemcpservers
   - mcpservers
+  - workflowtemplates
+  - workflowruns
   verbs:
   - create
   - update
@@ -132,6 +140,8 @@ rules:
   - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
+  - workflowtemplates/finalizers
+  - workflowruns/finalizers
   verbs:
   - update
 - apiGroups:

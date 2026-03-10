@@ -185,8 +185,9 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	} else {
 		mcpTransport = &mcpsdk.StreamableClientTransport{
-			Endpoint:   params.URL,
-			HTTPClient: httpClient,
+			Endpoint:             params.URL,
+			HTTPClient:           httpClient,
+			DisableStandaloneSSE: true,
 		}
 	}
 
