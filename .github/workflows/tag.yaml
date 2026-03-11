@@ -147,6 +147,21 @@ jobs:
         fi
         make build-cli
         make helm-version
+    - name: Create Go module tags
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+
+        # Create module-prefixed tags for each Go sub-module
+        for module in api core adk; do
+          TAG="go/${module}/${VERSION}"
+          echo "Creating tag: ${TAG}"
+          git tag "${TAG}"
+        done
+
+        # Push all module tags
+        git push origin "go/api/${VERSION}" "go/core/${VERSION}" "go/adk/${VERSION}"
+
     - name: Release
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
