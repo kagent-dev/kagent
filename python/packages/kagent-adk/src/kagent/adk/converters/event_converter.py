@@ -17,6 +17,7 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_KEY,
+    KAGENT_METADATA_KEY_PREFIX,
     get_kagent_metadata_key,
 )
 
@@ -91,6 +92,12 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
         for field_name, field_value in optional_fields:
             if field_value is not None:
                 metadata[get_kagent_metadata_key(field_name)] = _serialize_metadata_value(field_value)
+
+        # Include caller metadata from session state if present
+        if invocation_context.session and invocation_context.session.state:
+            for key, value in invocation_context.session.state.items():
+                if key.startswith(KAGENT_METADATA_KEY_PREFIX):
+                    metadata[key] = _serialize_metadata_value(value)
 
         return metadata
 

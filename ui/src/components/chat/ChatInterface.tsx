@@ -648,6 +648,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
+                    sessionId={sessionId!}
                   />
                 })}
 
@@ -665,6 +666,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
+                    sessionId={session?.id || sessionId}
                   />
                 })}
 

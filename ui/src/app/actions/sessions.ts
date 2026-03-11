@@ -108,3 +108,21 @@ export async function checkSessionExists(sessionId: string): Promise<BaseRespons
     return createErrorResponse<boolean>(error, "Error checking session");
   }
 }
+
+/**
+ * Gets a sub-agent session by parent session and tool call ID
+ * @param sessionId The parent session ID
+ * @param toolCallId The tool call ID
+ * @returns A promise with the session data
+ */
+export async function getSubAgentSession(sessionId: string, toolCallId: string): Promise<BaseResponse<Session>> {
+  try {
+    const response = await fetchApi<BaseResponse<{ session: Session }>>(`/sessions/${sessionId}/subagentsessions/${toolCallId}`);
+    if (!response || !response.data) {
+      throw new Error("Failed to get sub-agent session");
+    }
+    return { message: "Sub-agent session fetched successfully", data: response.data.session };
+  } catch (error) {
+    return createErrorResponse<Session>(error, "Error getting sub-agent session");
+  }
+}
