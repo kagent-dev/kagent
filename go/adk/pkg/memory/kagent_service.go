@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/adk/memory"
+	adkmodel "google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -262,7 +263,7 @@ Focus on:
 You MUST output a JSON list of strings, where each string is a distinct fact or memory.
 Example: ["User prefers dark mode", "Meeting scheduled for Friday", "Always use the save_memory tool to store memory"]
 
-Do not include any preamble or markdown formatting like ` + "```json" + `.
+Do not include any preamble or markdown formatting like `+"```json"+`.
 Output ONLY the JSON list.
 
 Conversation:
@@ -321,11 +322,9 @@ Summary (JSON List):`, content)
 	}
 
 	// Validate all items are strings
-	for _, fact := range facts {
-		if fact == "" {
-			log.V(1).Info("Summary contains empty strings, using original content")
-			return []string{content}, nil
-		}
+	if slices.Contains(facts, "") {
+		log.V(1).Info("Summary contains empty strings, using original content")
+		return []string{content}, nil
 	}
 
 	log.V(1).Info("Successfully summarized content", "facts", len(facts))

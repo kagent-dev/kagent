@@ -362,9 +362,9 @@ func TestKagentMemoryService_StoreMemory(t *testing.T) {
 
 func TestKagentMemoryService_ExtractSessionContent(t *testing.T) {
 	tests := []struct {
-		name       string
-		events     []*adksession.Event
-		wantEmpty  bool
+		name        string
+		events      []*adksession.Event
+		wantEmpty   bool
 		wantContain string
 	}{
 		{
@@ -378,7 +378,7 @@ func TestKagentMemoryService_ExtractSessionContent(t *testing.T) {
 				newMockEvent("user", "Hello"),
 				newMockEvent("agent", "Hi there!"),
 			},
-			wantEmpty:  false,
+			wantEmpty:   false,
 			wantContain: "user: Hello",
 		},
 		{
@@ -495,12 +495,12 @@ func newMockSession(id, userID string, events []*adksession.Event) *mockSession 
 	}
 }
 
-func (m *mockSession) ID() string                         { return m.id }
-func (m *mockSession) UserID() string                     { return m.userID }
-func (m *mockSession) AppName() string                    { return m.appName }
-func (m *mockSession) State() adksession.State             { return nil }
-func (m *mockSession) Events() adksession.Events           { return m.events }
-func (m *mockSession) LastUpdateTime() time.Time          { return time.Now() }
+func (m *mockSession) ID() string                { return m.id }
+func (m *mockSession) UserID() string            { return m.userID }
+func (m *mockSession) AppName() string           { return m.appName }
+func (m *mockSession) State() adksession.State   { return nil }
+func (m *mockSession) Events() adksession.Events { return m.events }
+func (m *mockSession) LastUpdateTime() time.Time { return time.Now() }
 
 type mockEvents struct {
 	events []*adksession.Event
