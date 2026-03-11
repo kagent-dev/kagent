@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -470,7 +469,7 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 						ModelConfig:   "test-model",
 						Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 							SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-								ServiceAccountName: ptr.To("custom-sa"),
+								ServiceAccountName: new("custom-sa"),
 							},
 						},
 					},
@@ -990,8 +989,8 @@ func Test_AdkApiTranslator_MergeDeploymentData(t *testing.T) {
 					ModelConfig:   agentModel,
 					Context: &v1alpha2.ContextConfig{
 						Compaction: &v1alpha2.ContextCompressionConfig{
-							CompactionInterval: ptr.To(5),
-							OverlapSize:        ptr.To(2),
+							CompactionInterval: new(5),
+							OverlapSize:        new(2),
 							Summarizer: &v1alpha2.ContextSummarizerConfig{
 								ModelConfig: &summarizerModel,
 							},
@@ -1186,15 +1185,15 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 			name: "compaction only",
 			agent: makeAgent(&v1alpha2.ContextConfig{
 				Compaction: &v1alpha2.ContextCompressionConfig{
-					CompactionInterval: ptr.To(5),
-					OverlapSize:        ptr.To(2),
+					CompactionInterval: new(5),
+					OverlapSize:        new(2),
 				},
 			}),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.ContextConfig)
 				require.NotNil(t, cfg.ContextConfig.Compaction)
-				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.CompactionInterval)
-				assert.Equal(t, ptr.To(2), cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Equal(t, new(5), cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, new(2), cfg.ContextConfig.Compaction.OverlapSize)
 				assert.Nil(t, cfg.ContextConfig.Compaction.SummarizerModel)
 			},
 		},
@@ -1202,29 +1201,29 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 			name: "compaction with all optional fields",
 			agent: makeAgent(&v1alpha2.ContextConfig{
 				Compaction: &v1alpha2.ContextCompressionConfig{
-					CompactionInterval: ptr.To(10),
-					OverlapSize:        ptr.To(3),
-					TokenThreshold:     ptr.To(1000),
-					EventRetentionSize: ptr.To(5),
+					CompactionInterval: new(10),
+					OverlapSize:        new(3),
+					TokenThreshold:     new(1000),
+					EventRetentionSize: new(5),
 				},
 			}),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.ContextConfig)
 				require.NotNil(t, cfg.ContextConfig.Compaction)
-				assert.Equal(t, ptr.To(10), cfg.ContextConfig.Compaction.CompactionInterval)
-				assert.Equal(t, ptr.To(3), cfg.ContextConfig.Compaction.OverlapSize)
-				assert.Equal(t, ptr.To(1000), cfg.ContextConfig.Compaction.TokenThreshold)
-				assert.Equal(t, ptr.To(5), cfg.ContextConfig.Compaction.EventRetentionSize)
+				assert.Equal(t, new(10), cfg.ContextConfig.Compaction.CompactionInterval)
+				assert.Equal(t, new(3), cfg.ContextConfig.Compaction.OverlapSize)
+				assert.Equal(t, new(1000), cfg.ContextConfig.Compaction.TokenThreshold)
+				assert.Equal(t, new(5), cfg.ContextConfig.Compaction.EventRetentionSize)
 			},
 		},
 		{
 			name: "compaction with summarizer using agent model",
 			agent: makeAgent(&v1alpha2.ContextConfig{
 				Compaction: &v1alpha2.ContextCompressionConfig{
-					CompactionInterval: ptr.To(5),
-					OverlapSize:        ptr.To(2),
+					CompactionInterval: new(5),
+					OverlapSize:        new(2),
 					Summarizer: &v1alpha2.ContextSummarizerConfig{
-						PromptTemplate: ptr.To("Summarize: {{events}}"),
+						PromptTemplate: new("Summarize: {{events}}"),
 					},
 				},
 			}),
@@ -1240,10 +1239,10 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 			name: "compaction with summarizer using separate model",
 			agent: makeAgent(&v1alpha2.ContextConfig{
 				Compaction: &v1alpha2.ContextCompressionConfig{
-					CompactionInterval: ptr.To(5),
-					OverlapSize:        ptr.To(2),
+					CompactionInterval: new(5),
+					OverlapSize:        new(2),
 					Summarizer: &v1alpha2.ContextSummarizerConfig{
-						ModelConfig: ptr.To("summarizer-model"),
+						ModelConfig: new("summarizer-model"),
 					},
 				},
 			}),

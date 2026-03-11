@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +67,7 @@ func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 	build := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
-			NeedLeaderElection: ptr.To(true),
+			NeedLeaderElection: new(true),
 		}).
 		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
 

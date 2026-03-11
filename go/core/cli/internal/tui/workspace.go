@@ -23,7 +23,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"k8s.io/utils/ptr"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -177,8 +176,8 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 func (m *workspaceModel) createSession(name string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := m.client.Session.CreateSession(context.Background(), &api.SessionRequest{
-			Name:     ptr.To(name),
-			AgentRef: ptr.To(m.agentRef),
+			Name:     new(name),
+			AgentRef: new(m.agentRef),
 		})
 		if err != nil {
 			return createSessionMsg{session: nil, err: err}
