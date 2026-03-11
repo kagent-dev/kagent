@@ -60,7 +60,7 @@ tests:
           path: spec.endpoints[0].scrapeTimeout
           value: 10s
 
-  - it: should use HTTPS scheme when metrics are secure
+  - it: should use HTTPS scheme and default bearerTokenFile when metrics are secure
     capabilities:
       apiVersions:
         - monitoring.coreos.com/v1
@@ -75,6 +75,32 @@ tests:
       - equal:
           path: spec.endpoints[0].bearerTokenFile
           value: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - isNull:
+          path: spec.endpoints[0].bearerTokenSecret
+
+  - it: should use bearerTokenSecret when configured for secure metrics
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secure: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.bearerTokenSecret:
+        name: my-prometheus-token
+        key: token
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret.name
+          value: my-prometheus-token
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret.key
+          value: token
+      - isNull:
+          path: spec.endpoints[0].bearerTokenFile
 
   - it: should include additional labels
     capabilities:
@@ -106,4 +132,4 @@ tests:
           value: RELEASE-NAME
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: controller
+          value: metrics

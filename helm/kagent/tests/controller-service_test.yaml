@@ -70,26 +70,14 @@ tests:
           path: metadata.namespace
           value: custom-namespace
 
-  - it: should not include metrics port by default
-    asserts:
-      - lengthEqual:
-          path: spec.ports
-          count: 1
-
-  - it: should include metrics port when metrics are enabled
+  - it: should only have controller port (metrics use dedicated service)
     set:
       controller.metrics.enabled: true
       controller.metrics.port: 9093
     asserts:
       - lengthEqual:
           path: spec.ports
-          count: 2
+          count: 1
       - equal:
-          path: spec.ports[1].name
-          value: metrics
-      - equal:
-          path: spec.ports[1].port
-          value: 9093
-      - equal:
-          path: spec.ports[1].targetPort
-          value: 9093
+          path: spec.ports[0].name
+          value: controller

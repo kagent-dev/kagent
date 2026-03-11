@@ -144,6 +144,14 @@ controller:
       interval: 30s
       # -- Scrape timeout
       scrapeTimeout: 10s
+      # -- Override the default bearerTokenFile with a Kubernetes Secret reference.
+      # When set and secure=true, uses bearerTokenSecret instead of the default
+      # service account token file for Prometheus authentication.
+      # Example:
+      #   bearerTokenSecret:
+      #     name: my-prometheus-token
+      #     key: token
+      bearerTokenSecret: {}
       # -- Metric relabeling configs
       metricRelabelings: []
       # -- Relabeling configs
