@@ -23,9 +23,6 @@ test_results
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-# Go workspace file
-go.work
-
 # Go CLI binary
 go/cli/bin/*
 

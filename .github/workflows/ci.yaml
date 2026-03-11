@@ -111,7 +111,7 @@ jobs:
 
       - name: Run e2e tests
         if: success()
-        working-directory: go/core
+        working-directory: go
         run: |
           # Get the Kind network gateway IP that pods can reach
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
@@ -148,12 +148,12 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Run Go unit tests
         working-directory: go
         run: |
-          go test -race -skip 'TestE2E.*' -v ./api/... ./adk/... ./core/...
+          go test -race -skip 'TestE2E.*' -v ./...
 
   helm-unit-tests:
     env:
@@ -267,12 +267,12 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11.3
-          working-directory: go/core
+          working-directory: go
 
   python-test:
     env:
@@ -342,7 +342,7 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Generate controller manifests
         run: make controller-manifests
