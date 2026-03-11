@@ -165,8 +165,7 @@ func getStructJSONKeys(structType reflect.Type) []string {
 	if structType.Kind() != reflect.Struct {
 		return keys
 	}
-	for i := 0; i < structType.NumField(); i++ {
-		field := structType.Field(i)
+	for field := range structType.Fields() {
 		jsonTag := field.Tag.Get("json")
 		if jsonTag != "" && jsonTag != "-" {
 			tagParts := strings.Split(jsonTag, ",")
