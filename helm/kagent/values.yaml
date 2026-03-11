@@ -174,9 +174,9 @@ ui:
   # fsGroup: 2000
   # -- Container-level security context for the UI container. Overrides the global securityContext.
   # @default -- (uses global securityContext)
-  securityContext:
-    readOnlyRootFilesystem: true
-  # -- EmptyDir volume sizes for Next.js UI workload (required for readOnlyRootFilesystem)
+  securityContext: {}
+  #   readOnlyRootFilesystem: true
+  # -- EmptyDir volume sizes for Next.js UI workload (typically used when enabling readOnlyRootFilesystem)
   volumes:
     # -- Size limit for Next.js build cache (.next/cache). Default 100Mi is sufficient for typical Next.js apps with moderate caching needs.
     nextjsCache: 100Mi
