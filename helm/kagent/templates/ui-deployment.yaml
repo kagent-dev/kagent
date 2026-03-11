@@ -63,7 +63,7 @@ spec:
               protocol: TCP
           volumeMounts:
             - name: nextjs-cache
-              mountPath: /.next/cache
+              mountPath: /app/ui/.next/cache
             - name: tmp
               mountPath: /tmp
           resources:
