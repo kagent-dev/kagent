@@ -1,0 +1,23 @@
+{
+  "skill_name": "kagent",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want to try kagent on my local machine. I have a kind cluster running and an Anthropic API key. Walk me through getting it set up and creating a simple agent that can help me troubleshoot pods in my cluster.",
+      "expected_output": "Step-by-step instructions for installing kagent CLI, installing to cluster with Anthropic provider, and creating a declarative agent with k8s tools. Should use correct CLI commands and correct Helm/provider configuration for Anthropic.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "I have kagent running in my cluster with a few agents deployed. I use Claude Code as my editor. How do I set it up so Claude Code can invoke my kagent agents directly? I want to be able to ask Claude to check my cluster status without leaving my editor.",
+      "expected_output": "Instructions for configuring Claude Code MCP settings to connect to kagent's /mcp HTTP endpoint, including port-forwarding setup and verification steps.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I need to build a custom agent that uses a private MCP server my team runs at https://tools.internal.company.com/mcp. The agent should use Anthropic Claude as the LLM. Can you help me set up the agent YAML and the RemoteMCPServer resource?",
+      "expected_output": "Complete YAML for a RemoteMCPServer (v1alpha2) and Agent (v1alpha2) resource, with correct field names, proper Anthropic ModelConfig, and correct tool references.",
+      "files": []
+    }
+  ]
+}
