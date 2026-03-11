@@ -106,22 +106,32 @@ jobs:
           export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
         fi
         uv sync --all-extras
+        # Bump every package version to $VERSION first
         uv version $VERSION --package kagent-core
-        uv build --package kagent-core
-        uv version $VERSION --package kagent-adk
-        uv build --package kagent-adk
-        uv version $VERSION --package kagent-langgraph
-        uv build --package kagent-langgraph
-        uv version $VERSION --package kagent-crewai
-        uv build --package kagent-crewai
         uv version $VERSION --package kagent-skills
-        uv build --package kagent-skills
+        uv version $VERSION --package kagent-adk
+        uv version $VERSION --package kagent-langgraph
+        uv version $VERSION --package kagent-crewai
         uv version $VERSION --package kagent-openai
-        uv build --package kagent-openai
-        uv version $VERSION --package agentsts-adk
-        uv build --package agentsts-adk
         uv version $VERSION --package agentsts-core
+        uv version $VERSION --package agentsts-adk
+        # Update intra-repo dependency lower bounds to match the new version.
+        # Without this, a user upgrading e.g. kagent-adk via pip/uv could have
+        # older intra-repo siblings still locked at a stale version that may be
+        # missing symbols the new package requires.
+        for pkg in kagent-core kagent-skills agentsts-core agentsts-adk; do
+          find packages -name "pyproject.toml" \
+            -exec sed -i "s/\"${pkg}>=[^\"]*\"/\"${pkg}>=${VERSION}\"/g" {} +
+        done
+        # Build all packages
+        uv build --package kagent-core
+        uv build --package kagent-skills
+        uv build --package kagent-adk
+        uv build --package kagent-langgraph
+        uv build --package kagent-crewai
+        uv build --package kagent-openai
         uv build --package agentsts-core
+        uv build --package agentsts-adk
         uv publish --token ${{ secrets.PYPI_TOKEN }}
 
   release:
