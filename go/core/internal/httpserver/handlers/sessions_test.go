@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/database"
@@ -69,7 +68,7 @@ func TestSessionsHandler(t *testing.T) {
 	createTestSession := func(dbClient database.Client, sessionID, userID string, agentID string) *database.Session {
 		session := &database.Session{
 			ID:      sessionID,
-			Name:    ptr.To(sessionID),
+			Name:    new(sessionID),
 			UserID:  userID,
 			AgentID: &agentID,
 		}
@@ -123,7 +122,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			sessionReq := api.SessionRequest{
 				AgentRef: &agentRef,
-				Name:     ptr.To("test-session"),
+				Name:     new("test-session"),
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)

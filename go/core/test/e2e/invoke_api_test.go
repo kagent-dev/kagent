@@ -18,7 +18,6 @@ import (
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -1216,7 +1215,7 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-		ExecuteCode: ptr.To(true),
+		ExecuteCode: new(true),
 	})
 
 	// Setup A2A client
