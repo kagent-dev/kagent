@@ -29,7 +29,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	"k8s.io/utils/ptr"
 )
 
 func TestToolServersHandler(t *testing.T) {
@@ -161,7 +160,7 @@ func TestToolServersHandler(t *testing.T) {
 							},
 						},
 						Timeout:          &metav1.Duration{Duration: 30 * time.Second},
-						TerminateOnClose: ptr.To(true),
+						TerminateOnClose: new(true),
 					},
 				},
 			}
