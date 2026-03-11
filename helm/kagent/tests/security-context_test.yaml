@@ -119,7 +119,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: nextjs-cache
-            mountPath: /.next/cache
+            mountPath: /app/ui/.next/cache
 
   - it: should have tmp volume mount for UI
     template: ui-deployment.yaml
