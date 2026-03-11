@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -89,7 +90,7 @@ func createAgent(client database.Client, agent *v1alpha2.Agent) {
 		Config: &adk.AgentConfig{},
 		ID:     common.GetObjectRef(agent),
 	}
-	client.StoreAgent(dbAgent) //nolint:errcheck
+	client.StoreAgent(context.Background(), dbAgent) //nolint:errcheck
 }
 
 func TestHandleGetAgent(t *testing.T) {

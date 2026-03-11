@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,26 +27,26 @@ func NewClient(dbManager *Manager) dbpkg.Client {
 }
 
 // CreateFeedback creates a new feedback record
-func (c *clientImpl) StoreFeedback(feedback *dbpkg.Feedback) error {
-	if err := c.db.Create(feedback).Error; err != nil {
+func (c *clientImpl) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
+	if err := c.db.WithContext(ctx).Create(feedback).Error; err != nil {
 		return fmt.Errorf("failed to create feedback: %w", err)
 	}
 	return nil
 }
 
 // CreateSession creates a new session record
-func (c *clientImpl) StoreSession(session *dbpkg.Session) error {
-	return save(c.db, session)
+func (c *clientImpl) StoreSession(ctx context.Context, session *dbpkg.Session) error {
+	return save(c.db.WithContext(ctx), session)
 }
 
 // CreateAgent creates a new agent record
-func (c *clientImpl) StoreAgent(agent *dbpkg.Agent) error {
-	return save(c.db, agent)
+func (c *clientImpl) StoreAgent(ctx context.Context, agent *dbpkg.Agent) error {
+	return save(c.db.WithContext(ctx), agent)
 }
 
 // CreateToolServer creates a new tool server record
-func (c *clientImpl) StoreToolServer(toolServer *dbpkg.ToolServer) (*dbpkg.ToolServer, error) {
-	err := save(c.db, toolServer)
+func (c *clientImpl) StoreToolServer(ctx context.Context, toolServer *dbpkg.ToolServer) (*dbpkg.ToolServer, error) {
+	err := save(c.db.WithContext(ctx), toolServer)
 	if err != nil {
 		return nil, err
 	}
@@ -53,43 +54,43 @@ func (c *clientImpl) StoreToolServer(toolServer *dbpkg.ToolServer) (*dbpkg.ToolS
 }
 
 // CreateTool creates a new tool record
-func (c *clientImpl) StoreTool(tool *dbpkg.Tool) error {
-	return save(c.db, tool)
+func (c *clientImpl) StoreTool(ctx context.Context, tool *dbpkg.Tool) error {
+	return save(c.db.WithContext(ctx), tool)
 }
 
 // DeleteTask deletes a task by ID
-func (c *clientImpl) DeleteTask(taskID string) error {
-	return delete[dbpkg.Task](c.db, Clause{Key: "id", Value: taskID})
+func (c *clientImpl) DeleteTask(ctx context.Context, taskID string) error {
+	return delete[dbpkg.Task](c.db.WithContext(ctx), Clause{Key: "id", Value: taskID})
 }
 
 // DeleteSession deletes a session by id and user ID
-func (c *clientImpl) DeleteSession(sessionID string, userID string) error {
-	return delete[dbpkg.Session](c.db,
+func (c *clientImpl) DeleteSession(ctx context.Context, sessionID string, userID string) error {
+	return delete[dbpkg.Session](c.db.WithContext(ctx),
 		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 
 // DeleteAgent deletes an agent by name and user ID
-func (c *clientImpl) DeleteAgent(agentID string) error {
-	return delete[dbpkg.Agent](c.db, Clause{Key: "id", Value: agentID})
+func (c *clientImpl) DeleteAgent(ctx context.Context, agentID string) error {
+	return delete[dbpkg.Agent](c.db.WithContext(ctx), Clause{Key: "id", Value: agentID})
 }
 
 // DeleteToolServer deletes a tool server by name and user ID
-func (c *clientImpl) DeleteToolServer(serverName string, groupKind string) error {
-	return delete[dbpkg.ToolServer](c.db,
+func (c *clientImpl) DeleteToolServer(ctx context.Context, serverName string, groupKind string) error {
+	return delete[dbpkg.ToolServer](c.db.WithContext(ctx),
 		Clause{Key: "name", Value: serverName},
 		Clause{Key: "group_kind", Value: groupKind})
 }
 
-func (c *clientImpl) DeleteToolsForServer(serverName string, groupKind string) error {
-	return delete[dbpkg.Tool](c.db,
+func (c *clientImpl) DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error {
+	return delete[dbpkg.Tool](c.db.WithContext(ctx),
 		Clause{Key: "server_name", Value: serverName},
 		Clause{Key: "group_kind", Value: groupKind})
 }
 
 // GetTaskMessages retrieves messages for a specific task
-func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
-	messages, err := list[dbpkg.Event](c.db, Clause{Key: "task_id", Value: taskID})
+func (c *clientImpl) GetTaskMessages(ctx context.Context, taskID int) ([]*protocol.Message, error) {
+	messages, err := list[dbpkg.Event](c.db.WithContext(ctx), Clause{Key: "task_id", Value: taskID})
 	if err != nil {
 		return nil, err
 	}
@@ -107,30 +108,30 @@ func (c *clientImpl) GetTaskMessages(taskID int) ([]*protocol.Message, error) {
 }
 
 // GetSession retrieves a session by id and user ID
-func (c *clientImpl) GetSession(sessionID string, userID string) (*dbpkg.Session, error) {
-	return get[dbpkg.Session](c.db,
+func (c *clientImpl) GetSession(ctx context.Context, sessionID string, userID string) (*dbpkg.Session, error) {
+	return get[dbpkg.Session](c.db.WithContext(ctx),
 		Clause{Key: "id", Value: sessionID},
 		Clause{Key: "user_id", Value: userID})
 }
 
 // GetAgent retrieves an agent by name and user ID
-func (c *clientImpl) GetAgent(agentID string) (*dbpkg.Agent, error) {
-	return get[dbpkg.Agent](c.db, Clause{Key: "id", Value: agentID})
+func (c *clientImpl) GetAgent(ctx context.Context, agentID string) (*dbpkg.Agent, error) {
+	return get[dbpkg.Agent](c.db.WithContext(ctx), Clause{Key: "id", Value: agentID})
 }
 
 // GetTool retrieves a tool by provider (name) and user ID
-func (c *clientImpl) GetTool(provider string) (*dbpkg.Tool, error) {
-	return get[dbpkg.Tool](c.db, Clause{Key: "name", Value: provider})
+func (c *clientImpl) GetTool(ctx context.Context, provider string) (*dbpkg.Tool, error) {
+	return get[dbpkg.Tool](c.db.WithContext(ctx), Clause{Key: "name", Value: provider})
 }
 
 // GetToolServer retrieves a tool server by name and user ID
-func (c *clientImpl) GetToolServer(serverName string) (*dbpkg.ToolServer, error) {
-	return get[dbpkg.ToolServer](c.db, Clause{Key: "name", Value: serverName})
+func (c *clientImpl) GetToolServer(ctx context.Context, serverName string) (*dbpkg.ToolServer, error) {
+	return get[dbpkg.ToolServer](c.db.WithContext(ctx), Clause{Key: "name", Value: serverName})
 }
 
 // ListFeedback lists all feedback for a user
-func (c *clientImpl) ListFeedback(userID string) ([]dbpkg.Feedback, error) {
-	feedback, err := list[dbpkg.Feedback](c.db, Clause{Key: "user_id", Value: userID})
+func (c *clientImpl) ListFeedback(ctx context.Context, userID string) ([]dbpkg.Feedback, error) {
+	feedback, err := list[dbpkg.Feedback](c.db.WithContext(ctx), Clause{Key: "user_id", Value: userID})
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +139,9 @@ func (c *clientImpl) ListFeedback(userID string) ([]dbpkg.Feedback, error) {
 	return feedback, nil
 }
 
-func (c *clientImpl) StoreEvents(events ...*dbpkg.Event) error {
+func (c *clientImpl) StoreEvents(ctx context.Context, events ...*dbpkg.Event) error {
 	for _, event := range events {
-		err := save(c.db, event)
+		err := save(c.db.WithContext(ctx), event)
 		if err != nil {
 			return fmt.Errorf("failed to create event: %w", err)
 		}
@@ -149,8 +150,8 @@ func (c *clientImpl) StoreEvents(events ...*dbpkg.Event) error {
 }
 
 // ListSessionRuns lists all runs for a specific session
-func (c *clientImpl) ListTasksForSession(sessionID string) ([]*protocol.Task, error) {
-	tasks, err := list[dbpkg.Task](c.db,
+func (c *clientImpl) ListTasksForSession(ctx context.Context, sessionID string) ([]*protocol.Task, error) {
+	tasks, err := list[dbpkg.Task](c.db.WithContext(ctx),
 		Clause{Key: "session_id", Value: sessionID},
 	)
 	if err != nil {
@@ -160,35 +161,35 @@ func (c *clientImpl) ListTasksForSession(sessionID string) ([]*protocol.Task, er
 	return dbpkg.ParseTasks(tasks)
 }
 
-func (c *clientImpl) ListSessionsForAgent(agentID string, userID string) ([]dbpkg.Session, error) {
-	return list[dbpkg.Session](c.db,
+func (c *clientImpl) ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]dbpkg.Session, error) {
+	return list[dbpkg.Session](c.db.WithContext(ctx),
 		Clause{Key: "agent_id", Value: agentID},
 		Clause{Key: "user_id", Value: userID})
 }
 
 // ListSessions lists all sessions for a user
-func (c *clientImpl) ListSessions(userID string) ([]dbpkg.Session, error) {
-	return list[dbpkg.Session](c.db, Clause{Key: "user_id", Value: userID})
+func (c *clientImpl) ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error) {
+	return list[dbpkg.Session](c.db.WithContext(ctx), Clause{Key: "user_id", Value: userID})
 }
 
 // ListAgents lists all agents
-func (c *clientImpl) ListAgents() ([]dbpkg.Agent, error) {
-	return list[dbpkg.Agent](c.db)
+func (c *clientImpl) ListAgents(ctx context.Context) ([]dbpkg.Agent, error) {
+	return list[dbpkg.Agent](c.db.WithContext(ctx))
 }
 
 // ListToolServers lists all tool servers for a user
-func (c *clientImpl) ListToolServers() ([]dbpkg.ToolServer, error) {
-	return list[dbpkg.ToolServer](c.db)
+func (c *clientImpl) ListToolServers(ctx context.Context) ([]dbpkg.ToolServer, error) {
+	return list[dbpkg.ToolServer](c.db.WithContext(ctx))
 }
 
 // ListTools lists all tools for a user
-func (c *clientImpl) ListTools() ([]dbpkg.Tool, error) {
-	return list[dbpkg.Tool](c.db)
+func (c *clientImpl) ListTools(ctx context.Context) ([]dbpkg.Tool, error) {
+	return list[dbpkg.Tool](c.db.WithContext(ctx))
 }
 
 // ListToolsForServer lists all tools for a specific server and group kind
-func (c *clientImpl) ListToolsForServer(serverName string, groupKind string) ([]dbpkg.Tool, error) {
-	return list[dbpkg.Tool](c.db,
+func (c *clientImpl) ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]dbpkg.Tool, error) {
+	return list[dbpkg.Tool](c.db.WithContext(ctx),
 		Clause{Key: "server_name", Value: serverName},
 		Clause{Key: "group_kind", Value: groupKind})
 }
@@ -200,8 +201,8 @@ func (c *clientImpl) ListToolsForServer(serverName string, groupKind string) ([]
 // Network I/O (e.g., fetching tools from remote MCP servers) must happen
 // BEFORE calling this function, not inside it. Holding a database transaction
 // during slow operations can cause contention and degrade performance.
-func (c *clientImpl) RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
-	return c.db.Transaction(func(tx *gorm.DB) error {
+func (c *clientImpl) RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
+	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Delete all existing tools for this server in the transaction
 		if err := delete[dbpkg.Tool](tx,
 			Clause{Key: "server_name", Value: serverName},
@@ -226,8 +227,8 @@ func (c *clientImpl) RefreshToolsForServer(serverName string, groupKind string, 
 }
 
 // ListMessagesForRun retrieves messages for a specific run (helper method)
-func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*protocol.Message, error) {
-	messages, err := list[dbpkg.Event](c.db,
+func (c *clientImpl) ListMessagesForTask(ctx context.Context, taskID, userID string) ([]*protocol.Message, error) {
+	messages, err := list[dbpkg.Event](c.db.WithContext(ctx),
 		Clause{Key: "task_id", Value: taskID},
 		Clause{Key: "user_id", Value: userID})
 	if err != nil {
@@ -239,13 +240,13 @@ func (c *clientImpl) ListMessagesForTask(taskID, userID string) ([]*protocol.Mes
 
 // ListEventsForSession retrieves events for a specific session
 // Use Limit with DESC for getting latest events, ASC with no limit for chronological order
-func (c *clientImpl) ListEventsForSession(sessionID, userID string, options dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
+func (c *clientImpl) ListEventsForSession(ctx context.Context, sessionID, userID string, options dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
 	var events []dbpkg.Event
 	order := "created_at DESC"
 	if options.OrderAsc {
 		order = "created_at ASC"
 	}
-	query := c.db.
+	query := c.db.WithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Where("user_id = ?", userID).
 		Order(order)
@@ -272,8 +273,8 @@ func (c *clientImpl) ListEventsForSession(sessionID, userID string, options dbpk
 }
 
 // GetMessage retrieves a protocol message from the database
-func (c *clientImpl) GetMessage(messageID string) (*protocol.Message, error) {
-	dbMessage, err := get[dbpkg.Event](c.db, Clause{Key: "id", Value: messageID})
+func (c *clientImpl) GetMessage(ctx context.Context, messageID string) (*protocol.Message, error) {
+	dbMessage, err := get[dbpkg.Event](c.db.WithContext(ctx), Clause{Key: "id", Value: messageID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
@@ -287,14 +288,14 @@ func (c *clientImpl) GetMessage(messageID string) (*protocol.Message, error) {
 }
 
 // DeleteMessage deletes a protocol message from the database
-func (c *clientImpl) DeleteMessage(messageID string) error {
-	return delete[dbpkg.Event](c.db, Clause{Key: "id", Value: messageID})
+func (c *clientImpl) DeleteMessage(ctx context.Context, messageID string) error {
+	return delete[dbpkg.Event](c.db.WithContext(ctx), Clause{Key: "id", Value: messageID})
 }
 
 // ListMessagesByContextID retrieves messages by context ID with optional limit
-func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]protocol.Message, error) {
+func (c *clientImpl) ListMessagesByContextID(ctx context.Context, contextID string, limit int) ([]protocol.Message, error) {
 	var dbMessages []dbpkg.Event
-	query := c.db.Where("session_id = ?", contextID).Order("created_at DESC")
+	query := c.db.WithContext(ctx).Where("session_id = ?", contextID).Order("created_at DESC")
 
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -318,7 +319,7 @@ func (c *clientImpl) ListMessagesByContextID(contextID string, limit int) ([]pro
 }
 
 // StoreTask stores a MemoryCancellableTask in the database
-func (c *clientImpl) StoreTask(task *protocol.Task) error {
+func (c *clientImpl) StoreTask(ctx context.Context, task *protocol.Task) error {
 	data, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
@@ -330,12 +331,12 @@ func (c *clientImpl) StoreTask(task *protocol.Task) error {
 		SessionID: task.ContextID,
 	}
 
-	return save(c.db, &dbTask)
+	return save(c.db.WithContext(ctx), &dbTask)
 }
 
 // GetTask retrieves a MemoryCancellableTask from the database
-func (c *clientImpl) GetTask(taskID string) (*protocol.Task, error) {
-	dbTask, err := get[dbpkg.Task](c.db, Clause{Key: "id", Value: taskID})
+func (c *clientImpl) GetTask(ctx context.Context, taskID string) (*protocol.Task, error) {
+	dbTask, err := get[dbpkg.Task](c.db.WithContext(ctx), Clause{Key: "id", Value: taskID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
@@ -349,14 +350,14 @@ func (c *clientImpl) GetTask(taskID string) (*protocol.Task, error) {
 }
 
 // TaskExists checks if a task exists in the database
-func (c *clientImpl) TaskExists(taskID string) bool {
+func (c *clientImpl) TaskExists(ctx context.Context, taskID string) bool {
 	var count int64
-	c.db.Model(&dbpkg.Task{}).Where("id = ?", taskID).Count(&count)
+	c.db.WithContext(ctx).Model(&dbpkg.Task{}).Where("id = ?", taskID).Count(&count)
 	return count > 0
 }
 
 // StorePushNotification stores a push notification configuration in the database
-func (c *clientImpl) StorePushNotification(config *protocol.TaskPushNotificationConfig) error {
+func (c *clientImpl) StorePushNotification(ctx context.Context, config *protocol.TaskPushNotificationConfig) error {
 	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification config: %w", err)
@@ -368,12 +369,12 @@ func (c *clientImpl) StorePushNotification(config *protocol.TaskPushNotification
 		Data:   string(data),
 	}
 
-	return save(c.db, &dbPushNotification)
+	return save(c.db.WithContext(ctx), &dbPushNotification)
 }
 
 // GetPushNotification retrieves a push notification configuration from the database
-func (c *clientImpl) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
-	dbPushNotification, err := get[dbpkg.PushNotification](c.db,
+func (c *clientImpl) GetPushNotification(ctx context.Context, taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
+	dbPushNotification, err := get[dbpkg.PushNotification](c.db.WithContext(ctx),
 		Clause{Key: "task_id", Value: taskID},
 		Clause{Key: "id", Value: configID})
 	if err != nil {
@@ -388,8 +389,8 @@ func (c *clientImpl) GetPushNotification(taskID string, configID string) (*proto
 	return &config, nil
 }
 
-func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
-	pushNotifications, err := list[dbpkg.PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
+func (c *clientImpl) ListPushNotifications(ctx context.Context, taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
+	pushNotifications, err := list[dbpkg.PushNotification](c.db.WithContext(ctx), Clause{Key: "task_id", Value: taskID})
 	if err != nil {
 		return nil, err
 	}
@@ -407,13 +408,13 @@ func (c *clientImpl) ListPushNotifications(taskID string) ([]*protocol.TaskPushN
 }
 
 // DeletePushNotification deletes a push notification configuration from the database
-func (c *clientImpl) DeletePushNotification(taskID string) error {
-	return delete[dbpkg.PushNotification](c.db, Clause{Key: "task_id", Value: taskID})
+func (c *clientImpl) DeletePushNotification(ctx context.Context, taskID string) error {
+	return delete[dbpkg.PushNotification](c.db.WithContext(ctx), Clause{Key: "task_id", Value: taskID})
 }
 
 // StoreCheckpoint stores a LangGraph checkpoint and its writes atomically
-func (c *clientImpl) StoreCheckpoint(checkpoint *dbpkg.LangGraphCheckpoint) error {
-	err := save(c.db, checkpoint)
+func (c *clientImpl) StoreCheckpoint(ctx context.Context, checkpoint *dbpkg.LangGraphCheckpoint) error {
+	err := save(c.db.WithContext(ctx), checkpoint)
 	if err != nil {
 		return fmt.Errorf("failed to store checkpoint: %w", err)
 	}
@@ -421,8 +422,8 @@ func (c *clientImpl) StoreCheckpoint(checkpoint *dbpkg.LangGraphCheckpoint) erro
 	return nil
 }
 
-func (c *clientImpl) StoreCheckpointWrites(writes []*dbpkg.LangGraphCheckpointWrite) error {
-	return c.db.Transaction(func(tx *gorm.DB) error {
+func (c *clientImpl) StoreCheckpointWrites(ctx context.Context, writes []*dbpkg.LangGraphCheckpointWrite) error {
+	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, write := range writes {
 			if err := save(tx, write); err != nil {
 				return fmt.Errorf("failed to store checkpoint write: %w", err)
@@ -433,10 +434,11 @@ func (c *clientImpl) StoreCheckpointWrites(writes []*dbpkg.LangGraphCheckpointWr
 }
 
 // ListCheckpoints lists checkpoints for a thread, optionally filtered by beforeCheckpointID
-func (c *clientImpl) ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*dbpkg.LangGraphCheckpointTuple, error) {
+func (c *clientImpl) ListCheckpoints(ctx context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*dbpkg.LangGraphCheckpointTuple, error) {
 	var checkpointTuples []*dbpkg.LangGraphCheckpointTuple
-	if err := c.db.Transaction(func(tx *gorm.DB) error {
-		query := c.db.Where(
+	db := c.db.WithContext(ctx)
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		query := db.Where(
 			"user_id = ? AND thread_id = ? AND checkpoint_ns = ?",
 			userID, threadID, checkpointNS,
 		)
@@ -479,12 +481,12 @@ func (c *clientImpl) ListCheckpoints(userID, threadID, checkpointNS string, chec
 }
 
 // DeleteCheckpoint deletes a checkpoint and its writes atomically
-func (c *clientImpl) DeleteCheckpoint(userID, threadID string) error {
+func (c *clientImpl) DeleteCheckpoint(ctx context.Context, userID, threadID string) error {
 	clauses := []Clause{
 		{Key: "user_id", Value: userID},
 		{Key: "thread_id", Value: threadID},
 	}
-	return c.db.Transaction(func(tx *gorm.DB) error {
+	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := delete[dbpkg.LangGraphCheckpoint](tx, clauses...); err != nil {
 			return fmt.Errorf("failed to delete checkpoint: %w", err)
 		}
@@ -498,8 +500,8 @@ func (c *clientImpl) DeleteCheckpoint(userID, threadID string) error {
 // CrewAI methods
 
 // StoreCrewAIMemory stores CrewAI agent memory
-func (c *clientImpl) StoreCrewAIMemory(memory *dbpkg.CrewAIAgentMemory) error {
-	err := save(c.db, memory)
+func (c *clientImpl) StoreCrewAIMemory(ctx context.Context, memory *dbpkg.CrewAIAgentMemory) error {
+	err := save(c.db.WithContext(ctx), memory)
 	if err != nil {
 		return fmt.Errorf("failed to store CrewAI agent memory: %w", err)
 	}
@@ -507,13 +509,13 @@ func (c *clientImpl) StoreCrewAIMemory(memory *dbpkg.CrewAIAgentMemory) error {
 }
 
 // SearchCrewAIMemoryByTask searches CrewAI agent memory by task description across all agents for a session
-func (c *clientImpl) SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*dbpkg.CrewAIAgentMemory, error) {
+func (c *clientImpl) SearchCrewAIMemoryByTask(ctx context.Context, userID, threadID, taskDescription string, limit int) ([]*dbpkg.CrewAIAgentMemory, error) {
 	var memories []*dbpkg.CrewAIAgentMemory
 
 	// Search for task_description within the JSON memory_data field
 	// Using JSON_EXTRACT or JSON_UNQUOTE for MySQL/PostgreSQL, or simple LIKE for SQLite
 	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
-	query := c.db.Where(
+	query := c.db.WithContext(ctx).Where(
 		"user_id = ? AND thread_id = ? AND (memory_data LIKE ? OR JSON_EXTRACT(memory_data, '$.task_description') LIKE ?)",
 		userID, threadID, "%"+taskDescription+"%", "%"+taskDescription+"%",
 	).Order("created_at DESC, JSON_EXTRACT(memory_data, '$.score') ASC")
@@ -532,8 +534,8 @@ func (c *clientImpl) SearchCrewAIMemoryByTask(userID, threadID, taskDescription 
 }
 
 // ResetCrewAIMemory deletes all CrewAI agent memory for a session
-func (c *clientImpl) ResetCrewAIMemory(userID, threadID string) error {
-	result := c.db.Where(
+func (c *clientImpl) ResetCrewAIMemory(ctx context.Context, userID, threadID string) error {
+	result := c.db.WithContext(ctx).Where(
 		"user_id = ? AND thread_id = ?",
 		userID, threadID,
 	).Delete(&dbpkg.CrewAIAgentMemory{})
@@ -546,8 +548,8 @@ func (c *clientImpl) ResetCrewAIMemory(userID, threadID string) error {
 }
 
 // StoreCrewAIFlowState stores CrewAI flow state
-func (c *clientImpl) StoreCrewAIFlowState(state *dbpkg.CrewAIFlowState) error {
-	err := save(c.db, state)
+func (c *clientImpl) StoreCrewAIFlowState(ctx context.Context, state *dbpkg.CrewAIFlowState) error {
+	err := save(c.db.WithContext(ctx), state)
 	if err != nil {
 		return fmt.Errorf("failed to store CrewAI flow state: %w", err)
 	}
@@ -555,12 +557,12 @@ func (c *clientImpl) StoreCrewAIFlowState(state *dbpkg.CrewAIFlowState) error {
 }
 
 // GetCrewAIFlowState retrieves the most recent CrewAI flow state
-func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIFlowState, error) {
+func (c *clientImpl) GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*dbpkg.CrewAIFlowState, error) {
 	var state dbpkg.CrewAIFlowState
 
 	// Get the most recent state by ordering by created_at DESC
 	// Thread_id is equivalent to flow_uuid used by CrewAI because in each session there is only one flow
-	err := c.db.Where(
+	err := c.db.WithContext(ctx).Where(
 		"user_id = ? AND thread_id = ?",
 		userID, threadID,
 	).Order("created_at DESC").First(&state).Error
@@ -577,12 +579,12 @@ func (c *clientImpl) GetCrewAIFlowState(userID, threadID string) (*dbpkg.CrewAIF
 
 // AgentMemory methods
 
-func (c *clientImpl) StoreAgentMemory(memory *dbpkg.Memory) error {
-	return save(c.db, memory)
+func (c *clientImpl) StoreAgentMemory(ctx context.Context, memory *dbpkg.Memory) error {
+	return save(c.db.WithContext(ctx), memory)
 }
 
-func (c *clientImpl) StoreAgentMemories(memories []*dbpkg.Memory) error {
-	return c.db.Transaction(func(tx *gorm.DB) error {
+func (c *clientImpl) StoreAgentMemories(ctx context.Context, memories []*dbpkg.Memory) error {
+	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, memory := range memories {
 			if err := save(tx, memory); err != nil {
 				return err
@@ -592,10 +594,11 @@ func (c *clientImpl) StoreAgentMemories(memories []*dbpkg.Memory) error {
 	})
 }
 
-func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+func (c *clientImpl) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
 	var results []dbpkg.AgentMemorySearchResult
 
-	if c.db.Name() == "sqlite" {
+	db := c.db.WithContext(ctx)
+	if db.Name() == "sqlite" {
 		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
 		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
 		// and parameter binding with ? fails with "unexpected token" errors (GORM limitation)
@@ -614,7 +617,7 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 			LIMIT ?
 		`, string(embeddingJSON), string(embeddingJSON))
 
-		if err := c.db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
+		if err := db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
 			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
 		}
 	} else {
@@ -628,7 +631,7 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 			ORDER BY embedding <=> ? ASC
 			LIMIT ?
 		`
-		if err := c.db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+		if err := db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
 			return nil, fmt.Errorf("failed to search agent memory (postgres): %w", err)
 		}
 	}
@@ -639,7 +642,7 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 		for i, m := range results {
 			ids[i] = m.ID
 		}
-		if err := c.db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+		if err := db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
 			return nil, fmt.Errorf("failed to increment access count: %w", err)
 		}
 	}
@@ -649,8 +652,8 @@ func (c *clientImpl) SearchAgentMemory(agentName, userID string, embedding pgvec
 
 // PruneExpiredMemories deletes expired memories if they haven't been accessed enough,
 // otherwise extends their TTL.
-func (c *clientImpl) PruneExpiredMemories() error {
-	return c.db.Transaction(func(tx *gorm.DB) error {
+func (c *clientImpl) PruneExpiredMemories(ctx context.Context) error {
+	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 
 		// 1. Extend TTL for popular memories (AccessCount >= 10)
@@ -677,11 +680,11 @@ func (c *clientImpl) PruneExpiredMemories() error {
 	})
 }
 
-func (c *clientImpl) ListAgentMemories(agentName, userID string) ([]dbpkg.Memory, error) {
+func (c *clientImpl) ListAgentMemories(ctx context.Context, agentName, userID string) ([]dbpkg.Memory, error) {
 	normalizedName := strings.ReplaceAll(agentName, "-", "_")
 
 	var memories []dbpkg.Memory
-	query := c.db.Where("(agent_name = ? OR agent_name = ?) AND user_id = ?", agentName, normalizedName, userID).
+	query := c.db.WithContext(ctx).Where("(agent_name = ? OR agent_name = ?) AND user_id = ?", agentName, normalizedName, userID).
 		Order("access_count DESC")
 
 	if err := query.Find(&memories).Error; err != nil {
@@ -690,27 +693,27 @@ func (c *clientImpl) ListAgentMemories(agentName, userID string) ([]dbpkg.Memory
 	return memories, nil
 }
 
-func (c *clientImpl) DeleteAgentMemory(agentName, userID string) error {
-	if err := c.deleteAgentMemoryByQuery(agentName, userID); err != nil {
+func (c *clientImpl) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
+	if err := c.deleteAgentMemoryByQuery(ctx, agentName, userID); err != nil {
 		return err
 	}
 	normalizedName := strings.ReplaceAll(agentName, "-", "_")
 	if normalizedName != agentName {
-		return c.deleteAgentMemoryByQuery(normalizedName, userID)
+		return c.deleteAgentMemoryByQuery(ctx, normalizedName, userID)
 	}
 	return nil
 }
 
-func (c *clientImpl) deleteAgentMemoryByQuery(agentName, userID string) error {
+func (c *clientImpl) deleteAgentMemoryByQuery(ctx context.Context, agentName, userID string) error {
 	var ids []string
-	if err := c.db.Table("memory").Where("agent_name = ? AND user_id = ?", agentName, userID).Pluck("id", &ids).Error; err != nil {
+	if err := c.db.WithContext(ctx).Table("memory").Where("agent_name = ? AND user_id = ?", agentName, userID).Pluck("id", &ids).Error; err != nil {
 		return fmt.Errorf("failed to list memory ids: %w", err)
 	}
 	if len(ids) == 0 {
 		return nil
 	}
 	// DELETE by primary key only to avoid Turso multi-index scan on DELETE which causes a bug
-	if err := c.db.Exec("DELETE FROM memory WHERE id IN ?", ids).Error; err != nil {
+	if err := c.db.WithContext(ctx).Exec("DELETE FROM memory WHERE id IN ?", ids).Error; err != nil {
 		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	return nil
