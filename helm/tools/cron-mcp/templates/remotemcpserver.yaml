@@ -1,0 +1,20 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "cron-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cron-mcp.labels" . | nindent 4 }}
+spec:
+  description: Cron job scheduler MCP server
+  protocol: STREAMABLE_HTTP
+  sseReadTimeout: 5m0s
+  terminateOnClose: true
+  timeout: 30s
+  url: {{ include "cron-mcp.serverUrl" . }}
+  ui:
+    enabled: true
+    pathPrefix: "cron"
+    displayName: "Cron Jobs"
+    icon: "clock"
+    section: "AGENTS"

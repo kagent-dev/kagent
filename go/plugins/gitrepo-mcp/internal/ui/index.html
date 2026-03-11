@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Git Repos</title>
+<style>
+  :root {
+    --background: #020817;
+    --foreground: #e2e8f0;
+    --card: #020b1d;
+    --card-foreground: #e2e8f0;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #0f172a;
+    --secondary-foreground: #cbd5e1;
+    --muted: #0f172a;
+    --muted-foreground: #94a3b8;
+    --border: #1e293b;
+    --input: #223248;
+    --ring: #7c3aed;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+
+  html.light {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #f8fafc;
+    --card-foreground: #0f172a;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #475569;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #7c3aed;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    z-index: 10;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header h1 { font-size: 1rem; font-weight: 600; color: var(--foreground); }
+
+  .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  .btn {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: none;
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .btn:hover { background: var(--primary-hover); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
+  }
+
+  .btn-outline:hover { background: var(--muted); border-color: #334155; color: var(--foreground); }
+
+  .btn-danger { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; }
+  .btn-danger:hover { background: #991b1b; }
+
+  .btn-sm { padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; }
+
+  .main-area {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .panel-repos {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .panel-search {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-foreground);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .panel-header .count {
+    margin-left: auto;
+    background: var(--muted);
+    color: var(--foreground);
+    border-radius: 9999px;
+    min-width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0 7px;
+  }
+
+  .panel-body {
+    padding: 12px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+  .repo-card {
+    background: var(--background);
+    color: var(--card-foreground);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 14px;
+    transition: border-color 0.15s;
+  }
+
+  .repo-card:hover { border-color: #334155; }
+
+  .repo-name { font-size: 0.9rem; font-weight: 600; line-height: 1.4; color: var(--foreground); word-break: break-word; }
+
+  .repo-url {
+    font-size: 0.78rem;
+    color: var(--muted-foreground);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  .repo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    background: var(--muted);
+    color: var(--secondary-foreground);
+  }
+
+  .badge-branch { background: #172554; color: #bfdbfe; border-color: #1d4ed8; }
+  .badge-status { font-weight: 700; }
+  .badge-cloning { background: #78350f; color: #fde68a; border-color: #d97706; animation: pulse-amber 2s ease-in-out infinite; }
+  .badge-cloned { background: #052e16; color: #86efac; border-color: #166534; }
+  .badge-indexing { background: #172554; color: #bfdbfe; border-color: #1d4ed8; animation: pulse-amber 2s ease-in-out infinite; }
+  .badge-indexed { background: #052e16; color: #4ade80; border-color: #16a34a; }
+  .badge-error { background: #7f1d1d; color: #fca5a5; border-color: #991b1b; }
+
+  @keyframes pulse-amber {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .repo-stats {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    margin-top: 6px;
+    display: flex;
+    gap: 12px;
+  }
+
+  .repo-stats span { display: flex; align-items: center; gap: 4px; }
+
+  .repo-error {
+    font-size: 0.75rem;
+    color: #fca5a5;
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba(127, 29, 29, 0.3);
+    border-radius: 6px;
+    border: 1px solid #991b1b;
+    word-break: break-word;
+  }
+
+  .repo-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .search-bar {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.5);
+    flex-shrink: 0;
+  }
+
+  .search-row { display: flex; gap: 8px; }
+
+  .search-bar input, .search-bar select {
+    border: 1px solid var(--input);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--foreground);
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+
+  .search-bar input { flex: 1; }
+  .search-bar input::placeholder { color: var(--muted-foreground); opacity: 0.7; }
+  .search-bar input:focus, .search-bar select:focus { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25); }
+
+  .search-bar select {
+    min-width: 120px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+  }
+
+  .search-tabs {
+    display: flex;
+    gap: 4px;
+  }
+
+  .search-tab {
+    background: transparent;
+    color: var(--muted-foreground);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .search-tab:hover { background: var(--muted); color: var(--foreground); }
+  .search-tab.active { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+
+  .result-card {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .result-card:hover { border-color: #334155; }
+
+  .result-header {
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .result-file {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--foreground);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    word-break: break-all;
+  }
+
+  .result-lines {
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  .result-score {
+    margin-left: auto;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-weight: 700;
+    background: #172554;
+    color: #bfdbfe;
+    border: 1px solid #1d4ed8;
+  }
+
+  .result-code {
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    color: var(--secondary-foreground);
+    background: rgba(15, 23, 42, 0.5);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .result-code::-webkit-scrollbar { height: 4px; width: 4px; }
+  .result-code::-webkit-scrollbar-track { background: transparent; }
+  .result-code::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 16px;
+    text-align: center;
+    color: var(--muted-foreground);
+    font-size: 0.85rem;
+    gap: 8px;
+    flex: 1;
+  }
+
+  .empty-state svg { opacity: 0.4; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-overlay.hidden { display: none; }
+
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 90%;
+    max-width: 480px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal h2 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+
+  .modal label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    margin-bottom: 4px;
+    margin-top: 12px;
+  }
+
+  .modal label:first-of-type { margin-top: 0; }
+
+  .modal input {
+    width: 100%;
+    border: 1px solid var(--input);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--foreground);
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+
+  .modal input::placeholder { color: var(--muted-foreground); opacity: 0.7; }
+  .modal input:focus { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25); }
+
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 20px;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--muted-foreground);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-dots::after {
+    content: "";
+    animation: dots 1.5s steps(3, end) infinite;
+  }
+
+  @keyframes dots {
+    0% { content: ""; }
+    33% { content: "."; }
+    66% { content: ".."; }
+    100% { content: "..."; }
+  }
+
+  @media (max-width: 768px) {
+    .main-area { flex-direction: column; }
+    .panel-repos { border-right: none; border-bottom: 1px solid var(--border); max-height: 50%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v6m0 6v6"/><path d="M5.63 5.63l4.24 4.24m4.26 4.26l4.24 4.24"/><path d="M3 12h6m6 0h6"/><path d="M5.63 18.37l4.24-4.24m4.26-4.26l4.24-4.24"/></svg>
+  <h1>Git Repos</h1>
+  <div class="header-actions">
+    <button class="btn btn-outline btn-sm" onclick="syncAll()" id="sync-all-btn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+      Sync All
+    </button>
+    <button class="btn btn-sm" onclick="showAddModal()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Repository
+    </button>
+  </div>
+</header>
+
+<div class="main-area">
+  <div class="panel-repos">
+    <div class="panel-header">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Repositories
+      <span class="count" id="repo-count">0</span>
+    </div>
+    <div class="panel-body" id="repos-list"></div>
+  </div>
+
+  <div class="panel-search">
+    <div class="panel-header">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Search
+      <span class="count" id="result-count">0</span>
+    </div>
+    <div class="search-bar">
+      <div class="search-tabs">
+        <button class="search-tab active" data-mode="semantic" onclick="setSearchMode('semantic')">Semantic</button>
+        <button class="search-tab" data-mode="ast" onclick="setSearchMode('ast')">AST Pattern</button>
+      </div>
+      <div class="search-row">
+        <input type="text" id="search-input" placeholder="Search code..." />
+        <select id="search-repo">
+          <option value="">All repos</option>
+        </select>
+        <select id="search-lang" style="display:none">
+          <option value="">All languages</option>
+        </select>
+        <button class="btn btn-sm" onclick="doSearch()" id="search-btn">Search</button>
+      </div>
+    </div>
+    <div class="panel-body" id="search-results"></div>
+  </div>
+</div>
+
+<!-- Add repo modal -->
+<div class="modal-overlay hidden" id="add-modal" onclick="if(event.target===this)hideAddModal()">
+  <div class="modal">
+    <h2>Add Repository</h2>
+    <label>Name</label>
+    <input type="text" id="add-name" placeholder="my-project" />
+    <label>Git URL</label>
+    <input type="text" id="add-url" placeholder="https://github.com/org/repo.git" />
+    <label>Branch</label>
+    <input type="text" id="add-branch" placeholder="main" value="main" />
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="hideAddModal()">Cancel</button>
+      <button class="btn btn-sm" onclick="addRepo()" id="add-btn">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var searchMode = "semantic";
+  var repos = [];
+  var pollTimer = null;
+
+  function pluginURL(path) {
+    var m = window.location.pathname.match(/^\/_p\/[^/]+/);
+    var base = m ? m[0] : "";
+    return base + path;
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return "never";
+    var d = new Date(dateStr);
+    var now = new Date();
+    var sec = Math.floor((now - d) / 1000);
+    if (sec < 60) return sec + "s ago";
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + "m ago";
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + "h ago";
+    var days = Math.floor(hr / 24);
+    return days + "d ago";
+  }
+
+  function renderRepos() {
+    var container = document.getElementById("repos-list");
+    document.getElementById("repo-count").textContent = repos.length;
+
+    // Update search dropdown
+    var sel = document.getElementById("search-repo");
+    var curVal = sel.value;
+    sel.innerHTML = '<option value="">All repos</option>';
+    repos.forEach(function(r) {
+      if (r.status === "indexed") {
+        var opt = document.createElement("option");
+        opt.value = r.name;
+        opt.textContent = r.name;
+        if (r.name === curVal) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    });
+
+    if (repos.length === 0) {
+      container.innerHTML = "";
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v6m0 6v6"/><path d="M5.63 5.63l4.24 4.24m4.26 4.26l4.24 4.24"/><path d="M3 12h6m6 0h6"/><path d="M5.63 18.37l4.24-4.24m4.26-4.26l4.24-4.24"/></svg><div>No repositories yet</div><div style="font-size:0.78rem">Click <strong>Add Repository</strong> to get started</div>';
+      container.appendChild(empty);
+      return;
+    }
+
+    container.innerHTML = "";
+    repos.forEach(function(r) {
+      var card = document.createElement("div");
+      card.className = "repo-card";
+
+      var name = document.createElement("div");
+      name.className = "repo-name";
+      name.textContent = r.name;
+      card.appendChild(name);
+
+      var url = document.createElement("div");
+      url.className = "repo-url";
+      url.textContent = r.url;
+      card.appendChild(url);
+
+      var meta = document.createElement("div");
+      meta.className = "repo-meta";
+
+      var branchBadge = document.createElement("span");
+      branchBadge.className = "badge badge-branch";
+      branchBadge.textContent = r.branch || "main";
+      meta.appendChild(branchBadge);
+
+      var statusBadge = document.createElement("span");
+      statusBadge.className = "badge badge-status badge-" + r.status;
+      statusBadge.textContent = r.status;
+      meta.appendChild(statusBadge);
+
+      card.appendChild(meta);
+
+      if (r.fileCount > 0 || r.chunkCount > 0) {
+        var stats = document.createElement("div");
+        stats.className = "repo-stats";
+        if (r.fileCount > 0) {
+          var fs = document.createElement("span");
+          fs.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ' + r.fileCount + " files";
+          stats.appendChild(fs);
+        }
+        if (r.chunkCount > 0) {
+          var cs = document.createElement("span");
+          cs.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> ' + r.chunkCount + " chunks";
+          stats.appendChild(cs);
+        }
+        if (r.lastSynced) {
+          var ls = document.createElement("span");
+          ls.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> synced ' + timeAgo(r.lastSynced);
+          stats.appendChild(ls);
+        }
+        card.appendChild(stats);
+      }
+
+      if (r.error) {
+        var errEl = document.createElement("div");
+        errEl.className = "repo-error";
+        errEl.textContent = r.error;
+        card.appendChild(errEl);
+      }
+
+      var actions = document.createElement("div");
+      actions.className = "repo-actions";
+
+      var busy = r.status === "cloning" || r.status === "indexing";
+
+      var syncBtn = document.createElement("button");
+      syncBtn.className = "btn btn-outline btn-sm";
+      syncBtn.disabled = busy;
+      syncBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg> Sync';
+      syncBtn.addEventListener("click", function() { syncRepo(r.name); });
+      actions.appendChild(syncBtn);
+
+      var indexBtn = document.createElement("button");
+      indexBtn.className = "btn btn-outline btn-sm";
+      indexBtn.disabled = busy || r.status === "cloning";
+      indexBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m8 17 4 4 4-4"/></svg> Index';
+      indexBtn.addEventListener("click", function() { indexRepo(r.name); });
+      actions.appendChild(indexBtn);
+
+      var delBtn = document.createElement("button");
+      delBtn.className = "btn btn-danger btn-sm";
+      delBtn.style.marginLeft = "auto";
+      delBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+      delBtn.addEventListener("click", function() { deleteRepo(r.name); });
+      actions.appendChild(delBtn);
+
+      card.appendChild(actions);
+      container.appendChild(card);
+    });
+  }
+
+  function renderResults(results) {
+    var container = document.getElementById("search-results");
+    document.getElementById("result-count").textContent = results.length;
+
+    if (results.length === 0) {
+      container.innerHTML = "";
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>No results</div><div style="font-size:0.78rem">Enter a query and click <strong>Search</strong></div>';
+      container.appendChild(empty);
+      return;
+    }
+
+    container.innerHTML = "";
+    results.forEach(function(r) {
+      var card = document.createElement("div");
+      card.className = "result-card";
+
+      var header = document.createElement("div");
+      header.className = "result-header";
+
+      var file = document.createElement("span");
+      file.className = "result-file";
+      file.textContent = r.filePath;
+      header.appendChild(file);
+
+      var lines = document.createElement("span");
+      lines.className = "result-lines";
+      lines.textContent = "L" + r.lineStart + "-" + r.lineEnd;
+      header.appendChild(lines);
+
+      if (r.repo) {
+        var repoBadge = document.createElement("span");
+        repoBadge.className = "badge badge-branch";
+        repoBadge.textContent = r.repo;
+        header.appendChild(repoBadge);
+      }
+
+      if (r.chunkType || r.chunkName) {
+        var typeBadge = document.createElement("span");
+        typeBadge.className = "badge";
+        typeBadge.textContent = (r.chunkType || "") + (r.chunkName ? " " + r.chunkName : "");
+        header.appendChild(typeBadge);
+      }
+
+      if (r.language) {
+        var langBadge = document.createElement("span");
+        langBadge.className = "badge";
+        langBadge.textContent = r.language;
+        header.appendChild(langBadge);
+      }
+
+      if (r.score != null) {
+        var score = document.createElement("span");
+        score.className = "result-score";
+        score.textContent = (r.score * 100).toFixed(1) + "%";
+        header.appendChild(score);
+      }
+
+      card.appendChild(header);
+
+      var code = document.createElement("div");
+      code.className = "result-code";
+      code.textContent = r.content || r.matchedNode || "";
+      card.appendChild(code);
+
+      container.appendChild(card);
+    });
+  }
+
+  // --- API calls ---
+
+  function fetchRepos() {
+    fetch(pluginURL("/api/repos"))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        repos = data.repos || [];
+        renderRepos();
+        // Auto-poll if any repo is busy
+        var hasBusy = repos.some(function(r) { return r.status === "cloning" || r.status === "indexing"; });
+        if (hasBusy && !pollTimer) {
+          pollTimer = setInterval(fetchRepos, 3000);
+        } else if (!hasBusy && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      })
+      .catch(function(e) { console.error("fetchRepos:", e); });
+  }
+
+  window.showAddModal = function() {
+    document.getElementById("add-modal").classList.remove("hidden");
+    document.getElementById("add-name").value = "";
+    document.getElementById("add-url").value = "";
+    document.getElementById("add-branch").value = "main";
+    setTimeout(function() { document.getElementById("add-name").focus(); }, 50);
+  };
+
+  window.hideAddModal = function() {
+    document.getElementById("add-modal").classList.add("hidden");
+  };
+
+  window.addRepo = function() {
+    var name = document.getElementById("add-name").value.trim();
+    var url = document.getElementById("add-url").value.trim();
+    var branch = document.getElementById("add-branch").value.trim() || "main";
+    if (!name || !url) return;
+
+    var btn = document.getElementById("add-btn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Adding...';
+
+    fetch(pluginURL("/api/repos"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name: name, url: url, branch: branch})
+    })
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || "Failed"); });
+      hideAddModal();
+      fetchRepos();
+    })
+    .catch(function(e) { alert("Error: " + e.message); })
+    .finally(function() {
+      btn.disabled = false;
+      btn.innerHTML = "Add";
+    });
+  };
+
+  window.syncRepo = function(name) {
+    fetch(pluginURL("/api/repos/" + encodeURIComponent(name) + "/sync"), { method: "POST" })
+      .then(function() { fetchRepos(); })
+      .catch(function(e) { console.error("syncRepo:", e); });
+  };
+
+  window.indexRepo = function(name) {
+    fetch(pluginURL("/api/repos/" + encodeURIComponent(name) + "/index"), { method: "POST" })
+      .then(function() { fetchRepos(); })
+      .catch(function(e) { console.error("indexRepo:", e); });
+  };
+
+  window.deleteRepo = function(name) {
+    if (!confirm("Delete repository '" + name + "' and all indexed data?")) return;
+    fetch(pluginURL("/api/repos/" + encodeURIComponent(name)), { method: "DELETE" })
+      .then(function() { fetchRepos(); })
+      .catch(function(e) { console.error("deleteRepo:", e); });
+  };
+
+  window.syncAll = function() {
+    var btn = document.getElementById("sync-all-btn");
+    btn.disabled = true;
+    fetch(pluginURL("/api/sync-all"), { method: "POST" })
+      .then(function() { fetchRepos(); })
+      .catch(function(e) { console.error("syncAll:", e); })
+      .finally(function() { btn.disabled = false; });
+  };
+
+  window.setSearchMode = function(mode) {
+    searchMode = mode;
+    document.querySelectorAll(".search-tab").forEach(function(t) {
+      t.classList.toggle("active", t.dataset.mode === mode);
+    });
+    var langSel = document.getElementById("search-lang");
+    var inp = document.getElementById("search-input");
+    if (mode === "ast") {
+      langSel.style.display = "";
+      inp.placeholder = 'AST pattern, e.g. func $NAME($$$) error';
+      loadLanguages();
+    } else {
+      langSel.style.display = "none";
+      inp.placeholder = "Search code...";
+    }
+  };
+
+  function loadLanguages() {
+    var sel = document.getElementById("search-lang");
+    if (sel.options.length > 1) return;
+    fetch(pluginURL("/api/ast-search/languages"))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        (data.languages || []).forEach(function(lang) {
+          var opt = document.createElement("option");
+          opt.value = lang;
+          opt.textContent = lang;
+          sel.appendChild(opt);
+        });
+      })
+      .catch(function() {});
+  }
+
+  window.doSearch = function() {
+    var query = document.getElementById("search-input").value.trim();
+    if (!query) return;
+
+    var btn = document.getElementById("search-btn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    var repoFilter = document.getElementById("search-repo").value;
+
+    var promise;
+    if (searchMode === "ast") {
+      var lang = document.getElementById("search-lang").value;
+      if (!repoFilter) {
+        // AST search requires a specific repo — search first indexed repo
+        var indexed = repos.filter(function(r) { return r.status === "indexed"; });
+        if (indexed.length === 0) {
+          alert("No indexed repositories. Index a repo first.");
+          btn.disabled = false;
+          btn.textContent = "Search";
+          return;
+        }
+        // Search all indexed repos
+        promise = Promise.all(indexed.map(function(r) {
+          return fetch(pluginURL("/api/repos/" + encodeURIComponent(r.name) + "/ast-search"), {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({pattern: query, language: lang || undefined})
+          }).then(function(resp) { return resp.json(); }).then(function(d) {
+            return (d.results || []).map(function(res) { res.repo = r.name; return res; });
+          });
+        })).then(function(arrays) { return { results: [].concat.apply([], arrays) }; });
+      } else {
+        promise = fetch(pluginURL("/api/repos/" + encodeURIComponent(repoFilter) + "/ast-search"), {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({pattern: query, language: lang || undefined})
+        }).then(function(r) { return r.json(); });
+      }
+    } else {
+      // Semantic search
+      var url, body;
+      if (repoFilter) {
+        url = pluginURL("/api/repos/" + encodeURIComponent(repoFilter) + "/search");
+      } else {
+        url = pluginURL("/api/search");
+      }
+      body = JSON.stringify({query: query, limit: 20, contextLines: 0});
+      promise = fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: body
+      }).then(function(r) { return r.json(); });
+    }
+
+    promise
+      .then(function(data) { renderResults(data.results || []); })
+      .catch(function(e) {
+        console.error("search:", e);
+        renderResults([]);
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = "Search";
+      });
+  };
+
+  // Enter key in search input triggers search
+  document.getElementById("search-input").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSearch();
+  });
+
+  // Enter key in add modal triggers add
+  document.getElementById("add-modal").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") addRepo();
+    if (e.key === "Escape") hideAddModal();
+  });
+
+  // Initial load
+  fetchRepos();
+  renderResults([]);
+
+  // kagent plugin bridge
+  var kagent = {
+    _listeners: {},
+    connect: function() {
+      var self = this;
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data.type === "kagent:context") {
+          self._emit("context", event.data.payload);
+        }
+      });
+      window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+    },
+    onContext: function(fn) { (this._listeners["context"] = this._listeners["context"] || []).push(fn); },
+    setBadge: function(count, label) {
+      window.parent.postMessage({ type: "kagent:badge", payload: { count: count, label: label } }, "*");
+    },
+    _emit: function(event, data) { (this._listeners[event] || []).forEach(function(fn) { fn(data); }); }
+  };
+
+  kagent.onContext(function(ctx) {
+    if (ctx.theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+  });
+
+  kagent.connect();
+})();
+</script>
+</body>
+</html>

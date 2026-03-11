@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cron-mcp
+description: MCP server for Cron Job management
+type: application
+version: ${VERSION}

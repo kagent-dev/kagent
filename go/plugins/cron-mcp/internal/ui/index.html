@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cron Jobs</title>
+<style>
+  :root {
+    --background: #020817;
+    --foreground: #e2e8f0;
+    --card: #020b1d;
+    --card-foreground: #e2e8f0;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #0f172a;
+    --secondary-foreground: #cbd5e1;
+    --muted: #0f172a;
+    --muted-foreground: #94a3b8;
+    --border: #1e293b;
+    --input: #223248;
+    --ring: #7c3aed;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --success: #22c55e;
+    --error: #ef4444;
+    --warning: #f59e0b;
+  }
+
+  html.light {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #f8fafc;
+    --card-foreground: #0f172a;
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+    --primary-foreground: #f8fafc;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #475569;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #7c3aed;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --success: #16a34a;
+    --error: #dc2626;
+    --warning: #d97706;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    z-index: 10;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header h1 { font-size: 1rem; font-weight: 600; color: var(--foreground); }
+
+  .header-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .header-dot.offline { background: #f59e0b; animation: pulse-amber 2s ease-in-out infinite; }
+
+  @keyframes pulse-amber { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  #status {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .toolbar {
+    padding: 12px 16px;
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--secondary);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .toolbar input, .toolbar select {
+    border: 1px solid var(--input);
+    border-radius: 8px;
+    background: var(--background);
+    color: var(--foreground);
+    padding: 7px 12px;
+    font-size: 0.82rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+
+  .toolbar input::placeholder { color: var(--muted-foreground); opacity: 0.7; }
+  .toolbar input:focus, .toolbar select:focus { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25); }
+
+  .toolbar input[name="name"] { flex: 1; min-width: 120px; }
+  .toolbar input[name="schedule"] { width: 140px; }
+  .toolbar input[name="command"] { flex: 2; min-width: 200px; }
+
+  .btn {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+    font-family: inherit;
+  }
+
+  .btn:hover { background: var(--primary-hover); }
+
+  .btn-sm {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    border-radius: 6px;
+  }
+
+  .btn-outline {
+    background: var(--background);
+    border: 1px solid var(--border);
+    color: var(--muted-foreground);
+  }
+
+  .btn-outline:hover { background: var(--muted); border-color: #334155; }
+
+  .btn-success { background: #16a34a; }
+  .btn-success:hover { background: #15803d; }
+
+  .btn-danger { background: #dc2626; }
+  .btn-danger:hover { background: #b91c1c; }
+
+  .btn-warning { background: #d97706; }
+  .btn-warning:hover { background: #b45309; }
+
+  #content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    min-height: 0;
+  }
+
+  .jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .job-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.15s;
+  }
+
+  .job-card:hover { border-color: #334155; }
+
+  .job-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .job-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--foreground);
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .job-desc {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+    margin-bottom: 10px;
+    word-break: break-word;
+  }
+
+  .job-info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    background: var(--muted);
+    color: var(--secondary-foreground);
+  }
+
+  .badge-id { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+  .badge-schedule { background: #172554; color: #bfdbfe; border-color: #1d4ed8; font-family: monospace; }
+  .badge-active { background: #052e16; color: #86efac; border-color: #166534; }
+  .badge-paused { background: #78350f; color: #fde68a; border-color: #d97706; }
+  .badge-error { background: #450a0a; color: #fca5a5; border-color: #dc2626; }
+  .badge-archived { background: var(--muted); color: var(--muted-foreground); }
+  .badge-timeout { background: #1e1b4b; color: #c4b5fd; border-color: #4c1d95; }
+
+  .badge-exec-success { background: #052e16; color: #86efac; border-color: #166534; }
+  .badge-exec-failed { background: #450a0a; color: #fca5a5; border-color: #dc2626; }
+  .badge-exec-running { background: #172554; color: #bfdbfe; border-color: #1d4ed8; animation: pulse-blue 2s ease-in-out infinite; }
+
+  @keyframes pulse-blue { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+  .job-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .exec-section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .exec-header {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .exec-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .exec-item {
+    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--secondary);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+
+  .exec-item:hover { background: var(--muted); border-color: var(--border); }
+
+  .exec-time { color: var(--muted-foreground); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+  .exec-duration { color: var(--muted-foreground); font-size: 0.72rem; margin-left: auto; }
+
+  .exec-output-wrap {
+    margin-top: 6px;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .exec-output {
+    font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--secondary-foreground);
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--muted-foreground);
+    font-size: 0.9rem;
+  }
+
+  .empty-state .empty-icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    opacity: 0.5;
+  }
+
+  #content::-webkit-scrollbar { width: 4px; }
+  #content::-webkit-scrollbar-track { background: transparent; }
+  #content::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+  .exec-output::-webkit-scrollbar { width: 4px; }
+  .exec-output::-webkit-scrollbar-track { background: transparent; }
+  .exec-output::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+  @media (max-width: 600px) {
+    .toolbar { flex-direction: column; }
+    .toolbar input[name="command"] { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cron Jobs</h1>
+  <span id="status"><span class="header-dot" id="status-dot"></span> connecting...</span>
+</header>
+<div class="toolbar">
+  <input type="text" name="name" placeholder="Job name" id="inp-name">
+  <input type="text" name="schedule" placeholder="0 */5 * * * *" id="inp-schedule" title="Cron expression (6 fields with seconds)">
+  <input type="text" name="command" placeholder="echo hello" id="inp-command">
+  <button class="btn" id="btn-add">Add Job</button>
+</div>
+<div id="content">
+  <div class="empty-state">
+    <div class="empty-icon">&#9202;</div>
+    Loading...
+  </div>
+</div>
+<script>
+(function() {
+  var jobs = [];
+  var expandedExecs = {};
+  var expandedOutput = {};
+
+  function norm(job) {
+    return {
+      id: job.id || job.ID,
+      name: job.name || job.Name || "",
+      description: job.description || job.Description || "",
+      schedule: job.schedule || job.Schedule || "",
+      command: job.command || job.Command || "",
+      status: job.status || job.Status || "Active",
+      labels: job.labels || job.Labels || [],
+      timeout: job.timeout || job.Timeout || 300,
+      maxRetries: job.max_retries || job.MaxRetries || 0,
+      lastRunAt: job.last_run_at || job.LastRunAt || null,
+      lastRunStatus: job.last_run_status || job.LastRunStatus || null,
+      nextRunAt: job.next_run_at || job.NextRunAt || null,
+      executions: (job.executions || job.Executions || []).map(normExec),
+      createdAt: job.created_at || job.CreatedAt || null
+    };
+  }
+
+  function normExec(e) {
+    return {
+      id: e.id || e.ID,
+      cronJobId: e.cron_job_id || e.CronJobID,
+      status: e.status || e.Status || "Running",
+      output: e.output || e.Output || "",
+      exitCode: e.exit_code !== undefined ? e.exit_code : (e.ExitCode !== undefined ? e.ExitCode : null),
+      startedAt: e.started_at || e.StartedAt || null,
+      finishedAt: e.finished_at || e.FinishedAt || null,
+      duration: e.duration || e.Duration || null
+    };
+  }
+
+  function pluginURL(path) {
+    var m = window.location.pathname.match(/^\/_p\/[^/]+/);
+    var base = m ? m[0] : "";
+    return base + path;
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return "-";
+    var d = new Date(ts);
+    return d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return "-";
+    var d = new Date(ts);
+    return d.toLocaleDateString([], {month: "short", day: "numeric"}) + " " + fmtTime(ts);
+  }
+
+  function fmtDuration(sec) {
+    if (sec == null) return "-";
+    if (sec < 1) return (sec * 1000).toFixed(0) + "ms";
+    if (sec < 60) return sec.toFixed(1) + "s";
+    return (sec / 60).toFixed(1) + "m";
+  }
+
+  function statusBadgeClass(status) {
+    switch (status) {
+      case "Active": return "badge-active";
+      case "Paused": return "badge-paused";
+      case "Error": return "badge-error";
+      case "Archived": return "badge-archived";
+      default: return "";
+    }
+  }
+
+  function execBadgeClass(status) {
+    switch (status) {
+      case "Success": return "badge-exec-success";
+      case "Failed": return "badge-exec-failed";
+      case "Running": return "badge-exec-running";
+      default: return "";
+    }
+  }
+
+  function renderJobs(jobList) {
+    jobs = (jobList || []).map(norm);
+    var container = document.getElementById("content");
+
+    if (jobs.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9202;</div>No cron jobs yet. Create one above.</div>';
+      return;
+    }
+
+    var html = '<div class="jobs-list">';
+    jobs.forEach(function(job) {
+      html += renderJobCard(job);
+    });
+    html += '</div>';
+    container.innerHTML = html;
+
+    // Attach event listeners
+    jobs.forEach(function(job) {
+      var card = document.querySelector('[data-job-id="' + job.id + '"]');
+      if (!card) return;
+
+      var runBtn = card.querySelector('.btn-run');
+      if (runBtn) runBtn.addEventListener('click', function() { runJob(job.id); });
+
+      var toggleBtn = card.querySelector('.btn-toggle');
+      if (toggleBtn) toggleBtn.addEventListener('click', function() { toggleJob(job.id); });
+
+      var deleteBtn = card.querySelector('.btn-delete');
+      if (deleteBtn) deleteBtn.addEventListener('click', function() { deleteJob(job.id); });
+
+      var execHeader = card.querySelector('.exec-header');
+      if (execHeader) {
+        execHeader.addEventListener('click', function() {
+          expandedExecs[job.id] = !expandedExecs[job.id];
+          fetchBoard();
+        });
+      }
+
+      card.querySelectorAll('.exec-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+          var eid = item.dataset.execId;
+          expandedOutput[eid] = !expandedOutput[eid];
+          fetchBoard();
+        });
+      });
+    });
+  }
+
+  function renderJobCard(job) {
+    var html = '<div class="job-card" data-job-id="' + job.id + '">';
+
+    // Header
+    html += '<div class="job-header">';
+    html += '<span class="job-name">' + esc(job.name || "(unnamed)") + '</span>';
+    html += '<span class="badge ' + statusBadgeClass(job.status) + '">' + esc(job.status) + '</span>';
+    html += '</div>';
+
+    // Description
+    if (job.description) {
+      html += '<div class="job-desc">' + esc(job.description) + '</div>';
+    }
+
+    // Info badges
+    html += '<div class="job-info">';
+    html += '<span class="badge badge-id">#' + job.id + '</span>';
+    html += '<span class="badge badge-schedule">' + esc(job.schedule) + '</span>';
+    html += '<span class="badge badge-timeout">' + job.timeout + 's timeout</span>';
+
+    if (job.lastRunStatus) {
+      html += '<span class="badge ' + execBadgeClass(job.lastRunStatus) + '">Last: ' + esc(job.lastRunStatus) + '</span>';
+    }
+    if (job.lastRunAt) {
+      html += '<span class="badge">' + fmtDate(job.lastRunAt) + '</span>';
+    }
+
+    if (job.labels && job.labels.length > 0) {
+      job.labels.forEach(function(l) {
+        html += '<span class="badge">' + esc(l) + '</span>';
+      });
+    }
+    html += '</div>';
+
+    // Command preview
+    html += '<div style="margin-bottom:10px">';
+    html += '<code style="font-size:0.78rem;color:var(--secondary-foreground);background:var(--secondary);padding:4px 8px;border-radius:4px;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(job.command) + '</code>';
+    html += '</div>';
+
+    // Executions
+    var execs = job.executions || [];
+    if (execs.length > 0) {
+      var isExpanded = expandedExecs[job.id];
+      html += '<div class="exec-section">';
+      html += '<div class="exec-header">';
+      html += '<span>Executions (' + execs.length + ')</span>';
+      html += '<span style="font-size:0.7rem">' + (isExpanded ? "&#9660;" : "&#9654;") + '</span>';
+      html += '</div>';
+
+      if (isExpanded) {
+        html += '<div class="exec-list">';
+        execs.forEach(function(exec) {
+          html += '<div class="exec-item" data-exec-id="' + exec.id + '">';
+          html += '<span class="badge ' + execBadgeClass(exec.status) + '">' + esc(exec.status) + '</span>';
+          html += '<span class="exec-time">' + fmtDate(exec.startedAt) + '</span>';
+          if (exec.exitCode !== null && exec.exitCode !== undefined) {
+            html += '<span class="badge badge-id">exit ' + exec.exitCode + '</span>';
+          }
+          html += '<span class="exec-duration">' + fmtDuration(exec.duration) + '</span>';
+          html += '</div>';
+
+          if (expandedOutput[exec.id] && exec.output) {
+            html += '<div class="exec-output-wrap"><div class="exec-output">' + esc(exec.output) + '</div></div>';
+          }
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Actions
+    html += '<div class="job-actions">';
+    html += '<button class="btn btn-sm btn-success btn-run" title="Run now">';
+    html += '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg> Run';
+    html += '</button>';
+
+    var toggleLabel = job.status === "Active" ? "Pause" : "Resume";
+    var toggleClass = job.status === "Active" ? "btn-warning" : "btn-success";
+    html += '<button class="btn btn-sm ' + toggleClass + ' btn-toggle">' + toggleLabel + '</button>';
+    html += '<button class="btn btn-sm btn-outline btn-delete">Delete</button>';
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function esc(s) {
+    var div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function setLiveStatus(live) {
+    var statusEl = document.getElementById("status");
+    statusEl.innerHTML = '';
+    var dot = document.createElement("span");
+    dot.id = "status-dot";
+    dot.className = "header-dot" + (live ? "" : " offline");
+    statusEl.appendChild(dot);
+    statusEl.appendChild(document.createTextNode(live ? " live" : " reconnecting..."));
+  }
+
+  function fetchBoard() {
+    fetch(pluginURL("/api/jobs"))
+      .then(function(r) { return r.json(); })
+      .then(renderJobs)
+      .catch(function(e) { console.error("fetchJobs:", e); });
+  }
+
+  function addJob() {
+    var name = document.getElementById("inp-name").value.trim();
+    var schedule = document.getElementById("inp-schedule").value.trim();
+    var command = document.getElementById("inp-command").value.trim();
+    if (!name || !schedule || !command) return;
+
+    fetch(pluginURL("/api/jobs"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name: name, schedule: schedule, command: command})
+    }).then(function() {
+      document.getElementById("inp-name").value = "";
+      document.getElementById("inp-schedule").value = "";
+      document.getElementById("inp-command").value = "";
+    }).catch(function(e) { console.error("addJob:", e); });
+  }
+
+  function runJob(id) {
+    fetch(pluginURL("/api/jobs/" + id + "/run"), {method: "POST"})
+      .catch(function(e) { console.error("runJob:", e); });
+  }
+
+  function toggleJob(id) {
+    fetch(pluginURL("/api/jobs/" + id + "/toggle"), {method: "POST"})
+      .catch(function(e) { console.error("toggleJob:", e); });
+  }
+
+  function deleteJob(id) {
+    fetch(pluginURL("/api/jobs/" + id), {method: "DELETE"})
+      .catch(function(e) { console.error("deleteJob:", e); });
+  }
+
+  function connectSSE() {
+    var es = new EventSource(pluginURL("/events"));
+
+    es.addEventListener("snapshot", function(e) {
+      setLiveStatus(true);
+      try {
+        var ev = JSON.parse(e.data);
+        if (ev.data) fetchBoard();
+        else fetchBoard();
+      } catch(_) { fetchBoard(); }
+    });
+
+    es.onmessage = function(e) {
+      fetchBoard();
+    };
+
+    es.onerror = function() { setLiveStatus(false); };
+    es.onopen = function() { setLiveStatus(true); };
+  }
+
+  // Toolbar events
+  document.getElementById("btn-add").addEventListener("click", addJob);
+  ["inp-name", "inp-schedule", "inp-command"].forEach(function(id) {
+    document.getElementById(id).addEventListener("keydown", function(e) {
+      if (e.key === "Enter") addJob();
+    });
+  });
+
+  fetchBoard();
+  connectSSE();
+
+  // kagent plugin bridge integration
+  var kagent = {
+    _listeners: {},
+    connect: function() {
+      var self = this;
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data.type === "kagent:context") {
+          var ctx = event.data.payload;
+          self._emit("context", ctx);
+        }
+      });
+      window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+    },
+    onContext: function(fn) { (this._listeners["context"] = this._listeners["context"] || []).push(fn); },
+    setBadge: function(count, label) {
+      window.parent.postMessage({ type: "kagent:badge", payload: { count: count, label: label } }, "*");
+    },
+    _emit: function(event, data) { (this._listeners[event] || []).forEach(function(fn) { fn(data); }); }
+  };
+
+  kagent.onContext(function(ctx) {
+    if (ctx.theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+  });
+
+  kagent.connect();
+})();
+</script>
+</body>
+</html>
