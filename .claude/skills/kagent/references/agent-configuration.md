@@ -35,6 +35,7 @@ spec:
       mcpServer:
         name: k8s-tools        # name of MCPServer resource
         kind: MCPServer         # MCPServer or RemoteMCPServer
+        apiGroup: kagent.dev    # always include for MCPServer references
         toolNames:              # optional: filter to specific tools
           - k8s_get_resources
           - k8s_get_pods
@@ -68,7 +69,7 @@ spec:
   # Container-based skills (note: at spec level, not under declarative)
   skills:
     refs:
-    - image: ghcr.io/my-org/my-skill:latest
+    - ghcr.io/my-org/my-skill:latest
 ```
 
 ### BYO Agent — Full Example

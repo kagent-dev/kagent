@@ -42,5 +42,5 @@ These commands support the full lifecycle of building custom agents with code (G
 
 ## Tips
 - Always use `kagent <command> --help` to discover available flags — the CLI is well-documented.
-- The `install` command detects `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` etc. from your environment automatically.
+- The `install` command uses `KAGENT_DEFAULT_MODEL_PROVIDER` to select the provider (defaults to `openAI`). Set this along with the corresponding API key env var (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_API_KEY`).
 - `kagent invoke --stream` is usually preferred for interactive use since it shows output as it's generated.

@@ -44,7 +44,7 @@ Check the `.status` field for rejection reasons.
 **Diagnosis:**
 ```bash
 kubectl get agent <name> -n kagent -o jsonpath='{.status.conditions}' | jq
-kubectl describe pod -n kagent -l agent=<name>
+kubectl describe pod -n kagent -l app.kubernetes.io/name=<name>,app.kubernetes.io/managed-by=kagent
 ```
 
 **Common causes:**
@@ -72,7 +72,7 @@ kubectl logs -n kagent deployment/kagent-controller | grep <agent-name>
 **Diagnosis:**
 ```bash
 kubectl get mcpserver <name> -n kagent -o yaml
-kubectl get pods -n kagent -l mcpserver=<name>
+kubectl get pods -n kagent -l app.kubernetes.io/name=<name>,app.kubernetes.io/managed-by=kagent
 ```
 
 **Common causes:**
@@ -88,7 +88,7 @@ kubectl get pods -n kagent -l mcpserver=<name>
 kubectl get pods -n kagent -l app=kagent-ui
 
 # Manual port-forward
-kubectl port-forward -n kagent svc/kagent-ui 8080:8080
+kubectl port-forward -n kagent svc/kagent-ui 8082:8080
 
 # Or use CLI
 kagent dashboard

@@ -46,9 +46,10 @@ When helping users, adapt to their experience level. A first-time user asking "h
 
 ### CLI + Quick Install
 ```bash
-export OPENAI_API_KEY="your-key"   # or ANTHROPIC_API_KEY, GEMINI_API_KEY, etc.
-brew install kagent                 # or use the curl installer
-kagent install --profile demo       # demo = preloaded agents + tools
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI  # or anthropic, azureOpenAI, gemini, ollama
+export OPENAI_API_KEY="your-key"             # or ANTHROPIC_API_KEY, GOOGLE_API_KEY, AZURE_OPENAI_API_KEY
+brew install kagent                          # or use the curl installer
+kagent install --profile demo                # demo = preloaded agents + tools
 kagent dashboard                    # opens UI at http://localhost:8082
 ```
 
@@ -94,6 +95,7 @@ spec:
       mcpServer:
         name: k8s-tools
         kind: MCPServer
+        apiGroup: kagent.dev
         toolNames:
           - k8s_get_resources
           - k8s_get_available_api_resources
@@ -159,6 +161,7 @@ tools:
   mcpServer:
     name: my-tools
     kind: RemoteMCPServer   # or MCPServer (for KMCP-managed servers)
+    apiGroup: kagent.dev    # always include for MCPServer references
     toolNames:              # optional: filter to specific tools
       - fetch
 ```
@@ -176,12 +179,12 @@ The controller's `/mcp` route provides two MCP tools:
 
 ### Prerequisites
 - kagent deployed to a Kubernetes cluster
-- Controller accessible — prefer using the LoadBalancer IP if available (e.g., with MetalLB in Kind clusters):
+- Controller accessible — the controller Service defaults to `ClusterIP`. If you have a LoadBalancer (e.g., MetalLB in Kind clusters), set `controller.service.type=LoadBalancer` in Helm values to get a stable IP:
   ```bash
-  # Check for a LoadBalancer IP first (preferred — no port-forward needed)
+  # If using LoadBalancer service type (preferred — no port-forward needed)
   kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 
-  # If no LoadBalancer, fall back to port-forward
+  # Otherwise, fall back to port-forward
   kubectl -n kagent port-forward svc/kagent-controller 8083:8083
   ```
 - Agents must be in **Accepted** and **DeploymentReady** state
@@ -251,7 +254,7 @@ Agents reference skills in their spec (note: `skills` is at the top level of `sp
 spec:
   skills:
     refs:
-      - image: ghcr.io/my-org/my-skill:latest
+      - ghcr.io/my-org/my-skill:latest
 ```
 
 At startup, kagent pulls the skill image, extracts files to `/skills`, and makes them discoverable via the SkillsTool.

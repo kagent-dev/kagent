@@ -22,13 +22,13 @@ The `invoke_agent` tool accepts:
 ## Prerequisites
 
 1. **kagent deployed** to a Kubernetes cluster
-2. **Controller accessible** — prefer using the LoadBalancer IP (no port-forward needed):
+2. **Controller accessible** — the controller Service defaults to `ClusterIP`. To use a LoadBalancer IP (no port-forward needed), set `controller.service.type=LoadBalancer` in your Helm values (works with MetalLB in Kind, cloud LBs, etc.):
    ```bash
-   # Check for LoadBalancer IP (preferred — works with MetalLB in Kind, cloud LBs, etc.)
+   # If using LoadBalancer service type
    KAGENT_IP=$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
    echo "Controller at: http://${KAGENT_IP}:8083"
 
-   # If no LoadBalancer available, fall back to port-forward
+   # If using default ClusterIP, fall back to port-forward
    kubectl -n kagent port-forward svc/kagent-controller 8083:8083
    ```
 3. **Agents in ready state** — only agents that are both `Accepted` and `DeploymentReady` are exposed

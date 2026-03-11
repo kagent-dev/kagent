@@ -8,20 +8,30 @@ kagent supports multiple LLM providers. Configure them via Helm values or the da
 |----------|----------|-----------------|
 | OpenAI | `openAI` | `OPENAI_API_KEY` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
-| Azure OpenAI | `azureOpenAI` | `OPENAI_API_KEY` |
-| Google Gemini | `gemini` | `GEMINI_API_KEY` |
-| Google Vertex AI | `GeminiVertexAI` | (service account) |
-| Anthropic via Vertex AI | `AnthropicVertexAI` | (service account) |
-| Amazon Bedrock | `Bedrock` | (IAM credentials) |
-| Ollama | `Ollama` | (none — local) |
+| Azure OpenAI | `azureOpenAI` | `AZURE_OPENAI_API_KEY` |
+| Google Gemini | `gemini` | `GOOGLE_API_KEY` |
+| Google Vertex AI (Gemini) | `geminiVertexAI` | (service account — `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) |
+| Anthropic via Vertex AI | `anthropicVertexAI` | (service account — `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) |
+| Amazon Bedrock | `bedrock` | (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
+| Ollama | `ollama` | (none — local, uses `OLLAMA_API_BASE` for endpoint) |
 | BYO OpenAI-compatible | custom | varies |
 
-## CLI Install (quick)
+**Helm key convention:** Provider names are camelCase with lowercase first letter (e.g., `openAI`, `azureOpenAI`, `geminiVertexAI`).
 
-The CLI sets the default provider based on which env var is set:
+## CLI Install
+
+The CLI uses `KAGENT_DEFAULT_MODEL_PROVIDER` to select the provider (defaults to `openAI` if not set). Set both the provider and API key:
 
 ```bash
+export KAGENT_DEFAULT_MODEL_PROVIDER=openAI   # or anthropic, azureOpenAI, gemini, ollama
 export OPENAI_API_KEY="sk-..."
+kagent install --profile demo
+```
+
+For Anthropic:
+```bash
+export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
 kagent install --profile demo
 ```
 
@@ -48,7 +58,7 @@ helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
 helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   --namespace kagent \
   --set providers.default=azureOpenAI \
-  --set providers.azureOpenAI.apiKey=$OPENAI_API_KEY
+  --set providers.azureOpenAI.apiKey=$AZURE_OPENAI_API_KEY
 ```
 
 ### Google Gemini
@@ -56,7 +66,7 @@ helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
 helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   --namespace kagent \
   --set providers.default=gemini \
-  --set providers.gemini.apiKey=$GEMINI_API_KEY
+  --set providers.gemini.apiKey=$GOOGLE_API_KEY
 ```
 
 ### Ollama (local models)
