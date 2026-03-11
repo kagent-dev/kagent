@@ -19,12 +19,12 @@ def _is_bedrock_model(model: str) -> bool:
     return "bedrock" in model.lower()
 
 
-def _sanitize_tool_name(name: str, idx: int) -> str:
+def _sanitize_tool_name(name: str, idx: "int | str") -> str:
     """Return a Bedrock-safe tool name; replace invalid/empty names with a fallback."""
     if not name or not _BEDROCK_TOOL_NAME_RE.match(name):
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", name) if name else ""
         safe = safe or f"{_BEDROCK_TOOL_NAME_FALLBACK}_{idx}"
-        logger.warning("Sanitized invalid Bedrock tool name %r -> %r", name, safe)
+        logger.debug("Sanitized invalid Bedrock tool name %r -> %r", name, safe)
         return safe
     return name
 
