@@ -134,9 +134,9 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		return probeConfig{
-			InitialDelaySeconds: 2,
+			InitialDelaySeconds: 1,
 			TimeoutSeconds:      5,
-			PeriodSeconds:       5,
+			PeriodSeconds:       1,
 		}
 	case v1alpha2.DeclarativeRuntime_Python:
 		return probeConfig{
