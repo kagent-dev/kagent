@@ -55,7 +55,19 @@ _dest="$(cat <<'ENDVAL'
 ENDVAL
 )"
 echo "Exporting OCI image ${_image} into ${_dest}"
-_arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+_uname="$(uname -m)"
+case "$_uname" in
+  x86_64|amd64)
+    _arch="amd64"
+    ;;
+  aarch64|arm64)
+    _arch="arm64"
+    ;;
+  *)
+    echo "Unsupported architecture for OCI export: ${_uname}" >&2
+    exit 1
+    ;;
+esac
 krane export{{ if $.InsecureOCI }} --insecure{{ end }} --platform "linux/${_arch}" "$_image" '/tmp/oci-skill.tar'
 mkdir -p "$_dest"
 tar xf '/tmp/oci-skill.tar' -C "$_dest"
