@@ -35,7 +35,7 @@ spec:
       mcpServer:
         name: k8s-tools        # name of MCPServer resource
         kind: MCPServer         # MCPServer or RemoteMCPServer
-        apiGroup: kagent.dev    # always include for MCPServer references
+        apiGroup: kagent.dev    # required for BOTH MCPServer and RemoteMCPServer
         toolNames:              # optional: filter to specific tools
           - k8s_get_resources
           - k8s_get_pods
@@ -123,6 +123,21 @@ spec:
   #     secretKeyRef:
   #       name: my-secret
   #       key: token
+```
+
+### Referencing a RemoteMCPServer in an Agent
+
+When adding a RemoteMCPServer to an agent's tool list, always include `apiGroup: kagent.dev`:
+
+```yaml
+tools:
+- type: McpServer
+  mcpServer:
+    name: external-tools
+    kind: RemoteMCPServer
+    apiGroup: kagent.dev          # required — omitting causes reconciliation issues
+    toolNames:                    # optional: limit to specific tools
+      - my_tool
 ```
 
 ## MCPServer Resource (KMCP)

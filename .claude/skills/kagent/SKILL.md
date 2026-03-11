@@ -104,7 +104,7 @@ spec:
       mcpServer:
         name: k8s-tools
         kind: MCPServer
-        apiGroup: kagent.dev
+        apiGroup: kagent.dev    # required for BOTH MCPServer and RemoteMCPServer
         toolNames:
           - k8s_get_resources
           - k8s_get_available_api_resources
@@ -170,10 +170,12 @@ tools:
   mcpServer:
     name: my-tools
     kind: RemoteMCPServer   # or MCPServer (for KMCP-managed servers)
-    apiGroup: kagent.dev    # always include for MCPServer references
+    apiGroup: kagent.dev    # required for BOTH MCPServer and RemoteMCPServer
     toolNames:              # optional: filter to specific tools
       - fetch
 ```
+
+**Important:** The `apiGroup: kagent.dev` field is required on every McpServer tool reference, regardless of whether the kind is `MCPServer` or `RemoteMCPServer`. Omitting it causes reconciliation issues.
 
 kagent ships with built-in tools for Kubernetes, Helm, Istio, Argo Rollouts, Prometheus, Grafana, and more when using `--profile demo`.
 
