@@ -8,4 +8,5 @@ use (
 	./plugins/gitrepo-mcp
 	./plugins/temporal-mcp
 	./plugins/nats-activity-feed
+	./plugins/cron-mcp
 )

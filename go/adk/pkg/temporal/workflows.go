@@ -102,19 +102,27 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 		}
 	}
 
-	// Step 3: Main loop — wait for new messages or idle timeout.
+	// Complete signal channel — allows explicit session completion.
+	completeCh := workflow.GetSignalChannel(ctx, CompleteSignalName)
+
+	// Step 3: Main loop — wait for new messages, complete signal, or idle timeout.
 	for {
 		var msg MessageSignal
 		timerCtx, cancelTimer := workflow.WithCancel(ctx)
 		timer := workflow.NewTimer(timerCtx, SessionIdleTimeout)
 
-		// Create a selector to wait for either a message or the idle timeout.
+		// Create a selector to wait for a message, complete signal, or idle timeout.
 		sel := workflow.NewSelector(ctx)
 
-		var gotMessage bool
+		var gotMessage, gotComplete bool
 		sel.AddReceive(msgCh, func(ch workflow.ReceiveChannel, more bool) {
 			ch.Receive(ctx, &msg)
 			gotMessage = true
+		})
+		sel.AddReceive(completeCh, func(ch workflow.ReceiveChannel, more bool) {
+			var reason string
+			ch.Receive(ctx, &reason)
+			gotComplete = true
 		})
 		sel.AddFuture(timer, func(f workflow.Future) {
 			// Timer fired — idle timeout reached.
@@ -122,6 +130,14 @@ func AgentExecutionWorkflow(ctx workflow.Context, req *ExecutionRequest) (*Execu
 
 		sel.Select(ctx)
 		cancelTimer()
+
+		if gotComplete {
+			return &ExecutionResult{
+				SessionID: req.SessionID,
+				Status:    "completed",
+				Reason:    "session completed by user",
+			}, nil
+		}
 
 		if !gotMessage {
 			// Idle timeout — gracefully exit.

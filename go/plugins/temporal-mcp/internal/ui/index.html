@@ -544,6 +544,7 @@
     html += '<div class="actions">';
     if (w.Status === 'Running') {
       html += '<button class="btn btn-danger" onclick="event.stopPropagation();cancelWorkflow(\'' + esc(w.WorkflowID) + '\')">Cancel</button>';
+      html += '<button class="btn" onclick="event.stopPropagation();completeWorkflow(\'' + esc(w.WorkflowID) + '\')">Complete</button>';
       html += '<button class="btn" onclick="event.stopPropagation();openSignalModal(\'' + esc(w.WorkflowID) + '\')">Signal</button>';
     }
     html += '</div>';
@@ -566,6 +567,17 @@
     fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfid) + '/cancel', { method: 'POST' })
       .then(function(r) { if (!r.ok) throw new Error('Cancel failed'); })
       .catch(function(err) { showError(err.message); });
+  };
+
+  window.completeWorkflow = function(wfid) {
+    if (!confirm('Complete workflow ' + wfid + '?')) return;
+    fetch(baseUrl + 'api/workflows/' + encodeURIComponent(wfid) + '/signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signal_name: 'complete', data: 'completed by user' })
+    })
+    .then(function(r) { if (!r.ok) throw new Error('Complete failed'); })
+    .catch(function(err) { showError(err.message); });
   };
 
   window.openSignalModal = function(wfid) {
@@ -700,6 +712,7 @@
     if (w.Status === 'Running') {
       html += '<div class="actions">';
       html += '<button class="btn btn-danger" onclick="cancelWorkflow(\'' + esc(w.WorkflowID) + '\')">Cancel</button>';
+      html += '<button class="btn" onclick="completeWorkflow(\'' + esc(w.WorkflowID) + '\')">Complete</button>';
       html += '<button class="btn" onclick="openSignalModal(\'' + esc(w.WorkflowID) + '\')">Signal</button>';
       html += '</div>';
     }

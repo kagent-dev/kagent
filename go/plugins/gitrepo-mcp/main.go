@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/plugins/gitrepo-mcp/internal/search"
 	"github.com/kagent-dev/kagent/go/plugins/gitrepo-mcp/internal/server"
 	"github.com/kagent-dev/kagent/go/plugins/gitrepo-mcp/internal/storage"
+	"github.com/kagent-dev/kagent/go/plugins/gitrepo-mcp/internal/ui"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -137,6 +138,7 @@ func serveHTTP(addr string, repoStore *storage.RepoStore, repoMgr *repo.Manager,
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp/", http.StripPrefix("/mcp", mcpSrv))
+	mux.Handle("/ui/", ui.Handler())
 	mux.Handle("/", restSrv.Handler())
 
 	httpSrv := &http.Server{

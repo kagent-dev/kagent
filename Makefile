@@ -40,6 +40,8 @@ SKILLS_INIT_IMAGE_NAME ?= skills-init
 KANBAN_MCP_IMAGE_NAME ?= kanban-mcp
 GITREPO_MCP_IMAGE_NAME ?= gitrepo-mcp
 TEMPORAL_MCP_IMAGE_NAME ?= temporal-mcp
+NATS_ACTIVITY_FEED_IMAGE_NAME ?= nats-activity-feed
+CRON_MCP_IMAGE_NAME ?= cron-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -50,6 +52,8 @@ SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 KANBAN_MCP_IMAGE_TAG ?= $(VERSION)
 GITREPO_MCP_IMAGE_TAG ?= $(VERSION)
 TEMPORAL_MCP_IMAGE_TAG ?= $(VERSION)
+NATS_ACTIVITY_FEED_IMAGE_TAG ?= $(VERSION)
+CRON_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
@@ -60,6 +64,8 @@ SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$
 KANBAN_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KANBAN_MCP_IMAGE_NAME):$(KANBAN_MCP_IMAGE_TAG)
 GITREPO_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GITREPO_MCP_IMAGE_NAME):$(GITREPO_MCP_IMAGE_TAG)
 TEMPORAL_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(TEMPORAL_MCP_IMAGE_NAME):$(TEMPORAL_MCP_IMAGE_TAG)
+NATS_ACTIVITY_FEED_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(NATS_ACTIVITY_FEED_IMAGE_NAME):$(NATS_ACTIVITY_FEED_IMAGE_TAG)
+CRON_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CRON_MCP_IMAGE_NAME):$(CRON_MCP_IMAGE_TAG)
 
 #take from go/core/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -226,7 +232,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-golang-adk build-skills-init build-kanban-mcp build-gitrepo-mcp build-temporal-mcp
+build: buildx-create build-controller build-ui build-golang-adk build-skills-init build-kanban-mcp build-gitrepo-mcp build-temporal-mcp build-nats-activity-feed build-cron-mcp
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -304,6 +310,14 @@ build-gitrepo-mcp: buildx-create
 build-temporal-mcp: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./plugins/temporal-mcp/ -t $(TEMPORAL_MCP_IMG) -f go/Dockerfile ./go
 
+.PHONY: build-nats-activity-feed
+build-nats-activity-feed: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./plugins/nats-activity-feed/ -t $(NATS_ACTIVITY_FEED_IMG) -f go/Dockerfile ./go
+
+.PHONY: build-cron-mcp
+build-cron-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./plugins/cron-mcp/ -t $(CRON_MCP_IMG) -f go/Dockerfile ./go
+
 .PHONY: helm-cleanup
 helm-cleanup:
 	rm -f ./$(HELM_DIST_FOLDER)/*.tgz
@@ -352,6 +366,8 @@ helm-tools:
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/kanban-mcp
 	VERSION=$(VERSION) envsubst < helm/tools/gitrepo-mcp/Chart-template.yaml > helm/tools/gitrepo-mcp/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/gitrepo-mcp
+	VERSION=$(VERSION) envsubst < helm/tools/cron-mcp/Chart-template.yaml > helm/tools/cron-mcp/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/tools/cron-mcp
 
 .PHONY: helm-version
 helm-version: helm-cleanup helm-agents helm-tools
@@ -408,6 +424,11 @@ helm-install-provider: helm-version check-api-key
 		--set-string gitrepo-mcp.config.GITREPO_DATA_DIR=/tmp/gitrepo \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		--set temporal.mcp.image=$(TEMPORAL_MCP_IMG) \
+		--set tools.cron-mcp.enabled=true \
+		--set cron-mcp.image.registry=$(DOCKER_REGISTRY) \
+		--set cron-mcp.image.repository=$(DOCKER_REPO)/$(CRON_MCP_IMAGE_NAME) \
+		--set cron-mcp.image.tag=$(CRON_MCP_IMAGE_TAG) \
+		--set-string cron-mcp.config.CRON_DB_PATH=/tmp/cron.db \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

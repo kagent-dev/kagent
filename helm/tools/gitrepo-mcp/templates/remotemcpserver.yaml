@@ -12,3 +12,10 @@ spec:
   terminateOnClose: true
   timeout: 30s
   url: {{ include "gitrepo-mcp.serverUrl" . }}
+  ui:
+    enabled: true
+    pathPrefix: "gitrepos"
+    displayName: "Git Repos"
+    icon: "git-branch"
+    section: "AGENTS"
+    defaultPath: "/ui/"

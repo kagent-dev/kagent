@@ -180,6 +180,8 @@ const (
 	ApprovalSignalName = "approval"
 	// MessageSignalName is the signal channel for sending new messages to a running session workflow.
 	MessageSignalName = "message"
+	// CompleteSignalName is the signal channel for explicitly completing a session workflow.
+	CompleteSignalName = "complete"
 )
 
 // MessageSignal is the payload sent via the message signal channel.

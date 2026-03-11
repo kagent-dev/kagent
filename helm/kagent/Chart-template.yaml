@@ -28,6 +28,10 @@ dependencies:
     version: ${VERSION}
     repository: file://../tools/gitrepo-mcp
     condition: tools.gitrepo-mcp.enabled
+  - name: cron-mcp
+    version: ${VERSION}
+    repository: file://../tools/cron-mcp
+    condition: tools.cron-mcp.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s
