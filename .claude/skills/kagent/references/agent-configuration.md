@@ -202,7 +202,50 @@ You are a Kubernetes operations agent.
 - Always explain what a command will do before executing
 ```
 
-### Storing Prompts in ConfigMaps
+### Prompt Templates
+
+kagent supports Go `text/template` syntax in `systemMessage` for composing prompts from reusable parts stored in ConfigMaps. Add a `promptTemplate` field with `dataSources` to enable template processing.
+
+**Include content from ConfigMaps:**
+```yaml
+spec:
+  declarative:
+    systemMessage: |
+      {{include "builtin/safety-guardrails"}}
+
+      You are {{.AgentName}} in namespace {{.AgentNamespace}}.
+      {{.Description}}
+
+      ## Tools
+      {{range .ToolNames}}- {{.}}
+      {{end}}
+
+      {{include "team/response-format"}}
+    promptTemplate:
+      dataSources:
+      - kind: ConfigMap
+        name: kagent-builtin-prompts
+        alias: builtin
+      - kind: ConfigMap
+        name: my-team-prompts
+        alias: team
+```
+
+**Include syntax:** `{{include "alias/key"}}` — `alias` is the datasource alias (or ConfigMap name if no alias), `key` is the ConfigMap data key. Separator is `/` (not `.`, since `.` is valid in K8s names).
+
+**Template variables:**
+
+| Variable | Source |
+|----------|--------|
+| `{{.AgentName}}` | `metadata.name` |
+| `{{.AgentNamespace}}` | `metadata.namespace` |
+| `{{.Description}}` | `spec.description` |
+| `{{.ToolNames}}` | Tool names from translated config |
+| `{{.SkillNames}}` | Skill names from `skills.refs` |
+
+**Storing the entire prompt in a ConfigMap:**
+
+Use `systemMessageFrom` instead of `systemMessage` to load the template from a ConfigMap key:
 
 ```yaml
 apiVersion: v1
@@ -212,10 +255,40 @@ metadata:
   namespace: kagent
 data:
   k8s-agent-prompt: |
+    {{include "builtin/safety-guardrails"}}
     You are a Kubernetes expert...
+---
+spec:
+  declarative:
+    systemMessageFrom:
+      type: ConfigMap
+      name: agent-prompts
+      key: k8s-agent-prompt
+    promptTemplate:
+      dataSources:
+      - kind: ConfigMap
+        name: kagent-builtin-prompts
+        alias: builtin
 ```
 
-Reference in agent spec via template syntax. This enables prompt reuse across agents.
+Note: `systemMessage` and `systemMessageFrom` are mutually exclusive.
+
+**Built-in prompt library** (`kagent-builtin-prompts` ConfigMap, ships with kagent):
+
+| Key | Content |
+|-----|---------|
+| `skills-usage` | Instructions for agents with skills |
+| `tool-usage-best-practices` | Read before write, explain before acting, verify after changes |
+| `safety-guardrails` | No destructive ops without confirmation, least privilege, rollback |
+| `kubernetes-context` | Investigation protocol, problem-solving framework |
+| `a2a-communication` | Agent-to-agent delegation guidelines |
+
+**Key behaviors:**
+- Templates only activate when `promptTemplate` is set (backwards compatible — literal `{{` preserved otherwise)
+- Included content is plain text (no nested template execution)
+- ConfigMap changes trigger automatic agent re-reconciliation
+- Template errors surface in the Agent's `Accepted` status condition
+- Resolved at reconciliation time, not runtime — the agent receives a plain string
 
 ## Built-in Agents (demo profile)
 

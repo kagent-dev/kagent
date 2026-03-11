@@ -230,12 +230,75 @@ Good system prompts make the difference between a useful agent and a frustrating
 3. **Add behavioral rules**: Safety guidelines, response formatting, escalation procedures
 
 Tips:
-- Store prompts in ConfigMaps/Secrets for reuse across agents
 - Be explicit about safety: "Never delete resources without confirmation"
 - Describe the agent's decision-making process, not just rules
 - Use Claude or ChatGPT to iteratively refine your prompts
+- Use **prompt templates** (below) to share common sections across agents
 
 See the kagent docs on system prompts for detailed examples: https://kagent.dev/docs/kagent/getting-started/system-prompts
+
+### Prompt Templates
+
+kagent supports Go `text/template` syntax in `systemMessage` for composing prompts from reusable parts stored in ConfigMaps. Templates are resolved at reconciliation time — the agent runtime receives a plain string.
+
+**How it works:** Add a `promptTemplate` field with `dataSources` referencing ConfigMaps. Then use `{{include "source/key"}}` in the system message to pull in content, and `{{.Variable}}` for agent metadata.
+
+```yaml
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: k8s-helper
+  namespace: kagent
+spec:
+  declarative:
+    systemMessage: |
+      {{include "builtin/safety-guardrails"}}
+
+      You are {{.AgentName}}, a Kubernetes operations agent.
+      Your purpose: {{.Description}}
+
+      ## Available Tools
+      {{range .ToolNames}}- {{.}}
+      {{end}}
+
+      {{include "team-prompts/response-format"}}
+    promptTemplate:
+      dataSources:
+      - kind: ConfigMap
+        name: kagent-builtin-prompts   # ships with kagent
+        alias: builtin
+      - kind: ConfigMap
+        name: my-team-prompts
+        alias: team-prompts
+    modelConfig: default-model-config
+    tools: [...]
+```
+
+**Include syntax:** `{{include "alias/key"}}` — where `alias` is the `alias` field (or ConfigMap name if no alias), and `key` is the ConfigMap data key. The `/` separator is intentional (`.` is valid in Kubernetes names).
+
+**Available template variables:**
+
+| Variable | Source |
+|----------|--------|
+| `{{.AgentName}}` | `metadata.name` |
+| `{{.AgentNamespace}}` | `metadata.namespace` |
+| `{{.Description}}` | `spec.description` |
+| `{{.ToolNames}}` | List of tool names from translated config |
+| `{{.SkillNames}}` | List of skill names from `skills.refs` |
+
+**Built-in prompt library:** kagent ships a `kagent-builtin-prompts` ConfigMap with reusable sections:
+- `skills-usage` — instructions for agents with skills
+- `tool-usage-best-practices` — read-before-write, explain-before-acting, verify-after-changes
+- `safety-guardrails` — confirmation before destructive ops, least privilege, rollback planning
+- `kubernetes-context` — investigation protocol, problem-solving framework
+- `a2a-communication` — agent-to-agent delegation guidelines
+
+**Key behaviors:**
+- Included content is plain text (no nested template execution)
+- Templates only activate when `promptTemplate` is set (backwards compatible)
+- `systemMessage` and `systemMessageFrom` are mutually exclusive — use `systemMessageFrom` to load the entire template from a ConfigMap
+- ConfigMap changes trigger agent re-reconciliation automatically
+- Template errors surface in the Agent's `Accepted` status condition
 
 ## A2A Protocol
 
