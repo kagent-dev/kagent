@@ -9,6 +9,6 @@ export default async function ChatPageView({ params }: { params: Promise<{ name:
     selectedAgentName={name}
     selectedNamespace={namespace}
     sessionId={chatId}
-    headline={process.env.NEXT_PUBLIC_HEADLINE}
+    headline={process.env.KAGENT_UI_HEADLINE}
   />;
 }
