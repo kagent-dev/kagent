@@ -59,7 +59,7 @@ govulncheck: ## Run govulncheck.
 ##@ Build (core module — CLI binaries)
 
 core/bin/kagent-local:
-	CGO_ENABLED=0 go test -race ./core/cli/...
+	go test -race ./core/cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
 
 core/bin/kagent-linux-amd64:
