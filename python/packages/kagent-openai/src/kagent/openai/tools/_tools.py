@@ -12,6 +12,7 @@ from pathlib import Path
 from agents.exceptions import UserError
 from agents.run_context import RunContextWrapper
 from agents.tool import FunctionTool, function_tool
+import os
 
 from kagent.skills import (
     discover_skills,
@@ -55,7 +56,13 @@ def read_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        return read_file_content(path, offset, limit, allowed_root=[working_dir, Path("/skills")])
+        allowed_dirs = [working_dir]
+        
+        skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
+        if skills_directory:
+            allowed_dirs.append(Path(skills_directory))
+
+        return read_file_content(path, offset, limit, allowed_root=allowed_dirs)
     except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
         raise UserError(str(e)) from e
 
