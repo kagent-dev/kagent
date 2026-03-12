@@ -35,7 +35,7 @@ agent = Agent(
     tools=[
         SkillsTool(skills_directory="./skills"),
         BashTool(skills_directory="./skills"),
-        ReadFileTool(),
+        ReadFileTool(skills_directory="./skills"),
         WriteFileTool(),
         EditFileTool(),
     ]

@@ -47,7 +47,7 @@ class SkillsToolset(BaseToolset):
 
         # Create skills tools
         self.skills_tool = SkillsTool(skills_directory)
-        self.read_file_tool = ReadFileTool()
+        self.read_file_tool = ReadFileTool(skills_directory)
         self.write_file_tool = WriteFileTool()
         self.edit_file_tool = EditFileTool()
         self.bash_tool = BashTool(skills_directory)

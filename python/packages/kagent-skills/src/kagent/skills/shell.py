@@ -139,13 +139,14 @@ def _get_command_timeout_seconds(command: str) -> float:
 async def execute_command(
     command: str,
     working_dir: Path,
+    skills_dir: Path
 ) -> str:
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
     env = os.environ.copy()
     # Add skills directory and working directory to PYTHONPATH
-    pythonpath_additions = [str(working_dir), "/skills"]
+    pythonpath_additions = [str(working_dir), str(skills_dir)]
     if "PYTHONPATH" in env:
         pythonpath_additions.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = ":".join(pythonpath_additions)

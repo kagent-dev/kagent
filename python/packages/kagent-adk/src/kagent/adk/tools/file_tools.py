@@ -29,11 +29,15 @@ logger = logging.getLogger("kagent_adk." + __name__)
 class ReadFileTool(BaseTool):
     """Read files with line numbers for precise editing."""
 
-    def __init__(self):
+    def __init__(self, skills_directory: str | Path):
         super().__init__(
             name="read_file",
             description=get_read_file_description(),
         )
+        self.skills_directory = Path(skills_directory).resolve()
+        if not self.skills_directory.exists():
+            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
+
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -75,7 +79,7 @@ class ReadFileTool(BaseTool):
                 path = working_dir / path
             path = path.resolve()
 
-            return read_file_content(path, offset, limit, allowed_root=[working_dir, Path("/skills")])
+            return read_file_content(path, offset, limit, allowed_root=[working_dir, Path(self.skills_directory)])
         except (FileNotFoundError, IsADirectoryError, PermissionError, IOError) as e:
             return f"Error reading file {file_path_str}: {e}"
 

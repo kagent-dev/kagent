@@ -65,7 +65,7 @@ class BashTool(BaseTool):
 
         try:
             working_dir = get_session_path(session_id=tool_context.session.id)
-            result = await execute_command(command, working_dir)
+            result = await execute_command(command, working_dir, self.skills_directory)
             logger.info(f"Executed bash command: {command}, description: {description}")
             return result
         except Exception as e:
