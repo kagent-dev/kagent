@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
 import TokenStatsDisplay from "./TokenStats";
-import type { TokenStats, Session, ChatStatus } from "@/types";
+import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
@@ -58,8 +58,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
-  const [pendingDecisions, setPendingDecisions] = useState<Record<string, "approve" | "deny">>({});
-  const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
+  const [pendingDecisions, setPendingDecisions] = useState<Record<string, ToolDecision>>({});
+  const pendingDecisionsRef = useRef<Record<string, ToolDecision>>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
 
@@ -406,8 +406,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
-    // approvalDecision is either a uniform string ("approve" | "deny") or a
-    // per-tool map ({ toolId: "approve" | "deny" }) for batch decisions.
+    // approvalDecision is either a uniform ToolDecision or a per-tool map
+    // (Record<string, ToolDecision>) for batch decisions.
     const stampDecision = (msgs: Message[]) => msgs.map(m => {
       const meta = m.metadata as Record<string, unknown> | undefined;
       if (meta?.originalType === "ToolApprovalRequest" && !meta.approvalDecision) {
@@ -415,10 +415,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         if (dt === "batch") {
           // Store the per-tool decisions map so ToolCallDisplay can resolve
           // each inner tool independently.
-          const decisions = decisionData.decisions as Record<string, string>;
+          const decisions = decisionData.decisions as Record<string, ToolDecision>;
           return { ...m, metadata: { ...meta, approvalDecision: decisions } };
         } else {
-          return { ...m, metadata: { ...meta, approvalDecision: dt } };
+          return { ...m, metadata: { ...meta, approvalDecision: dt as ToolDecision } };
         }
       }
       return m;
@@ -462,7 +462,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Submit all collected decisions to the backend. Called when every pending
   // tool has a decision recorded in `pendingDecisions`, or immediately for
   // "approve all" / uniform decisions.
-  const submitDecisions = (decisions: Record<string, "approve" | "deny">) => {
+  const submitDecisions = (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
     const allDeny = values.every(v => v !== "approve");
@@ -503,7 +503,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
-  const recordDecision = (toolCallId: string, decision: "approve" | "deny", reason?: string) => {
+  const recordDecision = (toolCallId: string, decision: ToolDecision, reason?: string) => {
     const updated = { ...pendingDecisionsRef.current, [toolCallId]: decision };
     pendingDecisionsRef.current = updated;
     setPendingDecisions(updated);
