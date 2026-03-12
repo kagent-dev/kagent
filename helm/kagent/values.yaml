@@ -24,16 +24,18 @@ labels: {}
   # environment: production
   # team: platform
 
-podSecurityContext: {}
-  # fsGroup: 2000
+# -- Security context for all pods
+podSecurityContext:
+  runAsNonRoot: true
+# fsGroup: 2000
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# -- Security context for all containers
+securityContext:
+  readOnlyRootFilesystem: true
+# capabilities:
+#   drop:
+#   - ALL
+# runAsUser: 1000
 
 # ==============================================================================
 # CORE KAGENT COMPONENTS
@@ -166,7 +168,25 @@ ui:
       port: 8080
       targetPort: 8080
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
-
+  # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
+  # @default -- (uses global podSecurityContext)
+  podSecurityContext: {}
+  # fsGroup: 2000
+  # -- Container-level security context for the UI container. Overrides the global securityContext.
+  # @default -- (uses global securityContext)
+  securityContext: {}
+  #   readOnlyRootFilesystem: true
+  # -- EmptyDir volume sizes for Next.js UI workload (typically used when enabling readOnlyRootFilesystem)
+  volumes:
+    # -- Size limit for Next.js build cache (.next/cache). Default 100Mi is sufficient for typical Next.js apps with moderate caching needs.
+    nextjsCache: 100Mi
+    # -- Size limit for temporary files (/tmp). Default 50Mi provides ample space for Next.js runtime temporary data.
+    tmp: 50Mi
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # runAsNonRoot: true
+  # runAsUser: 1000
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
