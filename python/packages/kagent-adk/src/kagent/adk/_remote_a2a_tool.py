@@ -283,13 +283,6 @@ class KAgentRemoteA2ATool(BaseTool):
         confirmation = tool_context.tool_confirmation
         payload = confirmation.payload or {}
 
-        logger.info(
-            "DEBUG_ASKUSER _handle_resume: confirmed=%s, payload_keys=%s, payload=%s",
-            confirmation.confirmed,
-            list(payload.keys()) if payload else None,
-            payload,
-        )
-
         task_id = payload.get("task_id")
         context_id = payload.get("context_id")
         subagent_name = payload.get("subagent_name", self.name)
@@ -324,10 +317,6 @@ class KAgentRemoteA2ATool(BaseTool):
                 KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE,
                 "ask_user_answers": ask_user_answers,
             }
-            logger.info(
-                "DEBUG_ASKUSER _handle_resume: forwarding ask_user_answers to subagent, answers=%s",
-                ask_user_answers,
-            )
         else:
             if confirmation.confirmed:
                 decision_type = KAGENT_HITL_DECISION_TYPE_APPROVE
@@ -355,45 +344,24 @@ class KAgentRemoteA2ATool(BaseTool):
             task_id,
         )
 
-        logger.info(
-            "DEBUG_ASKUSER _handle_resume: sending decision_message to subagent %s, task_id=%s, decision_data=%s",
-            subagent_name,
-            task_id,
-            decision_data,
-        )
-
         client = await self._ensure_client()
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message):
-                logger.info(
-                    "DEBUG_ASKUSER _handle_resume: got response from subagent, type=%s, response=%s",
-                    type(response).__name__,
-                    response,
-                )
                 if isinstance(response, tuple):
                     task = response[0]
                 elif isinstance(response, A2AMessage):
                     return self._extract_text_from_message(response)
         except A2AClientHTTPError as e:
-            logger.error("DEBUG_ASKUSER _handle_resume: A2AClientHTTPError: %s", e, exc_info=True)
             return f"Remote agent '{subagent_name}' resume failed: {e}"
         except Exception as e:
-            logger.error(
-                "DEBUG_ASKUSER _handle_resume: Error resuming remote agent %s: %s", subagent_name, e, exc_info=True
-            )
+            logger.error("Error resuming remote agent %s: %s", subagent_name, e, exc_info=True)
             return f"Remote agent '{subagent_name}' resume failed: {e}"
 
         if task is None:
-            logger.warning("DEBUG_ASKUSER _handle_resume: task is None after resume")
             return f"Remote agent '{subagent_name}' returned no result after resume."
 
         state = task.status.state if task.status else None
-        logger.info(
-            "DEBUG_ASKUSER _handle_resume: subagent task state after resume: %s, task_id=%s",
-            state,
-            task.id,
-        )
 
         if state == TaskState.input_required:
             # The subagent has another HITL request (e.g. multiple tools needing

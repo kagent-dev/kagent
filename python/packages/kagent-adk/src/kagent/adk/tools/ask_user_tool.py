@@ -92,14 +92,8 @@ class AskUserTool(BaseTool):
             # First invocation — pause execution and ask the user.
             summary = "; ".join(q.get("question", "") for q in questions if q.get("question"))
             tool_context.request_confirmation(hint=summary or "Questions for the user.")
-            logger.info("DEBUG_ASKUSER ask_user: requesting confirmation with %d question(s)", len(questions))
+            logger.debug("ask_user: requesting confirmation with %d question(s)", len(questions))
             return {"status": "pending", "questions": questions}
-
-        logger.info(
-            "DEBUG_ASKUSER ask_user: resumed with confirmed=%s, payload=%s",
-            tool_context.tool_confirmation.confirmed,
-            tool_context.tool_confirmation.payload,
-        )
 
         if tool_context.tool_confirmation.confirmed:
             # Second invocation — the executor injected answers via payload.
@@ -109,9 +103,9 @@ class AskUserTool(BaseTool):
             for i, q in enumerate(questions):
                 ans = answers[i]["answer"] if i < len(answers) and "answer" in answers[i] else []
                 result.append({"question": q.get("question", ""), "answer": ans})
-            logger.info("DEBUG_ASKUSER ask_user: returning %d answer(s), result=%s", len(result), result)
+            logger.debug("ask_user: returning %d answer(s)", len(result))
             return json.dumps(result)
 
         # User cancelled or rejected (should not normally happen for ask_user).
-        logger.info("DEBUG_ASKUSER ask_user: confirmation not received, returning cancelled status")
+        logger.debug("ask_user: confirmation not received, returning cancelled status")
         return json.dumps({"status": "cancelled"})
