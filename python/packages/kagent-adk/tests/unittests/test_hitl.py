@@ -310,7 +310,7 @@ def test_process_hitl_decision_uniform_approve():
     assert resp["confirmed"] is True
 
 
-def test_process_hitl_decision_uniform_deny():
+def test_process_hitl_decision_uniform_reject():
     executor = A2aAgentExecutor(runner=MagicMock())
     session = MagicMock(spec=Session)
     session.events = [
@@ -391,8 +391,8 @@ def test_process_hitl_decision_batch():
     assert resp2["confirmed"] is False
 
 
-def test_process_hitl_decision_uniform_deny_with_reason():
-    """Uniform deny with a rejection_reason populates ToolConfirmation.payload."""
+def test_process_hitl_decision_uniform_reject_with_reason():
+    """Uniform reject with a rejection_reason populates ToolConfirmation.payload."""
     executor = A2aAgentExecutor(runner=MagicMock())
     session = MagicMock(spec=Session)
     session.events = [
@@ -435,7 +435,7 @@ def test_process_hitl_decision_uniform_deny_with_reason():
 
 
 def test_process_hitl_decision_batch_with_per_tool_reason():
-    """Batch deny with per-tool rejection reasons populates ToolConfirmation.payload for denied tools."""
+    """Batch reject with per-tool rejection reasons populates ToolConfirmation.payload for rejected tools."""
     executor = A2aAgentExecutor(runner=MagicMock())
     session = MagicMock(spec=Session)
     session.events = [

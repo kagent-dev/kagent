@@ -57,7 +57,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
-/** Returns true if the message is a user HITL decision (approve/deny) or ask-user answer. */
+/** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
   if (message.role !== "user" || !message.parts) return false;
   return message.parts.some((p: Part) => {
@@ -135,7 +135,7 @@ function findDecisionAfterIndex(
 
 /**
  * Resolve the decision for a specific tool from the user's decision data.
- * Handles uniform ("approve"/"deny") and batch modes.
+ * Handles uniform ("approve"/"reject") and batch modes.
  */
 function resolveToolDecision(
   decisionData: Record<string, unknown> | undefined,
@@ -195,6 +195,30 @@ export function buildApprovalMessage(
   // subagent's adk_request_confirmation DataParts in the payload so we can
   // show the actual inner tool(s) instead of the generic "call subagent" request.
   const hitlParts: HitlPartInfo[] | undefined = data.args.toolConfirmation?.payload?.hitl_parts;
+
+  // Subagent ask_user: if the only inner tool is ask_user, render the
+  // AskUserDisplay instead of a generic approval card.
+  if (hitlParts && hitlParts.length === 1 && hitlParts[0].originalFunctionCall.name === "ask_user") {
+    const innerFc = hitlParts[0].originalFunctionCall;
+    const innerToolId = innerFc.id || hitlParts[0].id || toolId;
+    const askUserAnswers = decisionData?.ask_user_answers as Array<{ answer: string[] }> | undefined;
+    const subagentNameForAskUser: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
+    return createMessage("", "agent", {
+      originalType: "AskUserRequest",
+      contextId,
+      taskId,
+      additionalMetadata: {
+        askUserData: {
+          id: innerToolId,
+          questions: (innerFc.args as { questions?: unknown }).questions || [],
+        },
+        askUserAnswers: askUserAnswers || null,
+        approvalDecision: decisionData?.decision_type ? "approve" : undefined,
+        subagentName: subagentNameForAskUser,
+      },
+    });
+  }
+
   let toolCallContent: ProcessedToolCallData[];
 
   if (hitlParts && hitlParts.length > 0) {

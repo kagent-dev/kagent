@@ -41,7 +41,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from kagent.core.a2a import (
-    KAGENT_HITL_DECISION_TYPE_DENY,
+    KAGENT_HITL_DECISION_TYPE_REJECT,
     TaskResultAggregator,
     ToolApprovalRequest,
     extract_decision_from_message,
@@ -307,9 +307,11 @@ class LangGraphAgentExecutor(AgentExecutor):
         decision_type = extract_decision_from_message(context.message)
 
         if not decision_type:
-            # Security: Default to deny if decision cannot be determined
-            logger.warning(f"Could not determine decision from message for task {context.task_id}, defaulting to deny")
-            decision_type = KAGENT_HITL_DECISION_TYPE_DENY
+            # Security: Default to reject if decision cannot be determined
+            logger.warning(
+                f"Could not determine decision from message for task {context.task_id}, defaulting to reject"
+            )
+            decision_type = KAGENT_HITL_DECISION_TYPE_REJECT
 
         # Get thread_id from existing task metadata (critical for resume!)
         thread_id = None

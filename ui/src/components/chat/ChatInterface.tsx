@@ -465,7 +465,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const submitDecisions = (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
-    const allDeny = values.every(v => v !== "approve");
+    const allReject = values.every(v => v !== "approve");
     const reasons = pendingRejectionReasonsRef.current;
 
     if (allApprove) {
@@ -474,10 +474,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         { decision_type: "approve" },
         "Approved",
       );
-    } else if (allDeny && Object.values(reasons).length === 0) {
-      // Uniform deny without reason, otherwise fall through to batch
+    } else if (allReject && Object.values(reasons).length === 0) {
+      // Uniform reject without reason, otherwise fall through to batch
       sendApprovalDecision(
-        { decision_type: "deny" },
+        { decision_type: "reject" },
         "Rejected",
       );
     } else {
@@ -487,14 +487,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       // forwards the batch to the subagent.
       const decisionData: Record<string, unknown> = { decision_type: "batch", decisions };
       // Include per-tool rejection reasons for denied tools (if any)
-      const deniedReasons: Record<string, string> = {};
+      const rejectedReasons: Record<string, string> = {};
       for (const [toolId, decision] of Object.entries(decisions)) {
-        if (decision === "deny" && reasons[toolId]) {
-          deniedReasons[toolId] = reasons[toolId];
+        if (decision === "reject" && reasons[toolId]) {
+          rejectedReasons[toolId] = reasons[toolId];
         }
       }
-      if (Object.keys(deniedReasons).length > 0) {
-        decisionData.rejection_reasons = deniedReasons;
+      if (Object.keys(rejectedReasons).length > 0) {
+        decisionData.rejection_reasons = rejectedReasons;
       }
       sendApprovalDecision(
         decisionData,
@@ -509,7 +509,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setPendingDecisions(updated);
 
     // Track rejection reason (if any)
-    if (decision === "deny" && reason) {
+    if (decision === "reject" && reason) {
       const updatedReasons = { ...pendingRejectionReasonsRef.current, [toolCallId]: reason };
       pendingRejectionReasonsRef.current = updatedReasons;
     }
@@ -528,7 +528,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleReject = (toolCallId: string, reason?: string) => {
-    recordDecision(toolCallId, "deny", reason);
+    recordDecision(toolCallId, "reject", reason);
   };
 
   /**

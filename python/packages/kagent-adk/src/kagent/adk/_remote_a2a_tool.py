@@ -44,8 +44,8 @@ from google.genai import types as genai_types
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
+    KAGENT_HITL_DECISION_TYPE_REJECT,
     extract_hitl_info_from_task,
 )
 
@@ -283,6 +283,13 @@ class KAgentRemoteA2ATool(BaseTool):
         confirmation = tool_context.tool_confirmation
         payload = confirmation.payload or {}
 
+        logger.info(
+            "DEBUG_ASKUSER _handle_resume: confirmed=%s, payload_keys=%s, payload=%s",
+            confirmation.confirmed,
+            list(payload.keys()) if payload else None,
+            payload,
+        )
+
         task_id = payload.get("task_id")
         context_id = payload.get("context_id")
         subagent_name = payload.get("subagent_name", self.name)
@@ -292,12 +299,15 @@ class KAgentRemoteA2ATool(BaseTool):
             return f"Cannot resume remote agent '{subagent_name}': missing task context."
 
         # Build the decision message.
-        # If the parent executor forwarded per-tool batch decisions (mixed
-        # approve/deny for the subagent's inner tools), relay them as-is so
-        # the subagent's own _process_hitl_decision handles them.
+        # The parent executor merges its own data into the payload alongside
+        # the original request_confirmation payload (task_id, context_id, etc).
+        # We detect the kind of decision and forward the relevant keys.
         decision_type = None
         batch_decisions = payload.get("batch_decisions")
+        ask_user_answers = payload.get("answers")
+
         if batch_decisions and isinstance(batch_decisions, dict):
+            # Per-tool batch decisions (mixed approve/reject for inner tools)
             decision_type = KAGENT_HITL_DECISION_TYPE_BATCH
             decision_data: dict[str, Any] = {
                 KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
@@ -306,11 +316,23 @@ class KAgentRemoteA2ATool(BaseTool):
             rej_reasons = payload.get("rejection_reasons")
             if rej_reasons and isinstance(rej_reasons, dict):
                 decision_data["rejection_reasons"] = rej_reasons
+        elif ask_user_answers and isinstance(ask_user_answers, list):
+            # ask_user answers — forward as approve + answers so the
+            # subagent's _process_hitl_decision takes the ask_user path
+            decision_type = KAGENT_HITL_DECISION_TYPE_APPROVE
+            decision_data = {
+                KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE,
+                "ask_user_answers": ask_user_answers,
+            }
+            logger.info(
+                "DEBUG_ASKUSER _handle_resume: forwarding ask_user_answers to subagent, answers=%s",
+                ask_user_answers,
+            )
         else:
             if confirmation.confirmed:
                 decision_type = KAGENT_HITL_DECISION_TYPE_APPROVE
             else:
-                decision_type = KAGENT_HITL_DECISION_TYPE_DENY
+                decision_type = KAGENT_HITL_DECISION_TYPE_REJECT
             decision_data = {KAGENT_HITL_DECISION_TYPE_KEY: decision_type}
             # Include rejection reason if available
             if not confirmation.confirmed and payload:
@@ -333,24 +355,45 @@ class KAgentRemoteA2ATool(BaseTool):
             task_id,
         )
 
+        logger.info(
+            "DEBUG_ASKUSER _handle_resume: sending decision_message to subagent %s, task_id=%s, decision_data=%s",
+            subagent_name,
+            task_id,
+            decision_data,
+        )
+
         client = await self._ensure_client()
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message):
+                logger.info(
+                    "DEBUG_ASKUSER _handle_resume: got response from subagent, type=%s, response=%s",
+                    type(response).__name__,
+                    response,
+                )
                 if isinstance(response, tuple):
                     task = response[0]
                 elif isinstance(response, A2AMessage):
                     return self._extract_text_from_message(response)
         except A2AClientHTTPError as e:
+            logger.error("DEBUG_ASKUSER _handle_resume: A2AClientHTTPError: %s", e, exc_info=True)
             return f"Remote agent '{subagent_name}' resume failed: {e}"
         except Exception as e:
-            logger.error("Error resuming remote agent %s: %s", subagent_name, e, exc_info=True)
+            logger.error(
+                "DEBUG_ASKUSER _handle_resume: Error resuming remote agent %s: %s", subagent_name, e, exc_info=True
+            )
             return f"Remote agent '{subagent_name}' resume failed: {e}"
 
         if task is None:
+            logger.warning("DEBUG_ASKUSER _handle_resume: task is None after resume")
             return f"Remote agent '{subagent_name}' returned no result after resume."
 
         state = task.status.state if task.status else None
+        logger.info(
+            "DEBUG_ASKUSER _handle_resume: subagent task state after resume: %s, task_id=%s",
+            state,
+            task.id,
+        )
 
         if state == TaskState.input_required:
             # The subagent has another HITL request (e.g. multiple tools needing

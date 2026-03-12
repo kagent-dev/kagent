@@ -1,8 +1,6 @@
 # Human-in-the-Loop
 
-Kagent implements Human-in-the-Loop (HITL) tool approval by combining a custom extension on top of A2A Task-driven communication and Google ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent or a subagent calls a tool marked with `requireApproval` the system pauses execution and asks the user to approve or reject the call before proceeding.
-
-This design avoids as much homebrewed Kagent constants and HITL logic as possible. However, this is only to an extend. For example, there are still a lot of custom UI logic that cannot be avoided.
+Kagent implements Human-in-the-Loop (HITL) tool approval by combining a custom extension on top of A2A Task-driven communication and Google ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent or a subagent calls a tool marked with `requireApproval` the system pauses execution and asks the user to approve or reject the call before proceeding. This design avoids as much homebrewed Kagent constants and HITL logic as possible.
 
 Below documents, in depth, how the HITL logic works in Kagent, and how relevant features are designed.
 
@@ -124,7 +122,7 @@ sequenceDiagram
     Note over LLM, UI: ── Decision Path ──
 
     UI->>UI: User clicks Approve or Reject
-    UI->>Exec: A2A message with DataPart:<br/>{decision_type: "approve" | "deny"}<br/>(includes taskId for task routing)
+    UI->>Exec: A2A message with DataPart:<br/>{decision_type: "approve" | "reject"}<br/>(includes taskId for task routing)
     Exec->>Exec: _find_pending_confirmations(session)<br/>→ fc_id of adk_request_confirmation
     Exec->>ADK: FunctionResponse(adk_request_confirmation,<br/>id=fc_id, ToolConfirmation(confirmed=T/F))
 
@@ -186,11 +184,11 @@ sequenceDiagram
     Note over UI, STool: ── Decision Path ──
 
     UI->>UI: User clicks Approve or Reject
-    UI->>PExec: A2A message: {decision_type: "approve"|"deny"|"batch",<br/>decisions: {inner_fc1: "approve", ...}}
+    UI->>PExec: A2A message: {decision_type: "approve"|"reject"|"batch",<br/>decisions: {inner_fc1: "approve", ...}}
 
     PExec->>PExec: _find_pending_confirmations(session)<br/>→ outer fc_id, orig_payload has hitl_parts
 
-    alt Batch decision (mixed approve/deny)
+    alt Batch decision (mixed approve/reject)
         PExec->>PExec: Detect subagent HITL (hitl_parts in payload)<br/>Store batch_decisions in ToolConfirmation.payload
     else Uniform decision
         PExec->>PExec: Set ToolConfirmation(confirmed=T/F)
@@ -205,7 +203,7 @@ sequenceDiagram
     alt Batch decisions in payload
         Tool->>Tool: Build batch decision message:<br/>{decision_type: batch, decisions: {...}}
     else Uniform
-        Tool->>Tool: Build uniform message:<br/>{decision_type: approve|deny}
+        Tool->>Tool: Build uniform message:<br/>{decision_type: approve|reject}
     end
 
     Tool->>SExec: A2A message with decision<br/>(routed to subagent's pending task)
@@ -347,13 +345,13 @@ The message contains two parts:
 { "kind": "data", "data": { "decision_type": "approve" }, "metadata": {} }
 ```
 
-#### Uniform deny
+#### Uniform reject
 
 ```json
-{ "kind": "data", "data": { "decision_type": "deny" }, "metadata": {} }
+{ "kind": "data", "data": { "decision_type": "reject" }, "metadata": {} }
 ```
 
-#### Batch (mixed or deny-with-reason)
+#### Batch (mixed or reject-with-reason)
 
 ```json
 {
@@ -362,7 +360,7 @@ The message contains two parts:
     "decision_type": "batch",
     "decisions": {
       "<tool_call_id_1>": "approve",
-      "<tool_call_id_2>": "deny"
+      "<tool_call_id_2>": "reject"
     },
     "rejection_reasons": {
       "<tool_call_id_2>": "Too dangerous"
@@ -383,7 +381,7 @@ from `hitl_parts[].originalFunctionCall.id`.
 
 When the approval request is for the `ask_user` tool (detected via
 `originalFunctionCall.name === "ask_user"`), send answers instead of
-a simple approve/deny:
+a simple approve/reject:
 
 ```json
 {

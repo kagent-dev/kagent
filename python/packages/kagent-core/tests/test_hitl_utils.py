@@ -1,12 +1,12 @@
-"""Tests for HITL utility functions in kagent.core.a2a._hitl."""
+"""Tests for HITL utility functions in kagent.core.a2a._hitl_utils."""
 
 from a2a.types import DataPart, Message, Part, Role, Task, TaskState, TaskStatus
 
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
+    KAGENT_HITL_DECISION_TYPE_REJECT,
     KAGENT_HITL_REJECTION_REASONS_KEY,
     HitlPartInfo,
     OriginalFunctionCall,
@@ -72,9 +72,9 @@ class TestExtractDecisionFromMessage:
         msg = _make_message({KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE})
         assert extract_decision_from_message(msg) == KAGENT_HITL_DECISION_TYPE_APPROVE
 
-    def test_deny(self):
-        msg = _make_message({KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_DENY})
-        assert extract_decision_from_message(msg) == KAGENT_HITL_DECISION_TYPE_DENY
+    def test_reject(self):
+        msg = _make_message({KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT})
+        assert extract_decision_from_message(msg) == KAGENT_HITL_DECISION_TYPE_REJECT
 
     def test_batch(self):
         msg = _make_message(
@@ -115,12 +115,12 @@ class TestExtractBatchDecisionsFromMessage:
         msg = _make_message(
             {
                 KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
-                "decisions": {"tool1": "approve", "tool2": "deny"},
+                "decisions": {"tool1": "approve", "tool2": "reject"},
             }
         )
         assert extract_batch_decisions_from_message(msg) == {
             "tool1": "approve",
-            "tool2": "deny",
+            "tool2": "reject",
         }
 
     def test_none_message(self):
@@ -146,12 +146,12 @@ class TestExtractBatchDecisionsFromMessage:
                 "decisions": {
                     "tool1": "approve",
                     "tool2": "invalid_value",
-                    "tool3": "deny",
+                    "tool3": "reject",
                 },
             }
         )
         result = extract_batch_decisions_from_message(msg)
-        assert result == {"tool1": "approve", "tool3": "deny"}
+        assert result == {"tool1": "approve", "tool3": "reject"}
 
     def test_all_invalid_returns_none(self):
         msg = _make_message(
@@ -169,23 +169,23 @@ class TestExtractBatchDecisionsFromMessage:
 
 
 class TestExtractRejectionReasonsFromMessage:
-    def test_uniform_deny_with_reason(self):
+    def test_uniform_reject_with_reason(self):
         msg = _make_message(
             {
-                KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_DENY,
+                KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT,
                 "rejection_reason": "Too dangerous",
             }
         )
         assert extract_rejection_reasons_from_message(msg) == {"*": "Too dangerous"}
 
-    def test_uniform_deny_without_reason(self):
-        msg = _make_message({KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_DENY})
+    def test_uniform_reject_without_reason(self):
+        msg = _make_message({KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT})
         assert extract_rejection_reasons_from_message(msg) is None
 
-    def test_uniform_deny_empty_reason(self):
+    def test_uniform_reject_empty_reason(self):
         msg = _make_message(
             {
-                KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_DENY,
+                KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT,
                 "rejection_reason": "",
             }
         )

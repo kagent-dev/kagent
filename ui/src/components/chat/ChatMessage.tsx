@@ -9,6 +9,7 @@ import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 import { convertToUserFriendlyName } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
+import { ToolDecision } from "@/types";
 
 interface ChatMessageProps {
   message: Message;
@@ -20,7 +21,7 @@ interface ChatMessageProps {
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
-  pendingDecisions?: Record<string, "approve" | "deny">;
+  pendingDecisions?: Record<string, ToolDecision>;
 }
 
 export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
@@ -92,12 +93,14 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     const resolvedAnswers = metadata?.askUserAnswers as Array<{ answer: string[] }> | null | undefined;
     const isResolved = !!metadata?.approvalDecision;
     const questions: AskUserQuestion[] = askUserData?.questions ?? [];
+    const askUserSubagentName = metadata?.subagentName as string | undefined;
     return (
       <AskUserDisplay
         questions={questions}
         isResolved={isResolved}
         resolvedAnswers={resolvedAnswers ?? null}
         onSubmit={(answers) => onAskUserSubmit?.(answers)}
+        subagentName={askUserSubagentName}
       />
     );
   }

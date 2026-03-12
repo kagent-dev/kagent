@@ -432,10 +432,21 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ToolConfirmation with the answers payload regardless of decision_type.
         # The tool will use the payload and construct the user answer to the agent
         ask_user_answers = extract_ask_user_answers_from_message(message)
+        logger.info(
+            "DEBUG_ASKUSER _process_hitl_decision: ask_user_answers=%s, decision=%s",
+            ask_user_answers,
+            decision,
+        )
         if ask_user_answers is not None:
             parts = []
             for fc_id, (_, orig_payload) in pending_confirmations.items():
                 payload = self._build_confirmation_payload(orig_payload, {"answers": ask_user_answers})
+                logger.info(
+                    "DEBUG_ASKUSER building ToolConfirmation: fc_id=%s, orig_payload_keys=%s, merged_payload_keys=%s",
+                    fc_id,
+                    list(orig_payload.keys()) if orig_payload else None,
+                    list(payload.keys()) if payload else None,
+                )
                 confirmation = ToolConfirmation(confirmed=True, payload=payload)
                 parts.append(
                     genai_types.Part(
@@ -477,12 +488,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     # Direct tool — look up by original_id as before
                     tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
                     confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
-                    extra_deny: dict | None = None
+                    extra_reject: dict | None = None
                     if not confirmed and rejection_reasons:
                         reason = rejection_reasons.get(original_id) if original_id else None
                         if reason:
-                            extra_deny = {"rejection_reason": reason}
-                    payload = self._build_confirmation_payload(orig_payload, extra_deny)
+                            extra_reject = {"rejection_reason": reason}
+                    payload = self._build_confirmation_payload(orig_payload, extra_reject)
                     confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
 
                 parts.append(
@@ -532,8 +543,23 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
         decision = extract_decision_from_message(context.message)
+        logger.info(
+            "DEBUG_ASKUSER _handle_request: decision=%s, message_parts=%s",
+            decision,
+            [
+                (type(p.root).__name__, getattr(p.root, "data", None))
+                for p in (context.message.parts or [])
+                if hasattr(p, "root")
+            ]
+            if context.message and context.message.parts
+            else None,
+        )
         if decision:
             parts = self._process_hitl_decision(session, decision, context.message)
+            logger.info(
+                "DEBUG_ASKUSER _handle_request: _process_hitl_decision returned %d parts",
+                len(parts) if parts else 0,
+            )
             if parts:
                 run_args["new_message"] = genai_types.Content(role="user", parts=parts)
             # Fall through to normal execution with the constructed FunctionResponse
@@ -609,6 +635,11 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     break
 
         # publish the task result event - this is final
+        logger.info(
+            "DEBUG_ASKUSER _handle_request: publishing final event, task_state=%s, has_message=%s",
+            task_result_aggregator.task_state,
+            task_result_aggregator.task_status_message is not None,
+        )
         if (
             task_result_aggregator.task_state == TaskState.working
             and task_result_aggregator.task_status_message is not None

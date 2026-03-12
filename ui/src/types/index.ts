@@ -452,16 +452,16 @@ export interface AgentMemory {
 // ---------------------------------------------------------------------------
 // HITL (Human-in-the-Loop) types
 //
-// These mirror the Python models in kagent-core/a2a/_hitl.py and describe the 
+// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the 
 // A2A - UI wire format for request and decision paths in HITL flow.
 // ---------------------------------------------------------------------------
 
 /** A single tool approval decision value. */
-export type ToolDecision = "approve" | "deny";
+export type ToolDecision = "approve" | "reject";
 
 /**
  * The resolved approval decision stored on a ToolApprovalRequest message.
- * - A single ToolDecision string for uniform decisions (all approve or all deny).
+ * - A single ToolDecision string for uniform decisions (all approve or all reject).
  * - A per-tool map (keyed by tool call ID) for batch/mixed decisions.
  */
 export type ApprovalDecision = ToolDecision | Record<string, ToolDecision>;
