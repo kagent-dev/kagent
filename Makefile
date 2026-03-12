@@ -36,6 +36,7 @@ UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
+RUST_ADK_IMAGE_NAME ?= rust-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
@@ -43,6 +44,7 @@ UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
+RUST_ADK_IMAGE_TAG ?= $(VERSION)
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
@@ -50,6 +52,7 @@ UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
+RUST_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(RUST_ADK_IMAGE_NAME):$(RUST_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 
 #take from go/go.mod
@@ -215,7 +218,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-golang-adk build-skills-init
+build: buildx-create build-controller build-ui build-app build-golang-adk build-rust-adk build-skills-init
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -278,6 +281,10 @@ build-app: buildx-create build-kagent-adk
 .PHONY: build-golang-adk
 build-golang-adk: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+
+.PHONY: build-rust-adk
+build-rust-adk: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(RUST_ADK_IMG) -f rust/Dockerfile ./rust
 
 .PHONY: build-skills-init
 build-skills-init: buildx-create

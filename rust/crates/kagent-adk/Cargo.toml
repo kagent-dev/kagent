@@ -1,0 +1,68 @@
+[package]
+name = "kagent-adk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+description = "Kagent Rust ADK runtime — bridges adk-rust with the kagent controller"
+license = "Apache-2.0"
+
+[[bin]]
+name = "kagent-adk"
+path = "src/main.rs"
+
+[lib]
+name = "kagent_adk"
+path = "src/lib.rs"
+
+[[example]]
+name = "byo"
+path = "examples/byo/main.rs"
+
+[dependencies]
+# adk-rust crates
+adk-core = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+adk-agent = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+adk-model = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1", features = ["openai", "anthropic", "gemini", "ollama"] }
+adk-tool = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1", features = ["http-transport"] }
+adk-runner = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+adk-server = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+adk-session = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+adk-plugin = { git = "https://github.com/zavora-ai/adk-rust.git", tag = "v0.3.1" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Web framework (needed for axum::serve)
+axum = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# MCP client (same version adk-tool uses)
+rmcp = { version = "0.15", features = ["client", "transport-streamable-http-client-reqwest"] }
+
+[dev-dependencies]
+wiremock = "0.6"

@@ -132,7 +132,8 @@ type probeConfig struct {
 // getRuntimeProbeConfig returns readiness probe configuration for a runtime
 func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
+	case v1alpha2.DeclarativeRuntime_Go, v1alpha2.DeclarativeRuntime_Rust:
+		// Compiled runtimes (Go, Rust) start fast — single binary, no interpreter
 		return probeConfig{
 			InitialDelaySeconds: 1,
 			TimeoutSeconds:      5,

@@ -39,12 +39,13 @@ const (
 )
 
 // DeclarativeRuntime represents the runtime implementation for declarative agents
-// +kubebuilder:validation:Enum=python;go
+// +kubebuilder:validation:Enum=python;go;rust
 type DeclarativeRuntime string
 
 const (
 	DeclarativeRuntime_Python DeclarativeRuntime = "python"
 	DeclarativeRuntime_Go     DeclarativeRuntime = "go"
+	DeclarativeRuntime_Rust   DeclarativeRuntime = "rust"
 )
 
 // AgentSpec defines the desired state of Agent.
@@ -133,7 +134,7 @@ type DeclarativeAgentSpec struct {
 	// The runtime determines both the container image and readiness probe configuration.
 	// +optional
 	// +kubebuilder:default=python
-	// +kubebuilder:validation:Enum=python;go
+	// +kubebuilder:validation:Enum=python;go;rust
 	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template

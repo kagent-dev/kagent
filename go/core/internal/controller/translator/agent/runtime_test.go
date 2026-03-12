@@ -241,6 +241,81 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 	assert.Equal(t, int32(15), container.ReadinessProbe.PeriodSeconds, "Should default to Python's 15s period")
 }
 
+func TestRuntime_RustRuntime(t *testing.T) {
+	ctx := context.Background()
+
+	// Create agent with Rust runtime
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rust-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Rust,
+				SystemMessage: "Test Rust agent",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	// Create model config
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	// Set up fake client
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	// Create translator
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+
+	// Translate agent
+	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Extract deployment from manifest
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment, "Deployment should be in manifest")
+
+	// Verify container image uses rust-adk
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	container := deployment.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Image, "rust-adk", "Image should use rust-adk repository")
+
+	// Verify Rust runtime readiness probe timings (fast startup, same as Go)
+	require.NotNil(t, container.ReadinessProbe)
+	assert.Equal(t, int32(1), container.ReadinessProbe.InitialDelaySeconds, "Rust runtime should have 1s initial delay")
+	assert.Equal(t, int32(5), container.ReadinessProbe.TimeoutSeconds, "Rust runtime should have 5s timeout")
+	assert.Equal(t, int32(1), container.ReadinessProbe.PeriodSeconds, "Rust runtime should have 1s period")
+}
+
 func TestRuntime_CustomRepositoryPath(t *testing.T) {
 	ctx := context.Background()
 

@@ -85,14 +85,10 @@ func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 		// Derive Go runtime repository from the default Python repository
 		// by replacing the last segment (typically "app") with "golang-adk".
 		// This respects any custom repository configuration.
-		pythonRepo := DefaultImageConfig.Repository
-		lastSlash := strings.LastIndex(pythonRepo, "/")
-		if lastSlash == -1 {
-			// No slash found, repository is just the image name
-			return "golang-adk"
-		}
-		baseRepo := pythonRepo[:lastSlash]
-		return baseRepo + "/golang-adk"
+		return deriveRuntimeRepository("golang-adk")
+	case v1alpha2.DeclarativeRuntime_Rust:
+		// Derive Rust runtime repository by replacing the last segment with "rust-adk".
+		return deriveRuntimeRepository("rust-adk")
 	case v1alpha2.DeclarativeRuntime_Python:
 		// Use the configured Python repository as-is
 		return DefaultImageConfig.Repository
@@ -100,6 +96,18 @@ func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 		// Default to Python (should never happen due to enum validation)
 		return DefaultImageConfig.Repository
 	}
+}
+
+// deriveRuntimeRepository replaces the last path segment of the default Python
+// repository with the given image name. This ensures custom repository
+// configurations (e.g., --image-repository flag) work correctly for all runtimes.
+func deriveRuntimeRepository(imageName string) string {
+	pythonRepo := DefaultImageConfig.Repository
+	lastSlash := strings.LastIndex(pythonRepo, "/")
+	if lastSlash == -1 {
+		return imageName
+	}
+	return pythonRepo[:lastSlash] + "/" + imageName
 }
 
 func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
