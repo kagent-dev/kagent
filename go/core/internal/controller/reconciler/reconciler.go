@@ -85,7 +85,7 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
 		if apierrors.IsNotFound(err) {
-			return a.handleAgentDeletion(req)
+			return a.handleAgentDeletion(ctx, req)
 		}
 
 		return fmt.Errorf("failed to get agent %s: %w", req.NamespacedName, err)
@@ -99,9 +99,9 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 	return a.reconcileAgentStatus(ctx, agent, err)
 }
 
-func (a *kagentReconciler) handleAgentDeletion(req ctrl.Request) error {
+func (a *kagentReconciler) handleAgentDeletion(ctx context.Context, req ctrl.Request) error {
 	id := utils.ConvertToPythonIdentifier(req.String())
-	if err := a.dbClient.DeleteAgent(id); err != nil {
+	if err := a.dbClient.DeleteAgent(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete agent %s: %w",
 			req.String(), err)
 	}
@@ -205,11 +205,11 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 				Name:      req.String(),
 				GroupKind: schema.GroupKind{Group: "", Kind: "Service"}.String(),
 			}
-			if err := a.dbClient.DeleteToolServer(dbService.Name, dbService.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolServer(ctx, dbService.Name, dbService.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tool server for mcp service", "service", req.String())
 			}
 			reconcileLog.Info("mcp service was deleted", "service", req.String())
-			if err := a.dbClient.DeleteToolsForServer(dbService.Name, dbService.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolsForServer(ctx, dbService.Name, dbService.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.String())
 			}
 			return nil
@@ -378,11 +378,11 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 				Name:      req.String(),
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}.String(),
 			}
-			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tool server for mcp server", "mcpServer", req.String())
 			}
 			reconcileLog.Info("mcp server was deleted", "mcpServer", req.String())
-			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.String())
 			}
 			return nil
@@ -428,11 +428,11 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 				GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String(),
 			}
 
-			if err := a.dbClient.DeleteToolServer(dbServer.Name, dbServer.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				l.Error(err, "failed to delete tool server for remote mcp server")
 			}
 
-			if err := a.dbClient.DeleteToolsForServer(dbServer.Name, dbServer.GroupKind); err != nil {
+			if err := a.dbClient.DeleteToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				l.Error(err, "failed to delete tools for remote mcp server")
 			}
 
@@ -835,7 +835,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 		Config: agentOutputs.Config,
 	}
 
-	if err := a.dbClient.StoreAgent(dbAgent); err != nil {
+	if err := a.dbClient.StoreAgent(ctx, dbAgent); err != nil {
 		return fmt.Errorf("failed to store agent %s: %w", id, err)
 	}
 
@@ -843,7 +843,7 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Agen
 }
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
-	if _, err := a.dbClient.StoreToolServer(toolServer); err != nil {
+	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
 		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
 
@@ -858,7 +858,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 	}
 
 	// Refresh tools in database - uses transaction for atomicity
-	if err := a.dbClient.RefreshToolsForServer(toolServer.Name, toolServer.GroupKind, tools...); err != nil {
+	if err := a.dbClient.RefreshToolsForServer(ctx, toolServer.Name, toolServer.GroupKind, tools...); err != nil {
 		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
@@ -956,7 +956,7 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, too
 
 func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha2.MCPTool, error) {
 	// This function is currently only used for RemoteMCPServer
-	allTools, err := a.dbClient.ListToolsForServer(serverRef, schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String())
+	allTools, err := a.dbClient.ListToolsForServer(ctx, serverRef, schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String())
 	if err != nil {
 		return nil, err
 	}

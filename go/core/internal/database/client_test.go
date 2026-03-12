@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 func TestConcurrentAgentUpserts(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	const numGoroutines = 10
 	const numUpserts = 50
@@ -36,7 +38,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 					ID:   agentID,
 					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
 				}
-				err := client.StoreAgent(agent)
+				err := client.StoreAgent(ctx, agent)
 				assert.NoError(t, err, "StoreAgent should not fail")
 			}
 		}(i)
@@ -45,7 +47,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 	wg.Wait()
 
 	// Verify the agent exists and has valid data (not corrupted)
-	agent, err := client.GetAgent(agentID)
+	agent, err := client.GetAgent(ctx, agentID)
 	require.NoError(t, err)
 	assert.Equal(t, agentID, agent.ID)
 	assert.NotEmpty(t, agent.Type) // Should have some valid type from one of the upserts
@@ -56,6 +58,7 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 func TestConcurrentToolServerUpserts(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	const numGoroutines = 10
 	const numUpserts = 50
@@ -75,7 +78,7 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 					GroupKind:   groupKind,
 					Description: fmt.Sprintf("Description from goroutine %d iteration %d", goroutineID, j),
 				}
-				_, err := client.StoreToolServer(toolServer)
+				_, err := client.StoreToolServer(ctx, toolServer)
 				assert.NoError(t, err, "StoreToolServer should not fail")
 			}
 		}(i)
@@ -84,7 +87,7 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 	wg.Wait()
 
 	// Verify the tool server exists and has valid data
-	server, err := client.GetToolServer(serverName)
+	server, err := client.GetToolServer(ctx, serverName)
 	require.NoError(t, err)
 	assert.Equal(t, serverName, server.Name)
 	assert.NotEmpty(t, server.Description)
@@ -96,12 +99,13 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	serverName := "test-server"
 	groupKind := "RemoteMCPServer"
 
 	// Create the tool server first
-	_, err := client.StoreToolServer(&dbpkg.ToolServer{
+	_, err := client.StoreToolServer(ctx, &dbpkg.ToolServer{
 		Name:        serverName,
 		GroupKind:   groupKind,
 		Description: "Test server",
@@ -121,7 +125,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 				{Name: fmt.Sprintf("tool-a-%d", goroutineID), Description: "Tool A"},
 				{Name: fmt.Sprintf("tool-b-%d", goroutineID), Description: "Tool B"},
 			}
-			err := client.RefreshToolsForServer(serverName, groupKind, tools...)
+			err := client.RefreshToolsForServer(ctx, serverName, groupKind, tools...)
 			assert.NoError(t, err, "RefreshToolsForServer should not fail")
 		}(i)
 	}
@@ -129,7 +133,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	wg.Wait()
 
 	// Verify the tools exist (we don't know which goroutine's tools "won", but the state should be consistent)
-	tools, err := client.ListToolsForServer(serverName, groupKind)
+	tools, err := client.ListToolsForServer(ctx, serverName, groupKind)
 	require.NoError(t, err)
 	// Should have exactly 2 tools from one of the refresh operations
 	assert.Len(t, tools, 2, "Should have exactly 2 tools after concurrent refreshes")
@@ -141,6 +145,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 func TestStoreAgentIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agent := &dbpkg.Agent{
 		ID:   "idempotent-agent",
@@ -148,20 +153,20 @@ func TestStoreAgentIdempotence(t *testing.T) {
 	}
 
 	// First store should succeed
-	err := client.StoreAgent(agent)
+	err := client.StoreAgent(ctx, agent)
 	require.NoError(t, err, "First StoreAgent should succeed")
 
 	// Second store with same data should also succeed (idempotent)
-	err = client.StoreAgent(agent)
+	err = client.StoreAgent(ctx, agent)
 	require.NoError(t, err, "Second StoreAgent should succeed (idempotent)")
 
 	// Third store with updated data should succeed (upsert)
 	agent.Type = "byo"
-	err = client.StoreAgent(agent)
+	err = client.StoreAgent(ctx, agent)
 	require.NoError(t, err, "Third StoreAgent with updated data should succeed")
 
 	// Verify final state
-	retrieved, err := client.GetAgent(agent.ID)
+	retrieved, err := client.GetAgent(ctx, agent.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "byo", retrieved.Type, "Agent should have updated type")
 }
@@ -170,6 +175,7 @@ func TestStoreAgentIdempotence(t *testing.T) {
 func TestStoreToolServerIdempotence(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	server := &dbpkg.ToolServer{
 		Name:        "idempotent-server",
@@ -178,20 +184,20 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	}
 
 	// First store
-	_, err := client.StoreToolServer(server)
+	_, err := client.StoreToolServer(ctx, server)
 	require.NoError(t, err, "First StoreToolServer should succeed")
 
 	// Second store with same data (idempotent)
-	_, err = client.StoreToolServer(server)
+	_, err = client.StoreToolServer(ctx, server)
 	require.NoError(t, err, "Second StoreToolServer should succeed")
 
 	// Third store with updated data (upsert)
 	server.Description = "Updated description"
-	_, err = client.StoreToolServer(server)
+	_, err = client.StoreToolServer(ctx, server)
 	require.NoError(t, err, "Third StoreToolServer with updated data should succeed")
 
 	// Verify final state
-	retrieved, err := client.GetToolServer(server.Name)
+	retrieved, err := client.GetToolServer(ctx, server.Name)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated description", retrieved.Description)
 }
@@ -222,6 +228,7 @@ func setupTestDB(t *testing.T) *Manager {
 func TestListEventsForSession(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 	userID := "test-user"
 	sessionID := "test-session"
 
@@ -233,7 +240,7 @@ func TestListEventsForSession(t *testing.T) {
 			UserID:    userID,
 			Data:      "{}",
 		}
-		err := client.StoreEvents(event)
+		err := client.StoreEvents(ctx, event)
 		require.NoError(t, err)
 	}
 
@@ -254,7 +261,7 @@ func TestListEventsForSession(t *testing.T) {
 			opts := dbpkg.QueryOptions{
 				Limit: tc.limit,
 			}
-			events, err := client.ListEventsForSession(sessionID, userID, opts)
+			events, err := client.ListEventsForSession(ctx, sessionID, userID, opts)
 			require.NoError(t, err)
 			assert.Len(t, events, tc.expectedCount)
 		})
@@ -264,6 +271,7 @@ func TestListEventsForSession(t *testing.T) {
 func TestListEventsForSessionOrdering(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 	userID := "test-user"
 	sessionID := "test-session"
 
@@ -279,13 +287,13 @@ func TestListEventsForSessionOrdering(t *testing.T) {
 			CreatedAt: baseTime.Add(time.Duration(i) * time.Hour),
 			Data:      "{}",
 		}
-		err := client.StoreEvents(event)
+		err := client.StoreEvents(ctx, event)
 		require.NoError(t, err)
 	}
 
 	t.Run("Default (Desc)", func(t *testing.T) {
 		opts := dbpkg.QueryOptions{}
-		events, err := client.ListEventsForSession(sessionID, userID, opts)
+		events, err := client.ListEventsForSession(ctx, sessionID, userID, opts)
 		require.NoError(t, err)
 		require.Len(t, events, 3)
 		// Should be 2, 1, 0
@@ -298,7 +306,7 @@ func TestListEventsForSessionOrdering(t *testing.T) {
 		opts := dbpkg.QueryOptions{
 			OrderAsc: true,
 		}
-		events, err := client.ListEventsForSession(sessionID, userID, opts)
+		events, err := client.ListEventsForSession(ctx, sessionID, userID, opts)
 		require.NoError(t, err)
 		require.Len(t, events, 3)
 		// Should be 0, 1, 2
@@ -349,6 +357,7 @@ func makeEmbedding(v float32) pgvector.Vector {
 func TestStoreAndSearchAgentMemory(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agentName := "test-agent"
 	userID := "test-user"
@@ -378,12 +387,12 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 	}
 
 	for _, m := range memories {
-		err := client.StoreAgentMemory(m)
+		err := client.StoreAgentMemory(ctx, m)
 		require.NoError(t, err)
 	}
 
 	// Query with embedding; all three memories should be returned with high similarity.
-	results, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), 3)
+	results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 3)
 	require.NoError(t, err)
 	require.Len(t, results, 3, "Should return all 3 memories")
 	// Scores should be in [0, 1] (cosine similarity)
@@ -397,6 +406,7 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 func TestStoreAgentMemoriesBatch(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agentName := "batch-agent"
 	userID := "batch-user"
@@ -407,10 +417,10 @@ func TestStoreAgentMemoriesBatch(t *testing.T) {
 		{ID: "b-3", AgentName: agentName, UserID: userID, Content: "batch memory 3", Embedding: makeEmbedding(0.6)},
 	}
 
-	err := client.StoreAgentMemories(memories)
+	err := client.StoreAgentMemories(ctx, memories)
 	require.NoError(t, err)
 
-	results, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), 10)
+	results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 	assert.Len(t, results, 3, "All 3 batch-stored memories should be found")
 }
@@ -420,12 +430,13 @@ func TestStoreAgentMemoriesBatch(t *testing.T) {
 func TestSearchAgentMemoryLimit(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agentName := "limit-agent"
 	userID := "limit-user"
 
 	for i := range 5 {
-		err := client.StoreAgentMemory(&dbpkg.Memory{
+		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
 			ID:        fmt.Sprintf("lim-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -447,7 +458,7 @@ func TestSearchAgentMemoryLimit(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("limit_%d", tc.limit), func(t *testing.T) {
-			results, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), tc.limit)
+			results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), tc.limit)
 			require.NoError(t, err)
 			assert.Len(t, results, tc.expected)
 		})
@@ -459,21 +470,22 @@ func TestSearchAgentMemoryLimit(t *testing.T) {
 func TestSearchAgentMemoryIsolation(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID: "iso-1", AgentName: "agent-a", UserID: "user-1",
 		Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5),
 	}))
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID: "iso-2", AgentName: "agent-b", UserID: "user-1",
 		Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5),
 	}))
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID: "iso-3", AgentName: "agent-a", UserID: "user-2",
 		Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5),
 	}))
 
-	results, err := client.SearchAgentMemory("agent-a", "user-1", makeEmbedding(0.5), 10)
+	results, err := client.SearchAgentMemory(ctx, "agent-a", "user-1", makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 	require.Len(t, results, 1, "Should only return memories for agent-a / user-1")
 	assert.Equal(t, "iso-1", results[0].ID)
@@ -484,12 +496,13 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 func TestDeleteAgentMemory(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agentName := "my-agent"
 	userID := "del-user"
 
 	for i := range 3 {
-		err := client.StoreAgentMemory(&dbpkg.Memory{
+		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
 			ID:        fmt.Sprintf("del-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -500,14 +513,14 @@ func TestDeleteAgentMemory(t *testing.T) {
 	}
 
 	// Confirm they exist before deletion
-	before, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), 10)
+	before, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 	require.Len(t, before, 3)
 
-	err = client.DeleteAgentMemory(agentName, userID)
+	err = client.DeleteAgentMemory(ctx, agentName, userID)
 	require.NoError(t, err)
 
-	after, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), 10)
+	after, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 	assert.Empty(t, after, "All memories should be deleted")
 }
@@ -517,6 +530,7 @@ func TestDeleteAgentMemory(t *testing.T) {
 func TestPruneExpiredMemories(t *testing.T) {
 	db := setupVectorTestDB(t)
 	client := NewClient(db)
+	ctx := context.Background()
 
 	agentName := "prune-agent"
 	userID := "prune-user"
@@ -524,7 +538,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 
 	// Memory that is expired and unpopular — should be deleted
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID:          "prune-cold",
 		AgentName:   agentName,
 		UserID:      userID,
@@ -535,7 +549,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 	}))
 
 	// Memory that is expired but popular (AccessCount >= 10) — TTL should be extended
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID:          "prune-hot",
 		AgentName:   agentName,
 		UserID:      userID,
@@ -547,7 +561,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 
 	// Memory that has not expired — should be untouched
 	future := time.Now().Add(24 * time.Hour)
-	require.NoError(t, client.StoreAgentMemory(&dbpkg.Memory{
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
 		ID:          "prune-live",
 		AgentName:   agentName,
 		UserID:      userID,
@@ -557,10 +571,10 @@ func TestPruneExpiredMemories(t *testing.T) {
 		AccessCount: 0,
 	}))
 
-	err := client.PruneExpiredMemories()
+	err := client.PruneExpiredMemories(ctx)
 	require.NoError(t, err)
 
-	results, err := client.SearchAgentMemory(agentName, userID, makeEmbedding(0.5), 10)
+	results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 
 	ids := make([]string, 0, len(results))

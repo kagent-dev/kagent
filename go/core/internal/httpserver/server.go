@@ -166,7 +166,7 @@ func (m *MemoryCleanupRunnable) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ticker.C:
-			if err := m.DbClient.PruneExpiredMemories(); err != nil {
+			if err := m.DbClient.PruneExpiredMemories(ctx); err != nil {
 				log.Error(err, "Failed to prune expired memories")
 			}
 		case <-ctx.Done():
