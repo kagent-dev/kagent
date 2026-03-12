@@ -57,7 +57,7 @@ def read_file(
             path = working_dir / path
 
         allowed_dirs = [working_dir]
-        
+
         skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
         if skills_directory:
             allowed_dirs.append(Path(skills_directory))

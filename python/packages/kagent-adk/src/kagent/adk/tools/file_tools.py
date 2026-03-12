@@ -38,7 +38,6 @@ class ReadFileTool(BaseTool):
         if not self.skills_directory.exists():
             raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
-
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
             name=self.name,
