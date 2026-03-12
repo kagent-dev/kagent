@@ -181,45 +181,9 @@ kagent ships with built-in tools for Kubernetes, Helm, Istio, Argo Rollouts, Pro
 
 ## Exposing Agents as MCP Servers (IDE Integration)
 
-The kagent controller exposes a `/mcp` HTTP endpoint using Streamable HTTP MCP transport. This lets MCP-capable editors (Cursor, Claude Code, Windsurf, etc.) invoke kagent agents as tools.
+The kagent controller exposes a `/mcp` HTTP endpoint (Streamable HTTP transport) that lets MCP-capable editors (Cursor, Claude Code, Windsurf, etc.) invoke kagent agents as tools. It provides two MCP tools: `list_agents` and `invoke_agent`.
 
-### How It Works
-The controller's `/mcp` route provides two MCP tools:
-- **`list_agents`**: Discover all available agents
-- **`invoke_agent`**: Invoke a specific agent with a task (inputs: `agent` as `namespace/name`, `task`, optional `context_id`)
-
-### Prerequisites
-- kagent deployed to a Kubernetes cluster
-- Controller accessible — the controller Service defaults to `ClusterIP`. If you have a LoadBalancer (e.g., MetalLB in Kind clusters), set `controller.service.type=LoadBalancer` in Helm values to get a stable IP:
-  ```bash
-  # If using LoadBalancer service type (preferred — no port-forward needed)
-  kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-
-  # Otherwise, fall back to port-forward
-  kubectl -n kagent port-forward svc/kagent-controller 8083:8083
-  ```
-- Agents must be in **Accepted** and **DeploymentReady** state
-
-### Setting Up in Claude Code
-Add to `.claude/mcp.json`, using the controller's LoadBalancer IP if available (or `localhost:8083` if using port-forward):
-```json
-{
-  "mcpServers": {
-    "kagent": {
-      "type": "streamable-http",
-      "url": "http://<controller-ip>:8083/mcp"
-    }
-  }
-}
-```
-
-### Setting Up in Cursor
-Add to Cursor MCP settings, pointing to the controller's `/mcp` endpoint. The exact configuration depends on Cursor's MCP transport support — use the Streamable HTTP URL `http://localhost:8083/mcp`.
-
-### Verifying It Works
-After configuration, your IDE should discover `list_agents` and `invoke_agent` tools. Agent references use the `namespace/name` format (e.g., `kagent/k8s-agent`).
-
-For detailed setup and troubleshooting, see `references/mcp-ide-setup.md`.
+Point your IDE's MCP config at the controller's `/mcp` endpoint on port 8083 (via LoadBalancer IP or `kubectl port-forward`). For detailed setup, IDE-specific configuration, and troubleshooting, see `references/mcp-ide-setup.md`.
 
 ## System Prompt Best Practices
 
@@ -239,66 +203,9 @@ See the kagent docs on system prompts for detailed examples: https://kagent.dev/
 
 ### Prompt Templates
 
-kagent supports Go `text/template` syntax in `systemMessage` for composing prompts from reusable parts stored in ConfigMaps. Templates are resolved at reconciliation time — the agent runtime receives a plain string.
+kagent supports Go `text/template` syntax in `systemMessage` for composing prompts from reusable ConfigMap sections. Use `{{include "source/key"}}` to pull in content and `{{.AgentName}}`, `{{.ToolNames}}`, etc. for agent metadata. Templates are resolved at reconciliation time. kagent ships a `kagent-builtin-prompts` ConfigMap with reusable sections (safety guardrails, tool best practices, K8s context, etc.).
 
-**How it works:** Add a `promptTemplate` field with `dataSources` referencing ConfigMaps. Then use `{{include "source/key"}}` in the system message to pull in content, and `{{.Variable}}` for agent metadata.
-
-```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
-metadata:
-  name: k8s-helper
-  namespace: kagent
-spec:
-  declarative:
-    systemMessage: |
-      {{include "builtin/safety-guardrails"}}
-
-      You are {{.AgentName}}, a Kubernetes operations agent.
-      Your purpose: {{.Description}}
-
-      ## Available Tools
-      {{range .ToolNames}}- {{.}}
-      {{end}}
-
-      {{include "team-prompts/response-format"}}
-    promptTemplate:
-      dataSources:
-      - kind: ConfigMap
-        name: kagent-builtin-prompts   # ships with kagent
-        alias: builtin
-      - kind: ConfigMap
-        name: my-team-prompts
-        alias: team-prompts
-    modelConfig: default-model-config
-    tools: [...]
-```
-
-**Include syntax:** `{{include "alias/key"}}` — where `alias` is the `alias` field (or ConfigMap name if no alias), and `key` is the ConfigMap data key. The `/` separator is intentional (`.` is valid in Kubernetes names).
-
-**Available template variables:**
-
-| Variable | Source |
-|----------|--------|
-| `{{.AgentName}}` | `metadata.name` |
-| `{{.AgentNamespace}}` | `metadata.namespace` |
-| `{{.Description}}` | `spec.description` |
-| `{{.ToolNames}}` | List of tool names from translated config |
-| `{{.SkillNames}}` | List of skill names from `skills.refs` |
-
-**Built-in prompt library:** kagent ships a `kagent-builtin-prompts` ConfigMap with reusable sections:
-- `skills-usage` — instructions for agents with skills
-- `tool-usage-best-practices` — read-before-write, explain-before-acting, verify-after-changes
-- `safety-guardrails` — confirmation before destructive ops, least privilege, rollback planning
-- `kubernetes-context` — investigation protocol, problem-solving framework
-- `a2a-communication` — agent-to-agent delegation guidelines
-
-**Key behaviors:**
-- Included content is plain text (no nested template execution)
-- Templates only activate when `promptTemplate` is set (backwards compatible)
-- `systemMessage` and `systemMessageFrom` are mutually exclusive — use `systemMessageFrom` to load the entire template from a ConfigMap
-- ConfigMap changes trigger agent re-reconciliation automatically
-- Template errors surface in the Agent's `Accepted` status condition
+For full syntax, template variables, built-in library keys, and examples, see the Prompt Templates section in `references/agent-configuration.md`.
 
 ## A2A Protocol
 
