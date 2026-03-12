@@ -85,7 +85,7 @@ func (c *Client) generateOpenAI(ctx context.Context, texts []string) ([][]float3
 
 	url := fmt.Sprintf("%s/embeddings", baseURL)
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"input":      texts,
 		"model":      c.config.Model,
 		"dimensions": TargetDimension,
@@ -156,7 +156,7 @@ func (c *Client) generateAzureOpenAI(ctx context.Context, texts []string) ([][]f
 
 	url := fmt.Sprintf("%s/embeddings", c.config.BaseUrl)
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"input": texts,
 	}
 
