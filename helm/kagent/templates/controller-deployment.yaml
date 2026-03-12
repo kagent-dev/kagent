@@ -25,8 +25,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
-        {{- toYaml (.Values.controller.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
       {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumes) 0) }}
       volumes:
@@ -65,6 +67,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- if eq .Values.database.type "sqlite" }}
+            - name: XDG_CACHE_HOME
+              value: /sqlite-volume/.cache
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -80,8 +86,10 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- with (.Values.controller.securityContext | default .Values.securityContext) }}
           securityContext:
-            {{- toYaml .Values.controller.securityContext | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           startupProbe:
             httpGet:
               path: /health

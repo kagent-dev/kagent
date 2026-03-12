@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +60,7 @@ func TestSessionsHandler(t *testing.T) {
 		agent := &database.Agent{
 			ID: agentRef,
 		}
-		dbClient.StoreAgent(agent) //nolint:errcheck
+		dbClient.StoreAgent(context.Background(), agent) //nolint:errcheck
 		// The fake client should assign an ID, but we'll use a default for testing
 		agent.ID = "1" // Simulate the ID that would be assigned by GORM
 		return agent
@@ -72,7 +73,7 @@ func TestSessionsHandler(t *testing.T) {
 			UserID:  userID,
 			AgentID: &agentID,
 		}
-		dbClient.StoreSession(session) //nolint:errcheck
+		dbClient.StoreSession(context.Background(), session) //nolint:errcheck
 		return session
 	}
 
@@ -287,7 +288,7 @@ func TestSessionsHandler(t *testing.T) {
 				CreatedAt: time.Now().Add(-1 * time.Hour),
 				Data:      "{}",
 			}
-			dbClient.StoreEvents(event1, event2)
+			dbClient.StoreEvents(context.Background(), event1, event2)
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"?order=asc", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
