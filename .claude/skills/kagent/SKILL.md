@@ -47,137 +47,37 @@ If you cannot verify (e.g., no cluster access), use this skill's examples but fl
 
 ## Installation
 
-### Prerequisites
-- **kind** (or any Kubernetes cluster)
-- **Helm**
-- **kubectl**
-- An LLM API key (OpenAI, Anthropic, Gemini, etc.)
-
-### CLI + Quick Install
 ```bash
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI  # or anthropic, azureOpenAI, gemini, ollama
 export OPENAI_API_KEY="your-key"             # or ANTHROPIC_API_KEY, GOOGLE_API_KEY, AZURE_OPENAI_API_KEY
 brew install kagent                          # or use the curl installer
 kagent install --profile demo                # demo = preloaded agents + tools
-kagent dashboard                    # opens UI at http://localhost:8082
+kagent dashboard                             # opens UI at http://localhost:8082
 ```
 
-### Helm Install (more control)
-```bash
-helm install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
-  --namespace kagent --create-namespace
+For Helm install, other LLM providers, and provider-specific configuration, see `references/providers.md`.
 
-helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
-  --namespace kagent \
-  --set providers.default=openAI \
-  --set providers.openAI.apiKey=$OPENAI_API_KEY
-```
+## Core Concepts
 
-For other LLM providers, see `references/providers.md`.
+kagent uses Kubernetes CRDs to manage agents, models, and tools:
 
-## Creating Agents
+- **Agent** (`kagent.dev/v1alpha2`) — Defines an AI agent. Two types: **Declarative** (YAML-defined, controller-managed) and **BYO** (custom container image with any framework: Google ADK, OpenAI Agents SDK, LangGraph, CrewAI).
+- **ModelConfig** (`kagent.dev/v1alpha2`) — Configures LLM provider and model. Agents reference a ModelConfig by name.
+- **RemoteMCPServer** (`kagent.dev/v1alpha2`) — Connects agents to external MCP tool servers via HTTP.
+- **MCPServer** (KMCP) — Deploys and manages MCP server pods in the cluster.
 
-kagent supports two agent types:
+**Key rules:**
+- Tool references in agents **must** include `apiGroup: kagent.dev` for both MCPServer and RemoteMCPServer kinds.
+- `skills.refs` is a list of strings (image refs), not objects.
+- `skills` is at `spec` level, not nested under `declarative`.
 
-### Declarative Agents (YAML/CRD)
-Define agents as Kubernetes resources. The kagent controller handles deployment, scaling, and lifecycle.
-
-```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
-metadata:
-  name: k8s-helper
-  namespace: kagent
-spec:
-  description: Helps users manage Kubernetes resources
-  type: Declarative
-  declarative:
-    modelConfig: default-model-config
-    systemMessage: |
-      You are a Kubernetes expert agent. You help users manage their cluster.
-      # Instructions
-      - Always check current state before making changes
-      - Explain what you're doing and why
-      - Never delete resources without explicit confirmation
-    tools:
-    - type: McpServer
-      mcpServer:
-        name: k8s-tools
-        kind: MCPServer
-        apiGroup: kagent.dev    # required for BOTH MCPServer and RemoteMCPServer
-        toolNames:
-          - k8s_get_resources
-          - k8s_get_available_api_resources
-```
-
-Apply with `kubectl apply -f agent.yaml`.
-
-### BYO Agents (Custom Code)
-Build agents with any supported framework and deploy as containers. Supported frameworks:
-- **Google ADK** (Python) — native kagent integration, full feature support
-- **OpenAI Agents SDK** — custom tools, session persistence
-- **LangGraph** — state graph agents with checkpoint persistence to kagent backend
-- **CrewAI** — multi-agent crews and flows with session-aware memory
-
-```bash
-# Scaffold a new agent project
-kagent init adk python myagent --model-name gpt-4 --model-provider OpenAI
-cd myagent
-
-# Set up credentials
-export OPENAI_API_KEY=your-key
-
-# Build and run locally
-kagent build
-kagent run          # opens interactive chat UI
-
-# Add an MCP tool server
-kagent add-mcp server-everything --command npx --arg @modelcontextprotocol/server-everything
-
-# Deploy to Kubernetes
-cat << EOF > .env.production
-OPENAI_API_KEY=your-key
-EOF
-kagent deploy . --env-file .env.production
-```
-
-For detailed agent configuration options (system prompts, tools, A2A config, deployment settings), see `references/agent-configuration.md`.
+For full CRD examples, system prompt design, prompt templates, and deployment options, see `references/agent-configuration.md`.
 
 ## Adding Tools to Agents
 
-Agents gain capabilities through MCP (Model Context Protocol) tools. There are two ways to add tools:
+Agents gain capabilities through MCP (Model Context Protocol) tools. Create a `RemoteMCPServer` to connect to an existing server, or use KMCP `MCPServer` to deploy one in-cluster. Then reference it in the Agent's `tools` list.
 
-### RemoteMCPServer (connect to existing MCP servers)
-```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: RemoteMCPServer
-metadata:
-  name: my-tools
-  namespace: kagent
-spec:
-  description: My external MCP tools
-  url: http://my-mcp-server:3000/sse
-  protocol: SSE  # or STREAMABLE_HTTP (default)
-```
-
-### KMCP MCPServer (deploy MCP servers to your cluster)
-KMCP (included with kagent since v0.7) manages MCP server lifecycle in Kubernetes. MCPServer resources are managed by the KMCP controller — see the kmcp docs for details.
-
-### Referencing tools in an Agent
-```yaml
-tools:
-- type: McpServer
-  mcpServer:
-    name: my-tools
-    kind: RemoteMCPServer   # or MCPServer (for KMCP-managed servers)
-    apiGroup: kagent.dev    # required for BOTH MCPServer and RemoteMCPServer
-    toolNames:              # optional: filter to specific tools
-      - fetch
-```
-
-**Important:** The `apiGroup: kagent.dev` field is required on every McpServer tool reference, regardless of whether the kind is `MCPServer` or `RemoteMCPServer`. Omitting it causes reconciliation issues.
-
-kagent ships with built-in tools for Kubernetes, Helm, Istio, Argo Rollouts, Prometheus, Grafana, and more when using `--profile demo`.
+For RemoteMCPServer YAML, auth headers, tool filtering, and complete examples, see `references/agent-configuration.md`.
 
 ## Exposing Agents as MCP Servers (IDE Integration)
 
@@ -185,113 +85,25 @@ The kagent controller exposes a `/mcp` HTTP endpoint (Streamable HTTP transport)
 
 Point your IDE's MCP config at the controller's `/mcp` endpoint on port 8083 (via LoadBalancer IP or `kubectl port-forward`). For detailed setup, IDE-specific configuration, and troubleshooting, see `references/mcp-ide-setup.md`.
 
-## System Prompt Best Practices
-
-Good system prompts make the difference between a useful agent and a frustrating one. kagent recommends a progressive approach:
-
-1. **Start simple**: Define the role — "You are a Kubernetes expert that helps manage clusters"
-2. **Add tool guidance**: Describe when to use each tool and what parameters they take
-3. **Add behavioral rules**: Safety guidelines, response formatting, escalation procedures
-
-Tips:
-- Be explicit about safety: "Never delete resources without confirmation"
-- Describe the agent's decision-making process, not just rules
-- Use Claude or ChatGPT to iteratively refine your prompts
-- Use **prompt templates** (below) to share common sections across agents
-
-See the kagent docs on system prompts for detailed examples: https://kagent.dev/docs/kagent/getting-started/system-prompts
-
-### Prompt Templates
-
-kagent supports Go `text/template` syntax in `systemMessage` for composing prompts from reusable ConfigMap sections. Use `{{include "source/key"}}` to pull in content and `{{.AgentName}}`, `{{.ToolNames}}`, etc. for agent metadata. Templates are resolved at reconciliation time. kagent ships a `kagent-builtin-prompts` ConfigMap with reusable sections (safety guardrails, tool best practices, K8s context, etc.).
-
-For full syntax, template variables, built-in library keys, and examples, see the Prompt Templates section in `references/agent-configuration.md`.
-
 ## A2A Protocol
 
-Every kagent agent implements the A2A (Agent-to-Agent) protocol. This means agents can:
-- Be invoked by other agents
-- Expose a `.well-known/agent.json` discovery endpoint
-- Communicate via a standardized task-based interface
-
-The A2A endpoint runs on port 8083 of the kagent controller:
-```bash
-# Port-forward the A2A endpoint
-kubectl port-forward svc/kagent-controller 8083:8083 -n kagent
-
-# Discover agent capabilities
-curl http://localhost:8083/api/a2a/kagent/k8s-agent/.well-known/agent.json
-
-# Invoke via CLI
-kagent invoke -t "list all pods" --agent k8s-agent
-```
-
-## Skills
-
-Skills are container-packaged capabilities that extend agents. A skill contains a `SKILL.md` with instructions and optional scripts/resources, packaged as a Docker image.
-
-Agents reference skills in their spec (note: `skills` is at the top level of `spec`, not nested under `declarative`):
-```yaml
-spec:
-  skills:
-    refs:
-      - ghcr.io/my-org/my-skill:latest
-```
-
-At startup, kagent pulls the skill image, extracts files to `/skills`, and makes them discoverable via the SkillsTool.
+Every kagent agent implements A2A (Agent-to-Agent), exposing a `.well-known/agent.json` discovery endpoint and a task-based invocation interface on port 8083 of the controller. Use `kagent invoke` or `curl` against `http://localhost:8083/api/a2a/kagent/<agent-name>/`.
 
 ## Observability
 
-### Tracing with Jaeger
-```yaml
-# Add to Helm values
-otel:
-  tracing:
-    enabled: true
-    exporter:
-      otlp:
-        endpoint: http://jaeger.jaeger.svc.cluster.local:4317
-```
+- **Dashboard:** `kagent dashboard` opens the UI at `http://localhost:8082` — shows agents, chat history, and tool invocations.
+- **Tracing:** Enable OpenTelemetry export to Jaeger via `otel.tracing.enabled=true` in Helm values.
 
-Then upgrade the Helm chart. Access Jaeger UI via port-forward on port 16686.
+## Debugging & Troubleshooting
 
-### Dashboard
+Quick checks:
 ```bash
-kagent dashboard  # http://localhost:8082
-```
-The dashboard shows agents, chat history, tool invocations with arguments/results, and agent details.
-
-## Debugging
-
-### Agent not showing up
-```bash
-kubectl get agent -n kagent <name> -o yaml   # check status/conditions
+kubectl get agent -n kagent <name> -o yaml     # check status/conditions
 kubectl logs -n kagent deployment/kagent-controller  # controller logs
-```
-
-### Enable debug logging on an agent
-```yaml
-spec:
-  declarative:
-    deployment:
-      env:
-      - name: LOG_LEVEL
-        value: debug
-```
-
-### Common checks
-```bash
-kubectl get agents.kagent.dev -n kagent       # all agents
-kubectl get pods -n kagent                     # pod status
-kubectl get mcpserver -n kagent                # MCP servers
 kagent bug-report                              # generate diagnostic report
 ```
 
-For comprehensive troubleshooting, see `references/troubleshooting.md`.
-
-## CLI Details
-
-See `references/cli-reference.md` for a conceptual overview of all command groups. For exact flags and options, run `kagent <command> --help` — the CLI is well-documented and self-describing.
+For systematic debugging (crash-looping pods, MCP session failures, common errors), see `references/troubleshooting.md`.
 
 ## Helpful Links
 
