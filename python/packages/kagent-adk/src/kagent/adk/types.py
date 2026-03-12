@@ -10,11 +10,11 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._hitl_agent_tool import HitlAwareAgentTool
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
@@ -373,7 +373,7 @@ class AgentConfig(BaseModel):
                     httpx_client=client,
                 )
 
-                tools.append(AgentTool(agent=remote_a2a_agent))
+                tools.append(HitlAwareAgentTool(agent=remote_a2a_agent))
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)

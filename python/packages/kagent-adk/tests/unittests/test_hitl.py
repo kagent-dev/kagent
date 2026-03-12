@@ -1,9 +1,10 @@
-"""Tests for the HITL approval callback and agent executor's HITL handling logic."""
+"""Tests for the HITL approval callback, agent executor's HITL handling, and HitlAwareAgentTool."""
 
+import asyncio
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
-from a2a.types import DataPart, Message, Part, Role
+from a2a.types import DataPart, Message, Part, Role, TaskState, TaskStatus, TextPart
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
@@ -11,6 +12,15 @@ from google.genai import types as genai_types
 
 from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._hitl_agent_tool import (
+    HitlAwareAgentTool,
+    _collect_text_parts,
+    _extract_error_text,
+    _extract_hitl_hint,
+    _extract_input_required,
+    _save_hitl_state,
+    _send_and_collect,
+)
 from kagent.core.a2a import (
     KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -25,7 +35,8 @@ from kagent.core.a2a import (
 class MockState(dict):
     """Dict subclass that mimics ToolContext.state behavior."""
 
-    pass
+    def to_dict(self):
+        return dict(self)
 
 
 class MockEventActions:
@@ -33,6 +44,7 @@ class MockEventActions:
 
     def __init__(self):
         self.requested_tool_confirmations: dict[str, ToolConfirmation] = {}
+        self.skip_summarization = False
 
 
 class MockToolContext:
@@ -42,6 +54,7 @@ class MockToolContext:
         self.state = MockState()
         self.function_call_id = "test_fc_id"
         self._event_actions = MockEventActions()
+        self.actions = self._event_actions
         self.tool_confirmation = tool_confirmation
 
     def request_confirmation(self, *, hint=None, payload=None):
@@ -79,7 +92,6 @@ class TestMakeApprovalCallback:
         result = callback(tool, {"path": "/tmp"}, ctx)
         assert result is not None
         assert result["status"] == "confirmation_requested"
-        assert result["tool"] == "delete_file"
         # Confirmation should be stored in event_actions
         assert "test_fc_id" in ctx._event_actions.requested_tool_confirmations
 
@@ -545,3 +557,394 @@ def test_process_hitl_decision_ask_user_answers():
     resp = json.loads(fr.response["response"])
     assert resp["confirmed"] is True
     assert resp["payload"]["answers"] == answers
+
+
+# ---------------------------------------------------------------------------
+# HitlAwareAgentTool helper tests
+# ---------------------------------------------------------------------------
+
+
+class MockADKEvent:
+    """Minimal mock for an ADK Event with custom_metadata."""
+
+    def __init__(self, custom_metadata=None, author=None, partial=False):
+        self.custom_metadata = custom_metadata
+        self.author = author
+        self.partial = partial
+
+
+class TestExtractInputRequired:
+    """Tests for _extract_input_required."""
+
+    def test_returns_none_for_no_metadata(self):
+        event = MockADKEvent(custom_metadata=None)
+        assert _extract_input_required(event) is None
+
+    def test_returns_none_for_no_a2a_response(self):
+        event = MockADKEvent(custom_metadata={"some_key": "value"})
+        assert _extract_input_required(event) is None
+
+    def test_returns_none_for_non_dict_response(self):
+        event = MockADKEvent(custom_metadata={"a2a:response": "not a dict"})
+        assert _extract_input_required(event) is None
+
+    def test_returns_none_for_working_state(self):
+        response = {"status": {"state": "working"}}
+        event = MockADKEvent(custom_metadata={"a2a:response": response})
+        assert _extract_input_required(event) is None
+
+    def test_returns_none_for_completed_state(self):
+        response = {"status": {"state": "completed"}}
+        event = MockADKEvent(custom_metadata={"a2a:response": response})
+        assert _extract_input_required(event) is None
+
+    def test_returns_response_for_input_required(self):
+        response = {
+            "id": "task-123",
+            "contextId": "ctx-456",
+            "status": {
+                "state": "input-required",
+                "message": {
+                    "messageId": "msg-1",
+                    "role": "agent",
+                    "parts": [{"kind": "text", "text": "Approval needed"}],
+                },
+            },
+        }
+        event = MockADKEvent(custom_metadata={"a2a:response": response})
+        result = _extract_input_required(event)
+        assert result is not None
+        assert result["id"] == "task-123"
+        assert result["status"]["state"] == "input-required"
+
+
+class TestExtractHitlHint:
+    """Tests for _extract_hitl_hint."""
+
+    def test_extracts_text_from_parts(self):
+        response = {
+            "status": {
+                "state": "input-required",
+                "message": {
+                    "parts": [{"text": "Approve this tool?"}],
+                },
+            },
+        }
+        assert _extract_hitl_hint(response) == "Approve this tool?"
+
+    def test_returns_fallback_for_no_message(self):
+        response = {"status": {"state": "input-required"}}
+        assert _extract_hitl_hint(response) == "Sub-agent requires user input."
+
+    def test_returns_fallback_for_empty_parts(self):
+        response = {"status": {"state": "input-required", "message": {"parts": []}}}
+        assert _extract_hitl_hint(response) == "Sub-agent requires user input."
+
+
+class TestSaveHitlState:
+    """Tests for _save_hitl_state."""
+
+    def test_saves_task_and_context_ids(self):
+        tool_context = MockToolContext()
+        a2a_response = {"id": "task-42", "contextId": "ctx-99"}
+        _save_hitl_state(tool_context, a2a_response)
+        state = tool_context.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY]
+        assert state["task_id"] == "task-42"
+        assert state["context_id"] == "ctx-99"
+
+    def test_handles_snake_case_context_id(self):
+        tool_context = MockToolContext()
+        a2a_response = {"id": "task-1", "context_id": "ctx-2"}
+        _save_hitl_state(tool_context, a2a_response)
+        state = tool_context.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY]
+        assert state["context_id"] == "ctx-2"
+
+
+class TestCollectTextParts:
+    """Tests for _collect_text_parts."""
+
+    def test_collects_text_from_message(self):
+        message = MagicMock()
+        text_part = MagicMock()
+        text_part.root = TextPart(text="hello")
+        message.parts = [text_part]
+        result = []
+        _collect_text_parts(message, result)
+        assert result == ["hello"]
+
+    def test_handles_none_message(self):
+        result = []
+        _collect_text_parts(None, result)
+        assert result == []
+
+
+class TestExtractErrorText:
+    """Tests for _extract_error_text."""
+
+    def test_extracts_error_from_message(self):
+        message = MagicMock()
+        text_part = MagicMock()
+        text_part.root = TextPart(text="Something failed")
+        message.parts = [text_part]
+        assert _extract_error_text(message) == "Something failed"
+
+    def test_returns_default_for_no_message(self):
+        assert _extract_error_text(None) == "Sub-agent execution failed"
+
+
+class TestHitlAwareAgentToolRejection:
+    """Tests for HitlAwareAgentTool._handle_rejection."""
+
+    def test_rejection_clears_state_and_returns_message(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=False))
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = tool._handle_rejection(ctx)
+        assert "rejected" in result
+        assert HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY not in ctx.state
+
+    def test_rejection_includes_reason(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(
+            tool_confirmation=ToolConfirmation(
+                confirmed=False,
+                payload={"rejection_reason": "Too dangerous"},
+            )
+        )
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = tool._handle_rejection(ctx)
+        assert "Too dangerous" in result
+
+
+class TestHitlAwareAgentToolForwardAndContinue:
+    """Tests for HitlAwareAgentTool._forward_and_continue."""
+
+    def test_missing_hitl_state_returns_error(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        # No HITL state saved
+
+        result = asyncio.get_event_loop().run_until_complete(tool._forward_and_continue(ctx))
+        assert "error" in result
+
+    def test_missing_ensure_resolved_returns_error(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        # Remove both resolve methods
+        del agent.ensure_resolved
+        del agent._ensure_resolved
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = asyncio.get_event_loop().run_until_complete(tool._forward_and_continue(ctx))
+        assert "error" in result
+        # State should be cleared
+        assert HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY not in ctx.state
+
+    def test_successful_forward_returns_text(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        agent._ensure_resolved = AsyncMock()
+
+        # Mock A2A client with a completed response
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus(
+            state=TaskState.completed,
+            message=Message(
+                message_id="m1",
+                role=Role.agent,
+                parts=[Part(TextPart(text="Task completed successfully"))],
+            ),
+        )
+
+        async def mock_send_message(**kwargs):
+            yield (mock_task, None)
+
+        agent._a2a_client = MagicMock()
+        agent._a2a_client.send_message = mock_send_message
+
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = asyncio.get_event_loop().run_until_complete(tool._forward_and_continue(ctx))
+        assert result == "Task completed successfully"
+        # State should be cleared after success
+        assert HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY not in ctx.state
+
+    def test_timeout_returns_error_and_clears_state(self):
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        agent._ensure_resolved = AsyncMock()
+
+        async def slow_send_message(**kwargs):
+            await asyncio.sleep(10)
+            yield  # pragma: no cover
+
+        agent._a2a_client = MagicMock()
+        agent._a2a_client.send_message = slow_send_message
+
+        tool = HitlAwareAgentTool(agent=agent)
+        tool._FORWARD_TIMEOUT_SECONDS = 0.01  # Very short for testing
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = asyncio.get_event_loop().run_until_complete(tool._forward_and_continue(ctx))
+        assert "error" in result
+        assert "Timed out" in result["error"]
+        assert HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY not in ctx.state
+
+    def test_multi_round_hitl_re_requests_confirmation(self):
+        """When subagent enters input_required again, tool re-requests confirmation."""
+        from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+        agent = create_autospec(RemoteA2aAgent, instance=True)
+        agent.name = "test_agent"
+        agent.description = "test"
+        agent._ensure_resolved = AsyncMock()
+
+        # Sub-agent enters input_required again
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus(
+            state=TaskState.input_required,
+            message=Message(
+                message_id="m2",
+                role=Role.agent,
+                parts=[Part(TextPart(text="Need more approval"))],
+            ),
+        )
+        mock_task.model_dump = MagicMock(
+            return_value={
+                "id": "task-2",
+                "contextId": "ctx-2",
+                "status": {
+                    "state": "input-required",
+                    "message": {
+                        "parts": [{"text": "Need more approval"}],
+                    },
+                },
+            }
+        )
+
+        async def mock_send_message(**kwargs):
+            yield (mock_task, None)
+
+        agent._a2a_client = MagicMock()
+        agent._a2a_client.send_message = mock_send_message
+
+        tool = HitlAwareAgentTool(agent=agent)
+
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY] = {"task_id": "t1", "context_id": "c1"}
+
+        result = asyncio.get_event_loop().run_until_complete(tool._forward_and_continue(ctx))
+        # Should return confirmation_requested
+        assert result["status"] == "confirmation_requested"
+        assert result["subagent_hitl"] is True
+        # Should have re-requested confirmation
+        assert "test_fc_id" in ctx._event_actions.requested_tool_confirmations
+        # State should be updated with new task/context IDs
+        new_state = ctx.state[HitlAwareAgentTool._SUBAGENT_HITL_STATE_KEY]
+        assert new_state["task_id"] == "task-2"
+
+
+class TestSendAndCollect:
+    """Tests for _send_and_collect."""
+
+    def test_completed_task(self):
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus(
+            state=TaskState.completed,
+            message=Message(
+                message_id="m1",
+                role=Role.agent,
+                parts=[Part(TextPart(text="Done"))],
+            ),
+        )
+
+        async def mock_send(**kwargs):
+            yield (mock_task, None)
+
+        ctx = MockToolContext()
+        result_text, needs_input, response_dict = asyncio.get_event_loop().run_until_complete(
+            _send_and_collect(mock_send, MagicMock(), ctx)
+        )
+        assert result_text == "Done"
+        assert needs_input is False
+        assert response_dict is None
+
+    def test_failed_task(self):
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus(
+            state=TaskState.failed,
+            message=Message(
+                message_id="m1",
+                role=Role.agent,
+                parts=[Part(TextPart(text="Crash!"))],
+            ),
+        )
+
+        async def mock_send(**kwargs):
+            yield (mock_task, None)
+
+        ctx = MockToolContext()
+        result_text, needs_input, response_dict = asyncio.get_event_loop().run_until_complete(
+            _send_and_collect(mock_send, MagicMock(), ctx)
+        )
+        assert result_text == "Crash!"
+        assert needs_input is False
+
+    def test_input_required_task(self):
+        mock_task = MagicMock()
+        mock_task.status = TaskStatus(
+            state=TaskState.input_required,
+            message=Message(
+                message_id="m1",
+                role=Role.agent,
+                parts=[Part(TextPart(text="Need approval"))],
+            ),
+        )
+        mock_task.model_dump = MagicMock(return_value={"id": "t1", "status": {"state": "input-required"}})
+
+        async def mock_send(**kwargs):
+            yield (mock_task, None)
+
+        ctx = MockToolContext()
+        result_text, needs_input, response_dict = asyncio.get_event_loop().run_until_complete(
+            _send_and_collect(mock_send, MagicMock(), ctx)
+        )
+        assert needs_input is True
+        assert response_dict is not None

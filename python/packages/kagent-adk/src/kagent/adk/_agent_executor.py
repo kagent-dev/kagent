@@ -14,7 +14,6 @@ from a2a.types import (
     Artifact,
     Message,
     Part,
-    Role,
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
@@ -316,33 +315,61 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 continue
             raise result
 
-    async def _publish_failed_status_event(
+    async def _publish_final_task_result(
         self,
         context: RequestContext,
         event_queue: EventQueue,
-        error_message: str,
+        task_result_aggregator: TaskResultAggregator,
+        run_metadata: dict[str, str],
     ) -> None:
-        try:
+        """Publish the final task result event based on the aggregated state.
+
+        If the task is still in working state with message parts, publishes an
+        artifact update followed by a completed status. Otherwise publishes
+        the aggregator's current state as the final status.
+        """
+        if (
+            task_result_aggregator.task_state == TaskState.working
+            and task_result_aggregator.task_status_message is not None
+            and task_result_aggregator.task_status_message.parts
+        ):
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=context.task_id,
+                    last_chunk=True,
+                    context_id=context.context_id,
+                    artifact=Artifact(
+                        artifact_id=str(uuid.uuid4()),
+                        parts=task_result_aggregator.task_status_message.parts,
+                    ),
+                )
+            )
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.failed,
+                        state=TaskState.completed,
                         timestamp=datetime.now(timezone.utc).isoformat(),
-                        message=Message(
-                            message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=error_message))],
-                        ),
                     ),
                     context_id=context.context_id,
                     final=True,
+                    metadata=run_metadata,
                 )
             )
-        except BaseException as enqueue_error:
-            if isinstance(enqueue_error, (KeyboardInterrupt, SystemExit)):
-                raise
-            logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
+        else:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=task_result_aggregator.task_state,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=task_result_aggregator.task_status_message,
+                    ),
+                    context_id=context.context_id,
+                    final=True,
+                    metadata=run_metadata,
+                )
+            )
 
     @staticmethod
     def _find_pending_confirmations(session: Session) -> dict[str, str | None]:
@@ -557,51 +584,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     break
 
         # publish the task result event - this is final
-        if (
-            task_result_aggregator.task_state == TaskState.working
-            and task_result_aggregator.task_status_message is not None
-            and task_result_aggregator.task_status_message.parts
-        ):
-            # if task is still working properly, publish the artifact update event as
-            # the final result according to a2a protocol.
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    task_id=context.task_id,
-                    last_chunk=True,
-                    context_id=context.context_id,
-                    artifact=Artifact(
-                        artifact_id=str(uuid.uuid4()),
-                        parts=task_result_aggregator.task_status_message.parts,
-                    ),
-                )
-            )
-            # publish the final status update event
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.completed,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                    ),
-                    context_id=context.context_id,
-                    final=True,
-                    metadata=run_metadata,
-                )
-            )
-        else:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=task_result_aggregator.task_state,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        message=task_result_aggregator.task_status_message,
-                    ),
-                    context_id=context.context_id,
-                    final=True,
-                    metadata=run_metadata,
-                )
-            )
+        await self._publish_final_task_result(context, event_queue, task_result_aggregator, run_metadata)
 
     async def _prepare_session(self, context: RequestContext, run_args: dict[str, Any], runner: Runner):
         session_id = run_args["session_id"]
