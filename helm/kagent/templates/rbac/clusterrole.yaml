@@ -10,7 +10,6 @@ rules:
   resources:
   - agents
   - modelconfigs
-  - modelproviderconfigs
   - toolservers
   - memories
   - remotemcpservers
@@ -24,7 +23,6 @@ rules:
   resources:
   - agents/finalizers
   - modelconfigs/finalizers
-  - modelproviderconfigs/finalizers
   - toolservers/finalizers
   - memories/finalizers
   - remotemcpservers/finalizers
@@ -36,7 +34,6 @@ rules:
   resources:
   - agents/status
   - modelconfigs/status
-  - modelproviderconfigs/status
   - toolservers/status
   - memories/status
   - remotemcpservers/status
@@ -107,7 +104,6 @@ rules:
   resources:
   - agents
   - modelconfigs
-  - modelproviderconfigs
   - toolservers
   - memories
   - remotemcpservers
@@ -122,7 +118,6 @@ rules:
   resources:
   - agents/finalizers
   - modelconfigs/finalizers
-  - modelproviderconfigs/finalizers
   - toolservers/finalizers
   - memories/finalizers
   - remotemcpservers/finalizers
