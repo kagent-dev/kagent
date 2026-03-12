@@ -45,7 +45,7 @@ func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	_, err = h.DatabaseService.GetSession(sessionID, userID)
+	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
