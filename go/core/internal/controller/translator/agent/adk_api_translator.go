@@ -689,6 +689,20 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Translate workspace reference for sandbox support
+	if agent.Spec.Declarative.Workspace != nil {
+		ws := agent.Spec.Declarative.Workspace
+		cfg.Workspace = &adk.WorkspaceConfig{
+			APIGroup:  ws.ApiGroup,
+			Kind:      ws.Kind,
+			Name:      ws.Name,
+			Namespace: ws.Namespace,
+		}
+		if cfg.Workspace.Namespace == "" {
+			cfg.Workspace.Namespace = agent.Namespace
+		}
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {

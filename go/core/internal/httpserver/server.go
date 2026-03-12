@@ -10,6 +10,7 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
@@ -62,6 +63,7 @@ type ServerConfig struct {
 	Authorizer        auth.Authorizer
 	ProxyURL          string
 	Reconciler        reconciler.KagentReconciler
+	SandboxManager    *sandbox.SandboxManager
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -81,7 +83,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxManager),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -270,6 +272,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleResetMemory)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
+
+	// Sandbox
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/sandbox", adaptHandler(s.handlers.Sandbox.HandleCreateSandbox)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/sandbox", adaptHandler(s.handlers.Sandbox.HandleGetSandboxStatus)).Methods(http.MethodGet)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

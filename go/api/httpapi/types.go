@@ -193,3 +193,27 @@ type SessionRunsResponse struct {
 type SessionRunsData struct {
 	Runs []any `json:"runs"`
 }
+
+// CreateSandboxRequest represents a request to create a sandbox for a session.
+type CreateSandboxRequest struct {
+	AgentName string       `json:"agent_name"`
+	Namespace string       `json:"namespace"`
+	Workspace WorkspaceRef `json:"workspace_ref"`
+}
+
+// WorkspaceRef identifies the workspace resource to provision a sandbox from.
+type WorkspaceRef struct {
+	APIGroup  string `json:"api_group"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// SandboxResponse is returned from sandbox creation/status endpoints.
+type SandboxResponse struct {
+	SandboxID string            `json:"sandbox_id"`
+	MCPUrl    string            `json:"mcp_url"`
+	Protocol  string            `json:"protocol"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Ready     bool              `json:"ready"`
+}

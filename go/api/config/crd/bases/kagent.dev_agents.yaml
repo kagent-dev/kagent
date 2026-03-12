@@ -10160,6 +10160,24 @@ spec:
                         rule: '!(!has(self.agent) && self.type == ''Agent'')'
                     maxItems: 20
                     type: array
+                  workspace:
+                    description: |-
+                      Workspace references an external resource that provides a per-session
+                      sandbox environment (filesystem + shell) for the agent. The referenced
+                      resource is opaque to kagent; a matching SandboxProvider implementation
+                      must be registered in the controller.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
                 x-kubernetes-validations:
                 - message: systemMessage and systemMessageFrom are mutually exclusive

@@ -142,6 +142,7 @@ class KAgentApp:
             runner=create_runner,
             config=A2aAgentExecutorConfig(stream=self.stream),
             task_store=task_store,
+            agent_config=self.agent_config,
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)

@@ -188,6 +188,13 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// Workspace references an external resource that provides a per-session
+	// sandbox environment (filesystem + shell) for the agent. The referenced
+	// resource is opaque to kagent; a matching SandboxProvider implementation
+	// must be registered in the controller.
+	// +optional
+	Workspace *TypedReference `json:"workspace,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.

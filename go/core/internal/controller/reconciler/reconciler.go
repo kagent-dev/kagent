@@ -698,6 +698,11 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.Agent) string
 		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
 	}
 
+	// Workspace/sandbox: Not yet implemented in Go runtime
+	if agent.Spec.Declarative.Workspace != nil {
+		unsupported = append(unsupported, "workspace/sandbox (not implemented in Go runtime)")
+	}
+
 	if len(unsupported) == 0 {
 		return ""
 	}

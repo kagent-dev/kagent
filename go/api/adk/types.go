@@ -427,6 +427,15 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WorkspaceConfig carries the workspace reference from the Agent CRD through
+// config.json so the agent runtime can request a sandbox on session start.
+type WorkspaceConfig struct {
+	APIGroup  string `json:"api_group"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -439,6 +448,7 @@ type AgentConfig struct {
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Workspace     *WorkspaceConfig      `json:"workspace,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -469,6 +479,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Workspace     *WorkspaceConfig      `json:"workspace,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +508,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.Workspace = tmp.Workspace
 	return nil
 }
 

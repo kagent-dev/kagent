@@ -43,6 +43,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
+	sandboxpkg "github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -516,6 +517,9 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Create sandbox manager with stub provider (will be replaced by real providers later)
+	sandboxManager := sandboxpkg.NewSandboxManager(sandboxpkg.NewStubProvider())
+
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		Router:            router,
 		BindAddr:          cfg.HttpServerAddr,
@@ -528,6 +532,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
+		SandboxManager:    sandboxManager,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
