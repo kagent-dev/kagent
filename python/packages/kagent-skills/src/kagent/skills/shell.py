@@ -133,11 +133,12 @@ async def execute_command(
         env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
         env["VIRTUAL_ENV"] = bash_venv_path
 
-    sandboxed_command = f'srt "{command}"'
-
     try:
-        process = await asyncio.create_subprocess_shell(
-            sandboxed_command,
+        process = await asyncio.create_subprocess_exec(
+            "srt",
+            "sh",
+            "-c",
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,
