@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -61,7 +62,7 @@ func (c *InMemoryFakeClient) sessionKey(sessionID, userID string) string {
 	return fmt.Sprintf("%s_%s", sessionID, userID)
 }
 
-func (c *InMemoryFakeClient) DeletePushNotification(taskID string) error {
+func (c *InMemoryFakeClient) DeletePushNotification(_ context.Context, taskID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -69,14 +70,14 @@ func (c *InMemoryFakeClient) DeletePushNotification(taskID string) error {
 	return nil
 }
 
-func (c *InMemoryFakeClient) GetPushNotification(taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
+func (c *InMemoryFakeClient) GetPushNotification(_ context.Context, taskID string, configID string) (*protocol.TaskPushNotificationConfig, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.pushNotifications[taskID], nil
 }
 
-func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
+func (c *InMemoryFakeClient) GetTask(_ context.Context, taskID string) (*protocol.Task, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -92,7 +93,7 @@ func (c *InMemoryFakeClient) GetTask(taskID string) (*protocol.Task, error) {
 	return parsedTask, nil
 }
 
-func (c *InMemoryFakeClient) DeleteTask(taskID string) error {
+func (c *InMemoryFakeClient) DeleteTask(_ context.Context, taskID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -101,7 +102,7 @@ func (c *InMemoryFakeClient) DeleteTask(taskID string) error {
 }
 
 // StoreFeedback creates a new feedback record
-func (c *InMemoryFakeClient) StoreFeedback(feedback *database.Feedback) error {
+func (c *InMemoryFakeClient) StoreFeedback(_ context.Context, feedback *database.Feedback) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -116,7 +117,7 @@ func (c *InMemoryFakeClient) StoreFeedback(feedback *database.Feedback) error {
 }
 
 // StoreEvents creates a new event record
-func (c *InMemoryFakeClient) StoreEvents(events ...*database.Event) error {
+func (c *InMemoryFakeClient) StoreEvents(_ context.Context, events ...*database.Event) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -129,7 +130,7 @@ func (c *InMemoryFakeClient) StoreEvents(events ...*database.Event) error {
 }
 
 // StoreSession creates a new session record
-func (c *InMemoryFakeClient) StoreSession(session *database.Session) error {
+func (c *InMemoryFakeClient) StoreSession(_ context.Context, session *database.Session) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -139,7 +140,7 @@ func (c *InMemoryFakeClient) StoreSession(session *database.Session) error {
 }
 
 // StoreAgent creates a new agent record
-func (c *InMemoryFakeClient) StoreAgent(agent *database.Agent) error {
+func (c *InMemoryFakeClient) StoreAgent(_ context.Context, agent *database.Agent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -148,7 +149,7 @@ func (c *InMemoryFakeClient) StoreAgent(agent *database.Agent) error {
 }
 
 // StoreTask creates a new task record
-func (c *InMemoryFakeClient) StoreTask(task *protocol.Task) error {
+func (c *InMemoryFakeClient) StoreTask(_ context.Context, task *protocol.Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -164,7 +165,7 @@ func (c *InMemoryFakeClient) StoreTask(task *protocol.Task) error {
 }
 
 // StorePushNotification creates a new push notification record
-func (c *InMemoryFakeClient) StorePushNotification(config *protocol.TaskPushNotificationConfig) error {
+func (c *InMemoryFakeClient) StorePushNotification(_ context.Context, config *protocol.TaskPushNotificationConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -173,7 +174,7 @@ func (c *InMemoryFakeClient) StorePushNotification(config *protocol.TaskPushNoti
 }
 
 // StoreToolServer creates a new tool server record
-func (c *InMemoryFakeClient) StoreToolServer(toolServer *database.ToolServer) (*database.ToolServer, error) {
+func (c *InMemoryFakeClient) StoreToolServer(_ context.Context, toolServer *database.ToolServer) (*database.ToolServer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -182,7 +183,7 @@ func (c *InMemoryFakeClient) StoreToolServer(toolServer *database.ToolServer) (*
 }
 
 // CreateTool creates a new tool record
-func (c *InMemoryFakeClient) CreateTool(tool *database.Tool) error {
+func (c *InMemoryFakeClient) CreateTool(_ context.Context, tool *database.Tool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -191,7 +192,7 @@ func (c *InMemoryFakeClient) CreateTool(tool *database.Tool) error {
 }
 
 // DeleteSession deletes a session by ID and user ID
-func (c *InMemoryFakeClient) DeleteSession(sessionID string, userID string) error {
+func (c *InMemoryFakeClient) DeleteSession(_ context.Context, sessionID string, userID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -201,7 +202,7 @@ func (c *InMemoryFakeClient) DeleteSession(sessionID string, userID string) erro
 }
 
 // DeleteAgent deletes an agent by name
-func (c *InMemoryFakeClient) DeleteAgent(agentName string) error {
+func (c *InMemoryFakeClient) DeleteAgent(_ context.Context, agentName string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -216,7 +217,7 @@ func (c *InMemoryFakeClient) DeleteAgent(agentName string) error {
 }
 
 // DeleteToolServer deletes a tool server by name
-func (c *InMemoryFakeClient) DeleteToolServer(serverName string, groupKind string) error {
+func (c *InMemoryFakeClient) DeleteToolServer(_ context.Context, serverName string, groupKind string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -225,7 +226,7 @@ func (c *InMemoryFakeClient) DeleteToolServer(serverName string, groupKind strin
 }
 
 // DeleteToolsForServer deletes tools for a tool server by name
-func (c *InMemoryFakeClient) DeleteToolsForServer(serverName string, groupKind string) error {
+func (c *InMemoryFakeClient) DeleteToolsForServer(_ context.Context, serverName string, groupKind string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -239,7 +240,7 @@ func (c *InMemoryFakeClient) DeleteToolsForServer(serverName string, groupKind s
 }
 
 // GetSession retrieves a session by ID and user ID
-func (c *InMemoryFakeClient) GetSession(sessionID string, userID string) (*database.Session, error) {
+func (c *InMemoryFakeClient) GetSession(_ context.Context, sessionID string, userID string) (*database.Session, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -252,7 +253,7 @@ func (c *InMemoryFakeClient) GetSession(sessionID string, userID string) (*datab
 }
 
 // GetAgent retrieves an agent by name
-func (c *InMemoryFakeClient) GetAgent(agentName string) (*database.Agent, error) {
+func (c *InMemoryFakeClient) GetAgent(_ context.Context, agentName string) (*database.Agent, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -264,7 +265,7 @@ func (c *InMemoryFakeClient) GetAgent(agentName string) (*database.Agent, error)
 }
 
 // GetTool retrieves a tool by name
-func (c *InMemoryFakeClient) GetTool(toolName string) (*database.Tool, error) {
+func (c *InMemoryFakeClient) GetTool(_ context.Context, toolName string) (*database.Tool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -276,7 +277,7 @@ func (c *InMemoryFakeClient) GetTool(toolName string) (*database.Tool, error) {
 }
 
 // GetToolServer retrieves a tool server by name
-func (c *InMemoryFakeClient) GetToolServer(serverName string) (*database.ToolServer, error) {
+func (c *InMemoryFakeClient) GetToolServer(_ context.Context, serverName string) (*database.ToolServer, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -288,7 +289,7 @@ func (c *InMemoryFakeClient) GetToolServer(serverName string) (*database.ToolSer
 }
 
 // ListFeedback lists all feedback for a user
-func (c *InMemoryFakeClient) ListFeedback(userID string) ([]database.Feedback, error) {
+func (c *InMemoryFakeClient) ListFeedback(_ context.Context, userID string) ([]database.Feedback, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -301,7 +302,7 @@ func (c *InMemoryFakeClient) ListFeedback(userID string) ([]database.Feedback, e
 	return result, nil
 }
 
-func (c *InMemoryFakeClient) ListTasksForSession(sessionID string) ([]*protocol.Task, error) {
+func (c *InMemoryFakeClient) ListTasksForSession(_ context.Context, sessionID string) ([]*protocol.Task, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -319,7 +320,7 @@ func (c *InMemoryFakeClient) ListTasksForSession(sessionID string) ([]*protocol.
 }
 
 // ListSessions lists all sessions for a user
-func (c *InMemoryFakeClient) ListSessions(userID string) ([]database.Session, error) {
+func (c *InMemoryFakeClient) ListSessions(_ context.Context, userID string) ([]database.Session, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -336,7 +337,7 @@ func (c *InMemoryFakeClient) ListSessions(userID string) ([]database.Session, er
 }
 
 // ListSessionsForAgent lists all sessions for an agent
-func (c *InMemoryFakeClient) ListSessionsForAgent(agentID string, userID string) ([]database.Session, error) {
+func (c *InMemoryFakeClient) ListSessionsForAgent(_ context.Context, agentID string, userID string) ([]database.Session, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -353,7 +354,7 @@ func (c *InMemoryFakeClient) ListSessionsForAgent(agentID string, userID string)
 }
 
 // ListAgents lists all agents
-func (c *InMemoryFakeClient) ListAgents() ([]database.Agent, error) {
+func (c *InMemoryFakeClient) ListAgents(_ context.Context) ([]database.Agent, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -368,7 +369,7 @@ func (c *InMemoryFakeClient) ListAgents() ([]database.Agent, error) {
 }
 
 // ListToolServers lists all tool servers
-func (c *InMemoryFakeClient) ListToolServers() ([]database.ToolServer, error) {
+func (c *InMemoryFakeClient) ListToolServers(_ context.Context) ([]database.ToolServer, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -383,7 +384,7 @@ func (c *InMemoryFakeClient) ListToolServers() ([]database.ToolServer, error) {
 }
 
 // ListTools lists all tools for a user
-func (c *InMemoryFakeClient) ListTools() ([]database.Tool, error) {
+func (c *InMemoryFakeClient) ListTools(_ context.Context) ([]database.Tool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -398,7 +399,7 @@ func (c *InMemoryFakeClient) ListTools() ([]database.Tool, error) {
 }
 
 // ListToolsForServer lists all tools for a specific server and toolserver type
-func (c *InMemoryFakeClient) ListToolsForServer(serverName string, groupKind string) ([]database.Tool, error) {
+func (c *InMemoryFakeClient) ListToolsForServer(_ context.Context, serverName string, groupKind string) ([]database.Tool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -420,7 +421,7 @@ func (c *InMemoryFakeClient) ListToolsForServer(serverName string, groupKind str
 	return result, nil
 }
 
-func (c *InMemoryFakeClient) ListPushNotifications(taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
+func (c *InMemoryFakeClient) ListPushNotifications(_ context.Context, taskID string) ([]*protocol.TaskPushNotificationConfig, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -433,7 +434,7 @@ func (c *InMemoryFakeClient) ListPushNotifications(taskID string) ([]*protocol.T
 }
 
 // ListEventsForSession retrieves events for a specific session
-func (c *InMemoryFakeClient) ListEventsForSession(sessionID, userID string, options database.QueryOptions) ([]*database.Event, error) {
+func (c *InMemoryFakeClient) ListEventsForSession(_ context.Context, sessionID, userID string, options database.QueryOptions) ([]*database.Event, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -457,7 +458,7 @@ func (c *InMemoryFakeClient) ListEventsForSession(sessionID, userID string, opti
 }
 
 // RefreshToolsForServer refreshes a tool server
-func (c *InMemoryFakeClient) RefreshToolsForServer(serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
+func (c *InMemoryFakeClient) RefreshToolsForServer(_ context.Context, serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -482,7 +483,7 @@ func (c *InMemoryFakeClient) RefreshToolsForServer(serverName string, groupKind 
 }
 
 // UpdateSession updates a session
-func (c *InMemoryFakeClient) UpdateSession(session *database.Session) error {
+func (c *InMemoryFakeClient) UpdateSession(_ context.Context, session *database.Session) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -492,7 +493,7 @@ func (c *InMemoryFakeClient) UpdateSession(session *database.Session) error {
 }
 
 // UpdateToolServer updates a tool server
-func (c *InMemoryFakeClient) UpdateToolServer(server *database.ToolServer) error {
+func (c *InMemoryFakeClient) UpdateToolServer(_ context.Context, server *database.ToolServer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -501,7 +502,7 @@ func (c *InMemoryFakeClient) UpdateToolServer(server *database.ToolServer) error
 }
 
 // UpdateAgent updates an agent record
-func (c *InMemoryFakeClient) UpdateAgent(agent *database.Agent) error {
+func (c *InMemoryFakeClient) UpdateAgent(_ context.Context, agent *database.Agent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -510,7 +511,7 @@ func (c *InMemoryFakeClient) UpdateAgent(agent *database.Agent) error {
 }
 
 // UpdateTask updates a task record
-func (c *InMemoryFakeClient) UpdateTask(task *database.Task) error {
+func (c *InMemoryFakeClient) UpdateTask(_ context.Context, task *database.Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -555,7 +556,7 @@ func (c *InMemoryFakeClient) Clear() {
 }
 
 // UpsertAgent upserts an agent record
-func (c *InMemoryFakeClient) UpsertAgent(agent *database.Agent) error {
+func (c *InMemoryFakeClient) UpsertAgent(_ context.Context, agent *database.Agent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -569,7 +570,7 @@ func (c *InMemoryFakeClient) checkpointKey(userID, threadID, checkpointNS, check
 }
 
 // StoreCheckpoint stores a LangGraph checkpoint
-func (c *InMemoryFakeClient) StoreCheckpoint(checkpoint *database.LangGraphCheckpoint) error {
+func (c *InMemoryFakeClient) StoreCheckpoint(_ context.Context, checkpoint *database.LangGraphCheckpoint) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -590,7 +591,7 @@ func (c *InMemoryFakeClient) StoreCheckpoint(checkpoint *database.LangGraphCheck
 }
 
 // StoreCheckpointWrites stores checkpoint writes
-func (c *InMemoryFakeClient) StoreCheckpointWrites(writes []*database.LangGraphCheckpointWrite) error {
+func (c *InMemoryFakeClient) StoreCheckpointWrites(_ context.Context, writes []*database.LangGraphCheckpointWrite) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -610,7 +611,7 @@ func (c *InMemoryFakeClient) StoreCheckpointWrites(writes []*database.LangGraphC
 }
 
 // GetLatestCheckpoint retrieves the most recent checkpoint for a thread
-func (c *InMemoryFakeClient) GetLatestCheckpoint(userID, threadID, checkpointNS string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
+func (c *InMemoryFakeClient) GetLatestCheckpoint(_ context.Context, userID, threadID, checkpointNS string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -638,7 +639,7 @@ func (c *InMemoryFakeClient) GetLatestCheckpoint(userID, threadID, checkpointNS 
 }
 
 // GetCheckpoint retrieves a specific checkpoint by ID
-func (c *InMemoryFakeClient) GetCheckpoint(userID, threadID, checkpointNS, checkpointID string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
+func (c *InMemoryFakeClient) GetCheckpoint(_ context.Context, userID, threadID, checkpointNS, checkpointID string) (*database.LangGraphCheckpoint, []*database.LangGraphCheckpointWrite, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -655,7 +656,7 @@ func (c *InMemoryFakeClient) GetCheckpoint(userID, threadID, checkpointNS, check
 }
 
 // ListCheckpoints lists checkpoints for a thread, optionally filtered by checkpointID
-func (c *InMemoryFakeClient) ListCheckpoints(userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*database.LangGraphCheckpointTuple, error) {
+func (c *InMemoryFakeClient) ListCheckpoints(_ context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*database.LangGraphCheckpointTuple, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -700,7 +701,7 @@ func (c *InMemoryFakeClient) ListCheckpoints(userID, threadID, checkpointNS stri
 }
 
 // DeleteCheckpoint deletes a checkpoint and its writes atomically
-func (c *InMemoryFakeClient) DeleteCheckpoint(userID, threadID string) error {
+func (c *InMemoryFakeClient) DeleteCheckpoint(_ context.Context, userID, threadID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -722,7 +723,7 @@ func (c *InMemoryFakeClient) DeleteCheckpoint(userID, threadID string) error {
 }
 
 // ListWrites retrieves writes for a specific checkpoint
-func (c *InMemoryFakeClient) ListWrites(userID, threadID, checkpointNS, checkpointID string, offset, limit int) ([]*database.LangGraphCheckpointWrite, error) {
+func (c *InMemoryFakeClient) ListWrites(_ context.Context, userID, threadID, checkpointNS, checkpointID string, offset, limit int) ([]*database.LangGraphCheckpointWrite, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -750,7 +751,7 @@ func (c *InMemoryFakeClient) ListWrites(userID, threadID, checkpointNS, checkpoi
 // CrewAI methods
 
 // StoreCrewAIMemory stores CrewAI agent memory
-func (c *InMemoryFakeClient) StoreCrewAIMemory(memory *database.CrewAIAgentMemory) error {
+func (c *InMemoryFakeClient) StoreCrewAIMemory(_ context.Context, memory *database.CrewAIAgentMemory) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -765,7 +766,7 @@ func (c *InMemoryFakeClient) StoreCrewAIMemory(memory *database.CrewAIAgentMemor
 }
 
 // SearchCrewAIMemoryByTask searches CrewAI agent memory by task description across all agents for a session
-func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDescription string, limit int) ([]*database.CrewAIAgentMemory, error) {
+func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(_ context.Context, userID, threadID, taskDescription string, limit int) ([]*database.CrewAIAgentMemory, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -842,7 +843,7 @@ func (c *InMemoryFakeClient) SearchCrewAIMemoryByTask(userID, threadID, taskDesc
 }
 
 // ResetCrewAIMemory deletes all CrewAI agent memory for a session
-func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
+func (c *InMemoryFakeClient) ResetCrewAIMemory(_ context.Context, userID, threadID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -868,7 +869,7 @@ func (c *InMemoryFakeClient) ResetCrewAIMemory(userID, threadID string) error {
 }
 
 // StoreCrewAIFlowState stores CrewAI flow state
-func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowState) error {
+func (c *InMemoryFakeClient) StoreCrewAIFlowState(_ context.Context, state *database.CrewAIFlowState) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -883,7 +884,7 @@ func (c *InMemoryFakeClient) StoreCrewAIFlowState(state *database.CrewAIFlowStat
 }
 
 // GetCrewAIFlowState retrieves CrewAI flow state
-func (c *InMemoryFakeClient) GetCrewAIFlowState(userID, threadID string) (*database.CrewAIFlowState, error) {
+func (c *InMemoryFakeClient) GetCrewAIFlowState(_ context.Context, userID, threadID string) (*database.CrewAIFlowState, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -903,7 +904,7 @@ func (c *InMemoryFakeClient) memoryKey(agentName, userID, id string) string {
 }
 
 // StoreAgentMemory stores agent memory
-func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
+func (c *InMemoryFakeClient) StoreAgentMemory(_ context.Context, memory *database.Memory) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -916,7 +917,7 @@ func (c *InMemoryFakeClient) StoreAgentMemory(memory *database.Memory) error {
 }
 
 // StoreAgentMemories stores multiple agent memories
-func (c *InMemoryFakeClient) StoreAgentMemories(memories []*database.Memory) error {
+func (c *InMemoryFakeClient) StoreAgentMemories(_ context.Context, memories []*database.Memory) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -951,7 +952,7 @@ func cosineSimilarity(a, b []float32) float64 {
 }
 
 // SearchAgentMemory searches agent memory by vector similarity
-func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
+func (c *InMemoryFakeClient) SearchAgentMemory(_ context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]database.AgentMemorySearchResult, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -992,7 +993,7 @@ func (c *InMemoryFakeClient) SearchAgentMemory(agentName, userID string, embeddi
 }
 
 // ListAgentMemories lists agent memories ordered by access count descending
-func (c *InMemoryFakeClient) ListAgentMemories(agentName, userID string) ([]database.Memory, error) {
+func (c *InMemoryFakeClient) ListAgentMemories(_ context.Context, agentName, userID string) ([]database.Memory, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -1017,7 +1018,7 @@ func (c *InMemoryFakeClient) ListAgentMemories(agentName, userID string) ([]data
 }
 
 // DeleteAgentMemory deletes all agent memory for a given agent and user
-func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
+func (c *InMemoryFakeClient) DeleteAgentMemory(_ context.Context, agentName, userID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -1030,7 +1031,7 @@ func (c *InMemoryFakeClient) DeleteAgentMemory(agentName, userID string) error {
 }
 
 // PruneExpiredMemories removes all memories whose ExpiresAt is in the past
-func (c *InMemoryFakeClient) PruneExpiredMemories() error {
+func (c *InMemoryFakeClient) PruneExpiredMemories(_ context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

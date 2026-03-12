@@ -53,14 +53,14 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 	}
 
 	// Get agent ID from agent ref
-	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(namespace + "/" + agentName))
+	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(namespace+"/"+agentName))
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
 	}
 
 	log.V(1).Info("Getting sessions for agent from database")
-	sessions, err := h.DatabaseService.ListSessionsForAgent(agent.ID, userID)
+	sessions, err := h.DatabaseService.ListSessionsForAgent(r.Context(), agent.ID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get sessions for agent", err))
 		return
@@ -83,7 +83,7 @@ func (h *SessionsHandler) HandleListSessions(w ErrorResponseWriter, r *http.Requ
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Listing sessions from database")
-	sessions, err := h.DatabaseService.ListSessions(userID)
+	sessions, err := h.DatabaseService.ListSessions(r.Context(), userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list sessions", err))
 		return
@@ -125,7 +125,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
-	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
@@ -142,7 +142,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		"agentRef", sessionRequest.AgentRef,
 		"name", sessionRequest.Name)
 
-	if err := h.DatabaseService.StoreSession(session); err != nil {
+	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
 		return
 	}
@@ -176,7 +176,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Getting session from database")
-	session, err := h.DatabaseService.GetSession(sessionID, userID)
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -207,7 +207,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		}
 	}
 
-	events, err := h.DatabaseService.ListEventsForSession(sessionID, userID, queryOptions)
+	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get events for session", err))
 		return
@@ -248,13 +248,13 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 	// Get existing session
-	session, err := h.DatabaseService.GetSession(*sessionRequest.Name, userID)
+	session, err := h.DatabaseService.GetSession(r.Context(), *sessionRequest.Name, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
-	agent, err := h.DatabaseService.GetAgent(utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
@@ -263,7 +263,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	// Update fields
 	session.AgentID = &agent.ID
 
-	if err := h.DatabaseService.StoreSession(session); err != nil {
+	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
 		return
 	}
@@ -291,7 +291,7 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	if err := h.DatabaseService.DeleteSession(sessionID, userID); err != nil {
+	if err := h.DatabaseService.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
 		return
 	}
@@ -320,14 +320,14 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	log = log.WithValues("userID", userID)
 
 	// Verify session exists
-	_, err = h.DatabaseService.GetSession(sessionID, userID)
+	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found for given ID", err))
 		return
 	}
 
 	log.V(1).Info("Getting session tasks from database")
-	tasks, err := h.DatabaseService.ListTasksForSession(sessionID)
+	tasks, err := h.DatabaseService.ListTasksForSession(r.Context(), sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
@@ -369,7 +369,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	}
 
 	// Get session to verify it exists
-	session, err := h.DatabaseService.GetSession(sessionID, userID)
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -385,7 +385,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		Data:      eventData.Data,
 		UserID:    userID,
 	}
-	if err := h.DatabaseService.StoreEvents(event); err != nil {
+	if err := h.DatabaseService.StoreEvents(r.Context(), event); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store event", err))
 		return
 	}
