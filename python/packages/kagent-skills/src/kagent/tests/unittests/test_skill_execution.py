@@ -141,13 +141,21 @@ async def test_execute_command_no_shell_injection(tmp_path):
 
     injection_payload = 'ls"; cat /etc/passwd; echo "pwned'
 
-    with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+    with patch("asyncio.create_subprocess_shell") as mock_shell, patch(
+        "asyncio.create_subprocess_exec", side_effect=mock_exec
+    ):
         await execute_command(injection_payload, working_dir=tmp_path)
 
-    # The entire payload must arrive as a single argument to srt, never split by a shell
-    assert captured["args"] == ("srt", "sh", "-c", 'ls"; cat /etc/passwd; echo "pwned')
+    # Invariant 1: create_subprocess_shell must never be used.
+    assert not mock_shell.called
 
-
+    # Invariant 2: The entire payload must arrive as a single argument to srt, never split by a shell.
+    args = captured["args"]
+    # The first argument should still be the sandbox runner.
+    assert args[0] == "srt"
+    # The injection payload must appear exactly once as its own argument.
+    assert injection_payload in args
+    assert list(args).count(injection_payload) == 1
 def test_skill_discovery_and_loading(skill_test_env: Path):
     """
     Tests the core logic of discovering a skill and loading its instructions.
