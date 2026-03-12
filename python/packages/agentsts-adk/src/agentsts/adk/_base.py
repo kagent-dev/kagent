@@ -22,7 +22,7 @@ from google.adk.sessions import BaseSessionService
 from google.adk.sessions.session import Session
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import MCPTool
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, McpToolset
 from google.adk.tools.tool_context import ToolContext
 from typing_extensions import override
 
@@ -43,6 +43,7 @@ class ADKSTSIntegration(STSIntegrationBase):
         fetch_actor_token: Optional[Union[Callable[[], str], Callable[[], Awaitable[str]]]] = None,
         timeout: int = 5,
         verify_ssl: bool = True,
+        use_issuer_host: bool = False,
         additional_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the ADK STS integration.
@@ -53,6 +54,7 @@ class ADKSTSIntegration(STSIntegrationBase):
             fetch_actor_token: Optional callable (sync or async) that returns an actor token
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
+            use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
             additional_config: Additional configuration
         """
         super().__init__(
@@ -61,6 +63,7 @@ class ADKSTSIntegration(STSIntegrationBase):
             fetch_actor_token=fetch_actor_token,
             timeout=timeout,
             verify_ssl=verify_ssl,
+            use_issuer_host=use_issuer_host,
             additional_config=additional_config,
         )
 
@@ -105,7 +108,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return
 
         for tool in agent.tools:
-            if isinstance(tool, MCPToolset):
+            if isinstance(tool, McpToolset):
                 mcp_toolset = tool
                 mcp_toolset._header_provider = self.header_provider
                 logger.debug("Updated tool connection params to include access token from STS server")

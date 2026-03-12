@@ -50,7 +50,7 @@ func (h *FeedbackHandler) HandleCreateFeedback(w ErrorResponseWriter, r *http.Re
 		return
 	}
 
-	err = h.DatabaseService.StoreFeedback(&feedbackReq)
+	err = h.DatabaseService.StoreFeedback(r.Context(), &feedbackReq)
 	if err != nil {
 		log.Error(err, "Failed to create feedback")
 		w.RespondWithError(errors.NewInternalServerError("Failed to create feedback", err))
@@ -74,7 +74,7 @@ func (h *FeedbackHandler) HandleListFeedback(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	feedback, err := h.DatabaseService.ListFeedback(userID)
+	feedback, err := h.DatabaseService.ListFeedback(r.Context(), userID)
 	if err != nil {
 		log.Error(err, "Failed to list feedback")
 		w.RespondWithError(errors.NewInternalServerError("Failed to list feedback", err))

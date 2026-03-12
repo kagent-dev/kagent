@@ -90,7 +90,7 @@ func (h *CrewAIHandler) HandleStoreMemory(w ErrorResponseWriter, r *http.Request
 	}
 
 	// Store memory
-	if err := h.DatabaseService.StoreCrewAIMemory(memory); err != nil {
+	if err := h.DatabaseService.StoreCrewAIMemory(r.Context(), memory); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store CrewAI memory", err))
 		return
 	}
@@ -132,7 +132,7 @@ func (h *CrewAIHandler) HandleGetMemory(w ErrorResponseWriter, r *http.Request) 
 	// Otherwise, list memories for a specific agent
 	if taskDescription != "" {
 		log.V(1).Info("Searching CrewAI memory by task description")
-		memories, err = h.DatabaseService.SearchCrewAIMemoryByTask(userID, threadID, taskDescription, limit)
+		memories, err = h.DatabaseService.SearchCrewAIMemoryByTask(r.Context(), userID, threadID, taskDescription, limit)
 	} else {
 		w.RespondWithError(errors.NewBadRequestError("Either agent_id or q (task description) parameter is required", nil))
 		return
@@ -182,7 +182,7 @@ func (h *CrewAIHandler) HandleResetMemory(w ErrorResponseWriter, r *http.Request
 	log = log.WithValues("userID", userID, "threadID", threadID)
 
 	log.V(1).Info("Resetting CrewAI memory")
-	err = h.DatabaseService.ResetCrewAIMemory(userID, threadID)
+	err = h.DatabaseService.ResetCrewAIMemory(r.Context(), userID, threadID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to reset CrewAI memory", err))
 		return
@@ -241,7 +241,7 @@ func (h *CrewAIHandler) HandleStoreFlowState(w ErrorResponseWriter, r *http.Requ
 	}
 
 	// Store flow state
-	if err := h.DatabaseService.StoreCrewAIFlowState(state); err != nil {
+	if err := h.DatabaseService.StoreCrewAIFlowState(r.Context(), state); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store CrewAI flow state", err))
 		return
 	}
@@ -270,7 +270,7 @@ func (h *CrewAIHandler) HandleGetFlowState(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID, "threadID", threadID)
 
 	log.V(1).Info("Getting CrewAI flow state")
-	state, err := h.DatabaseService.GetCrewAIFlowState(userID, threadID)
+	state, err := h.DatabaseService.GetCrewAIFlowState(r.Context(), userID, threadID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get CrewAI flow state", err))
 		return

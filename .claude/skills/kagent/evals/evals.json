@@ -1,0 +1,65 @@
+{
+  "skill_name": "kagent",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want to try kagent on my local machine. I have a kind cluster running and an Anthropic API key. Walk me through getting it set up and creating a simple agent that can help me troubleshoot pods in my cluster.",
+      "expected_output": "Step-by-step instructions for installing kagent CLI, installing to cluster with Anthropic provider, and creating a declarative agent with k8s tools. Should use correct CLI commands and correct Helm/provider configuration for Anthropic.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "I have kagent running in my cluster with a few agents deployed. I use Claude Code as my editor. How do I set it up so Claude Code can invoke my kagent agents directly? I want to be able to ask Claude to check my cluster status without leaving my editor.",
+      "expected_output": "Instructions for configuring Claude Code MCP settings to connect to kagent's /mcp HTTP endpoint, including port-forwarding setup and verification steps.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I need to build a custom agent that uses a private MCP server my team runs at https://tools.internal.company.com/mcp. The agent should use Anthropic Claude as the LLM. Can you help me set up the agent YAML and the RemoteMCPServer resource?",
+      "expected_output": "Complete YAML for a RemoteMCPServer (v1alpha2) and Agent (v1alpha2) resource, with correct field names, proper Anthropic ModelConfig, and correct tool references.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I installed kagent with OpenAI but I want to switch to Anthropic Claude. How do I change the provider? I also have one agent that should stay on OpenAI while the others move to Anthropic.",
+      "expected_output": "Instructions for switching default provider via KAGENT_DEFAULT_MODEL_PROVIDER or Helm upgrade, creating a second ModelConfig for Anthropic, and configuring individual agents to reference different ModelConfigs.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "My agent `data-analyst` is showing in `kagent get agent` but the READY column says False. The pod seems to be crash-looping. How do I debug this?",
+      "expected_output": "Troubleshooting steps using correct kubectl commands, checking status conditions, pod labels, logs, and common causes like image pull failures, resource limits, and missing secrets.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I want to build a custom agent using Python ADK that connects to our Slack workspace. Walk me through the full workflow from scaffolding to deploying it on my cluster.",
+      "expected_output": "Full BYO agent lifecycle using kagent init, build, run, add-mcp, and deploy commands. Should NOT use go build, docker build, or make targets.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "I want to run kagent with Ollama so I don't need any API keys. I have Ollama running on my machine. How do I set this up with a Kind cluster?",
+      "expected_output": "Ollama setup with correct Helm key (ollama not Ollama), KAGENT_DEFAULT_MODEL_PROVIDER=ollama, and guidance on making Ollama reachable from within the Kind cluster.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "I have a running k8s-agent and I want to add access to our team's private MCP server at https://internal.tools.co/mcp. It requires a bearer token for auth. How do I configure this?",
+      "expected_output": "RemoteMCPServer YAML with protocol field, headersFrom with secretKeyRef for auth, and Agent update referencing it with apiGroup: kagent.dev.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "I want to deploy kagent on EKS and use AWS Bedrock as my LLM provider. My cluster uses IRSA for pod identity. What's the right way to set this up so the agent pods can access Bedrock?",
+      "expected_output": "EKS deployment guidance covering Bedrock provider configuration, service account setup for IRSA, and Helm values for the Bedrock provider.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "My agent keeps failing with 'Failed to create MCP session' errors when calling tools. It works sometimes but fails intermittently. The MCP server is deployed via MCPServer CRD. How do I fix this?",
+      "expected_output": "Debugging guidance for MCP timeout issues including checking RemoteMCPServer timeout/sseReadTimeout fields, MCP server pod status, and controller logs.",
+      "files": []
+    }
+  ]
+}

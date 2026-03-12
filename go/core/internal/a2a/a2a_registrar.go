@@ -124,15 +124,19 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	card := agent_translator.GetA2AAgentCard(agent)
 
+	provider := resolveProviderName(ctx, a.cache, agent)
+
 	client, err := a2aclient.NewA2AClient(
 		card.URL,
 		append(
 			a.a2aBaseOptions,
 			a2aclient.WithHTTPReqHandler(
-				authimpl.A2ARequestHandler(
-					a.authenticator,
-					agentRef,
-				),
+				&traceInjectHandler{
+					next: authimpl.A2ARequestHandler(
+						a.authenticator,
+						agentRef,
+					),
+				},
 			),
 		)...,
 	)
@@ -143,7 +147,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 	cardCopy := *card
 	cardCopy.URL = fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef)
 
-	if err := a.handlerMux.SetAgentHandler(agentRef.String(), client, cardCopy); err != nil {
+	if err := a.handlerMux.SetAgentHandler(agentRef.String(), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
 		return fmt.Errorf("set handler for %s: %w", agentRef, err)
 	}
 

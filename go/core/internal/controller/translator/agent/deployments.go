@@ -8,7 +8,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -115,7 +114,7 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 		"/config",
 	}
 
-	serviceAccountName := ptr.To(agent.Name)
+	serviceAccountName := new(agent.Name)
 
 	// Start with spec deployment spec
 	spec := v1alpha2.DeclarativeDeploymentSpec{}
@@ -175,9 +174,13 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
-	// If not specified, use the agent name as the service account name
+	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
-		dep.ServiceAccountName = serviceAccountName
+		if DefaultServiceAccountName != "" {
+			dep.ServiceAccountName = new(DefaultServiceAccountName)
+		} else {
+			dep.ServiceAccountName = serviceAccountName
+		}
 	}
 
 	return dep, nil
@@ -226,7 +229,7 @@ func resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
 
 	replicas := spec.Replicas
 	if replicas == nil {
-		replicas = ptr.To(int32(1))
+		replicas = new(int32(1))
 	}
 
 	dep := &resolvedDeployment{
@@ -252,8 +255,13 @@ func resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 	}
 
+	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
-		dep.ServiceAccountName = ptr.To(agent.Name)
+		if DefaultServiceAccountName != "" {
+			dep.ServiceAccountName = new(DefaultServiceAccountName)
+		} else {
+			dep.ServiceAccountName = new(agent.Name)
+		}
 	}
 
 	return dep, nil

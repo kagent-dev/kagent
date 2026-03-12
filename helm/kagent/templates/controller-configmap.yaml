@@ -34,11 +34,13 @@ data:
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
   {{- else }}
   # Using separate endpoints for traces and logs
   {{- if $tracesEndpoint }}
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   {{- end }}
   {{- if $logsEndpoint }}
@@ -66,3 +68,6 @@ data:
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
+  DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
+  {{- end }}

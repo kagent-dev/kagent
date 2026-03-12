@@ -972,6 +972,78 @@ class TestADKSTSIntegration:
             assert adk_integration._actor_token == "static-token-456"
             assert adk_integration.fetch_actor_token is None
 
+    def test_init_with_use_issuer_host(self):
+        """Test that ADKSTSIntegration passes use_issuer_host to STSConfig."""
+        with patch("agentsts.core._base.ActorTokenService"):
+            integration = ADKSTSIntegration(
+                well_known_uri="http://192.168.1.100:7777/.well-known/oauth-authorization-server",
+                use_issuer_host=True,
+            )
+            assert integration.sts_client.config.use_issuer_host is True
+
+    def test_init_without_use_issuer_host_defaults_to_false(self):
+        """Test that use_issuer_host defaults to False."""
+        with patch("agentsts.core._base.ActorTokenService"):
+            integration = ADKSTSIntegration(
+                well_known_uri="https://example.com/.well-known/oauth-authorization-server",
+            )
+            assert integration.sts_client.config.use_issuer_host is False
+
+    @pytest.mark.asyncio
+    async def test_use_issuer_host_replaces_token_endpoint_host(self):
+        """Test that use_issuer_host replaces host:port in token_endpoint with the issuer host."""
+        well_known_uri = "http://192.168.1.100:7777/.well-known/oauth-authorization-server"
+        well_known_response = {
+            "token_endpoint": "foo.bar:7777/oauth2/token",
+            "issuer": "http://192.168.1.100:7777",
+        }
+
+        with patch("agentsts.core._base.ActorTokenService"):
+            integration = ADKSTSIntegration(
+                well_known_uri=well_known_uri,
+                use_issuer_host=True,
+            )
+
+        with patch("agentsts.core.client._utils.httpx.AsyncClient") as mock_client_cls:
+            mock_response = Mock()
+            mock_response.json.return_value = well_known_response
+            mock_response.raise_for_status = Mock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+
+            await integration.sts_client._initialize()
+
+        assert integration.sts_client._well_known_config.token_endpoint == "http://192.168.1.100:7777/oauth2/token"
+
+    @pytest.mark.asyncio
+    async def test_use_issuer_host_preserves_existing_scheme_in_token_endpoint(self):
+        """Test that use_issuer_host keeps the scheme from token_endpoint when it already has one."""
+        well_known_uri = "http://192.168.1.100:7777/.well-known/oauth-authorization-server"
+        well_known_response = {
+            "token_endpoint": "https://foo.bar:7777/oauth2/token",
+            "issuer": "http://192.168.1.100:7777",
+        }
+
+        with patch("agentsts.core._base.ActorTokenService"):
+            integration = ADKSTSIntegration(
+                well_known_uri=well_known_uri,
+                use_issuer_host=True,
+            )
+
+        with patch("agentsts.core.client._utils.httpx.AsyncClient") as mock_client_cls:
+            mock_response = Mock()
+            mock_response.json.return_value = well_known_response
+            mock_response.raise_for_status = Mock()
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+
+            await integration.sts_client._initialize()
+
+        # https from token_endpoint is preserved; only host is replaced
+        assert integration.sts_client._well_known_config.token_endpoint == "https://192.168.1.100:7777/oauth2/token"
+
     @pytest.mark.asyncio
     async def test_get_auth_credential_without_actor_token(self):
         """Test that get_auth_credential calls exchange_token without actor token when none is set."""

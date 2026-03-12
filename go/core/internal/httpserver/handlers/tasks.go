@@ -29,7 +29,7 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 	}
 	log = log.WithValues("task_id", taskID)
 
-	task, err := h.DatabaseService.GetTask(taskID)
+	task, err := h.DatabaseService.GetTask(r.Context(), taskID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Task not found", err))
 		return
@@ -53,7 +53,7 @@ func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) 
 	}
 	log = log.WithValues("task_id", task.ID)
 
-	if err := h.DatabaseService.StoreTask(&task); err != nil {
+	if err := h.DatabaseService.StoreTask(r.Context(), &task); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create task", err))
 		return
 	}
@@ -73,7 +73,7 @@ func (h *TasksHandler) HandleDeleteTask(w ErrorResponseWriter, r *http.Request) 
 	}
 	log = log.WithValues("task_id", taskID)
 
-	if err := h.DatabaseService.DeleteTask(taskID); err != nil {
+	if err := h.DatabaseService.DeleteTask(r.Context(), taskID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete task", err))
 		return
 	}

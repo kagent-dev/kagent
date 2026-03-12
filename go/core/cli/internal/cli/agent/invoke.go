@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,19 @@ type InvokeCfg struct {
 	Agent       string
 	Stream      bool
 	URLOverride string
+	Token       string
+}
+
+// bearerTokenTransport is an http.RoundTripper that injects an Authorization: Bearer header.
+type bearerTokenTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *bearerTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
@@ -64,10 +78,22 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		return
 	}
 
+	var a2aClientOpts []a2aclient.Option
+	a2aClientOpts = append(a2aClientOpts, a2aclient.WithTimeout(cfg.Config.Timeout))
+
+	if cfg.Token != "" {
+		a2aClientOpts = append(a2aClientOpts, a2aclient.WithHTTPClient(&http.Client{
+			Transport: &bearerTokenTransport{
+				base:  http.DefaultTransport,
+				token: cfg.Token,
+			},
+		}))
+	}
+
 	var a2aClient *a2aclient.A2AClient
 	var err error
 	if cfg.URLOverride != "" {
-		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride, a2aclient.WithTimeout(cfg.Config.Timeout))
+		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride, a2aClientOpts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
 			return
@@ -85,7 +111,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		}
 
 		a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent)
-		a2aClient, err = a2aclient.NewA2AClient(a2aURL, a2aclient.WithTimeout(cfg.Config.Timeout))
+		a2aClient, err = a2aclient.NewA2AClient(a2aURL, a2aClientOpts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
 			return
