@@ -67,6 +67,39 @@ kubectl logs -n kagent deployment/kagent-controller | grep <agent-name>
 - Agent pod OOMKilled (increase memory limits)
 - Network policy blocking outbound traffic to LLM provider
 
+### Failed to create MCP session (intermittent)
+
+**Symptoms:** Agent intermittently logs "Failed to create MCP session" — it works sometimes but not always.
+
+**Diagnosis:**
+```bash
+kubectl get mcpserver <name> -n kagent -o yaml
+kubectl get pods -n kagent -l app.kubernetes.io/name=<mcpserver-name>,app.kubernetes.io/managed-by=kagent
+kubectl logs -n kagent <mcpserver-pod-name>
+kubectl logs -n kagent <agent-pod-name>
+```
+
+Check agent pod logs for context around the error — connection refused, timeout, DNS failure, etc.
+
+**Common causes:**
+
+1. **Timeout too short (most common for intermittent failures):** The default MCP session creation timeout may be too short for servers that take time to initialize. Increase the `timeout` field on the MCPServer or RemoteMCPServer resource:
+   ```yaml
+   # RemoteMCPServer example
+   spec:
+     url: http://my-mcp-server:3000/sse
+     timeout: 60s           # increase from default
+     sseReadTimeout: 120s   # for long-running SSE connections
+   ```
+
+2. **MCP server pod instability:** Pod restarts, OOMKills, or readiness probe flapping. Check restart count with `kubectl get pods` and previous logs with `kubectl logs --previous`.
+
+3. **Startup race condition:** Agent attempts to connect before the MCP server is fully ready. Ensure proper readiness probes on the MCP server pod.
+
+4. **Namespace mismatch:** MCPServer must be in the same namespace as the Agent.
+
+5. **Missing `apiGroup: kagent.dev`** in the agent's tool reference — required for both MCPServer and RemoteMCPServer kinds.
+
 ### MCP tools not available to agent
 
 **Diagnosis:**
