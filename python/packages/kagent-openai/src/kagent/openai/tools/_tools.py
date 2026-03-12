@@ -55,8 +55,8 @@ def read_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        return read_file_content(path, offset, limit)
-    except (FileNotFoundError, IsADirectoryError, OSError) as e:
+        return read_file_content(path, offset, limit, allowed_root=[working_dir, Path("/skills")])
+    except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
         raise UserError(str(e)) from e
 
 
@@ -73,7 +73,7 @@ def write_file(wrapper: RunContextWrapper[SessionContext], file_path: str, conte
         if not path.is_absolute():
             path = working_dir / path
 
-        return write_file_content(path, content)
+        return write_file_content(path, content, allowed_root=working_dir)
     except OSError as e:
         raise UserError(str(e)) from e
 
@@ -97,7 +97,7 @@ def edit_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        return edit_file_content(path, old_string, new_string, replace_all)
+        return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
     except (FileNotFoundError, IsADirectoryError, ValueError, OSError) as e:
         raise UserError(str(e)) from e
 

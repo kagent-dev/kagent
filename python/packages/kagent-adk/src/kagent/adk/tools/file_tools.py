@@ -75,8 +75,8 @@ class ReadFileTool(BaseTool):
                 path = working_dir / path
             path = path.resolve()
 
-            return read_file_content(path, offset, limit)
-        except (FileNotFoundError, IsADirectoryError, IOError) as e:
+            return read_file_content(path, offset, limit, allowed_root=[working_dir, Path("/skills")])
+        except (FileNotFoundError, IsADirectoryError, PermissionError, IOError) as e:
             return f"Error reading file {file_path_str}: {e}"
 
 
@@ -124,8 +124,8 @@ class WriteFileTool(BaseTool):
                 path = working_dir / path
             path = path.resolve()
 
-            return write_file_content(path, content)
-        except IOError as e:
+            return write_file_content(path, content, allowed_root=working_dir)
+        except (PermissionError, IOError) as e:
             error_msg = f"Error writing file {file_path_str}: {e}"
             logger.error(error_msg)
             return error_msg
@@ -185,8 +185,8 @@ class EditFileTool(BaseTool):
                 path = working_dir / path
             path = path.resolve()
 
-            return edit_file_content(path, old_string, new_string, replace_all)
-        except (FileNotFoundError, IsADirectoryError, ValueError, IOError) as e:
+            return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
+        except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
             error_msg = f"Error editing file {file_path_str}: {e}"
             logger.error(error_msg)
             return error_msg
