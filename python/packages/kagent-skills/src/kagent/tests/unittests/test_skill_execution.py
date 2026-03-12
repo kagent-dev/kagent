@@ -1,8 +1,10 @@
+import asyncio
 import json
 import shutil
 import tempfile
 import textwrap
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -119,6 +121,31 @@ async def test_skill_core_logic(skill_test_env: Path):
     # Assert the content is correct
     expected_data = [{"id": "1", "name": "Alice"}, {"id": "2", "name": "Bob"}]
     assert json.loads(json_content_str) == expected_data
+
+
+@pytest.mark.asyncio
+async def test_execute_command_no_shell_injection(tmp_path):
+    """
+    Verifies that shell metacharacters in the command are not interpreted by an
+    outer shell. The command must be passed as a single argument to srt, not
+    parsed by /bin/sh, so injection payloads cannot escape the sandbox.
+    """
+    captured = {}
+
+    async def mock_exec(*args, **kwargs):
+        captured["args"] = args
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+        mock_process.returncode = 0
+        return mock_process
+
+    injection_payload = 'ls"; cat /etc/passwd; echo "pwned'
+
+    with patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        await execute_command(injection_payload, working_dir=tmp_path)
+
+    # The entire payload must arrive as a single argument to srt, never split by a shell
+    assert captured["args"] == ("srt", "sh", "-c", 'ls"; cat /etc/passwd; echo "pwned')
 
 
 def test_skill_discovery_and_loading(skill_test_env: Path):
