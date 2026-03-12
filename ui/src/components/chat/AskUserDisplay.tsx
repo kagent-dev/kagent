@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, MessageSquare } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, convertToUserFriendlyName } from "@/lib/utils";
 
 export interface AskUserQuestion {
   question: string;
@@ -19,6 +19,8 @@ interface AskUserDisplayProps {
   isResolved?: boolean;
   /** Resolved answers — one entry per question. */
   resolvedAnswers?: Array<{ answer: string[] }> | null;
+  /** When a subagent is asking the question, display its name. */
+  subagentName?: string;
 }
 
 /**
@@ -36,6 +38,7 @@ export default function AskUserDisplay({
   onSubmit,
   isResolved = false,
   resolvedAnswers,
+  subagentName,
 }: AskUserDisplayProps) {
   // One entry per question: set of selected choices.
   const [selectedChoices, setSelectedChoices] = useState<string[][]>(
@@ -103,6 +106,11 @@ export default function AskUserDisplay({
         <CardTitle className="text-xs flex items-center gap-2">
           <MessageSquare className="w-4 h-4" />
           <span className="font-medium">Questions for you</span>
+          {subagentName && (
+            <span className="text-muted-foreground font-normal">
+              via {convertToUserFriendlyName(subagentName)} subagent
+            </span>
+          )}
         </CardTitle>
         {isResolved && (
           <div className="flex items-center text-xs text-green-600 dark:text-green-400 gap-1">

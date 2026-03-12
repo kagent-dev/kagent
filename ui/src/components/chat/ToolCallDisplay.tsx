@@ -233,7 +233,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               }
               if (decision === "approve") {
                 initialStatus = "approved";
-              } else if (decision === "deny") {
+              } else if (decision === "reject") {
                 initialStatus = "rejected";
               } else {
                 initialStatus = "pending_approval";

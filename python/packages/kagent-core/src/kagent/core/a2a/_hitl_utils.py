@@ -23,7 +23,6 @@ from ._consts import (
     KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
     KAGENT_HITL_DECISIONS_KEY,
@@ -111,7 +110,7 @@ class HitlPartInfo(BaseModel):
         return self.original_function_call.id
 
 
-DecisionType = Literal["approve", "deny", "reject", "batch"]
+DecisionType = Literal["approve", "reject", "batch"]
 """Type for user decisions in HITL workflows."""
 
 
@@ -130,7 +129,6 @@ def extract_decision_from_data_part(data: dict) -> DecisionType | None:
     decision = data.get(KAGENT_HITL_DECISION_TYPE_KEY)
     if decision in (
         KAGENT_HITL_DECISION_TYPE_APPROVE,
-        KAGENT_HITL_DECISION_TYPE_DENY,
         KAGENT_HITL_DECISION_TYPE_REJECT,
         KAGENT_HITL_DECISION_TYPE_BATCH,
     ):
@@ -173,11 +171,11 @@ def extract_batch_decisions_from_message(message: Message | None) -> dict[str, D
 
     When the UI sends a batch decision (decision_type="batch"), the DataPart
     also contains a ``decisions`` dict mapping original tool call IDs to their
-    individual decisions ("approve" or "deny").
+    individual decisions ("approve" or "reject").
 
     Example DataPart data::
 
-        {"decision_type": "batch", "decisions": {"call_abc123": "approve", "call_def456": "deny"}}
+        {"decision_type": "batch", "decisions": {"call_abc123": "approve", "call_def456": "reject"}}
 
     Args:
         message: A2A message from user
@@ -211,7 +209,6 @@ def extract_batch_decisions_from_message(message: Message | None) -> dict[str, D
                         continue
                     if decision in (
                         KAGENT_HITL_DECISION_TYPE_APPROVE,
-                        KAGENT_HITL_DECISION_TYPE_DENY,
                         KAGENT_HITL_DECISION_TYPE_REJECT,
                     ):
                         filtered[call_id] = decision
@@ -262,7 +259,7 @@ def extract_rejection_reasons_from_message(message: Message | None) -> dict[str,
                         if isinstance(call_id, str) and isinstance(reason, str) and reason:
                             filtered[call_id] = reason
                     return filtered or None
-            elif decision in (KAGENT_HITL_DECISION_TYPE_DENY, KAGENT_HITL_DECISION_TYPE_REJECT):
+            elif decision == KAGENT_HITL_DECISION_TYPE_REJECT:
                 reason = data.get("rejection_reason")
                 if isinstance(reason, str) and reason:
                     return {"*": reason}
