@@ -141,8 +141,9 @@ async def test_execute_command_no_shell_injection(tmp_path):
 
     injection_payload = 'ls"; cat /etc/passwd; echo "pwned'
 
-    with patch("asyncio.create_subprocess_shell") as mock_shell, patch(
-        "asyncio.create_subprocess_exec", side_effect=mock_exec
+    with (
+        patch("asyncio.create_subprocess_shell") as mock_shell,
+        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
     ):
         await execute_command(injection_payload, working_dir=tmp_path)
 
@@ -156,6 +157,8 @@ async def test_execute_command_no_shell_injection(tmp_path):
     # The injection payload must appear exactly once as its own argument.
     assert injection_payload in args
     assert list(args).count(injection_payload) == 1
+
+
 def test_skill_discovery_and_loading(skill_test_env: Path):
     """
     Tests the core logic of discovering a skill and loading its instructions.

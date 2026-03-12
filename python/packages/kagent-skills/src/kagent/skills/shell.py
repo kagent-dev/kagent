@@ -135,7 +135,10 @@ async def execute_command(
 
     try:
         process = await asyncio.create_subprocess_exec(
-            "srt", "sh", "-c", command,
+            "srt",
+            "sh",
+            "-c",
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,
