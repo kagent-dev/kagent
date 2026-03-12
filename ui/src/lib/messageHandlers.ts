@@ -1,7 +1,7 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
-import { TokenStats, ChatStatus } from "@/types";
+import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
 // Helper functions for extracting data from stored tasks
@@ -140,17 +140,17 @@ function findDecisionAfterIndex(
 function resolveToolDecision(
   decisionData: Record<string, unknown> | undefined,
   toolId: string
-): string | undefined {
+): ToolDecision | undefined {
   if (!decisionData) return undefined;
   const decisionType = decisionData.decision_type as string;
 
   if (decisionType === "batch") {
-    const decisions = decisionData.decisions as Record<string, string> | undefined;
-    return decisions?.[toolId]; // "approve" | "deny" | undefined
+    const decisions = decisionData.decisions as Record<string, ToolDecision> | undefined;
+    return decisions?.[toolId];
   }
 
   // Uniform decision — applies to all tools
-  return decisionType; // "approve" | "deny"
+  return decisionType as ToolDecision;
 }
 
 /**
@@ -165,11 +165,7 @@ export function buildApprovalMessage(
   taskId: string | undefined,
   decisionData?: Record<string, unknown>
 ): Message {
-  const data = confPart.data as {
-    name: string;
-    args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
-    id: string;
-  };
+  const data = confPart.data as unknown as AdkRequestConfirmationData;
   const origFc = data.args.originalFunctionCall;
   const toolId = origFc.id || data.id;
 
@@ -194,20 +190,48 @@ export function buildApprovalMessage(
     });
   }
 
-  const toolCallContent: ProcessedToolCallData[] = [{
-    id: toolId,
-    name: origFc.name,
-    args: origFc.args || {},
-  }];
+  // Check for inner subagent tool details in toolConfirmation.payload.hitl_parts.
+  // When a subagent's tool needs approval, KAgentRemoteA2ATool stores the
+  // subagent's adk_request_confirmation DataParts in the payload so we can
+  // show the actual inner tool(s) instead of the generic "call subagent" request.
+  const hitlParts: HitlPartInfo[] | undefined = data.args.toolConfirmation?.payload?.hitl_parts;
+  let toolCallContent: ProcessedToolCallData[];
+
+  if (hitlParts && hitlParts.length > 0) {
+    toolCallContent = hitlParts.map((hp: HitlPartInfo) => ({
+      id: hp.originalFunctionCall.id || hp.id || toolId,
+      name: hp.originalFunctionCall.name || origFc.name,
+      args: hp.originalFunctionCall.args || {},
+    }));
+  } else {
+    toolCallContent = [{
+      id: toolId,
+      name: origFc.name,
+      args: origFc.args || {},
+    }];
+  }
+
+  // Resolve the approval decision for this message.
+  // For subagent HITL with batch decisions, the decision keys are inner tool
+  // IDs (not the outer toolId), so return the full per-tool map.
+  let approvalDecision: ApprovalDecision | undefined;
+  if (hitlParts && hitlParts.length > 0 && decisionData?.decision_type === "batch") {
+    approvalDecision = decisionData.decisions as Record<string, ToolDecision> | undefined;
+  } else {
+    approvalDecision = resolveToolDecision(decisionData, toolId);
+  }
+
+  // Extract subagent name if this is a subagent HITL request
+  const subagentName: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
+
   return createMessage("", "agent", {
     originalType: "ToolApprovalRequest",
     contextId,
     taskId,
     additionalMetadata: {
       toolCallData: toolCallContent,
-      // "approve" | "deny" | undefined — ToolCallDisplay reads this to
-      // set the initial status to "approved", "rejected", or "pending_approval".
-      approvalDecision: resolveToolDecision(decisionData, toolId),
+      approvalDecision,
+      subagentName,
     },
   });
 }

@@ -4,14 +4,14 @@ import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
 import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
-import { FunctionCall } from "@/types";
+import { FunctionCall, ToolDecision } from "@/types";
 
 interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
-  pendingDecisions?: Record<string, "approve" | "deny">;
+  pendingDecisions?: Record<string, ToolDecision>;
 }
 
 interface ToolCallState {
@@ -222,7 +222,15 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             const msgMetadata = message.metadata as ADKMetadata;
             let initialStatus: ToolCallStatus = "requested";
             if (msgMetadata?.originalType === "ToolApprovalRequest") {
-              const decision = msgMetadata?.approvalDecision as string | undefined;
+              const rawDecision = msgMetadata?.approvalDecision;
+              // approvalDecision is either a uniform ToolDecision string
+              // or a per-tool map (Record<string, ToolDecision>) for batch.
+              let decision: ToolDecision | undefined;
+              if (typeof rawDecision === "object" && rawDecision !== null) {
+                decision = (rawDecision as Record<string, ToolDecision>)[request.id];
+              } else {
+                decision = rawDecision as ToolDecision | undefined;
+              }
               if (decision === "approve") {
                 initialStatus = "approved";
               } else if (decision === "deny") {
@@ -307,7 +315,13 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
         // Tool has been decided locally but batch may not be submitted yet
         const isDecided = !!localDecision;
 
-        return isAgentToolName(toolCall.call.name) ? (
+        // For approval requests, always use ToolDisplay (which has approve/reject buttons),
+        // even when the tool name contains __NS__ (agent name pattern).
+        // AgentCallDisplay has no concept of pending_approval and won't show buttons.
+        const msgMeta = currentMessage.metadata as ADKMetadata;
+        const isApprovalRequest = msgMeta?.originalType === "ToolApprovalRequest";
+        const subagentName = isApprovalRequest ? (msgMeta?.subagentName as string | undefined) : undefined;
+        return (!isApprovalRequest && isAgentToolName(toolCall.call.name)) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}
@@ -323,6 +337,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             status={effectiveStatus}
             isError={toolCall.result?.is_error}
             isDecided={isDecided}
+            subagentName={subagentName}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
             onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
           />

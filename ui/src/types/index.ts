@@ -478,7 +478,7 @@ export interface HitlToolConfirmationPayload {
   /**
    * For subagent HITL: serialized HitlPartInfo[] from the subagent's own
    * input_required DataParts (see KAgentRemoteA2ATool._handle_input_required).
-   * Each entry has the same shape as ArkRequestConfirmationData (without
+   * Each entry has the same shape as AdkRequestConfirmationData (without
    * toolConfirmation, since those are leaf-level tool calls).
    */
   hitl_parts?: HitlPartInfo[];
@@ -514,7 +514,7 @@ export interface HitlPartInfo {
 }
 
 // The full data payload of an adk_request_confirmation DataPart, as produced by the ADK event converter and read by the UI.
-export interface ArkRequestConfirmationData {
+export interface AdkRequestConfirmationData {
   name: string;
   id: string;
   args: HitlRequestConfirmationArgs;
