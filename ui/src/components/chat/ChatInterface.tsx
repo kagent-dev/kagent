@@ -406,22 +406,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
+    // approvalDecision is either a uniform string ("approve" | "deny") or a
+    // per-tool map ({ toolId: "approve" | "deny" }) for batch decisions.
     const stampDecision = (msgs: Message[]) => msgs.map(m => {
       const meta = m.metadata as Record<string, unknown> | undefined;
       if (meta?.originalType === "ToolApprovalRequest" && !meta.approvalDecision) {
-        const toolCallData = meta?.toolCallData as Array<{ id?: string }> | undefined;
-        const toolId = toolCallData?.[0]?.id;
-        // For uniform decisions, stamp all; for batch, stamp per-tool
         const dt = decisionData.decision_type as string;
-        let resolvedDecision: string | undefined;
         if (dt === "batch") {
+          // Store the per-tool decisions map so ToolCallDisplay can resolve
+          // each inner tool independently.
           const decisions = decisionData.decisions as Record<string, string>;
-          resolvedDecision = toolId ? decisions[toolId] : undefined;
+          return { ...m, metadata: { ...meta, approvalDecision: decisions } };
         } else {
-          resolvedDecision = dt; // "approve" or "deny"
-        }
-        if (resolvedDecision) {
-          return { ...m, metadata: { ...meta, approvalDecision: resolvedDecision } };
+          return { ...m, metadata: { ...meta, approvalDecision: dt } };
         }
       }
       return m;
@@ -484,7 +481,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         "Rejected",
       );
     } else {
-      // Mixed decisions — use batch mode with per-tool decisions
+      // Mixed decisions — use batch mode with per-tool decisions.
+      // For subagent HITL the keys are inner subagent tool IDs; the backend
+      // detects this via hitl_parts in the pending confirmation payload and
+      // forwards the batch to the subagent.
       const decisionData: Record<string, unknown> = { decision_type: "batch", decisions };
       // Include per-tool rejection reasons for denied tools (if any)
       const deniedReasons: Record<string, string> = {};

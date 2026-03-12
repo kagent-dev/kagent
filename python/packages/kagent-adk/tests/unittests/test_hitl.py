@@ -203,7 +203,7 @@ def test_find_pending_confirmations_with_pending():
         )
     ]
     pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": "orig123"}
+    assert pending == {"fc1": ("orig123", None)}
 
 
 def test_find_pending_confirmations_with_responded():
@@ -238,7 +238,29 @@ def test_find_pending_confirmations_missing_original_id():
         )
     ]
     pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": None}
+    assert pending == {"fc1": (None, None)}
+
+
+def test_find_pending_confirmations_with_payload():
+    """Verify that the original toolConfirmation.payload is extracted."""
+    session = MagicMock(spec=Session)
+    original_payload = {"task_id": "t1", "context_id": "c1", "subagent_name": "sub"}
+    session.events = [
+        MockEvent(
+            function_calls=[
+                MockFunctionCall(
+                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                    "fc1",
+                    args={
+                        "originalFunctionCall": {"id": "orig123"},
+                        "toolConfirmation": {"hint": "approve?", "payload": original_payload},
+                    },
+                )
+            ]
+        )
+    ]
+    pending = A2aAgentExecutor._find_pending_confirmations(session)
+    assert pending == {"fc1": ("orig123", original_payload)}
 
 
 def _make_simple_message(parts=None) -> Message:
