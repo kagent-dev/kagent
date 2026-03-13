@@ -3,7 +3,7 @@ import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ interface ChatMessageProps {
 export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
@@ -146,6 +147,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   }
 
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(content)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const handleFeedback = (isPositive: boolean) => {
     if (!messageId) {
       console.error("Message ID is undefined, cannot submit feedback.");
@@ -165,22 +173,33 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
-      {source !== "user" && messageId !== undefined && (
+      {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           <button
-            onClick={() => handleFeedback(true)}
+            onClick={handleCopy}
             className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs up"
+            aria-label="Copy to clipboard"
           >
-            <ThumbsUp className="w-4 h-4" />
+            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
           </button>
-          <button
-            onClick={() => handleFeedback(false)}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs down"
-          >
-            <ThumbsDown className="w-4 h-4" />
-          </button>
+          {messageId !== undefined && (
+            <>
+              <button
+                onClick={() => handleFeedback(true)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs up"
+              >
+                <ThumbsUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback(false)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs down"
+              >
+                <ThumbsDown className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
