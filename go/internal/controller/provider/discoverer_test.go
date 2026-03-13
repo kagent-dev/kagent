@@ -433,7 +433,6 @@ func TestNewModelDiscoverer(t *testing.T) {
 
 	if d == nil {
 		t.Fatal("NewModelDiscoverer returned nil")
-		return
 	}
 
 	if d.httpClient == nil {

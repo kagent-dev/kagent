@@ -123,11 +123,10 @@ type Config struct {
 	WatchNamespaces    string
 	A2ABaseUrl         string
 	Database           struct {
-		Type          string
-		Path          string
-		Url           string
-		UrlFile       string
-		VectorEnabled bool
+		Type    string
+		Path    string
+		Url     string
+		UrlFile string
 	}
 }
 
@@ -159,7 +158,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Path, "sqlite-database-path", "./kagent.db", "The path to the SQLite database file.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@db.kagent.svc.cluster.local:5432/crud", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
-	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable vector database features (requires pgvector extension).")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -350,14 +348,12 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	// Initialize database
 	dbManager, err := database.NewManager(&database.Config{
 		DatabaseType: database.DatabaseType(cfg.Database.Type),
-		PostgresConfig: &database.PostgresConfig{
-			URL:           cfg.Database.Url,
-			URLFile:       cfg.Database.UrlFile,
-			VectorEnabled: cfg.Database.VectorEnabled,
-		},
 		SqliteConfig: &database.SqliteConfig{
-			DatabasePath:  cfg.Database.Path,
-			VectorEnabled: cfg.Database.VectorEnabled,
+			DatabasePath: cfg.Database.Path,
+		},
+		PostgresConfig: &database.PostgresConfig{
+			URL:     cfg.Database.Url,
+			URLFile: cfg.Database.UrlFile,
 		},
 	})
 	if err != nil {
@@ -531,12 +527,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
-		os.Exit(1)
-	}
-
-	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
-		setupLog.Error(err, "unable to set up memory cleanup runnable")
 		os.Exit(1)
 	}
 

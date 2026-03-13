@@ -17,8 +17,6 @@ interface ValidationErrors {
   knowledgeSources?: string;
   tools?: string;
   skills?: string;
-  memoryModel?: string;
-  memoryTtl?: string;
 }
 
 export interface AgentFormData {
@@ -33,11 +31,6 @@ export interface AgentFormData {
   stream?: boolean;
   // Skills
   skillRefs?: string[];
-  // Memory
-  memory?: {
-    modelConfig?: string;
-    ttlDays?: number;
-  };
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -169,15 +162,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
       if (!data.modelName || data.modelName.trim() === "") {
         errors.model = "Please select a model";
-      }
-
-      if (data.memory) {
-        if (!data.memory.modelConfig || data.memory.modelConfig.trim() === "") {
-          errors.memoryModel = "Please select an embedding model";
-        }
-        if (data.memory.ttlDays !== undefined && data.memory.ttlDays < 1) {
-          errors.memoryTtl = "TTL must be at least 1 day";
-        }
       }
     } else if (type === "BYO") {
       if (!data.byoImage || data.byoImage.trim() === "") {

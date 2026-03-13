@@ -11,23 +11,15 @@ interface DeleteButtonProps {
   agentName: string;
   namespace: string;
   disabled?: boolean;
-  /** When provided, the button is hidden and the dialog is controlled externally. */
-  externalOpen?: boolean;
-  onExternalOpenChange?: (open: boolean) => void;
 }
 
-export function DeleteButton({ agentName, namespace, disabled = false, externalOpen, onExternalOpenChange }: DeleteButtonProps) {
-  const [internalOpen, setInternalOpen] = useState(false);
+export function DeleteButton({ agentName, namespace, disabled = false }: DeleteButtonProps) {
+  const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { refreshAgents } = useAgents();
 
-  const isControlled = externalOpen !== undefined;
-  const isOpen = isControlled ? externalOpen : internalOpen;
-  const setIsOpen = isControlled
-    ? (open: boolean) => onExternalOpenChange?.(open)
-    : setInternalOpen;
-
   const handleDelete = async (e: React.MouseEvent) => {
+    // Prevent the event from bubbling up to the Card component
     e.stopPropagation();
     e.preventDefault();
 
@@ -52,23 +44,21 @@ export function DeleteButton({ agentName, namespace, disabled = false, externalO
 
   return (
     <>
-      {!isControlled && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-red-400 hover:text-red-300 hover:bg-red-400/10 h-8 w-8 p-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            if (!disabled) {
-              setInternalOpen(true);
-            }
-          }}
-          disabled={isDeleting || disabled}
-        >
-          {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-        </Button>
-      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-red-400 hover:text-red-300 hover:bg-red-400/10 h-8 w-8 p-0"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (!disabled) {
+            setIsOpen(true);
+          }
+        }}
+        disabled={isDeleting || disabled}
+      >
+        {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+      </Button>
 
       <AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>
