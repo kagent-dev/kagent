@@ -184,6 +184,7 @@ def test_skill_discovery_and_loading(skill_test_env: Path):
 def test_sanitize_env_strips_secrets():
     """Verify _sanitize_env removes env vars matching secret patterns."""
     secret_vars = {
+        # Regex-matched vars
         "OPENAI_API_KEY": "sk-secret",
         "AZURE_OPENAI_API_KEY": "az-secret",
         "ANTHROPIC_API_KEY": "ant-secret",
@@ -196,6 +197,13 @@ def test_sanitize_env_strips_secrets():
         "AWS_SECRET_ACCESS_KEY": "aws-secret",
         "SSH_PRIVATE_KEY": "key-data",
         "GIT_CREDENTIAL": "cred",
+        "GIT_CREDENTIALS": "cred-plural",
+        # Vars from providers.go that previously leaked
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "AZURE_AD_TOKEN": "az-ad-token",
+        "AWS_SESSION_TOKEN": "session-tok",
+        "AWS_BEARER_TOKEN_BEDROCK": "bearer-tok",
     }
     safe_vars = {
         "PATH": "/usr/bin",
@@ -203,10 +211,11 @@ def test_sanitize_env_strips_secrets():
         "PYTHONPATH": "/some/path",
         "LANG": "en_US.UTF-8",
         "TOKENIZERS_PARALLELISM": "true",
+        "GOOGLE_CLOUD_PROJECT": "my-project",
+        "AWS_REGION": "us-east-1",
     }
 
-    with patch.dict("os.environ", {**secret_vars, **safe_vars}, clear=True):
-        result = _sanitize_env()
+    result = _sanitize_env({**secret_vars, **safe_vars})
 
     for key in secret_vars:
         assert key not in result, f"{key} should have been stripped"
@@ -230,6 +239,8 @@ async def test_execute_command_strips_secret_env_vars(tmp_path):
     env_overrides = {
         "OPENAI_API_KEY": "sk-secret",
         "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
         "PATH": "/usr/bin",
         "HOME": "/home/user",
     }
@@ -243,4 +254,6 @@ async def test_execute_command_strips_secret_env_vars(tmp_path):
     env = captured["env"]
     assert "OPENAI_API_KEY" not in env
     assert "ANTHROPIC_API_KEY" not in env
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in env
+    assert "AWS_ACCESS_KEY_ID" not in env
     assert env["HOME"] == "/home/user"

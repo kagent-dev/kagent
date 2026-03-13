@@ -106,14 +106,35 @@ def edit_file_content(
 # underscore-delimited tokens (e.g. OPENAI_API_KEY, DATABASE_PASSWORD)
 # but not partial hits like TOKENIZERS_PARALLELISM.
 _SECRET_PATTERNS = re.compile(
-    r"(?:^|_)(API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)",
+    r"(?:^|_)(API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|PRIVATE_KEY)(?:_|$)",
     re.IGNORECASE,
 )
 
+# Explicit denylist of known secret env vars injected by the kagent controller
+# (see go/core/pkg/env/providers.go). Belt-and-suspenders: the regex handles
+# the general case, this set catches any known vars that the regex might miss.
+_SECRET_ENV_NAMES: set[str] = {
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_AD_TOKEN",
+    "GOOGLE_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",
+}
 
-def _sanitize_env() -> dict[str, str]:
-    """Return a copy of os.environ with secret variables removed."""
-    return {k: v for k, v in os.environ.items() if not _SECRET_PATTERNS.search(k)}
+
+def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a copy of the environment with secret variables removed."""
+    source = env if env is not None else os.environ
+    return {
+        k: v
+        for k, v in source.items()
+        if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)
+    }
 
 
 def _get_command_timeout_seconds(command: str) -> float:

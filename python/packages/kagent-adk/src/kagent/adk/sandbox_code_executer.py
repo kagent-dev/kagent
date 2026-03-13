@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import subprocess
 
+from kagent.skills.shell import _sanitize_env
+
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.code_executors.code_execution_utils import CodeExecutionInput, CodeExecutionResult
@@ -58,6 +60,7 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
                 input=code_execution_input.code,
                 capture_output=True,
                 text=True,
+                env=_sanitize_env(),
             )
             output = proc.stdout or ""
             error = proc.stderr or ""
