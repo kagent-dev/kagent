@@ -5,6 +5,7 @@ import { FunctionSquare, CheckCircle, Clock, Code, ChevronUp, ChevronDown, Loade
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { convertToUserFriendlyName } from "@/lib/utils";
 
 export type ToolCallStatus = "requested" | "executing" | "completed" | "pending_approval" | "approved" | "rejected";
 
@@ -18,11 +19,13 @@ interface ToolDisplayProps {
   isError?: boolean;
   /** When true, the card is in a "decided but not yet submitted" state (batch flow). */
   isDecided?: boolean;
+  /** For subagent HITL: the name of the subagent that made this tool call. */
+  subagentName?: string;
   onApprove?: () => void;
   onReject?: (reason?: string) => void;
 }
 
-const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, onApprove, onReject }: ToolDisplayProps) => {
+const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, subagentName, onApprove, onReject }: ToolDisplayProps) => {
   const [areArgumentsExpanded, setAreArgumentsExpanded] = useState(status === "pending_approval");
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -156,6 +159,11 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
             <FunctionSquare className="w-4 h-4 mr-2" />
             {call.name}
           </div>
+          {subagentName && (
+            <div className="flex items-center text-muted-foreground font-normal">
+              via {convertToUserFriendlyName(subagentName)} subagent
+            </div>
+          )}
           <div className="font-light">{call.id}</div>
         </CardTitle>
         <div className="flex justify-center items-center text-xs">
