@@ -123,6 +123,7 @@ description: Analyze CSV/Excel files
 | **ReadFile**   | Read files with line numbers | `read_file("skills/data-analysis/config.json")`       |
 | **WriteFile**  | Create/overwrite files       | `write_file("outputs/report.pdf", data)`              |
 | **EditFile**   | Precise string replacements  | `edit_file("script.py", old="x", new="y")`            |
+| **SessionInfo**| Auto-injects session details into system instructions | *(automatic — no tool call needed)*                     |
 
 ### Working Directory Structure
 
