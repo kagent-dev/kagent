@@ -420,12 +420,10 @@ kagent-addon-install: use-kind-cluster
 	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
-	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
 	# wait for pods to be ready
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
-	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
