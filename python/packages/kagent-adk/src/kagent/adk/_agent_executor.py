@@ -54,6 +54,7 @@ from kagent.core.tracing._span_processor import (
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
+from ._remote_a2a_tool import SubagentSessionProvider
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
@@ -587,6 +588,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         real_invocation_id: str | None = None
         last_usage_metadata = None
 
+        # Build a mapping of tool name -> subagent session ID once so the
+        # event converter can stamp it onto function_call DataParts.
+        subagent_session_ids: dict[str, str] = {}
+        for tool in getattr(runner.agent, "tools", None) or []:
+            if isinstance(tool, SubagentSessionProvider) and tool.subagent_session_id:
+                subagent_session_ids[tool.name] = tool.subagent_session_id
+
         task_result_aggregator = TaskResultAggregator()
         async with Aclosing(runner.run_async(**run_args)) as agen:
             async for adk_event in agen:
@@ -603,7 +611,11 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     last_usage_metadata = adk_event.usage_metadata
 
                 for a2a_event in convert_event_to_a2a_events(
-                    adk_event, invocation_context, context.task_id, context.context_id
+                    adk_event,
+                    invocation_context,
+                    context.task_id,
+                    context.context_id,
+                    subagent_session_ids=subagent_session_ids or None,
                 ):
                     # Only aggregate non-partial events to avoid duplicates from streaming chunks
                     # Partial events are sent to frontend for display but not accumulated
@@ -691,10 +703,18 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                             session_name = text[:20] + ("..." if len(text) > 20 else "")
                             break
 
+            state: dict[str, Any] = {"session_name": session_name}
+            # Propagate source (e.g. "subagent") so the session is tagged in the DB.
+            source = None
+            if context.call_context and context.call_context.state:
+                source = context.call_context.state.get("kagent_source")
+            if source:
+                state["source"] = source
+
             session = await runner.session_service.create_session(
                 app_name=runner.app_name,
                 user_id=user_id,
-                state={"session_name": session_name},
+                state=state,
                 session_id=session_id,
             )
 

@@ -469,6 +469,7 @@ export interface ProcessedToolCallData {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  subagent_session_id?: string;
 }
 
 export interface ProcessedToolResultData {
@@ -476,6 +477,7 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
+  subagent_session_id?: string;
 }
 
 // Normalize various tool response result shapes into plain text
@@ -664,7 +666,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     contextId: string | undefined,
     taskId: string | undefined,
     source: string,
-    options?: { setProcessingStatus?: boolean; tokenStats?: TokenStats }
+    options?: { setProcessingStatus?: boolean; tokenStats?: TokenStats; subagentSessionId?: string }
   ) => {
     if (options?.setProcessingStatus && handlers.setChatStatus) {
       handlers.setChatStatus("processing_tools");
@@ -672,7 +674,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     const toolCallContent: ProcessedToolCallData[] = [{
       id: toolData.id,
       name: toolData.name,
-      args: toolData.args || {}
+      args: toolData.args || {},
+      ...(options?.subagentSessionId ? { subagent_session_id: options.subagentSessionId } : {}),
     }];
     const convertedMessage = createMessage(
       "",
@@ -693,11 +696,22 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     taskId: string | undefined,
     defaultSource: string
   ) => {
+    let content = normalizeToolResultToText(toolData);
+    let subagentSessionId: string | undefined;
+
+    if (isAgentToolName(toolData.name)) {
+      const responseObj = toolData.response as Record<string, unknown> | undefined;
+      if (responseObj && typeof responseObj.subagent_session_id === "string") {
+        subagentSessionId = responseObj.subagent_session_id;
+      }
+    }
+
     const toolResultContent: ProcessedToolResultData[] = [{
       call_id: toolData.id,
       name: toolData.name,
-      content: normalizeToolResultToText(toolData),
+      content,
       is_error: toolData.response?.isError || false,
+      ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
     }];
     const execEvent = createMessage(
       "",
@@ -738,7 +752,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const isUserMessage = (message: Message): boolean => message.role === "user";
 
   // Simple fallback source when metadata is not available
-  const defaultAgentSource = handlers.agentContext 
+  const defaultAgentSource = handlers.agentContext
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
@@ -865,10 +879,17 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               }
               const toolData = data as unknown as ToolCallData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+
+              // Extract subagent_session_id from DataPart metadata for agent tools
+              let subagentSessionId: string | undefined;
+              if (fcName && isAgentToolName(fcName)) {
+                subagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
+              }
+
               // Don't stamp AgentCall cards with the parent invocation's stats —
               // those belong on the confirmation dialog. The AgentCall card gets
               // its own stats from the child agent's function_response.
-              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true, tokenStats: isAgentToolName(toolData.name) ? undefined : turnStats });
+              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true, tokenStats: isAgentToolName(toolData.name) ? undefined : turnStats, subagentSessionId });
 
             } else if (partType === "function_response") {
               // Skip internal HITL markers: the before_tool_callback stub and
@@ -924,7 +945,17 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
         if (partType === "function_call") {
           const toolData = data as unknown as ToolCallData;
-          const toolCallContent: ProcessedToolCallData[] = [{ id: toolData.id, name: toolData.name, args: toolData.args || {} }];
+          // Extract subagent_session_id from DataPart metadata for agent tools
+          let artifactFcSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            artifactFcSubagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
+          }
+          const toolCallContent: ProcessedToolCallData[] = [{
+            id: toolData.id,
+            name: toolData.name,
+            args: toolData.args || {},
+            ...(artifactFcSubagentSessionId ? { subagent_session_id: artifactFcSubagentSessionId } : {}),
+          }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent, ...(turnStats && { tokenStats: turnStats }) } });
           convertedMessages.push(convertedMessage);
           continue;
@@ -933,7 +964,20 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
-          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
+          let artifactSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            const responseObj = toolData.response as Record<string, unknown> | undefined;
+            if (responseObj && typeof responseObj.subagent_session_id === "string") {
+              artifactSubagentSessionId = responseObj.subagent_session_id;
+            }
+          }
+          const toolResultContent: ProcessedToolResultData[] = [{
+            call_id: toolData.id,
+            name: toolData.name,
+            content: textContent,
+            is_error: toolData.response?.isError || false,
+            ...(artifactSubagentSessionId ? { subagent_session_id: artifactSubagentSessionId } : {}),
+          }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
           convertedMessages.push(convertedMessage);
           continue;
@@ -979,7 +1023,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (convertedMessages.length > 0) {
         handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
       }
-      
+
       // Add a tool call summary message to mark any pending tool calls as completed
       const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       const toolSummaryMessage = createMessage(
@@ -1051,4 +1095,4 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   return {
     handleMessageEvent
   };
-}; 
+};

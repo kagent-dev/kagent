@@ -42,10 +42,15 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
         context: ServerCallContext | None = None,
     ) -> RequestContext:
         if context:
-            # grab the user id from the header
             headers = context.state.get("headers", {})
+            # Extract the authenticated user ID forwarded by the parent agent
             user_id = headers.get("x-user-id", None)
             if user_id:
                 context.user = KAgentUser(user_id=user_id)
+            # Propagate x-kagent-source so downstream code (e.g. session
+            # creation) can tag this session as subagent-originated.
+            source = headers.get("x-kagent-source", None)
+            if source:
+                context.state["kagent_source"] = source
         request_context = await super().build(params, task_id, context_id, task, context)
         return request_context

@@ -136,6 +136,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		Name:    sessionRequest.Name,
 		UserID:  userID,
 		AgentID: &agent.ID,
+		Source:  sessionRequest.Source,
 	}
 
 	log.V(1).Info("Creating session in database",

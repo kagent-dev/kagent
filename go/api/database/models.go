@@ -66,6 +66,9 @@ type Session struct {
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	AgentID *string `gorm:"index" json:"agent_id"`
+	// Source indicates how this session was created.
+	// nil or empty = user-initiated, "subagent" = created by a parent agent's A2A call.
+	Source *string `gorm:"index" json:"source,omitempty"`
 }
 
 type Task struct {
