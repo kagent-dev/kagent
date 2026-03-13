@@ -130,11 +130,7 @@ _SECRET_ENV_NAMES: set[str] = {
 def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     """Return a copy of the environment with secret variables removed."""
     source = env if env is not None else os.environ
-    return {
-        k: v
-        for k, v in source.items()
-        if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)
-    }
+    return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
 
 
 def _get_command_timeout_seconds(command: str) -> float:
