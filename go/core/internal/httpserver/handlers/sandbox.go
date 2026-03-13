@@ -2,13 +2,19 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	api "github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	httpapi "github.com/kagent-dev/kagent/go/api/httpapi"
 )
 
 const (
@@ -19,16 +25,27 @@ const (
 // SandboxHandler handles sandbox lifecycle requests for sessions.
 type SandboxHandler struct {
 	*Base
-	Provider sandbox.SandboxProvider
+	Provider api.SandboxProvider
 }
 
 // NewSandboxHandler creates a new SandboxHandler.
-func NewSandboxHandler(base *Base, provider sandbox.SandboxProvider) *SandboxHandler {
+func NewSandboxHandler(base *Base, provider api.SandboxProvider) *SandboxHandler {
 	return &SandboxHandler{Base: base, Provider: provider}
 }
 
+// sandboxTemplateName returns the deterministic name for an agent's auto-generated
+// SandboxTemplate. Mirrors the function in the translator package.
+func sandboxTemplateName(agentName string) string {
+	name := agentName + "-sandbox"
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	return name
+}
+
 // HandleCreateSandbox handles POST /api/sessions/{session_id}/sandbox.
-// It provisions (or returns an existing) sandbox for the given session.
+// It resolves the workspace from the session's agent CRD and provisions
+// (or returns an existing) sandbox for the given session.
 func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sandbox-handler").WithValues("operation", "create")
 
@@ -39,37 +56,71 @@ func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Requ
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	var req api.CreateSandboxRequest
-	if err := DecodeJSONBody(r, &req); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-
-	// Verify session exists
+	// Verify session exists and get the agent reference.
 	userID, err := getUserIDOrAgentUser(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
 
-	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
-	opts := sandbox.CreateSandboxOptions{
-		AgentName: req.AgentName,
-		Namespace: req.Namespace,
-		WorkspaceRef: sandbox.WorkspaceRef{
-			APIGroup:  req.Workspace.APIGroup,
-			Kind:      req.Workspace.Kind,
-			Name:      req.Workspace.Name,
-			Namespace: req.Workspace.Namespace,
-		},
+	if session.AgentID == nil || *session.AgentID == "" {
+		w.RespondWithError(errors.NewBadRequestError("Session has no agent reference", nil))
+		return
 	}
 
-	opts.SessionID = sessionID
+	// Convert the DB agent ID (e.g. "ns__NS__name") back to namespace/name.
+	k8sRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
+	parts := strings.SplitN(k8sRef, "/", 2)
+	if len(parts) != 2 {
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("Invalid agent reference format: %s", k8sRef), nil))
+		return
+	}
+	agentNamespace, agentName := parts[0], parts[1]
+
+	// Fetch the Agent CRD to read workspace config.
+	var agent v1alpha2.Agent
+	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{
+		Namespace: agentNamespace,
+		Name:      agentName,
+	}, &agent); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to fetch agent CRD", err))
+		return
+	}
+
+	// Validate workspace is enabled on this agent.
+	if agent.Spec.Type != v1alpha2.AgentType_Declarative ||
+		agent.Spec.Declarative == nil ||
+		agent.Spec.Declarative.Workspace == nil ||
+		!agent.Spec.Declarative.Workspace.Enabled {
+		w.RespondWithError(errors.NewBadRequestError("Workspace is not enabled for this agent", nil))
+		return
+	}
+
+	// Determine the sandbox template name.
+	ws := agent.Spec.Declarative.Workspace
+	templateName := ws.TemplateRef
+	if templateName == "" {
+		templateName = sandboxTemplateName(agent.Name)
+	}
+
+	opts := api.CreateSandboxOptions{
+		SessionID: sessionID,
+		AgentName: agentName,
+		Namespace: agentNamespace,
+		WorkspaceRef: api.WorkspaceRef{
+			APIGroup:  "extensions.agents.x-k8s.io",
+			Kind:      "SandboxTemplate",
+			Name:      templateName,
+			Namespace: agentNamespace,
+		},
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), sandboxCreateTimeout)
 	defer cancel()
@@ -80,7 +131,7 @@ func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	resp := api.SandboxResponse{
+	resp := httpapi.SandboxResponse{
 		SandboxID: ep.ID,
 		MCPUrl:    ep.MCPUrl,
 		Protocol:  ep.Protocol,
@@ -114,7 +165,7 @@ func (h *SandboxHandler) HandleGetSandboxStatus(w ErrorResponseWriter, r *http.R
 		return
 	}
 
-	resp := api.SandboxResponse{
+	resp := httpapi.SandboxResponse{
 		SandboxID: ep.ID,
 		MCPUrl:    ep.MCPUrl,
 		Protocol:  ep.Protocol,

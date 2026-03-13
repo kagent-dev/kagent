@@ -482,7 +482,8 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
         # Sandbox provisioning: if workspace is configured, ensure a sandbox
         # MCP toolset is attached for this session.
-        if self._agent_config and getattr(self._agent_config, "workspace", None) is not None:
+        ws = getattr(self._agent_config, "workspace", None) if self._agent_config else None
+        if ws is not None and ws.enabled:
             await self._ensure_sandbox_toolset(session, runner, run_args)
 
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
@@ -619,8 +620,10 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         """Provision a sandbox for this session if not already done.
 
         Checks session state for an existing sandbox MCP URL. If not present,
-        POSTs to the controller sandbox endpoint, stores the URL in session
-        state, and appends a KAgentMcpToolset to the runner's agent tools.
+        POSTs to the controller sandbox endpoint (empty body — the controller
+        resolves workspace from the session's agent CRD), stores the URL in
+        session state, and appends a KAgentMcpToolset to the runner's agent
+        tools.
         """
         sandbox_mcp_url = (session.state or {}).get("sandbox_mcp_url")
         if sandbox_mcp_url:
@@ -631,25 +634,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         import os
 
         import httpx
-        from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
         kagent_url = os.getenv("KAGENT_URL", "http://localhost:8083")
-        ws = self._agent_config.workspace
         session_id = run_args["session_id"]
 
         async with httpx.AsyncClient(base_url=kagent_url) as client:
             resp = await client.post(
                 f"/api/sessions/{session_id}/sandbox",
-                json={
-                    "agent_name": runner.app_name,
-                    "namespace": ws.namespace,
-                    "workspace_ref": {
-                        "api_group": ws.api_group,
-                        "kind": ws.kind,
-                        "name": ws.name,
-                        "namespace": ws.namespace,
-                    },
-                },
                 timeout=30.0,
             )
             resp.raise_for_status()

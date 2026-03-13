@@ -8,6 +8,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/sandbox"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -22,7 +23,20 @@ const (
 	defaultSkillsDirectory = "/skills"
 	envSkillsFolder        = "KAGENT_SKILLS_FOLDER"
 	sessionNameMaxLength   = 20
+
+	// StateKeySandboxMCPUrl is the session state key for the sandbox MCP URL.
+	// Matches the Python ADK key for cross-runtime compatibility.
+	StateKeySandboxMCPUrl = "sandbox_mcp_url"
 )
+
+// ExecutorOptions holds optional configuration for NewExecutorConfig.
+type ExecutorOptions struct {
+	// SandboxProvisioner provisions sandboxes via the controller API.
+	SandboxProvisioner *sandbox.SandboxProvisioner
+
+	// SandboxRegistry stores per-session sandbox MCP toolsets.
+	SandboxRegistry *sandbox.SandboxRegistry
+}
 
 // NewExecutorConfig builds an adka2a.ExecutorConfig with kagent-specific
 // callbacks wired in. The returned config can be passed directly to
@@ -33,6 +47,7 @@ func NewExecutorConfig(
 	stream bool,
 	appName string,
 	logger logr.Logger,
+	opts *ExecutorOptions,
 ) adka2a.ExecutorConfig {
 	skillsDir := os.Getenv(envSkillsFolder)
 	if skillsDir == "" {
@@ -51,6 +66,11 @@ func NewExecutorConfig(
 		log:             logger.WithName("a2a-executor"),
 	}
 
+	if opts != nil {
+		cb.provisioner = opts.SandboxProvisioner
+		cb.registry = opts.SandboxRegistry
+	}
+
 	return adka2a.ExecutorConfig{
 		RunnerConfig:          runnerConfig,
 		RunConfig:             runConfig,
@@ -67,6 +87,10 @@ type kagentCallbacks struct {
 	sessionService  session.SessionService
 	skillsDirectory string
 	log             logr.Logger
+
+	// Sandbox support — all nil when workspace is not configured.
+	provisioner *sandbox.SandboxProvisioner
+	registry    *sandbox.SandboxRegistry
 }
 
 // beforeExecute sets up tracing, creates the session with session_name if
@@ -113,6 +137,54 @@ func (cb *kagentCallbacks) beforeExecute(ctx context.Context, reqCtx *a2asrv.Req
 			}
 			if _, err = cb.sessionService.CreateSession(ctx, cb.appName, userID, state, sessionID); err != nil {
 				return ctx, fmt.Errorf("failed to create session: %w", err)
+			}
+		} else {
+			// Check session state for an existing sandbox MCP URL.
+			if cb.provisioner != nil && cb.registry != nil && sess.State != nil {
+				if mcpURL, ok := sess.State[StateKeySandboxMCPUrl].(string); ok && mcpURL != "" {
+					cb.log.Info("Reusing sandbox from session state", "sessionID", sessionID, "mcpUrl", mcpURL)
+					if _, err := cb.registry.GetOrCreate(ctx, sessionID, mcpURL); err != nil {
+						cb.log.Error(err, "Failed to restore sandbox toolset from session state", "sessionID", sessionID)
+					}
+				}
+			}
+		}
+	}
+
+	// Sandbox provisioning: if provisioner and registry are configured and no
+	// sandbox exists yet for this session, provision one and store the URL in
+	// session state.
+	if cb.provisioner != nil && cb.registry != nil {
+		if _, exists := cb.registry.Get(sessionID); !exists {
+			mcpURL, err := cb.provisioner.Provision(ctx, sessionID)
+			if err != nil {
+				return ctx, fmt.Errorf("failed to provision sandbox: %w", err)
+			}
+
+			if _, err := cb.registry.GetOrCreate(ctx, sessionID, mcpURL); err != nil {
+				return ctx, fmt.Errorf("failed to create sandbox toolset: %w", err)
+			}
+
+			// Persist sandbox URL in session state via AppendEvent so
+			// subsequent requests in the same session reuse the sandbox.
+			if cb.sessionService != nil {
+				stateEvent := &adksession.Event{
+					InvocationID: "sandbox_setup",
+					Author:       "system",
+					Actions: adksession.EventActions{
+						StateDelta: map[string]any{
+							StateKeySandboxMCPUrl: mcpURL,
+						},
+					},
+				}
+				ourSession := &session.Session{
+					ID:      sessionID,
+					UserID:  userID,
+					AppName: cb.appName,
+				}
+				if err := cb.sessionService.AppendEvent(ctx, ourSession, stateEvent); err != nil {
+					cb.log.Error(err, "Failed to persist sandbox URL in session state (continuing)", "sessionID", sessionID)
+				}
 			}
 		}
 	}

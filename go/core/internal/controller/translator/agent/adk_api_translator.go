@@ -693,18 +693,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
-	// Translate workspace reference for sandbox support
-	if agent.Spec.Declarative.Workspace != nil {
-		ws := agent.Spec.Declarative.Workspace
-		cfg.Workspace = &adk.WorkspaceConfig{
-			APIGroup:  ws.ApiGroup,
-			Kind:      ws.Kind,
-			Name:      ws.Name,
-			Namespace: ws.Namespace,
-		}
-		if cfg.Workspace.Namespace == "" {
-			cfg.Workspace.Namespace = agent.Namespace
-		}
+	// Translate workspace reference for sandbox support.
+	// config.json only carries {enabled: true} — the controller resolves
+	// the actual workspace details from the session's agent CRD at sandbox
+	// creation time.
+	if ws := agent.Spec.Declarative.Workspace; ws != nil && ws.Enabled {
+		cfg.Workspace = &adk.WorkspaceConfig{Enabled: true}
 	}
 
 	for _, tool := range agent.Spec.Declarative.Tools {

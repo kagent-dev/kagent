@@ -253,12 +253,13 @@ class MemoryConfig(BaseModel):
 
 
 class WorkspaceConfig(BaseModel):
-    """Workspace reference from the Agent CRD for sandbox provisioning."""
+    """Workspace configuration from config.json for sandbox provisioning.
 
-    api_group: str
-    kind: str
-    name: str
-    namespace: str
+    The controller resolves the actual workspace details from the session's
+    agent CRD, so config.json only carries enabled=true.
+    """
+
+    enabled: bool
 
 
 class AgentConfig(BaseModel):

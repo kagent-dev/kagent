@@ -1,4 +1,0 @@
-FROM python:3.13-slim
-COPY bin/sandbox-mcp /sandbox-mcp
-EXPOSE 8080
-ENTRYPOINT ["/sandbox-mcp"]

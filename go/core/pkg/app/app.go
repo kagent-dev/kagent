@@ -34,6 +34,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
@@ -124,6 +125,7 @@ type Config struct {
 	ProbeAddr          string
 	SecureMetrics      bool
 	EnableHTTP2        bool
+	EnableSandbox      bool
 	DefaultModelConfig types.NamespacedName
 	HttpServerAddr     string
 	WatchNamespaces    string
@@ -156,6 +158,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Webhook.CertKey, "webhook-cert-key", "tls.key", "The name of the webhook server key file.")
 	commandLine.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	commandLine.BoolVar(&cfg.EnableSandbox, "enable-k8s-sigs-agent-sandbox", false,
+		"Enable kubernetes-sigs/agent-sandbox support. Requires agent-sandbox CRDs (SandboxTemplate, SandboxClaim) to be installed.")
 
 	commandLine.StringVar(&cfg.DefaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	commandLine.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
@@ -184,6 +188,11 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+
+	commandLine.StringVar(&agent_translator.DefaultSandboxMCPImageConfig.Registry, "k8s-sigs-agent-sandbox-mcp-image-registry", agent_translator.DefaultSandboxMCPImageConfig.Registry, "The registry to use for the kubernetes-sigs/agent-sandbox MCP image.")
+	commandLine.StringVar(&agent_translator.DefaultSandboxMCPImageConfig.Tag, "k8s-sigs-agent-sandbox-mcp-image-tag", agent_translator.DefaultSandboxMCPImageConfig.Tag, "The tag to use for the kubernetes-sigs/agent-sandbox MCP image.")
+	commandLine.StringVar(&agent_translator.DefaultSandboxMCPImageConfig.PullPolicy, "k8s-sigs-agent-sandbox-mcp-image-pull-policy", agent_translator.DefaultSandboxMCPImageConfig.PullPolicy, "The pull policy to use for the kubernetes-sigs/agent-sandbox MCP image.")
+	commandLine.StringVar(&agent_translator.DefaultSandboxMCPImageConfig.Repository, "k8s-sigs-agent-sandbox-mcp-image-repository", agent_translator.DefaultSandboxMCPImageConfig.Repository, "The repository to use for the kubernetes-sigs/agent-sandbox MCP image.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 }
@@ -409,10 +418,24 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	agentPlugins := extensionCfg.AgentPlugins
+
+	// Register the SandboxTemplatePlugin only when sandbox support is enabled
+	// AND the agent-sandbox CRDs are installed in the cluster.
+	if cfg.EnableSandbox {
+		sandboxTemplateGK := schema.GroupKind{Group: "extensions.agents.x-k8s.io", Kind: "SandboxTemplate"}
+		if _, err := mgr.GetRESTMapper().RESTMapping(sandboxTemplateGK); err == nil {
+			setupLog.Info("kubernetes-sigs/agent-sandbox support enabled: CRDs detected")
+			agentPlugins = append(agentPlugins, agent_translator.NewSandboxTemplatePlugin())
+		} else {
+			setupLog.Info("kubernetes-sigs/agent-sandbox support enabled but CRDs not found; sandbox features will be unavailable", "error", err)
+		}
+	}
+
 	apiTranslator := agent_translator.NewAdkApiTranslator(
 		mgr.GetClient(),
 		cfg.DefaultModelConfig,
-		extensionCfg.AgentPlugins,
+		agentPlugins,
 		cfg.Proxy.URL,
 	)
 
@@ -537,8 +560,11 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	// Create sandbox provider using agent-sandbox CRDs.
-	sandboxProvider := sandboxpkg.NewAgentSandboxProvider(mgr.GetClient())
+	// Create sandbox provider only when sandbox support is enabled.
+	var sandboxProvider sandboxpkg.SandboxProvider
+	if cfg.EnableSandbox {
+		sandboxProvider = sandboxpkg.NewAgentSandboxProvider(mgr.GetClient())
+	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		Router:            router,

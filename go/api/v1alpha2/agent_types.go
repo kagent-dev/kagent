@@ -189,12 +189,26 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
 
-	// Workspace references an external resource that provides a per-session
-	// sandbox environment (filesystem + shell) for the agent. The referenced
-	// resource is opaque to kagent; a matching SandboxProvider implementation
-	// must be registered in the controller.
+	// Workspace enables a per-session sandbox environment (filesystem + shell)
+	// for the agent. When enabled, the controller provisions an isolated sandbox
+	// pod for each session via the agent-sandbox SandboxClaim API.
 	// +optional
-	Workspace *TypedReference `json:"workspace,omitempty"`
+	Workspace *WorkspaceSpec `json:"workspace,omitempty"`
+}
+
+// WorkspaceSpec configures per-session sandbox environments for an agent.
+type WorkspaceSpec struct {
+	// Enabled activates workspace/sandbox provisioning. When true, the
+	// controller generates a SandboxTemplate and provisions a sandbox pod
+	// per session with exec, filesystem, and (if configured) skill tools.
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+
+	// TemplateRef optionally references a user-provided SandboxTemplate by
+	// name (in the same namespace). When set, the controller uses this
+	// template instead of generating one automatically.
+	// +optional
+	TemplateRef string `json:"templateRef,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.

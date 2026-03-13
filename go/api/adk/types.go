@@ -427,13 +427,11 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// WorkspaceConfig carries the workspace reference from the Agent CRD through
-// config.json so the agent runtime can request a sandbox on session start.
+// WorkspaceConfig signals to the agent runtime that sandbox provisioning is
+// enabled. The controller resolves the actual workspace details from the
+// session's agent CRD, so config.json only carries {enabled: true}.
 type WorkspaceConfig struct {
-	APIGroup  string `json:"api_group"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
+	Enabled bool `json:"enabled"`
 }
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this

@@ -15,6 +15,12 @@ import (
 	adktool "google.golang.org/adk/tool"
 )
 
+// RunnerOptions holds optional configuration for runner creation.
+type RunnerOptions struct {
+	// AgentOptions are passed through to agent creation (e.g. extra toolsets).
+	AgentOptions *agent.AgentOptions
+}
+
 func agentNameFromAppName(appName string) string {
 	if idx := strings.LastIndex(appName, "__NS__"); idx >= 0 {
 		return appName[idx+len("__NS__"):]
@@ -24,7 +30,8 @@ func agentNameFromAppName(appName string) string {
 
 // CreateRunnerConfig creates a runner.Config suitable for use with adka2a.Executor.
 // memoryService is optional; pass nil when memory is not configured.
-func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessionService session.SessionService, appName string, memoryService *kagentmemory.KagentMemoryService) (runner.Config, error) {
+// opts is optional; pass nil when no extra configuration is needed.
+func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessionService session.SessionService, appName string, memoryService *kagentmemory.KagentMemoryService, opts *RunnerOptions) (runner.Config, error) {
 	// If a memory service is provided, create the save_memory tool so the agent
 	// can explicitly save content. The load_memory tool is provided by the
 	// upstream Google ADK.
@@ -33,7 +40,12 @@ func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessi
 		extraTools = append(extraTools, kagentmemory.NewSaveMemoryTool(memoryService))
 	}
 
-	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
+	var agentOpts *agent.AgentOptions
+	if opts != nil {
+		agentOpts = opts.AgentOptions
+	}
+
+	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), agentOpts, extraTools...)
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}

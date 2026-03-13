@@ -7,8 +7,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /sandbox-mcp ./cmd/
 
-FROM gcr.io/distroless/static:nonroot
+FROM python:3.13-slim
 COPY --from=builder /sandbox-mcp /sandbox-mcp
-USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/sandbox-mcp"]

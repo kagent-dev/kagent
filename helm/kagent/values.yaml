@@ -420,6 +420,18 @@ querydoc:
     apiKey: ""
 
 # ==============================================================================
+# KUBERNETES-SIGS/AGENT-SANDBOX
+# ==============================================================================
+
+agentSandbox:
+  enabled: false
+  image:
+    registry: ghcr.io
+    repository: kagent-dev/kagent-sandbox-mcp
+    tag: ""  # Defaults to global tag, then Chart version
+    pullPolicy: ""
+
+# ==============================================================================
 # OBSERVABILITY
 # ==============================================================================
 
