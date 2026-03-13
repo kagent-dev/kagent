@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import asyncio
 import faulthandler
 import logging
 import os
@@ -20,7 +21,6 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -170,6 +170,7 @@ class KAgentApp:
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
+
         a2a_app.add_routes_to_app(app)
 
         return app
