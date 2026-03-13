@@ -1,0 +1,135 @@
+suite: test controller servicemonitor
+templates:
+  - controller-servicemonitor.yaml
+tests:
+  - it: should not render when metrics are disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when metrics enabled but serviceMonitor disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when CRD is not available
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when both metrics and serviceMonitor are enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-controller
+
+  - it: should have correct endpoint configuration
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.port: 9093
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.interval: 30s
+      controller.metrics.serviceMonitor.scrapeTimeout: 10s
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 30s
+      - equal:
+          path: spec.endpoints[0].scrapeTimeout
+          value: 10s
+
+  - it: should use HTTPS scheme and default bearerTokenFile when metrics are secure
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secure: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - isNull:
+          path: spec.endpoints[0].bearerTokenSecret
+
+  - it: should use bearerTokenSecret when configured for secure metrics
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secure: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.bearerTokenSecret:
+        name: my-prometheus-token
+        key: token
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret.name
+          value: my-prometheus-token
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret.key
+          value: token
+      - isNull:
+          path: spec.endpoints[0].bearerTokenFile
+
+  - it: should include additional labels
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.additionalLabels:
+        release: prometheus
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: prometheus
+
+  - it: should have correct selector labels
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: metrics

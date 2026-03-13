@@ -69,3 +69,15 @@ tests:
       - equal:
           path: metadata.namespace
           value: custom-namespace
+
+  - it: should only have controller port (metrics use dedicated service)
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.port: 9093
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 1
+      - equal:
+          path: spec.ports[0].name
+          value: controller
