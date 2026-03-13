@@ -7,7 +7,6 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
-  DATABASE_TYPE: {{ .Values.database.type | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
@@ -52,17 +51,12 @@ data:
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
-  {{- if eq .Values.database.type "sqlite" }}
-  SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
-  DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}
-  {{- else if eq .Values.database.type "postgres" }}
   {{- if not (eq .Values.database.postgres.urlFile "") }}
   POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
-  {{- else if not (eq .Values.database.postgres.url "") }}
-  POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
+  {{- else }}
+  POSTGRES_DATABASE_URL: {{ include "kagent.postgresqlUrl" . | quote }}
   {{- end }}
-  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | default true | quote }}
-  {{- end }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}

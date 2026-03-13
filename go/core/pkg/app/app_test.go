@@ -277,7 +277,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"HTTP_SERVER_ADDRESS":            ":9000",
 		"A2A_BASE_URL":                   "http://example.com:9000",
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
-		"DATABASE_TYPE":                  "postgres",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
 		"STREAMING_TIMEOUT":              "120s",
@@ -327,9 +326,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.A2ABaseUrl != "http://example.com:9000" {
 		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
-	}
-	if cfg.Database.Type != "postgres" {
-		t.Errorf("Database.Type = %v, want postgres", cfg.Database.Type)
 	}
 	if cfg.Database.Url != "postgres://localhost:5432/testdb" {
 		t.Errorf("Database.Url = %v, want postgres://localhost:5432/testdb", cfg.Database.Url)

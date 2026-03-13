@@ -512,13 +512,10 @@ func (c *clientImpl) StoreCrewAIMemory(ctx context.Context, memory *dbpkg.CrewAI
 func (c *clientImpl) SearchCrewAIMemoryByTask(ctx context.Context, userID, threadID, taskDescription string, limit int) ([]*dbpkg.CrewAIAgentMemory, error) {
 	var memories []*dbpkg.CrewAIAgentMemory
 
-	// Search for task_description within the JSON memory_data field
-	// Using JSON_EXTRACT or JSON_UNQUOTE for MySQL/PostgreSQL, or simple LIKE for SQLite
-	// Sort by created_at DESC, then by score ASC (if score exists in JSON)
 	query := c.db.WithContext(ctx).Where(
-		"user_id = ? AND thread_id = ? AND (memory_data LIKE ? OR JSON_EXTRACT(memory_data, '$.task_description') LIKE ?)",
+		"user_id = ? AND thread_id = ? AND (memory_data LIKE ? OR memory_data->>'task_description' LIKE ?)",
 		userID, threadID, "%"+taskDescription+"%", "%"+taskDescription+"%",
-	).Order("created_at DESC, JSON_EXTRACT(memory_data, '$.score') ASC")
+	).Order("created_at DESC, memory_data->>'score' ASC")
 
 	// Apply limit
 	if limit > 0 {
@@ -597,43 +594,17 @@ func (c *clientImpl) StoreAgentMemories(ctx context.Context, memories []*dbpkg.M
 func (c *clientImpl) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
 	var results []dbpkg.AgentMemorySearchResult
 
-	db := c.db.WithContext(ctx)
-	if db.Name() == "sqlite" {
-		// libSQL/Turso syntax: vector_distance_cos(embedding, vector32('JSON_ARRAY'))
-		// We must use fmt.Sprintf to inline the JSON array because vector32() requires a string literal
-		// and parameter binding with ? fails with "unexpected token" errors (GORM limitation)
-		embeddingJSON, err := json.Marshal(embedding.Slice())
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize embedding: %w", err)
-		}
-
-		// Safe formatting because we control the JSON string generation from float slice
-		query := fmt.Sprintf(`
-			SELECT id, agent_name, user_id, content, metadata, created_at, expires_at, access_count,
-			       1 - vector_distance_cos(embedding, vector32('%s')) as score
-			FROM memory
-			WHERE agent_name = ? AND user_id = ?
-			ORDER BY vector_distance_cos(embedding, vector32('%s')) ASC
-			LIMIT ?
-		`, string(embeddingJSON), string(embeddingJSON))
-
-		if err := db.Raw(query, agentName, userID, limit).Scan(&results).Error; err != nil {
-			return nil, fmt.Errorf("failed to search agent memory (sqlite): %w", err)
-		}
-	} else {
-		// Postgres pgvector syntax: uses <=> operator for cosine distance.
-		// COALESCE guards against NaN when either vector has zero magnitude.
-		// pgvector.Vector implements sql.Scanner and driver.Valuer
-		query := `
-			SELECT *, COALESCE(1 - (embedding <=> ?), 0) as score
-			FROM memory
-			WHERE agent_name = ? AND user_id = ?
-			ORDER BY embedding <=> ? ASC
-			LIMIT ?
-		`
-		if err := db.Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
-			return nil, fmt.Errorf("failed to search agent memory (postgres): %w", err)
-		}
+	// pgvector <=> operator for cosine distance.
+	// COALESCE guards against NaN when either vector has zero magnitude.
+	query := `
+		SELECT *, COALESCE(1 - (embedding <=> ?), 0) as score
+		FROM memory
+		WHERE agent_name = ? AND user_id = ?
+		ORDER BY embedding <=> ? ASC
+		LIMIT ?
+	`
+	if err := c.db.WithContext(ctx).Raw(query, embedding, agentName, userID, embedding, limit).Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
 
 	// Increment access count for found memories synchronously.
@@ -642,7 +613,7 @@ func (c *clientImpl) SearchAgentMemory(ctx context.Context, agentName, userID st
 		for i, m := range results {
 			ids[i] = m.ID
 		}
-		if err := db.Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
+		if err := c.db.WithContext(ctx).Model(&dbpkg.Memory{}).Where("id IN ?", ids).UpdateColumn("access_count", gorm.Expr("access_count + ?", 1)).Error; err != nil {
 			return nil, fmt.Errorf("failed to increment access count: %w", err)
 		}
 	}
@@ -705,15 +676,7 @@ func (c *clientImpl) DeleteAgentMemory(ctx context.Context, agentName, userID st
 }
 
 func (c *clientImpl) deleteAgentMemoryByQuery(ctx context.Context, agentName, userID string) error {
-	var ids []string
-	if err := c.db.WithContext(ctx).Table("memory").Where("agent_name = ? AND user_id = ?", agentName, userID).Pluck("id", &ids).Error; err != nil {
-		return fmt.Errorf("failed to list memory ids: %w", err)
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	// DELETE by primary key only to avoid Turso multi-index scan on DELETE which causes a bug
-	if err := c.db.WithContext(ctx).Exec("DELETE FROM memory WHERE id IN ?", ids).Error; err != nil {
+	if err := c.db.WithContext(ctx).Where("agent_name = ? AND user_id = ?", agentName, userID).Delete(&dbpkg.Memory{}).Error; err != nil {
 		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	return nil

@@ -1,0 +1,90 @@
+{{- if and (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-postgresql
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+data:
+  POSTGRES_DB: {{ .Values.database.postgres.bundled.database | quote }}
+  POSTGRES_USER: {{ .Values.database.postgres.bundled.user | quote }}
+  POSTGRES_PASSWORD: {{ .Values.database.postgres.bundled.password | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kagent.fullname" . }}-postgresql
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.database.postgres.bundled.storage | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-postgresql
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ .Values.database.postgres.bundled.image | quote }}
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: {{ include "kagent.fullname" . }}-postgresql
+          volumeMounts:
+            - name: postgresql-storage
+              mountPath: /var/lib/postgresql
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: postgresql-storage
+          persistentVolumeClaim:
+            claimName: {{ include "kagent.fullname" . }}-postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.postgresqlServiceName" . }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+{{- end }}

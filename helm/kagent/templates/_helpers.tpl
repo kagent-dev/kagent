@@ -115,11 +115,20 @@ Check if leader election should be enabled (more than 1 replica)
 {{- end -}}
 
 {{/*
-Validate controller configuration
+PostgreSQL service name for the bundled postgres instance
 */}}
-{{- define "kagent.validateController" -}}
-{{- if and (gt (.Values.controller.replicas | int) 1) (eq .Values.database.type "sqlite") -}}
-{{- fail "ERROR: controller.replicas cannot be greater than 1 when database.type is 'sqlite' as the SQLite database is local to the pod. Please either set controller.replicas to 1 or change database.type to 'postgres'." }}
+{{- define "kagent.postgresqlServiceName" -}}
+{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
+{{- end -}}
+
+{{/*
+PostgreSQL URL - auto-computed from bundled config when url is empty, otherwise uses database.postgres.url
+*/}}
+{{- define "kagent.postgresqlUrl" -}}
+{{- if not (eq .Values.database.postgres.url "") -}}
+{{- .Values.database.postgres.url -}}
+{{- else -}}
+{{- printf "postgres://%s:%s@%s.%s.svc.cluster.local:5432/%s" .Values.database.postgres.bundled.user .Values.database.postgres.bundled.password (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) .Values.database.postgres.bundled.database -}}
 {{- end -}}
 {{- end -}}
 
