@@ -107,7 +107,7 @@ async def test_skill_core_logic(skill_test_env: Path):
     # 2. Execute the skill's core command, just as an agent would
     # We use the centralized `execute_command` function directly
     command = "python skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
-    result = await execute_command(command, working_dir=session_dir)
+    result = await execute_command(command, working_dir=session_dir, skills_dir=Path("/skills"))
 
     assert "Successfully converted" in result
 
@@ -147,7 +147,7 @@ async def test_execute_command_no_shell_injection(tmp_path):
         patch("asyncio.create_subprocess_shell") as mock_shell,
         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
     ):
-        await execute_command(injection_payload, working_dir=tmp_path)
+        await execute_command(injection_payload, working_dir=tmp_path, skills_dir=Path("/skills"))
 
     # Invariant 1: create_subprocess_shell must never be used.
     assert not mock_shell.called

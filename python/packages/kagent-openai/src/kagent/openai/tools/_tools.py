@@ -34,6 +34,7 @@ from .._agent_executor import SessionContext
 
 logger = logging.getLogger(__name__)
 
+_skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", "/skills")
 
 # --- System Tools ---
 
@@ -56,11 +57,7 @@ def read_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        allowed_dirs = [working_dir]
-
-        skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
-        if skills_directory:
-            allowed_dirs.append(Path(skills_directory))
+        allowed_dirs = [working_dir, Path(_skills_directory)]
 
         return read_file_content(path, offset, limit, allowed_root=allowed_dirs)
     except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
@@ -118,7 +115,7 @@ async def bash(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
     try:
         session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
-        return await execute_command(command, working_dir)
+        return await execute_command(command, working_dir, _skills_directory)
     except Exception as e:
         raise UserError(f"Error executing command: {e}") from e
 

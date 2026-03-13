@@ -136,7 +136,7 @@ def _get_command_timeout_seconds(command: str) -> float:
         return 30.0  # 30 seconds for other commands
 
 
-async def execute_command(command: str, working_dir: Path, skills_dir: Path) -> str:
+async def execute_command(command: str, working_dir: Path, skills_dir: Path = Path("/skills")) -> str:
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
