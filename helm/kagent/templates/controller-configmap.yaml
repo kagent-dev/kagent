@@ -71,3 +71,10 @@ data:
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
   DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
   {{- end }}
+  {{- if .Values.agentSandbox.enabled }}
+  ENABLE_K8S_SIGS_AGENT_SANDBOX: "true"
+  K8S_SIGS_AGENT_SANDBOX_MCP_IMAGE_REGISTRY: {{ .Values.agentSandbox.image.registry | default "ghcr.io" | quote }}
+  K8S_SIGS_AGENT_SANDBOX_MCP_IMAGE_REPOSITORY: {{ .Values.agentSandbox.image.repository | default "kagent-dev/kagent-sandbox-mcp" | quote }}
+  K8S_SIGS_AGENT_SANDBOX_MCP_IMAGE_TAG: {{ coalesce .Values.agentSandbox.image.tag .Values.tag .Chart.Version | quote }}
+  K8S_SIGS_AGENT_SANDBOX_MCP_IMAGE_PULL_POLICY: {{ .Values.agentSandbox.image.pullPolicy | default .Values.imagePullPolicy | quote }}
+  {{- end }}

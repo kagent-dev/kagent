@@ -427,6 +427,13 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WorkspaceConfig signals to the agent runtime that sandbox provisioning is
+// enabled. The controller resolves the actual workspace details from the
+// session's agent CRD, so config.json only carries {enabled: true}.
+type WorkspaceConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -439,6 +446,7 @@ type AgentConfig struct {
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Workspace     *WorkspaceConfig      `json:"workspace,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -469,6 +477,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Workspace     *WorkspaceConfig      `json:"workspace,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +506,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.Workspace = tmp.Workspace
 	return nil
 }
 

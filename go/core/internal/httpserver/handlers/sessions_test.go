@@ -51,7 +51,7 @@ func TestSessionsHandler(t *testing.T) {
 			DatabaseService:    dbClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 		}
-		handler := handlers.NewSessionsHandler(base)
+		handler := handlers.NewSessionsHandler(base, nil)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, dbClient.(*database_fake.InMemoryFakeClient), responseRecorder
 	}
