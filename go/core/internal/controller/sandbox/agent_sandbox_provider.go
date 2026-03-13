@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -81,14 +81,14 @@ func (p *AgentSandboxProvider) GetOrCreate(ctx context.Context, opts CreateSandb
 	existing := &extv1alpha1.SandboxClaim{}
 	err := p.client.Get(ctx, key, existing)
 	if err != nil {
-		if !errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get SandboxClaim %s/%s: %w", ns, name, err)
 		}
 
 		// Create the SandboxClaim.
 		claim := p.buildClaim(name, ns, opts)
 		if err := p.client.Create(ctx, claim); err != nil {
-			if !errors.IsAlreadyExists(err) {
+			if !apierrors.IsAlreadyExists(err) {
 				return nil, fmt.Errorf("failed to create SandboxClaim: %w", err)
 			}
 			// Race — another caller created it first.
@@ -112,7 +112,7 @@ func (p *AgentSandboxProvider) waitForReady(ctx context.Context, key types.Names
 	err := wait.PollUntilContextCancel(ctx, pollInterval, true, func(ctx context.Context) (bool, error) {
 		claim := &extv1alpha1.SandboxClaim{}
 		if err := p.client.Get(ctx, key, claim); err != nil {
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				// Cache may not have synced yet after creation — retry.
 				return false, nil
 			}
@@ -166,7 +166,7 @@ func (p *AgentSandboxProvider) Destroy(ctx context.Context, sessionID string) er
 	}
 
 	for i := range list.Items {
-		if err := p.client.Delete(ctx, &list.Items[i]); err != nil && !errors.IsNotFound(err) {
+		if err := p.client.Delete(ctx, &list.Items[i]); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete SandboxClaim %s: %w", list.Items[i].Name, err)
 		}
 	}
@@ -219,7 +219,7 @@ func (p *AgentSandboxProvider) endpointFromClaim(ctx context.Context, claim *ext
 	// get the authoritative ServiceFQDN from its status.
 	sb := &sandboxv1alpha1.Sandbox{}
 	if err := p.client.Get(ctx, types.NamespacedName{Name: claim.Name, Namespace: claim.Namespace}, sb); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ep, nil
 		}
 		return nil, fmt.Errorf("failed to get Sandbox %s/%s: %w", claim.Namespace, claim.Name, err)

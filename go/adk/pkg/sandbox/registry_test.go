@@ -13,7 +13,7 @@ type fakeToolset struct {
 	name string
 }
 
-func (f *fakeToolset) Name() string                                    { return f.name }
+func (f *fakeToolset) Name() string                                       { return f.name }
 func (f *fakeToolset) Tools(_ agent.ReadonlyContext) ([]tool.Tool, error) { return nil, nil }
 
 func TestRegistryGetNotFound(t *testing.T) {
