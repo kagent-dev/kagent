@@ -71,9 +71,17 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 	workingDir, _ := request.GetArguments()["working_dir"].(string)
 
+	log.Printf("[exec] command=%q working_dir=%q timeout_ms=%d", command, workingDir, timeoutMs)
+
 	result, err := tools.Exec(ctx, command, timeoutMs, workingDir)
 	if err != nil {
+		log.Printf("[exec] error: %v", err)
 		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	log.Printf("[exec] exit_code=%d stdout_len=%d stderr_len=%d", result.ExitCode, len(result.Stdout), len(result.Stderr))
+	if result.Stderr != "" {
+		log.Printf("[exec] stderr: %s", result.Stderr)
 	}
 
 	data, _ := json.Marshal(result)
@@ -83,11 +91,15 @@ func handleExec(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 func handleReadFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path, _ := request.GetArguments()["path"].(string)
 
+	log.Printf("[read_file] path=%q", path)
+
 	content, err := tools.ReadFile(path)
 	if err != nil {
+		log.Printf("[read_file] error: %v", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	log.Printf("[read_file] ok, content_len=%d", len(content))
 	return mcp.NewToolResultText(content), nil
 }
 
@@ -95,10 +107,14 @@ func handleWriteFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	path, _ := request.GetArguments()["path"].(string)
 	content, _ := request.GetArguments()["content"].(string)
 
+	log.Printf("[write_file] path=%q content_len=%d", path, len(content))
+
 	if err := tools.WriteFile(path, content); err != nil {
+		log.Printf("[write_file] error: %v", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	log.Printf("[write_file] ok")
 	data, _ := json.Marshal(map[string]bool{"ok": true})
 	return mcp.NewToolResultText(string(data)), nil
 }
@@ -106,11 +122,15 @@ func handleWriteFile(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 func handleListDir(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	path, _ := request.GetArguments()["path"].(string)
 
+	log.Printf("[list_dir] path=%q", path)
+
 	entries, err := tools.ListDir(path)
 	if err != nil {
+		log.Printf("[list_dir] error: %v", err)
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
+	log.Printf("[list_dir] ok, entries=%d", len(entries))
 	data, _ := json.Marshal(map[string]any{"entries": entries})
 	return mcp.NewToolResultText(string(data)), nil
 }

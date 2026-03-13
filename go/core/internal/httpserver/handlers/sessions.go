@@ -18,12 +18,12 @@ import (
 // SessionsHandler handles session-related requests
 type SessionsHandler struct {
 	*Base
-	SandboxManager *sandbox.SandboxManager
+	SandboxProvider sandbox.SandboxProvider
 }
 
 // NewSessionsHandler creates a new SessionsHandler
-func NewSessionsHandler(base *Base, sandboxManager *sandbox.SandboxManager) *SessionsHandler {
-	return &SessionsHandler{Base: base, SandboxManager: sandboxManager}
+func NewSessionsHandler(base *Base, sandboxProvider sandbox.SandboxProvider) *SessionsHandler {
+	return &SessionsHandler{Base: base, SandboxProvider: sandboxProvider}
 }
 
 // RunRequest represents a run creation request
@@ -299,8 +299,8 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 
 	// Best-effort sandbox cleanup
-	if h.SandboxManager != nil {
-		if err := h.SandboxManager.DestroySandbox(r.Context(), sessionID); err != nil {
+	if h.SandboxProvider != nil {
+		if err := h.SandboxProvider.Destroy(r.Context(), sessionID); err != nil {
 			log.Error(err, "Failed to destroy sandbox for session (best-effort)")
 		}
 	}

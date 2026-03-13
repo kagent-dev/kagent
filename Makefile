@@ -26,7 +26,8 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
 DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+DOCKER_BUILD_CACHE_DIR ?= /tmp/kagent-buildcache
+DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH) --cache-from type=local,src=$(DOCKER_BUILD_CACHE_DIR) --cache-to type=local,dest=$(DOCKER_BUILD_CACHE_DIR),mode=max
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
@@ -370,6 +371,15 @@ helm-install-provider: helm-version check-api-key
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set tools.grafana-mcp.enabled=false \
+		--set agents.kgateway-agent.enabled=false \
+		--set agents.istio-agent.enabled=false \
+		--set agents.promql-agent.enabled=false \
+		--set agents.observability-agent.enabled=false \
+		--set agents.argo-rollouts-agent.enabled=false \
+		--set agents.cilium-policy-agent.enabled=false \
+		--set agents.cilium-manager-agent.enabled=false \
+		--set agents.cilium-debug-agent.enabled=false \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

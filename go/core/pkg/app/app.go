@@ -74,6 +74,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	agentsandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	agentsandboxextv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -93,6 +95,8 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(agentsandboxv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(agentsandboxextv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -533,8 +537,8 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	// Create sandbox manager with stub provider (will be replaced by real providers later)
-	sandboxManager := sandboxpkg.NewSandboxManager(sandboxpkg.NewStubProvider())
+	// Create sandbox provider using agent-sandbox CRDs.
+	sandboxProvider := sandboxpkg.NewAgentSandboxProvider(mgr.GetClient())
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		Router:            router,
@@ -548,7 +552,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
-		SandboxManager:    sandboxManager,
+		SandboxProvider:   sandboxProvider,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

@@ -40,7 +40,7 @@ type Base struct {
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxManager *sandbox.SandboxManager) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxProvider sandbox.SandboxProvider) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -54,7 +54,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ModelConfig:         NewModelConfigHandler(base),
 		Model:               NewModelHandler(base),
 		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:            NewSessionsHandler(base, sandboxManager),
+		Sessions:            NewSessionsHandler(base, sandboxProvider),
 		Agents:              NewAgentsHandler(base),
 		Tools:               NewToolsHandler(base),
 		ToolServers:         NewToolServersHandler(base),
@@ -65,6 +65,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Tasks:               NewTasksHandler(base),
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),
-		Sandbox:             NewSandboxHandler(base, sandboxManager),
+		Sandbox:             NewSandboxHandler(base, sandboxProvider),
 	}
 }

@@ -45,14 +45,20 @@ type SandboxStatus struct {
 // SandboxProvider is the controller-internal interface that sandbox backends
 // must implement. Each provider maps workspace references to concrete
 // sandbox environments (e.g. agent-sandbox pods, Moat processes).
+//
+// The provider is the source of truth for sandbox state. Implementations
+// must handle idempotency — calling GetOrCreate multiple times with the same
+// sessionID should return the same sandbox.
 type SandboxProvider interface {
-	// Create provisions a new sandbox. Implementations should be idempotent
-	// for the same session ID.
-	Create(ctx context.Context, opts CreateSandboxOptions) (*SandboxEndpoint, error)
+	// GetOrCreate provisions a new sandbox or returns the existing one for a
+	// session. Implementations must be idempotent for the same session ID.
+	// The call blocks until the sandbox is ready or the context is cancelled.
+	// Terminal failures (e.g. template not found) return an error immediately.
+	GetOrCreate(ctx context.Context, opts CreateSandboxOptions) (*SandboxEndpoint, error)
 
-	// Destroy tears down the sandbox for the given sandbox ID.
-	Destroy(ctx context.Context, sandboxID string) error
+	// Get returns the current sandbox endpoint for a session, or nil if none exists.
+	Get(ctx context.Context, sessionID string) (*SandboxEndpoint, error)
 
-	// Status returns the current status of a sandbox.
-	Status(ctx context.Context, sandboxID string) (*SandboxStatus, error)
+	// Destroy tears down the sandbox for the given session ID.
+	Destroy(ctx context.Context, sessionID string) error
 }

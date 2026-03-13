@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
@@ -9,15 +11,20 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	// Maximum time to wait for a sandbox to become ready.
+	sandboxCreateTimeout = 5 * time.Minute
+)
+
 // SandboxHandler handles sandbox lifecycle requests for sessions.
 type SandboxHandler struct {
 	*Base
-	Manager *sandbox.SandboxManager
+	Provider sandbox.SandboxProvider
 }
 
 // NewSandboxHandler creates a new SandboxHandler.
-func NewSandboxHandler(base *Base, manager *sandbox.SandboxManager) *SandboxHandler {
-	return &SandboxHandler{Base: base, Manager: manager}
+func NewSandboxHandler(base *Base, provider sandbox.SandboxProvider) *SandboxHandler {
+	return &SandboxHandler{Base: base, Provider: provider}
 }
 
 // HandleCreateSandbox handles POST /api/sessions/{session_id}/sandbox.
@@ -62,7 +69,12 @@ func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Requ
 		},
 	}
 
-	ep, err := h.Manager.GetOrCreateSandbox(r.Context(), sessionID, opts)
+	opts.SessionID = sessionID
+
+	ctx, cancel := context.WithTimeout(r.Context(), sandboxCreateTimeout)
+	defer cancel()
+
+	ep, err := h.Provider.GetOrCreate(ctx, opts)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create sandbox", err))
 		return
@@ -76,14 +88,8 @@ func (h *SandboxHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Requ
 		Ready:     ep.Ready,
 	}
 
-	status := http.StatusOK
-	if !ep.Ready {
-		status = http.StatusAccepted
-		w.Header().Set("Location", r.URL.String())
-	}
-
-	log.Info("Sandbox created/retrieved for session", "sandbox_id", ep.ID, "ready", ep.Ready)
-	RespondWithJSON(w, status, resp)
+	log.Info("Sandbox ready for session", "sandbox_id", ep.ID, "mcp_url", ep.MCPUrl)
+	RespondWithJSON(w, http.StatusOK, resp)
 }
 
 // HandleGetSandboxStatus handles GET /api/sessions/{session_id}/sandbox.
@@ -98,7 +104,11 @@ func (h *SandboxHandler) HandleGetSandboxStatus(w ErrorResponseWriter, r *http.R
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	ep := h.Manager.GetSandbox(sessionID)
+	ep, err := h.Provider.Get(r.Context(), sessionID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to get sandbox status", err))
+		return
+	}
 	if ep == nil {
 		w.RespondWithError(errors.NewNotFoundError("No sandbox found for session", nil))
 		return
