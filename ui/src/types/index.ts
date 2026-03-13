@@ -34,6 +34,8 @@ export interface Provider {
   type: string;
   requiredParams: string[];
   optionalParams: string[];
+  source?: 'stock' | 'configured'; // Distinguishes between stock and configured providers
+  endpoint?: string; // Only present for configured providers
 }
 
 export type ProviderModel = {
@@ -43,6 +45,19 @@ export type ProviderModel = {
 
 // Define the type for the expected API response structure
 export type ProviderModelsResponse = Record<string, ProviderModel[]>;
+
+// ConfiguredModelProvider is the response from /api/modelproviderconfigs/configured
+export interface ConfiguredModelProvider {
+  name: string;
+  type: string;
+  endpoint: string;
+}
+
+// ConfiguredModelProviderModelsResponse is the response from /api/modelproviderconfigs/configured/{name}/models
+export interface ConfiguredModelProviderModelsResponse {
+  provider: string;
+  models: string[];
+}
 
 // Export OpenAIConfigPayload
 export interface OpenAIConfigPayload {
