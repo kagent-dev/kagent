@@ -14,6 +14,7 @@ from kagent.skills import (
     load_skill_content,
     read_file_content,
 )
+from kagent.skills.shell import _sanitize_env
 
 
 @pytest.fixture
@@ -178,3 +179,68 @@ def test_skill_discovery_and_loading(skill_test_env: Path):
     assert "name: csv-to-json" in skill_content
     assert "# CSV to JSON Conversion" in skill_content
     assert 'Example: `bash("python skills/csv-to-json/scripts/convert.py' in skill_content
+
+
+def test_sanitize_env_strips_secrets():
+    """Verify _sanitize_env removes env vars matching secret patterns."""
+    secret_vars = {
+        "OPENAI_API_KEY": "sk-secret",
+        "AZURE_OPENAI_API_KEY": "az-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_API_KEY": "goog-secret",
+        "SERPER_API_KEY": "serp-secret",
+        "LANGSMITH_API_KEY": "ls-secret",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "graf-token",
+        "DATABASE_PASSWORD": "db-pass",
+        "MY_SECRET": "shh",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+        "SSH_PRIVATE_KEY": "key-data",
+        "GIT_CREDENTIAL": "cred",
+    }
+    safe_vars = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+        "PYTHONPATH": "/some/path",
+        "LANG": "en_US.UTF-8",
+        "TOKENIZERS_PARALLELISM": "true",
+    }
+
+    with patch.dict("os.environ", {**secret_vars, **safe_vars}, clear=True):
+        result = _sanitize_env()
+
+    for key in secret_vars:
+        assert key not in result, f"{key} should have been stripped"
+
+    for key, value in safe_vars.items():
+        assert result[key] == value, f"{key} should be preserved"
+
+
+@pytest.mark.asyncio
+async def test_execute_command_strips_secret_env_vars(tmp_path):
+    """Secret env vars must not be passed to sandboxed subprocesses."""
+    captured = {}
+
+    async def mock_exec(*args, **kwargs):
+        captured["env"] = kwargs.get("env", {})
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+        mock_process.returncode = 0
+        return mock_process
+
+    env_overrides = {
+        "OPENAI_API_KEY": "sk-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+    }
+
+    with (
+        patch.dict("os.environ", env_overrides, clear=True),
+        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+    ):
+        await execute_command("echo hello", working_dir=tmp_path)
+
+    env = captured["env"]
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert env["HOME"] == "/home/user"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,19 @@ def edit_file_content(
 
 # --- Shell Operation Tools ---
 
+# Matches env-var names containing secret-related segments as whole
+# underscore-delimited tokens (e.g. OPENAI_API_KEY, DATABASE_PASSWORD)
+# but not partial hits like TOKENIZERS_PARALLELISM.
+_SECRET_PATTERNS = re.compile(
+    r"(?:^|_)(API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_env() -> dict[str, str]:
+    """Return a copy of os.environ with secret variables removed."""
+    return {k: v for k, v in os.environ.items() if not _SECRET_PATTERNS.search(k)}
+
 
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
@@ -117,7 +131,7 @@ async def execute_command(
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
-    env = os.environ.copy()
+    env = _sanitize_env()
     # Add skills directory and working directory to PYTHONPATH
     pythonpath_additions = [str(working_dir), "/skills"]
     if "PYTHONPATH" in env:
