@@ -15,6 +15,7 @@ from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnect
 from pydantic import BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._constants import PROXY_HOST_HEADER
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
@@ -24,9 +25,6 @@ from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
-
-# Proxy host header used for Gateway API routing when using a proxy
-PROXY_HOST_HEADER = "x-kagent-host"
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"
