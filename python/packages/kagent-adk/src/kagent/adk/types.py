@@ -1,4 +1,5 @@
 import logging
+import warnings
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
@@ -7,7 +8,18 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
+
+# isort: off
+# Show the A2A experimental warning once per process instead of on every call (#1379).
+# Scoped to UserWarning from the specific remote_a2a_agent module to avoid suppressing unrelated warnings.
+warnings.filterwarnings(
+    "once",
+    message=r"\[EXPERIMENTAL\].*A2A",
+    category=UserWarning,
+    module=r"^google\.adk\.agents\.remote_a2a_agent$",
+)
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent  # noqa: E402
+# isort: on
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.agent_tool import AgentTool

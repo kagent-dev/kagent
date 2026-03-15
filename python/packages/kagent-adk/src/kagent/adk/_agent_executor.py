@@ -21,6 +21,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+
+# Warning filter installed in types.py (imported before this module)
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor as UpstreamA2aAgentExecutor,
 )
