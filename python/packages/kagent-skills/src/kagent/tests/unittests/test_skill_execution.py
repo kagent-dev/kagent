@@ -16,6 +16,7 @@ from kagent.skills import (
     read_file_content,
     write_file_content,
 )
+from kagent.skills.shell import _sanitize_env
 
 
 @pytest.fixture
@@ -262,3 +263,81 @@ def test_skill_discovery_and_loading(skill_test_env: Path):
     assert "name: csv-to-json" in skill_content
     assert "# CSV to JSON Conversion" in skill_content
     assert 'Example: `bash("python skills/csv-to-json/scripts/convert.py' in skill_content
+
+
+def test_sanitize_env_strips_secrets():
+    """Verify _sanitize_env removes env vars matching secret patterns."""
+    secret_vars = {
+        # Regex-matched vars
+        "OPENAI_API_KEY": "sk-secret",
+        "AZURE_OPENAI_API_KEY": "az-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_API_KEY": "goog-secret",
+        "SERPER_API_KEY": "serp-secret",
+        "LANGSMITH_API_KEY": "ls-secret",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "graf-token",
+        "DATABASE_PASSWORD": "db-pass",
+        "MY_SECRET": "shh",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+        "SSH_PRIVATE_KEY": "key-data",
+        "GIT_CREDENTIAL": "cred",
+        "GIT_CREDENTIALS": "cred-plural",
+        # Vars from providers.go that previously leaked
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "AZURE_AD_TOKEN": "az-ad-token",
+        "AWS_SESSION_TOKEN": "session-tok",
+        "AWS_BEARER_TOKEN_BEDROCK": "bearer-tok",
+    }
+    safe_vars = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+        "PYTHONPATH": "/some/path",
+        "LANG": "en_US.UTF-8",
+        "TOKENIZERS_PARALLELISM": "true",
+        "GOOGLE_CLOUD_PROJECT": "my-project",
+        "AWS_REGION": "us-east-1",
+    }
+
+    result = _sanitize_env({**secret_vars, **safe_vars})
+
+    for key in secret_vars:
+        assert key not in result, f"{key} should have been stripped"
+
+    for key, value in safe_vars.items():
+        assert result[key] == value, f"{key} should be preserved"
+
+
+@pytest.mark.asyncio
+async def test_execute_command_strips_secret_env_vars(tmp_path):
+    """Secret env vars must not be passed to sandboxed subprocesses."""
+    captured = {}
+
+    async def mock_exec(*args, **kwargs):
+        captured["env"] = kwargs.get("env", {})
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+        mock_process.returncode = 0
+        return mock_process
+
+    env_overrides = {
+        "OPENAI_API_KEY": "sk-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+    }
+
+    with (
+        patch.dict("os.environ", env_overrides, clear=True),
+        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+    ):
+        await execute_command("echo hello", working_dir=tmp_path)
+
+    env = captured["env"]
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in env
+    assert "AWS_ACCESS_KEY_ID" not in env
+    assert env["HOME"] == "/home/user"

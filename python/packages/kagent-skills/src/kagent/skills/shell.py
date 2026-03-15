@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,36 @@ def edit_file_content(
 
 # --- Shell Operation Tools ---
 
+# Matches env-var names containing secret-related segments as whole
+# underscore-delimited tokens (e.g. OPENAI_API_KEY, DATABASE_PASSWORD)
+# but not partial hits like TOKENIZERS_PARALLELISM.
+_SECRET_PATTERNS = re.compile(
+    r"(?:^|_)(API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|PRIVATE_KEY)(?:_|$)",
+    re.IGNORECASE,
+)
+
+# Explicit denylist of known secret env vars injected by the kagent controller
+# (see go/core/pkg/env/providers.go). Belt-and-suspenders: the regex handles
+# the general case, this set catches any known vars that the regex might miss.
+_SECRET_ENV_NAMES: set[str] = {
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_AD_TOKEN",
+    "GOOGLE_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",
+}
+
+
+def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a copy of the environment with secret variables removed."""
+    source = env if env is not None else os.environ
+    return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
+
 
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
@@ -140,7 +171,7 @@ async def execute_command(command: str, working_dir: Path, skills_dir: Path = Pa
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
-    env = os.environ.copy()
+    env = _sanitize_env()
     # Add skills directory and working directory to PYTHONPATH
     pythonpath_additions = [str(working_dir), str(skills_dir)]
     if "PYTHONPATH" in env:
