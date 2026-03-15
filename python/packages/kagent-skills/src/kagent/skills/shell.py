@@ -13,12 +13,33 @@ logger = logging.getLogger(__name__)
 # --- File Operation Tools ---
 
 
+def _validate_path(
+    file_path: Path,
+    allowed_roots: Path | list[Path] | None,
+) -> Path:
+    """Resolve the path and ensure it is within at least one allowed root directory."""
+    resolved = file_path.resolve()
+    if allowed_roots is None:
+        return resolved
+
+    roots = [allowed_roots] if isinstance(allowed_roots, Path) else allowed_roots
+    for root in roots:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+
+    root_list = ", ".join(str(r.resolve()) for r in roots)
+    raise PermissionError(f"Access denied: {resolved} is outside the allowed directories: {root_list}")
+
+
 def read_file_content(
     file_path: Path,
     offset: int | None = None,
     limit: int | None = None,
+    allowed_root: Path | list[Path] | None = None,
 ) -> str:
     """Reads a file with line numbers, raising errors on failure."""
+    file_path = _validate_path(file_path, allowed_root)
+
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -45,8 +66,10 @@ def read_file_content(
     return "\n".join(result_lines)
 
 
-def write_file_content(file_path: Path, content: str) -> str:
+def write_file_content(file_path: Path, content: str, allowed_root: Path | None = None) -> str:
     """Writes content to a file, creating parent directories if needed."""
+    file_path = _validate_path(file_path, allowed_root)
+
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
@@ -61,10 +84,13 @@ def edit_file_content(
     old_string: str,
     new_string: str,
     replace_all: bool = False,
+    allowed_root: Path | None = None,
 ) -> str:
     """Performs an exact string replacement in a file."""
     if old_string == new_string:
         raise ValueError("old_string and new_string must be different")
+
+    file_path = _validate_path(file_path, allowed_root)
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -110,16 +136,13 @@ def _get_command_timeout_seconds(command: str) -> float:
         return 30.0  # 30 seconds for other commands
 
 
-async def execute_command(
-    command: str,
-    working_dir: Path,
-) -> str:
+async def execute_command(command: str, working_dir: Path, skills_dir: Path = Path("/skills")) -> str:
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
     env = os.environ.copy()
     # Add skills directory and working directory to PYTHONPATH
-    pythonpath_additions = [str(working_dir), "/skills"]
+    pythonpath_additions = [str(working_dir), str(skills_dir)]
     if "PYTHONPATH" in env:
         pythonpath_additions.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = ":".join(pythonpath_additions)
