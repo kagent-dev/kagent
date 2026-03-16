@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import subprocess
 
-from kagent.skills.shell import _sanitize_env
-
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.code_executors.code_execution_utils import CodeExecutionInput, CodeExecutionResult
 from pydantic import Field
 from typing_extensions import override
+
+from kagent.skills.shell import _sanitize_env
 
 
 class SandboxedLocalCodeExecutor(BaseCodeExecutor):
