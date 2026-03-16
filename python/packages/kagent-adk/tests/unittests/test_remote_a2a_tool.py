@@ -215,7 +215,7 @@ class TestHITLInputRequired:
             mock_ensure.return_value = mock_client
 
             ctx = MockToolContext()
-            result = await tool.run_async(args={"request": "delete it"}, tool_context=ctx)
+            _ = await tool.run_async(args={"request": "delete it"}, tool_context=ctx)
 
         # request_confirmation() should have been invoked
         assert ctx.function_call_id in ctx._confirmations
