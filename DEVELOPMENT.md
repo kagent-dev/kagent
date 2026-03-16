@@ -22,8 +22,6 @@ Before you can run kagent in Kubernetes, you need to have the following tools in
 - **Docker Buildx** (v0.23.0+)
 - **Make**
 
-
-
 ### Installation Verification
 
 You can verify your installation by running:
@@ -39,7 +37,6 @@ docker buildx version
 make --version
 ```
 
-
 ## How to run everything in Kubernetes
 
 1. Create a cluster:
@@ -48,13 +45,13 @@ make --version
 make create-kind-cluster
 ```
 
-2. Configure the cluster and set the default namespace `kagent`:
+1. Configure the cluster and set the default namespace `kagent`:
 
 ```shell
 make use-kind-cluster
 ```
 
-3. Set your model provider:
+1. Set your model provider:
 
 ```shell
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
@@ -62,7 +59,7 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
 ```
 
-4. Set your providers API_KEY:
+1. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
@@ -70,10 +67,27 @@ export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-5. Build images, load them into kind cluster and deploy everything using Helm:
+Alternatively, create a `.env` file at the repo root (gitignored). This file is
+loaded by the Makefile (via `-include .env`) to inject environment variables
+when you run `make` targets:
+
+```shell
+OPENAI_API_KEY=your-openai-api-key
+```
+
+1. Build images, load them into kind cluster and deploy everything using Helm:
 
 ```shell
 make helm-install
+```
+
+To apply personal Helm overrides without committing them, create
+`helm/kagent/values.local.yaml` (gitignored) and set `KAGENT_HELM_EXTRA_ARGS` in
+your `.env` file (which is read by the Makefile when you run `make`):
+
+```shell
+# .env
+KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
 ```
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
@@ -134,7 +148,7 @@ docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/
 
 Then run the `make helm-install` command again.
 
-### Run kagent and an agent locally.
+### Run kagent and an agent locally
 
 create a minimal cluster with kind. scale kagent to 0 replicas, as we will run it locally.
 
