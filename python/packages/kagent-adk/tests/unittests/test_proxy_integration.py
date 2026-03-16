@@ -9,6 +9,7 @@ import httpx
 import pytest
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH
 
+from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.types import PROXY_HOST_HEADER, AgentConfig, OpenAI, RemoteAgentConfig
 
 
@@ -96,13 +97,12 @@ class TestHTTPServer:
 
 @pytest.mark.asyncio
 async def test_remote_agent_with_proxy_url():
-    """Test that KAgentRemoteA2ATool requests go through the proxy URL with correct proxy host header.
+    """Test that KAgentRemoteA2AToolset requests go through the proxy URL with correct proxy host header.
 
     When proxy is configured, requests should be made to the proxy URL (our test server)
     with the proxy host header set for proxy routing. This test uses a real HTTP server
     to verify actual request behavior.
     """
-    from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
@@ -121,18 +121,18 @@ async def test_remote_agent_with_proxy_url():
 
         agent = config.to_agent("test_agent")
 
-        # Find the KAgentRemoteA2ATool
-        remote_agent_tool = None
+        # Find the KAgentRemoteA2AToolset
+        remote_agent_toolset = None
         for tool in agent.tools:
-            if isinstance(tool, KAgentRemoteA2ATool):
-                remote_agent_tool = tool
+            if isinstance(tool, KAgentRemoteA2AToolset):
+                remote_agent_toolset = tool
                 break
 
-        assert remote_agent_tool is not None
+        assert remote_agent_toolset is not None
 
         # Make a request - this should go through the proxy (test server)
         # The client has base_url set to the proxy, so we can use a relative path
-        async with remote_agent_tool._httpx_client as client:
+        async with remote_agent_toolset._httpx_client as client:
             await client.get(AGENT_CARD_WELL_KNOWN_PATH)
 
         # Verify that requests were made to the proxy URL (test server)
@@ -147,8 +147,7 @@ async def test_remote_agent_with_proxy_url():
 
 
 def test_remote_agent_no_proxy_when_not_configured():
-    """Test that KAgentRemoteA2ATool HTTP client works without proxy."""
-    from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
+    """Test that KAgentRemoteA2AToolset HTTP client works without proxy."""
 
     config = AgentConfig(
         model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
@@ -165,25 +164,24 @@ def test_remote_agent_no_proxy_when_not_configured():
 
     agent = config.to_agent("test_agent")
 
-    # Find the KAgentRemoteA2ATool
-    remote_agent_tool = None
+    # Find the KAgentRemoteA2AToolset
+    remote_agent_toolset = None
     for tool in agent.tools:
-        if isinstance(tool, KAgentRemoteA2ATool):
-            remote_agent_tool = tool
+        if isinstance(tool, KAgentRemoteA2AToolset):
+            remote_agent_toolset = tool
             break
 
-    assert remote_agent_tool is not None, (
-        f"No KAgentRemoteA2ATool found. Tools: {[type(t).__name__ for t in agent.tools]}"
+    assert remote_agent_toolset is not None, (
+        f"No KAgentRemoteA2AToolset found. Tools: {[type(t).__name__ for t in agent.tools]}"
     )
 
     # Verify tool was created successfully (no proxy configuration means no special setup needed)
-    assert remote_agent_tool.name == "remote_agent"
+    assert remote_agent_toolset._tool.name == "remote_agent"
 
 
 @pytest.mark.asyncio
 async def test_remote_agent_direct_url_no_proxy():
-    """Test that KAgentRemoteA2ATool makes requests to direct URL when no proxy is configured."""
-    from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
+    """Test that KAgentRemoteA2AToolset makes requests to direct URL when no proxy is configured."""
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
@@ -201,18 +199,18 @@ async def test_remote_agent_direct_url_no_proxy():
 
         agent = config.to_agent("test_agent")
 
-        # Find the KAgentRemoteA2ATool
-        remote_agent_tool = None
+        # Find the KAgentRemoteA2AToolset
+        remote_agent_toolset = None
         for tool in agent.tools:
-            if isinstance(tool, KAgentRemoteA2ATool):
-                remote_agent_tool = tool
+            if isinstance(tool, KAgentRemoteA2AToolset):
+                remote_agent_toolset = tool
                 break
 
-        assert remote_agent_tool is not None
+        assert remote_agent_toolset is not None
 
         # Make a request - should go directly to the configured URL
         # When no proxy is configured, we need to use the full URL
-        async with remote_agent_tool._httpx_client as client:
+        async with remote_agent_toolset._httpx_client as client:
             await client.get(f"{test_server.url}{AGENT_CARD_WELL_KNOWN_PATH}")
 
         # Verify request went to direct URL (no proxy)
@@ -230,8 +228,7 @@ async def test_remote_agent_direct_url_no_proxy():
 
 @pytest.mark.asyncio
 async def test_remote_agent_with_headers():
-    """Test that KAgentRemoteA2ATool preserves headers including the proxy host header for proxy routing."""
-    from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
+    """Test that KAgentRemoteA2AToolset preserves headers including the proxy host header for proxy routing."""
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
@@ -253,17 +250,17 @@ async def test_remote_agent_with_headers():
 
         agent = config.to_agent("test_agent")
 
-        # Find the KAgentRemoteA2ATool
-        remote_agent_tool = None
+        # Find the KAgentRemoteA2AToolset
+        remote_agent_toolset = None
         for tool in agent.tools:
-            if isinstance(tool, KAgentRemoteA2ATool):
-                remote_agent_tool = tool
+            if isinstance(tool, KAgentRemoteA2AToolset):
+                remote_agent_toolset = tool
                 break
 
-        assert remote_agent_tool is not None
+        assert remote_agent_toolset is not None
 
         # Make a request using the client - the client has base_url set to the proxy
-        async with remote_agent_tool._httpx_client as client:
+        async with remote_agent_toolset._httpx_client as client:
             await client.get("/test")
 
         # Verify headers are preserved in actual requests
@@ -284,7 +281,6 @@ async def test_remote_agent_url_rewrite_event_hook():
     base URL while preserving the proxy host header. This ensures that even if the A2A client
     uses URLs from the agent card response, they still go through the proxy.
     """
-    from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
@@ -303,18 +299,18 @@ async def test_remote_agent_url_rewrite_event_hook():
 
         agent = config.to_agent("test_agent")
 
-        # Find the KAgentRemoteA2ATool
-        remote_agent_tool = None
+        # Find the KAgentRemoteA2AToolset
+        remote_agent_toolset = None
         for tool in agent.tools:
-            if isinstance(tool, KAgentRemoteA2ATool):
-                remote_agent_tool = tool
+            if isinstance(tool, KAgentRemoteA2AToolset):
+                remote_agent_toolset = tool
                 break
 
-        assert remote_agent_tool is not None
+        assert remote_agent_toolset is not None
 
         # Make a request that would normally use a direct URL
         # The event hook should rewrite it to use the proxy (test server)
-        async with remote_agent_tool._httpx_client as client:
+        async with remote_agent_toolset._httpx_client as client:
             # Simulate what happens when the A2A client makes a request using
             # a URL that would normally bypass the proxy (e.g., from agent card response)
             await client.get("http://remote-agent.kagent:8080/some/path")

@@ -7,6 +7,8 @@ When the remote agent returns ``TaskState.input_required`` (i.e. one of its
 tools needs human approval), this tool calls ``request_confirmation()`` to
 surface the HITL prompt to the parent agent's flow. On resume the user's
 decision is forwarded to the remote agent's pending task.
+
+This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purposes.
 """
 
 import logging
@@ -37,7 +39,9 @@ from a2a.types import (
 from a2a.types import (
     TransportProtocol as A2ATransport,
 )
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
 
@@ -80,12 +84,7 @@ def _extract_text_from_task(task: Task) -> str:
 
 
 class KAgentRemoteA2ATool(BaseTool):
-    """A tool that calls a remote A2A agent and propagates HITL state.
-
-    Unlike the upstream ``AgentTool(RemoteA2aAgent(...))`` pairing, this tool
-    has direct access to ``ToolContext`` and can use ``request_confirmation()``
-    to surface subagent HITL prompts to the parent agent's approval flow.
-    """
+    """A tool that calls a remote A2A agent and propagates HITL state."""
 
     def __init__(
         self,
@@ -98,41 +97,21 @@ class KAgentRemoteA2ATool(BaseTool):
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
         self._httpx_client = httpx_client
-        self._owns_httpx_client = httpx_client is None
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
         # Track the context_id from the remote agent for session continuity
         self._last_context_id: Optional[str] = None
-
-    async def close(self) -> None:
-        """Close the underlying httpx client if this tool owns it.
-
-        Should be called when the tool is no longer needed to prevent
-        resource leaks.  Safe to call multiple times.
-        """
-        if self._owns_httpx_client and self._httpx_client is not None:
-            try:
-                await self._httpx_client.aclose()
-                logger.debug("Closed httpx client for remote A2A tool %s", self.name)
-            except Exception as e:
-                logger.warning(
-                    "Failed to close httpx client for remote A2A tool %s: %s",
-                    self.name,
-                    e,
-                )
-            finally:
-                self._httpx_client = None
-                self._a2a_client = None
 
     async def _ensure_client(self) -> A2AClient:
         """Lazily resolve the agent card and initialize the A2A client."""
         if self._a2a_client is not None:
             return self._a2a_client
 
-        # Ensure we have an httpx client
         if self._httpx_client is None:
-            self._httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout=600.0))
-            self._owns_httpx_client = True
+            raise RuntimeError(
+                f"No httpx client provided for remote A2A tool '{self.name}'. "
+                "Use KAgentRemoteA2AToolset to manage the client lifecycle."
+            )
 
         # Resolve the agent card from URL
         parsed = urlparse(self._agent_card_url)
@@ -385,3 +364,48 @@ class KAgentRemoteA2ATool(BaseTool):
             if isinstance(root, TextPart) and root.text:
                 texts.append(root.text)
         return "\n".join(texts)
+
+
+class KAgentRemoteA2AToolset(BaseToolset):
+    """A ``BaseToolset`` wrapper around ``KAgentRemoteA2ATool``.
+
+    ADK's ``Runner.close()`` only discovers and closes ``BaseToolset`` instances
+    (via ``_collect_toolset``), not bare ``BaseTool`` instances.  By wrapping
+    the tool in this toolset the httpx client is guaranteed to be closed when
+    the runner shuts down, preventing connection leaks across many agent runs.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        description: str,
+        agent_card_url: str,
+        httpx_client: httpx.AsyncClient,
+    ) -> None:
+        super().__init__()
+        self._httpx_client = httpx_client
+        self._tool = KAgentRemoteA2ATool(
+            name=name,
+            description=description,
+            agent_card_url=agent_card_url,
+            httpx_client=httpx_client,
+        )
+
+    async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
+        return [self._tool]
+
+    async def close(self) -> None:
+        """Close the httpx client owned by this toolset."""
+        if self._httpx_client is not None:
+            try:
+                await self._httpx_client.aclose()
+                logger.debug("Closed httpx client for remote A2A toolset %s", self._tool.name)
+            except Exception as e:
+                logger.warning(
+                    "Failed to close httpx client for remote A2A toolset %s: %s",
+                    self._tool.name,
+                    e,
+                )
+            finally:
+                self._httpx_client = None

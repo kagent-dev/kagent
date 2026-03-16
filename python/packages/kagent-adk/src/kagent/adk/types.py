@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
-from kagent.adk._remote_a2a_tool import KAgentRemoteA2ATool
+from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -367,7 +367,7 @@ class AgentConfig(BaseModel):
                     )
 
                 tools.append(
-                    KAgentRemoteA2ATool(
+                    KAgentRemoteA2AToolset(
                         name=remote_agent.name,
                         description=remote_agent.description,
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
