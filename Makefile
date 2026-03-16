@@ -1,3 +1,7 @@
+# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
+-include .env
+export
+
 # Image configuration
 DOCKER_REGISTRY ?= localhost:5001
 BASE_IMAGE_REGISTRY ?= cgr.dev
