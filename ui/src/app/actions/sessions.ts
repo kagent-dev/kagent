@@ -107,7 +107,7 @@ export async function getSubagentSessionWithEvents(
 
     const session = sessionResp.data?.session;
     if (!session) {
-      return { message: "Subagent session not found" };
+      return { message: "Subagent session not found", error: "Subagent session not found" };
     }
     return {
       message: "Session with events fetched successfully",

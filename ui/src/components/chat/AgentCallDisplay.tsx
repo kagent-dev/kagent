@@ -41,7 +41,7 @@ function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelP
 
   useEffect(() => {
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const fetchEvents = async () => {
       try {
@@ -78,7 +78,12 @@ function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelP
     };
 
     fetchEvents();
-    return () => { cancelled = true; clearTimeout(timeoutId); };
+    return () => {
+       cancelled = true;
+       if (timeoutId) {
+         clearTimeout(timeoutId);
+       }
+     };
   }, [sessionId, isComplete]);
 
   if (error) {

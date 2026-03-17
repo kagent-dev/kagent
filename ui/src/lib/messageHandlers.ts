@@ -84,12 +84,20 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
           // the function_response and are stamped on this card below.
           // Regular tool calls use the message's own invocation stats.
           const toolStats = isAgentToolName(toolData.name) ? undefined : msgStats;
+          const fcSubagentSessionId = isAgentToolName(toolData.name)
+            ? getMetadataValue<string>(partMeta, "subagent_session_id")
+            : undefined;
           messages.push(createMessage("", source, {
             originalType: "ToolCallRequestEvent",
             contextId: msgContextId,
             taskId: msgTaskId,
             additionalMetadata: {
-              toolCallData: [{ id: toolData.id, name: toolData.name, args: (toolData.args as Record<string, unknown>) || {} }],
+              toolCallData: [{
+                id: toolData.id,
+                name: toolData.name,
+                args: (toolData.args as Record<string, unknown>) || {},
+                ...(fcSubagentSessionId ? { subagent_session_id: fcSubagentSessionId } : {}),
+              }],
               ...(toolStats && { tokenStats: toolStats }),
             },
           }));
@@ -97,6 +105,13 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
         } else if (partType === "function_response") {
           const toolData = dp.data as unknown as ToolResponseData;
+          let frSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            const responseObj = toolData.response as Record<string, unknown> | undefined;
+            if (responseObj && typeof responseObj.subagent_session_id === "string") {
+              frSubagentSessionId = responseObj.subagent_session_id;
+            }
+          }
           messages.push(createMessage("", source, {
             originalType: "ToolCallExecutionEvent",
             contextId: msgContextId,
@@ -107,6 +122,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
                 name: toolData.name,
                 content: normalizeToolResultToText(toolData),
                 is_error: toolData.response?.isError || false,
+                ...(frSubagentSessionId ? { subagent_session_id: frSubagentSessionId } : {}),
               }],
             },
           }));

@@ -14,7 +14,7 @@ When a parent agent delegates to a subagent via `KAgentRemoteA2ATool`, the subag
 
 ### 1. Session ID stamping (Python, parent agent)
 
-`KAgentRemoteA2ATool` pre-generates a `context_id` (UUID) in `__init__` before the tool runs. The event converter stamps this ID as `adk_subagent_session_id` metadata onto the `function_call` DataPart, so the UI knows the subagent session ID as soon as the LLM emits the call — before the tool actually executes.
+`KAgentRemoteA2ATool` pre-generates a `context_id` (UUID) in `__init__` before the tool runs. The event converter stamps this ID as `kagent_subagent_session_id` metadata onto the `function_call` DataPart, so the UI knows the subagent session ID as soon as the LLM emits the call — before the tool actually executes.
 
 ### 2. User ID passthrough (Python, A2A interceptor)
 
