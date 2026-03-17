@@ -364,7 +364,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	// Initialize database
-	dbManager, err := database.NewManager(&database.Config{
+	dbManager, err := database.NewManager(ctx, &database.Config{
 		PostgresConfig: &database.PostgresConfig{
 			URL:           cfg.Database.Url,
 			URLFile:       cfg.Database.UrlFile,
