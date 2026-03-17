@@ -132,7 +132,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
         const data = part.data as unknown as ToolResponseData;
 
         // For agent tool responses we receive { result, subagent_session_id } as FunctionResponse.response.
-        let textContent = normalizeToolResultToText(data);
+        const textContent = normalizeToolResultToText(data);
         let subagentSessionId: string | undefined;
         if (isAgentToolName(data.name)) {
           const responseObj = data.response as Record<string, unknown> | undefined;

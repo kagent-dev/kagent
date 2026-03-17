@@ -696,7 +696,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     taskId: string | undefined,
     defaultSource: string
   ) => {
-    let content = normalizeToolResultToText(toolData);
+    const content = normalizeToolResultToText(toolData);
     let subagentSessionId: string | undefined;
 
     if (isAgentToolName(toolData.name)) {
