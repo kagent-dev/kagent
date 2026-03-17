@@ -1,17 +1,22 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+var dbLog = ctrl.Log.WithName("database")
 
 // Manager handles database connection and initialization
 type Manager struct {
@@ -30,8 +35,39 @@ type Config struct {
 	PostgresConfig *PostgresConfig
 }
 
+const (
+	defaultMaxTimeout = 120 * time.Second
+	defaultInitialDelay = 2 * time.Second
+	defaultMaxDelay     = 10 * time.Second
+)
+
+// retryDBConnection attempts to open a GORM connection, retrying with backoff until
+// the context deadline or defaultMaxTimeout is reached.
+func retryDBConnection(ctx context.Context, url string, cfg *gorm.Config) (*gorm.DB, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
+	defer cancel()
+
+	delay := defaultInitialDelay
+	for attempt := 1; ; attempt++ {
+		db, err := gorm.Open(postgres.Open(url), cfg)
+		if err == nil {
+			return db, nil
+		}
+		dbLog.Info("database not ready, retrying", "attempt", attempt, "delay", delay, "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timed out waiting for database after %s: %w", defaultMaxTimeout, err)
+		case <-time.After(delay):
+		}
+		delay += 2 * time.Second
+		if delay > defaultMaxDelay {
+			delay = defaultMaxDelay
+		}
+	}
+}
+
 // NewManager creates a new database manager
-func NewManager(config *Config) (*Manager, error) {
+func NewManager(ctx context.Context, config *Config) (*Manager, error) {
 	logLevel := logger.Silent
 	switch env.GormLogLevel.Get() {
 	case "error":
@@ -53,12 +89,14 @@ func NewManager(config *Config) (*Manager, error) {
 		url = resolved
 	}
 
-	db, err := gorm.Open(postgres.Open(url), &gorm.Config{
+	gormCfg := &gorm.Config{
 		Logger:         logger.Default.LogMode(logLevel),
 		TranslateError: true,
-	})
+	}
+
+	db, err := retryDBConnection(ctx, url, gormCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, err
 	}
 
 	return &Manager{db: db, config: config}, nil
