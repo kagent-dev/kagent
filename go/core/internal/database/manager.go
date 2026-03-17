@@ -10,10 +10,10 @@ import (
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var dbLog = ctrl.Log.WithName("database")
@@ -36,7 +36,7 @@ type Config struct {
 }
 
 const (
-	defaultMaxTimeout = 120 * time.Second
+	defaultMaxTimeout   = 120 * time.Second
 	defaultInitialDelay = 2 * time.Second
 	defaultMaxDelay     = 10 * time.Second
 )
