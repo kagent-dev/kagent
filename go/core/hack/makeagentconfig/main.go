@@ -27,11 +27,11 @@ func main() {
 		Description: "Test agent",
 		URL:         "http://localhost:8080",
 		Capabilities: server.AgentCapabilities{
-			Streaming: ptrTo(true), StateTransitionHistory: ptrTo(true),
+			Streaming: new(true), StateTransitionHistory: new(true),
 		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
-		Skills:             []server.AgentSkill{{ID: "test", Name: "test", Description: ptrTo("test"), Tags: []string{"test"}}},
+		Skills:             []server.AgentSkill{{ID: "test", Name: "test", Description: new("test"), Tags: []string{"test"}}},
 	}
 
 	// do we have mcp everything port open?
@@ -42,7 +42,7 @@ func main() {
 				Params: adk.StreamableHTTPConnectionParams{
 					Url:     "http://127.0.0.1:3001/mcp",
 					Headers: map[string]string{},
-					Timeout: ptrTo(30.0),
+					Timeout: new(30.0),
 				},
 				Tools: []string{},
 			},
@@ -60,8 +60,4 @@ func main() {
 
 	os.WriteFile("config.json", bCfg, 0644)
 	os.WriteFile("agent-card.json", bCard, 0644)
-}
-
-func ptrTo[T any](v T) *T {
-	return &v
 }

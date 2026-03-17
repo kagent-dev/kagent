@@ -9,13 +9,13 @@ import (
 )
 
 var (
-	denyWordPatterns    []*regexp.Regexp
+	rejectWordPatterns  []*regexp.Regexp
 	approveWordPatterns []*regexp.Regexp
 )
 
 func init() {
-	for _, keyword := range KAgentHitlResumeKeywordsDeny {
-		denyWordPatterns = append(denyWordPatterns, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(keyword)+`\b`))
+	for _, keyword := range KAgentHitlResumeKeywordsReject {
+		rejectWordPatterns = append(rejectWordPatterns, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(keyword)+`\b`))
 	}
 	for _, keyword := range KAgentHitlResumeKeywordsApprove {
 		approveWordPatterns = append(approveWordPatterns, regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(keyword)+`\b`))
@@ -28,12 +28,12 @@ const (
 	KAgentHitlInterruptTypeToolApproval = "tool_approval"
 	KAgentHitlDecisionTypeKey           = "decision_type"
 	KAgentHitlDecisionTypeApprove       = "approve"
-	KAgentHitlDecisionTypeDeny          = "deny"
+	KAgentHitlDecisionTypeReject        = "reject"
 )
 
 var (
 	KAgentHitlResumeKeywordsApprove = []string{"approved", "approve", "proceed", "yes", "continue"}
-	KAgentHitlResumeKeywordsDeny    = []string{"denied", "deny", "reject", "no", "cancel", "stop"}
+	KAgentHitlResumeKeywordsReject  = []string{"denied", "deny", "reject", "no", "cancel", "stop"}
 )
 
 // DecisionType represents a HITL decision.
@@ -41,7 +41,7 @@ type DecisionType string
 
 const (
 	DecisionApprove DecisionType = "approve"
-	DecisionDeny    DecisionType = "deny"
+	DecisionReject  DecisionType = "reject"
 )
 
 // ToolApprovalRequest represents a tool call requiring user approval.
@@ -60,9 +60,9 @@ func GetKAgentMetadataKey(key string) string {
 // keyword matching. Word boundaries prevent false positives from substrings
 // (e.g. "no" inside "know", "yes" inside "yesterday").
 func ExtractDecisionFromText(text string) DecisionType {
-	for _, pattern := range denyWordPatterns {
+	for _, pattern := range rejectWordPatterns {
 		if pattern.MatchString(text) {
-			return DecisionDeny
+			return DecisionReject
 		}
 	}
 	for _, pattern := range approveWordPatterns {
@@ -87,8 +87,8 @@ func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 				switch decision {
 				case KAgentHitlDecisionTypeApprove:
 					return DecisionApprove
-				case KAgentHitlDecisionTypeDeny:
-					return DecisionDeny
+				case KAgentHitlDecisionTypeReject:
+					return DecisionReject
 				}
 			}
 		}

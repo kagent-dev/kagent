@@ -34,27 +34,9 @@ jobs:
   test-e2e:
     needs:
       - setup
-    strategy:
-      fail-fast: false
-      matrix:
-        database: [sqlite, postgres]
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18-trixie
-        env:
-          POSTGRES_DB: kagent
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: kagent
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -99,11 +81,6 @@ jobs:
         run: |
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          if [ "${{ matrix.database }}" = "postgres" ]; then
-            HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
-            export KAGENT_HELM_EXTRA_ARGS="$KAGENT_HELM_EXTRA_ARGS --set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@${HOST_IP}:5432/kagent"
-            echo "Postgres URL: postgres://postgres:kagent@${HOST_IP}:5432/kagent"
-          fi
           make helm-install
           make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
@@ -111,7 +88,7 @@ jobs:
 
       - name: Run e2e tests
         if: success()
-        working-directory: go/core
+        working-directory: go
         run: |
           # Get the Kind network gateway IP that pods can reach
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
@@ -144,16 +121,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Run Go unit tests
         working-directory: go
         run: |
-          go test -race -skip 'TestE2E.*' -v ./api/... ./adk/... ./core/...
+          go test -race -skip 'TestE2E.*' -v ./...
 
   helm-unit-tests:
     env:
@@ -265,14 +242,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.8.0
-          working-directory: go/core
+          version: v2.11.3
+          working-directory: go
 
   python-test:
     env:
@@ -340,9 +317,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
-          cache-dependency-path: go/*/go.sum
+          cache-dependency-path: go/go.sum
 
       - name: Generate controller manifests
         run: make controller-manifests

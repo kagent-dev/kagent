@@ -90,9 +90,13 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")
 
-        HTTPXClientInstrumentor().instrument()
+        # Exclude agent-card endpoint from traces — this is used as a health
+        # check endpoint (high-frequency polling requests) and has little
+        # diagnostic value.
+        _excluded_urls = ".*/\\.well-known/agent-card\\.json"
+        HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
         if fastapi_app:
-            FastAPIInstrumentor().instrument_app(fastapi_app)
+            FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")

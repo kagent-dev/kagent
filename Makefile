@@ -1,3 +1,7 @@
+# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
+-include .env
+export
+
 # Image configuration
 DOCKER_REGISTRY ?= localhost:5001
 BASE_IMAGE_REGISTRY ?= cgr.dev
@@ -52,9 +56,9 @@ KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(K
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 
-#take from go/core/go.mod
+#take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
-TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/core/go.mod)
+TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
@@ -64,7 +68,6 @@ LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERS
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
-TOOLS_BUN_VERSION ?= 1.3.9
 TOOLS_NODE_VERSION ?= 24.13.0
 TOOLS_PYTHON_VERSION ?= 3.13
 
@@ -76,7 +79,6 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_BUN_VERSION=$(TOOLS_BUN_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
@@ -107,7 +109,7 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 
 # KMCP
 KMCP_ENABLED ?= true
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/core/go.mod) # KMCP version defaults to what's referenced in go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 HELM_ACTION=upgrade --install
 
@@ -422,12 +424,10 @@ kagent-addon-install: use-kind-cluster
 	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
-	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
 	# wait for pods to be ready
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
-	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
@@ -440,7 +440,7 @@ open-dev-container:
 otel-local:
 	docker rm -f jaeger-desktop || true
 	docker run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
-	open http://localhost:16686/
+	@echo "Jaeger UI available at http://localhost:16686/"
 
 .PHONY: kind-debug
 kind-debug:

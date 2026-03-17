@@ -4,11 +4,14 @@ import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
+import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
+import type { TokenStats } from "@/types";
 import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 import { convertToUserFriendlyName } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
+import { ToolDecision } from "@/types";
 
 interface ChatMessageProps {
   message: Message;
@@ -20,17 +23,20 @@ interface ChatMessageProps {
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
-  pendingDecisions?: Record<string, "approve" | "deny">;
+  pendingDecisions?: Record<string, ToolDecision>;
 }
 
 export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
+  if (!message) return null;
+
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
 
   const source = message.role === "user" ? "user" : "assistant";
+  const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
   const messageId = message.messageId;
 
   // Extract agent name from metadata for display
@@ -67,10 +73,6 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return a & a;
   }, 0)) : 0;
 
-  if (!message) {
-    return null;
-  }
-
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
 
@@ -92,12 +94,14 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     const resolvedAnswers = metadata?.askUserAnswers as Array<{ answer: string[] }> | null | undefined;
     const isResolved = !!metadata?.approvalDecision;
     const questions: AskUserQuestion[] = askUserData?.questions ?? [];
+    const askUserSubagentName = metadata?.subagentName as string | undefined;
     return (
       <AskUserDisplay
         questions={questions}
         isResolved={isResolved}
         resolvedAnswers={resolvedAnswers ?? null}
         onSubmit={(answers) => onAskUserSubmit?.(answers)}
+        subagentName={askUserSubagentName}
       />
     );
   }
@@ -165,22 +169,27 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
-      {source !== "user" && messageId !== undefined && (
+      {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
-          <button
-            onClick={() => handleFeedback(true)}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs up"
-          >
-            <ThumbsUp className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleFeedback(false)}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs down"
-          >
-            <ThumbsDown className="w-4 h-4" />
-          </button>
+          {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
+          {messageId !== undefined && (
+            <>
+              <button
+                onClick={() => handleFeedback(true)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs up"
+              >
+                <ThumbsUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback(false)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs down"
+              >
+                <ThumbsDown className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

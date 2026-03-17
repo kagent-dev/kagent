@@ -1,0 +1,33 @@
+operation: translateAgent
+targetObject: agent-with-default-sa
+namespace: test
+defaultServiceAccountName: global-workload-identity-sa
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5 # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-default-sa
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent using the global default service account
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model

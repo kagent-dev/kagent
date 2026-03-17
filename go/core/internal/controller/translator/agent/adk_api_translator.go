@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
@@ -107,6 +106,11 @@ var DefaultSkillsInitImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/skills-init",
 }
 
+// DefaultServiceAccountName is the global default ServiceAccount name for agent pods.
+// When set, agent pods that don't specify an explicit serviceAccountName will use this
+// instead of auto-creating a per-agent ServiceAccount.
+var DefaultServiceAccountName string
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
@@ -130,9 +134,9 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		return probeConfig{
-			InitialDelaySeconds: 2,
+			InitialDelaySeconds: 1,
 			TimeoutSeconds:      5,
-			PeriodSeconds:       5,
+			PeriodSeconds:       1,
 		}
 	case v1alpha2.DeclarativeRuntime_Python:
 		return probeConfig{
@@ -476,7 +480,7 @@ func (a *adkApiTranslator) buildManifest(
 					{
 						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
 							Audience:          "kagent",
-							ExpirationSeconds: ptr.To(int64(3600)),
+							ExpirationSeconds: new(int64(3600)),
 							Path:              "kagent-token",
 						},
 					},
@@ -509,12 +513,12 @@ func (a *adkApiTranslator) buildManifest(
 		securityContext = dep.SecurityContext.DeepCopy()
 		// If sandbox is needed, ensure Privileged is set (may override user setting)
 		if needSandbox {
-			securityContext.Privileged = ptr.To(true)
+			securityContext.Privileged = new(true)
 		}
 	} else if needSandbox {
 		// Only create security context if sandbox is needed
 		securityContext = &corev1.SecurityContext{
-			Privileged: ptr.To(true),
+			Privileged: new(true),
 		}
 	}
 	// If neither user-provided securityContext nor sandbox is needed, securityContext remains nil
@@ -624,7 +628,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		Instruction: rawSystemMessage,
 		Model:       model,
 		ExecuteCode: agent.Spec.Declarative.ExecuteCodeBlocks,
-		Stream:      ptr.To(agent.Spec.Declarative.Stream),
+		Stream:      new(agent.Spec.Declarative.Stream),
 	}
 
 	// Translate context management configuration
@@ -817,7 +821,7 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName:  tlsConfig.CACertSecretRef,
-					DefaultMode: ptr.To(int32(0444)), // Read-only for all users
+					DefaultMode: new(int32(0444)), // Read-only for all users
 				},
 			},
 		})
@@ -1240,10 +1244,10 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 		Headers: headers,
 	}
 	if server.Spec.Timeout != nil {
-		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
+		params.Timeout = new(server.Spec.Timeout.Seconds())
 	}
 	if server.Spec.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
+		params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
 	}
 	if server.Spec.TerminateOnClose != nil {
 		params.TerminateOnClose = server.Spec.TerminateOnClose
@@ -1274,10 +1278,10 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 		Headers: headers,
 	}
 	if server.Spec.Timeout != nil {
-		params.Timeout = ptr.To(server.Spec.Timeout.Seconds())
+		params.Timeout = new(server.Spec.Timeout.Seconds())
 	}
 	if server.Spec.SseReadTimeout != nil {
-		params.SseReadTimeout = ptr.To(server.Spec.SseReadTimeout.Seconds())
+		params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
 	}
 	return params, nil
 }

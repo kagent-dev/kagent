@@ -41,15 +41,15 @@ func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 		t.Errorf("ExtractDecisionFromMessage(approve DataPart) = %q, want %q", result, DecisionApprove)
 	}
 
-	denyData := map[string]any{
-		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
+	rejectData := map[string]any{
+		KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject,
 	}
 	message = a2atype.NewMessage(a2atype.MessageRoleUser,
-		&a2atype.DataPart{Data: denyData},
+		&a2atype.DataPart{Data: rejectData},
 	)
 	result = ExtractDecisionFromMessage(message)
-	if result != DecisionDeny {
-		t.Errorf("ExtractDecisionFromMessage(deny DataPart) = %q, want %q", result, DecisionDeny)
+	if result != DecisionReject {
+		t.Errorf("ExtractDecisionFromMessage(reject DataPart) = %q, want %q", result, DecisionReject)
 	}
 }
 
@@ -66,8 +66,8 @@ func TestExtractDecisionFromMessage_TextPart(t *testing.T) {
 		a2atype.TextPart{Text: "Request denied, do not proceed"},
 	)
 	result = ExtractDecisionFromMessage(message)
-	if result != DecisionDeny {
-		t.Errorf("ExtractDecisionFromMessage(deny text) = %q, want %q", result, DecisionDeny)
+	if result != DecisionReject {
+		t.Errorf("ExtractDecisionFromMessage(reject text) = %q, want %q", result, DecisionReject)
 	}
 
 	message = a2atype.NewMessage(a2atype.MessageRoleUser,
@@ -84,13 +84,13 @@ func TestExtractDecisionFromMessage_Priority(t *testing.T) {
 		a2atype.TextPart{Text: "approved"},
 		&a2atype.DataPart{
 			Data: map[string]any{
-				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeDeny,
+				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject,
 			},
 		},
 	)
 	result := ExtractDecisionFromMessage(message)
-	if result != DecisionDeny {
-		t.Errorf("ExtractDecisionFromMessage(mixed parts) = %q, want %q (DataPart should take priority)", result, DecisionDeny)
+	if result != DecisionReject {
+		t.Errorf("ExtractDecisionFromMessage(mixed parts) = %q, want %q (DataPart should take priority)", result, DecisionReject)
 	}
 }
 
@@ -125,12 +125,12 @@ func TestExtractDecisionFromText_WordBoundary(t *testing.T) {
 		{name: "yes inside yesterday should not match", text: "yesterday was fine", want: ""},
 		{name: "stop inside unstoppable should not match", text: "unstoppable progress", want: ""},
 		{name: "cancel inside cancellation should not match", text: "the cancellation policy", want: ""},
-		{name: "standalone no matches", text: "no, I do not agree", want: DecisionDeny},
+		{name: "standalone no matches", text: "no, I do not agree", want: DecisionReject},
 		{name: "standalone yes matches", text: "yes, go ahead", want: DecisionApprove},
-		{name: "standalone stop matches", text: "stop the process", want: DecisionDeny},
-		{name: "case insensitive whole word", text: "NO", want: DecisionDeny},
-		{name: "keyword at end of sentence", text: "the answer is no", want: DecisionDeny},
-		{name: "keyword with punctuation", text: "no!", want: DecisionDeny},
+		{name: "standalone stop matches", text: "stop the process", want: DecisionReject},
+		{name: "case insensitive whole word", text: "NO", want: DecisionReject},
+		{name: "keyword at end of sentence", text: "the answer is no", want: DecisionReject},
+		{name: "keyword with punctuation", text: "no!", want: DecisionReject},
 		{name: "continue inside discontinue should not match", text: "I will discontinue", want: ""},
 		{name: "approve as standalone", text: "I approve", want: DecisionApprove},
 	}

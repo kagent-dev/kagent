@@ -29,7 +29,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	"k8s.io/utils/ptr"
 )
 
 func TestToolServersHandler(t *testing.T) {
@@ -86,9 +85,9 @@ func TestToolServersHandler(t *testing.T) {
 			}
 
 			// Store tool servers in database
-			_, err := dbClient.StoreToolServer(toolServer1)
+			_, err := dbClient.StoreToolServer(context.Background(), toolServer1)
 			require.NoError(t, err)
-			_, err = dbClient.StoreToolServer(toolServer2)
+			_, err = dbClient.StoreToolServer(context.Background(), toolServer2)
 			require.NoError(t, err)
 
 			// Create test tools in database
@@ -98,7 +97,7 @@ func TestToolServersHandler(t *testing.T) {
 				GroupKind:   "kagent.dev/RemoteMCPServer",
 				Description: "Test tool",
 			}
-			err = dbClient.CreateTool(tool1)
+			err = dbClient.CreateTool(context.Background(), tool1)
 			require.NoError(t, err)
 
 			req := httptest.NewRequest("GET", "/api/toolservers/", nil)
@@ -161,7 +160,7 @@ func TestToolServersHandler(t *testing.T) {
 							},
 						},
 						Timeout:          &metav1.Duration{Duration: 30 * time.Second},
-						TerminateOnClose: ptr.To(true),
+						TerminateOnClose: new(true),
 					},
 				},
 			}
@@ -443,7 +442,7 @@ func TestToolServersHandler(t *testing.T) {
 			err := kubeClient.Create(context.Background(), toolServer)
 			require.NoError(t, err)
 
-			_, err = dbClient.StoreToolServer(&database.ToolServer{
+			_, err = dbClient.StoreToolServer(context.Background(), &database.ToolServer{
 				Name:      "default/test-toolserver",
 				GroupKind: "RemoteMCPServer.kagent.dev",
 			})

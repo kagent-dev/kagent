@@ -1,5 +1,7 @@
 ### dotenv template
 python/.env
+.env
+values.local.yaml
 
 test_results
 
@@ -22,9 +24,6 @@ test_results
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-
-# Go workspace file
-go.work
 
 # Go CLI binary
 go/cli/bin/*
@@ -195,6 +194,10 @@ cython_debug/
 
 go/bin/
 *.db
+*.db-wal
+*.db-shm
+# SQLite in-memory WAL artifacts from tests
+file::memory:*
 .vscode/
 .cursor/rules
 

@@ -474,8 +474,9 @@ type A2AConfig struct {
 type AgentSkill server.AgentSkill
 
 const (
-	AgentConditionTypeAccepted = "Accepted"
-	AgentConditionTypeReady    = "Ready"
+	AgentConditionTypeAccepted            = "Accepted"
+	AgentConditionTypeReady               = "Ready"
+	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
 // AgentStatus defines the observed state of Agent.

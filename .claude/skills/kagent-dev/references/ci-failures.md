@@ -34,13 +34,10 @@ CRD type definitions changed but generated manifests weren't updated.
 ### Fix
 
 ```bash
-# 1. Regenerate CRD manifests
-make -C go generate
+# Regenerate manifests and copy to Helm chart in one step
+make controller-manifests
 
-# 2. Copy to Helm chart
-cp go/api/config/crd/bases/*.yaml helm/kagent-crds/templates/
-
-# 3. Commit
+# Commit
 git add go/api/config/crd/bases/ helm/kagent-crds/templates/
 git commit -s -m "chore: regenerate CRD manifests"
 git push
@@ -48,11 +45,10 @@ git push
 
 ### Prevention
 
-Always run `make -C go generate` after modifying types in `go/api/v1alpha2/`.
+Always run `make controller-manifests` after modifying types in `go/api/v1alpha2/`.
 
 Add to PR checklist:
-- [ ] Ran `make -C go generate` after CRD changes
-- [ ] Copied manifests to `helm/kagent-crds/templates/`
+- [ ] Ran `make controller-manifests` after CRD changes
 - [ ] Committed generated files
 
 ---
@@ -187,9 +183,8 @@ Error: Agent.kagent.dev "test-agent" is invalid: spec.declarative.newField: fiel
 **Cause:** CRD in cluster doesn't have new field
 
 **Fix:**
-1. Ensure `make -C go generate` was run
-2. Ensure manifests were copied to Helm chart
-3. Ensure CRD chart was upgraded in `Install Kagent` step
+1. Ensure `make controller-manifests` was run and files committed
+2. Ensure CRD chart was upgraded in `Install Kagent` step
 
 ---
 

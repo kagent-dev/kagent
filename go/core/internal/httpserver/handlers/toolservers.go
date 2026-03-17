@@ -50,7 +50,7 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 		return
 	}
 
-	toolServers, err := h.DatabaseService.ListToolServers()
+	toolServers, err := h.DatabaseService.ListToolServers(r.Context())
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list ToolServers from database", err))
 		return
@@ -58,7 +58,7 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 
 	toolServerWithTools := make([]api.ToolServerResponse, len(toolServers))
 	for i, toolServer := range toolServers {
-		tools, err := h.DatabaseService.ListToolsForServer(toolServer.Name, toolServer.GroupKind)
+		tools, err := h.DatabaseService.ListToolsForServer(r.Context(), toolServer.Name, toolServer.GroupKind)
 		if err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to list tools for ToolServer from database", err))
 			return
@@ -218,7 +218,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 
 	// Find the tool server in the database to get its groupKind
 	ref := fmt.Sprintf("%s/%s", namespace, toolServerName)
-	toolServers, err := h.DatabaseService.ListToolServers()
+	toolServers, err := h.DatabaseService.ListToolServers(r.Context())
 	if err != nil {
 		log.Error(err, "Failed to list tool servers from database")
 		w.RespondWithError(errors.NewInternalServerError("Failed to list tool servers from database", err))

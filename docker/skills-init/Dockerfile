@@ -1,7 +1,7 @@
 ### Stage 0: build krane
 FROM golang:1.25-alpine AS krane-builder
 
-ENV KRANE_VERSION=v0.20.7
+ENV KRANE_VERSION=v0.21.2
 WORKDIR /build
 
 RUN apk add --no-cache git && \

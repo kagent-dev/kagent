@@ -112,7 +112,7 @@ class KAgentSessionService(BaseSessionService):
             session = Session(
                 id=session_data["id"],
                 user_id=session_data["user_id"],
-                events=events,
+                events=[],
                 app_name=app_name,
                 state={},
             )

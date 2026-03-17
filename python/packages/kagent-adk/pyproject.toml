@@ -9,10 +9,10 @@ description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "agentsts-adk",
-  "agentsts-core",
-  "kagent-core",
-  "kagent-skills",
+  "agentsts-adk>=0.1.0",
+  "agentsts-core>=0.1.0",
+  "kagent-core>=0.1.0",
+  "kagent-skills>=0.1.0",
   "aiofiles>=24.1.0",
   "anyio>=4.9.0",
   "typer>=0.15.0",
@@ -35,6 +35,7 @@ dependencies = [
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: unbounded decompression DoS
   "filelock>=3.20.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
   "python-multipart>=0.0.22",  # CVE-2026-24486: Arbitrary file write via path traversal
+  "httpx-sse>=0.4.2",  # U+2028/U+2029 treated as SSE line terminators, truncating JSON-RPC responses
   "boto3>=1.28.57",
   "ollama >=0.3.6",  # Ollama SDK
   "numpy>=2.2.6",

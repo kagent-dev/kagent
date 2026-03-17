@@ -86,9 +86,9 @@ func TestRuntime_GoRuntime(t *testing.T) {
 
 	// Verify Go runtime readiness probe timings (fast startup)
 	require.NotNil(t, container.ReadinessProbe)
-	assert.Equal(t, int32(2), container.ReadinessProbe.InitialDelaySeconds, "Go runtime should have 2s initial delay")
+	assert.Equal(t, int32(1), container.ReadinessProbe.InitialDelaySeconds, "Go runtime should have 1s initial delay")
 	assert.Equal(t, int32(5), container.ReadinessProbe.TimeoutSeconds, "Go runtime should have 5s timeout")
-	assert.Equal(t, int32(5), container.ReadinessProbe.PeriodSeconds, "Go runtime should have 5s period")
+	assert.Equal(t, int32(1), container.ReadinessProbe.PeriodSeconds, "Go runtime should have 1s period")
 }
 
 func TestRuntime_PythonRuntime(t *testing.T) {

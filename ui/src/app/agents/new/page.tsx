@@ -36,6 +36,7 @@ interface ValidationErrors {
   skills?: string;
   memoryModel?: string;
   memoryTtl?: string;
+  serviceAccountName?: string;
 }
 
 interface AgentPageContentProps {
@@ -84,6 +85,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     stream: boolean;
     contextConfig: ContextConfig | undefined;
+    serviceAccountName: string;
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -109,6 +111,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
     contextConfig: undefined,
+    serviceAccountName: "",
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -154,6 +157,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
                   contextConfig: agent.spec?.declarative?.context,
+                  serviceAccountName: agent.spec?.declarative?.deployment?.serviceAccountName || "",
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -178,6 +182,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       ? { name: e.name || "", isSecret: true, secretName: e.valueFrom.secretKeyRef.name || "", secretKey: e.valueFrom.secretKeyRef.key || "", optional: e.valueFrom.secretKeyRef.optional }
                       : { name: e.name || "", value: e.value || "", isSecret: false }
                   )).concat((agent.spec?.byo?.deployment?.env || []).length === 0 ? [{ name: "", value: "", isSecret: false }] : []),
+                  serviceAccountName: agent.spec?.byo?.deployment?.serviceAccountName || "",
                 }));
               }
 
@@ -225,6 +230,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         }
         : undefined,
       context: state.contextConfig,
+      serviceAccountName: state.serviceAccountName,
     };
 
     const newErrors = validateAgentData(formData);
@@ -289,6 +295,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           };
         }
         break;
+      case 'serviceAccountName': formData.serviceAccountName = value; break;
     }
 
     const fieldErrors = validateAgentData(formData);
@@ -363,6 +370,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             return { name, value: ev.value ?? "" } as EnvVar;
           })
           .filter((e): e is EnvVar => e !== null),
+        serviceAccountName: state.serviceAccountName.trim() || undefined,
       };
 
       let result;
@@ -517,6 +525,22 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       </div>
                     </div>
 
+                    <div>
+                      <Label className="text-sm mb-2 block">Service Account Name (optional)</Label>
+                      <p className="text-xs mb-2 block text-muted-foreground">
+                        Name of an existing Kubernetes ServiceAccount for the agent pod. If not set, a cluster-wide default or auto-created SA will be used.
+                      </p>
+                      <Input
+                        value={state.serviceAccountName}
+                        onChange={(e) => setState(prev => ({ ...prev, serviceAccountName: e.target.value }))}
+                        onBlur={() => validateField('serviceAccountName', state.serviceAccountName)}
+                        className={`${state.errors.serviceAccountName ? "border-red-500" : ""}`}
+                        placeholder="e.g. my-workload-identity-sa"
+                        disabled={state.isSubmitting || state.isLoading}
+                      />
+                      {state.errors.serviceAccountName && <p className="text-red-500 text-sm mt-1">{state.errors.serviceAccountName}</p>}
+                    </div>
+
                   </>
                 )}
                 {state.agentType === "BYO" && (
@@ -660,6 +684,21 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       </Button>
                     </div>
 
+                    <div>
+                      <Label className="text-sm mb-2 block">Service Account Name (optional)</Label>
+                      <p className="text-xs mb-2 block text-muted-foreground">
+                        Name of an existing Kubernetes ServiceAccount for the agent pod. If not set, a cluster-wide default or auto-created SA will be used.
+                      </p>
+                      <Input
+                        value={state.serviceAccountName}
+                        onChange={(e) => setState(prev => ({ ...prev, serviceAccountName: e.target.value }))}
+                        onBlur={() => validateField('serviceAccountName', state.serviceAccountName)}
+                        className={`${state.errors.serviceAccountName ? "border-red-500" : ""}`}
+                        placeholder="e.g. my-workload-identity-sa"
+                        disabled={state.isSubmitting || state.isLoading}
+                      />
+                      {state.errors.serviceAccountName && <p className="text-red-500 text-sm mt-1">{state.errors.serviceAccountName}</p>}
+                    </div>
 
                   </div>
                 )}

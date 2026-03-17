@@ -105,7 +105,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		ExpiresAt: &expiresAt,
 	}
 
-	if err := h.DatabaseService.StoreAgentMemory(memory); err != nil {
+	if err := h.DatabaseService.StoreAgentMemory(r.Context(), memory); err != nil {
 		log.Printf("Failed to store agent memory: %v", err)
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory: %v", err))
 		return
@@ -173,7 +173,7 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 		})
 	}
 
-	if err := h.DatabaseService.StoreAgentMemories(memories); err != nil {
+	if err := h.DatabaseService.StoreAgentMemories(r.Context(), memories); err != nil {
 		log.Printf("Failed to store agent memory batch: %v", err)
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory batch: %v", err))
 		return
@@ -209,7 +209,7 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 	vector := pgvector.NewVector(req.Vector)
 
 	// Update DB client call to pass pgvector.Vector
-	results, err := h.DatabaseService.SearchAgentMemory(req.AgentName, req.UserID, vector, req.Limit)
+	results, err := h.DatabaseService.SearchAgentMemory(r.Context(), req.AgentName, req.UserID, vector, req.Limit)
 	if err != nil {
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("search failed: %v", err))
 		return
@@ -250,7 +250,7 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	memories, err := h.DatabaseService.ListAgentMemories(agentName, userID)
+	memories, err := h.DatabaseService.ListAgentMemories(r.Context(), agentName, userID)
 	if err != nil {
 		log.Printf("Failed to list agent memories: %v", err)
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list memories: %v", err))
@@ -284,7 +284,7 @@ func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DatabaseService.DeleteAgentMemory(agentName, userID); err != nil {
+	if err := h.DatabaseService.DeleteAgentMemory(r.Context(), agentName, userID); err != nil {
 		log.Printf("Failed to delete agent memory: %v", err)
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete memory: %v", err))
 		return

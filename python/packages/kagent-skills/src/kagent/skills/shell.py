@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -13,12 +14,33 @@ logger = logging.getLogger(__name__)
 # --- File Operation Tools ---
 
 
+def _validate_path(
+    file_path: Path,
+    allowed_roots: Path | list[Path] | None,
+) -> Path:
+    """Resolve the path and ensure it is within at least one allowed root directory."""
+    resolved = file_path.resolve()
+    if allowed_roots is None:
+        return resolved
+
+    roots = [allowed_roots] if isinstance(allowed_roots, Path) else allowed_roots
+    for root in roots:
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+
+    root_list = ", ".join(str(r.resolve()) for r in roots)
+    raise PermissionError(f"Access denied: {resolved} is outside the allowed directories: {root_list}")
+
+
 def read_file_content(
     file_path: Path,
     offset: int | None = None,
     limit: int | None = None,
+    allowed_root: Path | list[Path] | None = None,
 ) -> str:
     """Reads a file with line numbers, raising errors on failure."""
+    file_path = _validate_path(file_path, allowed_root)
+
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -45,8 +67,10 @@ def read_file_content(
     return "\n".join(result_lines)
 
 
-def write_file_content(file_path: Path, content: str) -> str:
+def write_file_content(file_path: Path, content: str, allowed_root: Path | None = None) -> str:
     """Writes content to a file, creating parent directories if needed."""
+    file_path = _validate_path(file_path, allowed_root)
+
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
@@ -61,10 +85,13 @@ def edit_file_content(
     old_string: str,
     new_string: str,
     replace_all: bool = False,
+    allowed_root: Path | None = None,
 ) -> str:
     """Performs an exact string replacement in a file."""
     if old_string == new_string:
         raise ValueError("old_string and new_string must be different")
+
+    file_path = _validate_path(file_path, allowed_root)
 
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -101,6 +128,36 @@ def edit_file_content(
 
 # --- Shell Operation Tools ---
 
+# Matches env-var names containing secret-related segments as whole
+# underscore-delimited tokens (e.g. OPENAI_API_KEY, DATABASE_PASSWORD)
+# but not partial hits like TOKENIZERS_PARALLELISM.
+_SECRET_PATTERNS = re.compile(
+    r"(?:^|_)(API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|PRIVATE_KEY)(?:_|$)",
+    re.IGNORECASE,
+)
+
+# Explicit denylist of known secret env vars injected by the kagent controller
+# (see go/core/pkg/env/providers.go). Belt-and-suspenders: the regex handles
+# the general case, this set catches any known vars that the regex might miss.
+_SECRET_ENV_NAMES: set[str] = {
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_AD_TOKEN",
+    "GOOGLE_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",
+}
+
+
+def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a copy of the environment with secret variables removed."""
+    source = env if env is not None else os.environ
+    return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
+
 
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
@@ -110,16 +167,13 @@ def _get_command_timeout_seconds(command: str) -> float:
         return 30.0  # 30 seconds for other commands
 
 
-async def execute_command(
-    command: str,
-    working_dir: Path,
-) -> str:
+async def execute_command(command: str, working_dir: Path, skills_dir: Path = Path("/skills")) -> str:
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
-    env = os.environ.copy()
+    env = _sanitize_env()
     # Add skills directory and working directory to PYTHONPATH
-    pythonpath_additions = [str(working_dir), "/skills"]
+    pythonpath_additions = [str(working_dir), str(skills_dir)]
     if "PYTHONPATH" in env:
         pythonpath_additions.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = ":".join(pythonpath_additions)
@@ -133,11 +187,12 @@ async def execute_command(
         env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
         env["VIRTUAL_ENV"] = bash_venv_path
 
-    sandboxed_command = f'srt "{command}"'
-
     try:
-        process = await asyncio.create_subprocess_shell(
-            sandboxed_command,
+        process = await asyncio.create_subprocess_exec(
+            "srt",
+            "sh",
+            "-c",
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,

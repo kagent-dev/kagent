@@ -28,7 +28,6 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -75,7 +74,7 @@ func (r *MCPServerToolController) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
-			NeedLeaderElection: ptr.To(true),
+			NeedLeaderElection: new(true),
 		}).
 		For(&v1alpha1.MCPServer{}, builder.WithPredicates(
 			predicate.GenerationChangedPredicate{},

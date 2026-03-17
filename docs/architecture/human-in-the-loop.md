@@ -1,494 +1,411 @@
-# Human-in-the-Loop: ADK-Native Tool Approval
+# Human-in-the-Loop
 
-## Overview
+Kagent implements Human-in-the-Loop (HITL) tool approval by combining a custom extension on top of A2A Task-driven communication and Google ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent or a subagent calls a tool marked with `requireApproval` the system pauses execution and asks the user to approve or reject the call before proceeding. This design avoids as much homebrewed Kagent constants and HITL logic as possible.
 
-Kagent implements Human-in-the-Loop (HITL) tool approval using the Google
-ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent
-calls a tool marked with `requireApproval`, the system pauses execution and
-asks the user to approve or reject the call before proceeding.
-
-This approach provides:
-
-- **Deterministic replay** — on approval the ADK re-invokes the exact same
-  function call (same ID, same arguments) via a built-in preprocessor. No LLM
-  call is needed on the resume path.
-- **Minimal custom code** — the executor is nearly HITL-unaware. It only
-  handles the resume path (translating the user's A2A decision into the
-  `FunctionResponse` the ADK expects). The interrupt path is handled entirely
-  by the ADK and the existing event converter pipeline.
-
-This design avoids as much homebrewed Kagent constants and HITL logic as possible. However, this is only to an extend. For example, there are still a lot of custom UI logic that cannot be avoided.
-
----
-
-## Data Flow
-
-```plaintext
-before_tool_callback
-  │ calls tool_context.request_confirmation()
-  │ returns {"status": "confirmation_requested"} to block execution
-  ▼
-ADK generates adk_request_confirmation event (built-in)
-  │ long_running_tool_ids set on the event
-  ▼
-Event converter (existing)
-  │ Converts to A2A DataPart: {type: "function_call", is_long_running: true}
-  │ Sets TaskState.input_required
-  ▼
-Executor event loop
-  │ Forwards event to UI, breaks on long_running_tool_ids
-  ▼
-UI detects input_required + adk_request_confirmation DataPart
-  │ Extracts originalFunctionCall, shows Approve/Reject buttons
-  ▼
-User clicks Approve or Reject on each tool card
-  │ UI collects per-tool decisions in pendingDecisions state
-  │ Once every tool has a decision, sends DataPart with taskId:
-  │   Uniform: {decision_type: "approve"|"deny"}
-  │   Mixed:   {decision_type: "batch", decisions: {toolId: "approve"|"deny", ...}}
-  ▼
-Executor resume path
-  │ Translates decision(s) to FunctionResponse(name="adk_request_confirmation",
-  │   response=ToolConfirmation(confirmed=True/False)) — one per pending tool
-  ▼
-ADK _RequestConfirmationLlmRequestProcessor (built-in)
-  │ Finds original function call in session history
-  │ Re-invokes exact same tool — no LLM call
-  ▼
-before_tool_callback
-  │ Checks tool_context.tool_confirmation.confirmed
-  │ True  → return None (tool executes)
-  │ False → return {"status": "rejected", "message": "..."} (tool blocked)
-```
-
----
-
-## Layer-by-Layer Implementation
-
-### Layer 1: CRD — Agent Types (Go)
-
-**File:** `go/api/v1alpha2/agent_types.go`
-
-The `McpServerTool` struct has a `RequireApproval` field listing tool names
-that must be approved before execution. Each name must also appear in
-`ToolNames`.
-
-```go
-type McpServerTool struct {
-    TypedLocalReference `json:",inline"`
-
-    // ToolNames lists the tool names provided by this ToolServer.
-    ToolNames []string `json:"toolNames,omitempty"`
-
-    // RequireApproval lists tool names that require human approval before
-    // execution. Each name must also appear in ToolNames.
-    // +optional
-    RequireApproval []string `json:"requireApproval,omitempty"`
-
-    AllowedHeaders []string `json:"allowedHeaders,omitempty"`
-}
-```
-
-A CEL validation marker ensures `requireApproval` is always a subset of
-`toolNames`:
-
-```go
-// +kubebuilder:validation:XValidation:rule="!has(self.requireApproval) || self.requireApproval.all(t, self.toolNames.exists(n, n == t))",message="each requireApproval entry must also appear in toolNames"
-```
-
-**Example CRD usage:**
-
-```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
-metadata:
-  name: file-manager
-spec:
-  type: Declarative
-  declarative:
-    systemMessage: "You help users manage files."
-    tools:
-    - type: McpServer
-      mcpServer:
-        name: filesystem-server
-        toolNames:
-          - read_file
-          - write_file
-          - delete_file
-        requireApproval:
-          - delete_file
-          - write_file
-```
-
----
-
-### Layer 2: Go ADK Config Types
-
-**File:** `go/pkg/adk/types.go`
-
-Both MCP config types carry `RequireApproval` so the list can be serialised
-into the JSON agent config that the Python runtime reads:
-
-```go
-type HttpMcpServerConfig struct {
-    Params          StreamableHTTPConnectionParams `json:"params"`
-    Tools           []string                       `json:"tools"`
-    AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
-    RequireApproval []string                       `json:"require_approval,omitempty"`
-}
-
-type SseMcpServerConfig struct {
-    Params          SseConnectionParams `json:"params"`
-    Tools           []string            `json:"tools"`
-    AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
-    RequireApproval []string            `json:"require_approval,omitempty"`
-}
-```
-
----
-
-### Layer 3: Go Translator
-
-**File:** `go/internal/controller/translator/agent/adk_api_translator.go`
-
-`translateMCPServerTarget()` and `translateRemoteMCPServerTarget()` copy the
-`RequireApproval` slice from the CRD's `McpServerTool` directly onto the
-config struct:
-
-```go
-httpConfig := adk.HttpMcpServerConfig{
-    Params:          params,
-    Tools:           toolServer.ToolNames,
-    AllowedHeaders:  toolServer.AllowedHeaders,
-    RequireApproval: toolServer.RequireApproval,
-}
-```
-
-No other translation logic is needed; the field passes through as-is.
-
----
-
-### Layer 4: Python ADK Types and Agent Wiring
-
-**File:** `python/packages/kagent-adk/src/kagent/adk/types.py`
-
-The Pydantic models mirror the Go types:
-
-```python
-class HttpMcpServerConfig(BaseModel):
-    params: StreamableHTTPConnectionParams
-    tools: list[str] = Field(default_factory=list)
-    allowed_headers: list[str] | None = None
-    require_approval: list[str] | None = None
-
-class SseMcpServerConfig(BaseModel):
-    params: SseConnectionParams
-    tools: list[str] = Field(default_factory=list)
-    allowed_headers: list[str] | None = None
-    require_approval: list[str] | None = None
-```
-
-`AgentConfig.to_agent()` collects every tool name that appears in any
-`require_approval` list and passes the resulting set to
-`make_approval_callback()`, which is then installed as `before_tool_callback`
-on the ADK `Agent`:
-
-```python
-tools_requiring_approval: set[str] = set()
-for http_tool in self.http_tools or []:
-    if http_tool.require_approval:
-        tools_requiring_approval.update(http_tool.require_approval)
-for sse_tool in self.sse_tools or []:
-    if sse_tool.require_approval:
-        tools_requiring_approval.update(sse_tool.require_approval)
-
-before_tool_callback = (
-    make_approval_callback(tools_requiring_approval)
-    if tools_requiring_approval
-    else None
-)
-
-return Agent(
-    ...,
-    before_tool_callback=before_tool_callback,
-)
-```
-
----
-
-### Layer 5: Approval Callback
-
-**File:** `python/packages/kagent-adk/src/kagent/adk/_approval.py`
-
-`make_approval_callback(tools_requiring_approval)` returns a
-`before_tool_callback` with three branches:
-
-1. **Tool not in approval set** — returns `None` immediately; the tool
-   executes normally.
-2. **First invocation** — calls `tool_context.request_confirmation(hint=...)`
-   and returns `{"status": "confirmation_requested"}` to block execution. The
-   ADK records this as a long-running function call and yields an
-   `adk_request_confirmation` event.
-3. **Re-invocation after user response** — checks
-   `tool_context.tool_confirmation.confirmed`:
-   - `True` → returns `None` (tool executes).
-   - `False` → returns `{"status": "rejected", "message": "Tool call was
-     rejected by user."}`.
-
-The callback requires no session state of its own; the ADK tracks the
-confirmation via session event history and tool context interanlly.
-
----
-
-### Layer 6: Python Executor
-
-**File:** `python/packages/kagent-adk/src/kagent/adk/_agent_executor.py`
-
-The executor has two small HITL-specific pieces:
-
-**Resume path (top of `_handle_request`):** When the incoming A2A message
-contains a `decision_type` DataPart (sent by the UI after approve/reject), the
-executor calls `_find_pending_confirmations(session)` to locate any
-`adk_request_confirmation` FunctionCall events in session history that do not
-yet have a matching FunctionResponse. It returns a dict mapping each
-confirmation `function_call_id` to the original tool call ID (extracted from
-`args.originalFunctionCall.id`).
-
-The executor supports two modes:
-
-- **Uniform mode** (`decision_type` is `"approve"` or `"deny"`): the same
-  `ToolConfirmation(confirmed=...)` is constructed for every pending
-  confirmation.
-- **Batch mode** (`decision_type` is `"batch"`): the message also contains a
-  `decisions` dict mapping original tool call IDs to individual decisions.
-  The executor looks up each tool's decision by its original ID and
-  constructs a per-tool `ToolConfirmation`.
-
-For each pending confirmation it constructs:
-
-```python
-FunctionResponse(
-    name="adk_request_confirmation",
-    id=confirmation_fc_id,
-    response=ToolConfirmation(confirmed=...),  # per-tool in batch mode
-)
-```
-
-These responses are set as the new turn's content so the ADK's
-`_RequestConfirmationLlmRequestProcessor` can find them and replay the
-original tool calls — no LLM call required on the resume path. When the
-processor replays the tools, each receives its own `ToolConfirmation` via
-`ToolContext`. Approved tools execute normally; rejected tools are blocked by
-the `before_tool_callback` which returns `{"status": "rejected", ...}`. The
-mixed results are fed to the LLM in the next step.
-
-**Event loop break:** The event loop contains a single explicit break:
-
-```python
-if getattr(adk_event, "long_running_tool_ids", None):
-    break
-```
-
-The ADK's `BaseLlmFlow.run_async()` loop checks `last_event.is_final_response()`
-after consuming all events from one step. `is_final_response()` returns `True`
-when `long_running_tool_ids` is set.
-
-However, `_postprocess_handle_function_calls_async` yields **two** events in
-order:
-
-1. `tool_confirmation_event` — has `long_running_tool_ids` set.
-2. `function_response_event` — carries the `confirmation_requested` function
-   response; does **not** have `long_running_tool_ids`.
-
-Since the loop assigns `last_event` to each event as it is yielded,
-`last_event` ends up being the `function_response_event`.
-`function_response_event.is_final_response()` returns `False` (events with
-function responses are disqualified), so the loop continues to the next LLM
-step instead of pausing.
-
-Without the explicit break, the agent feeds the `confirmation_requested` stub
-response back to the LLM and continues executing — bypassing the approval gate
-entirely.
-
----
-
-### Layer 7: Event Converter
-
-**File:** `python/packages/kagent-adk/src/kagent/adk/converters/event_converter.py`
-
-No changes are needed. The existing pipeline handles HITL events natively:
-
-1. `convert_genai_part_to_a2a_part()` converts the `adk_request_confirmation`
-   FunctionCall into a DataPart with metadata `type: "function_call"`.
-2. `_process_long_running_tool()` adds `is_long_running: true` to the
-   DataPart's metadata.
-3. `_create_status_update_event()` sees a long-running function call and sets
-   `TaskState.input_required`.
-
-The resulting DataPart structure consumed by the UI is:
-
-```
-{
-  kind: "data",
-  data: {
-    name: "adk_request_confirmation",
-    args: { originalFunctionCall: { name, args, id } },
-    id: <confirm_fc_id>
-  },
-  metadata: { type: "function_call", is_long_running: true }
-}
-```
-
----
-
-### Layer 8: UI — Message Handling
-
-**File:** `ui/src/lib/messageHandlers.ts`
-
-**Detection:** The UI identifies an approval request by looking for DataParts
-where `metadata.type === "function_call"`, `metadata.is_long_running === true`,
-and `data.name === "adk_request_confirmation"`. It extracts the original tool
-name, arguments, and ID from `data.args.originalFunctionCall` and creates a
-`ToolApprovalRequest` message in `streamingMessages`.
-
-**Task ID tracking:** The approval message carries the A2A `taskId`. When the
-user responds, the UI includes this `taskId` on the outgoing message. This
-ensures the A2A framework updates the existing task (transitioning it from
-`input-required` to `completed`) rather than creating a new one — which would
-leave the original task stuck at `input-required` and cause the approval card
-to reappear on every page reload.
-
-**Page reload recovery:** `extractMessagesFromTasks()` scans task history for
-`adk_request_confirmation` messages and reconstructs tool cards with the
-correct resolved state:
-
-- Task still `input-required` → pending approval card with Approve/Reject
-  buttons.
-- Task history contains a user decision DataPart → resolved card with an
-  "Approved" or "Rejected" badge (no buttons).
-
-User decision messages (DataParts containing `decision_type`) are filtered from
-the regular message list so they do not appear as separate chat bubbles.
-
-**Rejection result detection:** `isHitlRejection(toolData: ToolResponseData)`
-inspects the raw `response.result` object returned by the callback for
-`status === "rejected"`. This populates `ProcessedToolResultData.is_hitl_rejection`
-at construction time — no downstream string parsing is needed.
-
----
-
-### Layer 9: UI — Tool Display
-
-**File:** `ui/src/components/ToolDisplay.tsx`
-
-`ToolCallStatus` includes `"pending_approval"`, `"approved"`, and `"rejected"`
-in addition to the standard `"requested"`, `"executing"`, and `"completed"`.
-
-- `"pending_approval"` — renders Approve / Reject buttons inline on the tool
-  card.
-- `"approved"` — renders a green checkmark badge; buttons hidden.
-- `"rejected"` — renders a red alert badge; buttons hidden.
-
-When the user clicks Approve or Reject on an individual tool card,
-`ToolCallDisplay` uses the `pendingDecisions` prop to compute an
-`effectiveStatus`: if a local decision exists, the card immediately shows an
-"Approved" or "Rejected" badge and hides the buttons — even before the batch
-decision is sent to the backend. An `isDecided` prop is also passed to
-`ToolDisplay` to show "Waiting for other tools..." during the batch collection
-phase.
-
----
-
-### Layer 10: UI — Chat Interface
-
-**File:** `ui/src/components/chat/ChatInterface.tsx`
-
-The chat interface supports both uniform and per-tool approval decisions.
-
-**Per-tool decision collection:** When multiple tools are pending approval,
-the user can click Approve or Reject on each tool card independently.
-`handleApprove(toolCallId)` and `handleReject(toolCallId)` record each
-decision in `pendingDecisions` state (and a parallel ref for stale-closure
-safety). After each click, `recordDecision` checks whether every pending
-tool now has a decision. Once all tools are decided, `submitDecisions` is
-called automatically.
-
-**Decision submission:** `submitDecisions(decisions)` inspects the
-collected decisions and sends the appropriate wire format:
-
-```typescript
-// All approved — uniform mode
-{ parts: [{ kind: "data", data: { decision_type: "approve" }, metadata: {} }] }
-
-// All denied — uniform mode
-{ parts: [{ kind: "data", data: { decision_type: "deny" }, metadata: {} }] }
-
-// Mixed — batch mode with per-tool decisions
-{ parts: [{ kind: "data", data: {
-    decision_type: "batch",
-    decisions: { "tool_call_id_1": "approve", "tool_call_id_2": "deny" }
-  }, metadata: {} }] }
-```
-
-The message is sent with `taskId` set to the pending approval's task ID so the
-A2A framework routes the response to the correct task.
+Below documents, in depth, how the HITL logic works in Kagent, and how relevant features are designed.
 
 ---
 
 ## HITL Flows
 
-### Approval Flow
+Kagent supports basic HITL flow, and HITL flow involving subagents, built on the basic type.
 
-1. Executor sends `ToolConfirmation(confirmed=True)` as a `FunctionResponse`.
-2. `_RequestConfirmationLlmRequestProcessor` re-invokes the original tool.
-3. `before_tool_callback` checks `tool_context.tool_confirmation.confirmed`
-   → `True`, returns `None`.
-4. The tool executes normally.
+Below we show sequence diagrams for 1. high level overview 2. detailed, function-level sequence for both use cases.
 
-### Rejection Flow
+The HITL flow is split into two paths: **request path** and **decision path**. The protocol for each path is further explained in [the following section](#hitl-protocol-reference).
 
-1. Executor sends `ToolConfirmation(confirmed=False)` as a `FunctionResponse`.
-2. `_RequestConfirmationLlmRequestProcessor` re-invokes the original tool.
-3. `before_tool_callback` checks `tool_context.tool_confirmation.confirmed`
-   → `False`, returns `{"status": "rejected", "message": "..."}`.
-4. This dict becomes the tool's `FunctionResponse` content.
-5. The LLM sees the rejection and generates a text response explaining it
-   cannot proceed.
+### Overview: Direct HITL
 
-On the UI side the rejection `FunctionResponse` (which carries the original
-`function_call_id`) is **not** filtered — unlike `confirmation_requested`
-responses which are internal signals. `ToolCallDisplay` reads
-`is_hitl_rejection` from `ProcessedToolResultData` and transitions the tool
-card to `"rejected"`.
+When an agent tries to call a tool that requires approval, execution
+pauses and the user is asked to approve or reject. No LLM call is
+needed on the resume path — the exact same tool call is replayed.
 
-### Mixed Decision Flow (Parallel Tools)
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Agent as Agent
+    participant Tool as Tool (e.g. delete_file)
 
-When multiple tools are pending approval simultaneously and the user approves
-some while rejecting others:
+    Note over User, Tool: Request Path
+    Agent->>Tool: Call tool
+    Tool-->>Agent: Blocked — requires approval
+    Agent-->>User: "Agent wants to call delete_file(path='...')"<br/>Show Approve / Reject buttons
 
-1. The UI collects per-tool decisions in `pendingDecisions` state as the user
-   clicks Approve/Reject on individual tool cards. Each click immediately
-   shows an optimistic badge on the card.
-2. Once every pending tool has a decision, the UI sends a batch message:
-   `{decision_type: "batch", decisions: {"fc1": "approve", "fc2": "deny"}}`.
-3. The executor extracts per-tool decisions via
-   `extract_batch_decisions_from_message()` and constructs individual
-   `ToolConfirmation` objects for each pending confirmation.
-4. The ADK's `_RequestConfirmationLlmRequestProcessor` replays **all**
-   original tool calls in parallel via `asyncio.gather`. Each tool receives
-   its own `ToolConfirmation` through `ToolContext`.
-5. Approved tools execute normally and return real results. Rejected tools
-   are blocked by `before_tool_callback` and return
-   `{"status": "rejected", ...}`.
-6. The merged `FunctionResponse` event (containing both real results and
-   rejections) has no `long_running_tool_ids`, so the ADK loop continues
-   to the next LLM step without pausing.
-7. The LLM receives the mixed results and generates an appropriate text
-   response (e.g., summarising what succeeded and what was rejected).
+    Note over User, Tool: Decision Path
+    User->>Agent: Approve (or Reject)
+
+    alt Approved
+        Agent->>Tool: Re-invoke same tool call
+        Tool->>Tool: Execute
+        Tool-->>Agent: Result
+        Agent->>User: Response using tool result
+    else Rejected
+        Agent->>User: Response acknowledging rejection
+    end
+```
+
+### Overview: Nested HITL
+
+When a parent agent delegates to a subagent via A2A and the subagent
+has HITL tools, the approval request cascades up to the user. The
+user's decision cascades back down through the same chain.
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Parent as Parent Agent
+    participant Sub as Subagent (via A2A)
+    participant Tool as Tool (e.g. delete_file)
+
+    Note over User, Tool: Request Path (cascading up)
+    Parent->>Sub: Delegate task via A2A
+    Sub->>Tool: Call tool
+    Tool-->>Sub: Blocked — requires approval
+    Sub-->>Parent: "I need approval for delete_file(path='...')"<br/>(A2A task paused: input_required)
+    Parent-->>User: "Subagent wants to call delete_file(path='...')"<br/>Show Approve / Reject buttons
+
+    Note over User, Tool: Decision Path (cascading down)
+    User->>Parent: Approve (or Reject)
+    Parent->>Sub: Forward decision via A2A
+    Sub->>Sub: Process decision
+
+    alt Approved
+        Sub->>Tool: Re-invoke same tool call
+        Tool->>Tool: Execute
+        Tool-->>Sub: Result
+    else Rejected
+        Sub->>Sub: Tool blocked
+    end
+
+    Sub-->>Parent: Final response via A2A
+    Parent->>User: Response with subagent's result
+```
 
 ---
 
-## Enhancement: Rejection Reasons
+### Detailed Sequence Diagrams
+
+You should only review the following diagrams if you are developing HITL features in Kagent. 
+They are extremely specific and you can almost find exact function representing each step in kagent / ADK code.
+
+#### Direct HITL Flow
+
+The direct flow applies when an agent's own tools have `requireApproval`.
+It has two paths: the **request path** (tool → user) and the
+**decision path** (user → tool).
+
+```mermaid
+sequenceDiagram
+    participant LLM as LLM
+    participant CB as before_tool_callback
+    participant ADK as ADK Internals
+    participant Exec as Kagent Executor
+    participant UI as UI (Browser)
+
+    Note over LLM, UI: ── Request Path ──
+
+    LLM->>CB: FunctionCall(delete_file, args, id=fc1)
+    CB->>CB: Tool in requireApproval set?
+    CB->>ADK: tool_context.request_confirmation(hint=...)
+    CB-->>ADK: return {status: confirmation_requested}
+    ADK->>ADK: Generate adk_request_confirmation event<br/>with originalFunctionCall + long_running_tool_ids
+    ADK->>Exec: Yield event (long_running_tool_ids set)
+    Exec->>Exec: Convert to A2A DataPart<br/>(type=function_call, is_long_running=true)
+    Exec->>Exec: Set TaskState = input_required
+    Exec->>Exec: Break event loop
+    Exec->>UI: SSE stream: input_required + DataPart
+
+    UI->>UI: Detect adk_request_confirmation DataPart
+    UI->>UI: Extract originalFunctionCall (name, args, id)
+    UI->>UI: Show tool card with Approve / Reject buttons
+
+    Note over LLM, UI: ── Decision Path ──
+
+    UI->>UI: User clicks Approve or Reject
+    UI->>Exec: A2A message with DataPart:<br/>{decision_type: "approve" | "reject"}<br/>(includes taskId for task routing)
+    Exec->>Exec: _find_pending_confirmations(session)<br/>→ fc_id of adk_request_confirmation
+    Exec->>ADK: FunctionResponse(adk_request_confirmation,<br/>id=fc_id, ToolConfirmation(confirmed=T/F))
+
+    ADK->>ADK: _RequestConfirmationLlmRequestProcessor<br/>finds original FunctionCall in session
+    ADK->>CB: Re-invoke delete_file(args, id=fc1)<br/>with ToolConfirmation attached
+
+    alt Approved
+        CB-->>ADK: return None (tool executes)
+        ADK->>ADK: Tool runs → FunctionResponse(result)
+    else Rejected
+        CB-->>ADK: return {status: rejected, message: ...}
+    end
+
+    ADK->>Exec: Yield FunctionResponse event (no long_running_tool_ids)
+    Exec->>LLM: Continue to next LLM step with tool result
+    LLM->>UI: Generate text response
+```
+
+#### Nested HITL Flow (Parent + A2A Subagent)
+
+When a parent agent delegates to a subagent via A2A and the subagent
+has HITL tools, `KAgentRemoteA2ATool` bridges the two agents' HITL
+flows using its own two-phase pause/resume cycle.
+
+```mermaid
+sequenceDiagram
+    participant UI as UI (Browser)
+    participant PExec as Parent Executor
+    participant PADK as Parent ADK
+    participant Tool as KAgentRemoteA2ATool
+    participant SExec as Subagent Executor
+    participant SADK as Subagent ADK
+    participant SCB as Subagent before_tool_callback
+    participant STool as Subagent Tool (e.g. delete_file)
+
+    Note over UI, STool: ── Request Path ──
+
+    PADK->>Tool: Phase 1: run_async()<br/>(LLM called subagent tool)
+    Tool->>SExec: A2A message (send task to subagent)
+    SExec->>SADK: Run subagent LLM
+    SADK->>SCB: FunctionCall(delete_file, id=inner_fc1)
+    SCB->>SADK: request_confirmation() + return blocked
+    SADK->>SExec: adk_request_confirmation event<br/>(long_running_tool_ids set)
+    SExec->>SExec: Set TaskState = input_required
+    SExec-->>Tool: A2A Task response (input_required)<br/>with adk_request_confirmation DataParts
+
+    Tool->>Tool: extract_hitl_info_from_task()<br/>→ HitlPartInfo[] (inner tool names, args, IDs)
+    Tool->>PADK: tool_context.request_confirmation(<br/>  payload={task_id, context_id,<br/>  hitl_parts: [inner tool info]})
+    Tool-->>PADK: return {status: pending}
+
+    PADK->>PADK: Generate adk_request_confirmation<br/>(originalFunctionCall = outer subagent tool,<br/> toolConfirmation.payload = {hitl_parts, task_id, ...})
+    PADK->>PExec: Yield event (long_running_tool_ids)
+    PExec->>PExec: Convert to A2A DataPart, input_required
+    PExec->>UI: SSE stream: input_required + DataPart
+
+    UI->>UI: Detect hitl_parts in toolConfirmation.payload
+    UI->>UI: Show inner tool cards (delete_file)<br/>with Approve / Reject buttons<br/>(instead of generic "call subagent" card)
+
+    Note over UI, STool: ── Decision Path ──
+
+    UI->>UI: User clicks Approve or Reject
+    UI->>PExec: A2A message: {decision_type: "approve"|"reject"|"batch",<br/>decisions: {inner_fc1: "approve", ...}}
+
+    PExec->>PExec: _find_pending_confirmations(session)<br/>→ outer fc_id, orig_payload has hitl_parts
+
+    alt Batch decision (mixed approve/reject)
+        PExec->>PExec: Detect subagent HITL (hitl_parts in payload)<br/>Store batch_decisions in ToolConfirmation.payload
+    else Uniform decision
+        PExec->>PExec: Set ToolConfirmation(confirmed=T/F)
+    end
+
+    PExec->>PADK: FunctionResponse(adk_request_confirmation,<br/>ToolConfirmation + merged payload)
+    PADK->>PADK: _RequestConfirmationLlmRequestProcessor<br/>re-invokes KAgentRemoteA2ATool
+    PADK->>Tool: Phase 2: run_async() with ToolConfirmation
+
+    Tool->>Tool: _handle_resume()<br/>Read task_id, context_id from payload
+
+    alt Batch decisions in payload
+        Tool->>Tool: Build batch decision message:<br/>{decision_type: batch, decisions: {...}}
+    else Uniform
+        Tool->>Tool: Build uniform message:<br/>{decision_type: approve|reject}
+    end
+
+    Tool->>SExec: A2A message with decision<br/>(routed to subagent's pending task)
+    SExec->>SExec: _process_hitl_decision()<br/>→ per-tool ToolConfirmation
+    SExec->>SADK: FunctionResponse(adk_request_confirmation)
+    SADK->>SCB: Re-invoke delete_file with ToolConfirmation
+
+    alt Approved
+        SCB-->>SADK: return None
+        SADK->>STool: Tool executes → result
+    else Rejected
+        SCB-->>SADK: return {status: rejected}
+    end
+
+    SADK->>SExec: FunctionResponse event
+    SExec->>SExec: Continue subagent LLM → final response
+    SExec-->>Tool: A2A Task response (completed)
+    Tool-->>PADK: Return result text
+    PADK->>PExec: Continue parent LLM
+    PExec->>UI: Final text response
+```
+
+#### Key Differences Between Direct and Subagent HITL
+
+| Aspect                               | Direct HITL                          | Subagent HITL                                                                                 |
+| ------------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| **Who calls request_confirmation()** | `before_tool_callback`               | `KAgentRemoteA2ATool.run_async()`                                                             |
+| **What's in originalFunctionCall**   | The actual tool (e.g. `delete_file`) | The outer subagent tool (e.g. `kagent__NS__k8s_agent`)                                        |
+| **Inner tool info**                  | Not applicable                       | Stored in `toolConfirmation.payload.hitl_parts`                                               |
+| **UI card shows**                    | The actual tool name and args        | Inner tool names/args extracted from `hitl_parts`                                             |
+| **Decision routing**                 | Executor → ADK → tool directly       | Executor → ADK → KAgentRemoteA2ATool → A2A → subagent executor → ADK → tool                   |
+| **Batch decision IDs**               | Match outer `original_id` directly   | Inner tool IDs; executor detects subagent via `hitl_parts` and forwards batch through payload |
+
+---
+
+## HITL Protocol Reference
+
+This section documents the custom wire formats that Kagent uses on top of the
+A2A protocol for HITL. These are the formats you need to know if you are
+building a custom UI, an integration client, or debugging HITL flows.
+
+### Server → Client: Request Path
+
+When a tool requires approval, the server sends a `TaskStatusUpdateEvent`
+with `state: "input-required"`. The status message contains a `DataPart`
+with this structure:
+
+```json
+{
+  "kind": "data",
+  "data": {
+    "name": "adk_request_confirmation",
+    "id": "<confirmation_id>",
+    "args": {
+      "originalFunctionCall": {
+        "name": "delete_file",
+        "args": { "path": "/tmp/x" },
+        "id": "<tool_call_id>"
+      },
+      "toolConfirmation": {
+        "hint": "Human-readable description of what needs approval",
+        "confirmed": false,
+        "payload": null
+      }
+    }
+  },
+  "metadata": {
+    "kagent_type": "function_call",
+    "kagent_is_long_running": true
+  }
+}
+```
+
+**How to detect it:** A DataPart is an approval request when all three
+conditions are true:
+
+- `metadata.kagent_type` (or `adk_type`) is `"function_call"`
+- `metadata.kagent_is_long_running` (or `adk_is_long_running`) is `true`
+- `data.name` is `"adk_request_confirmation"`
+
+**What to display:** The tool name, arguments, and ID come from
+`data.args.originalFunctionCall`.
+
+#### Subagent variant
+
+For subagent HITL, `toolConfirmation.payload` is populated with the
+subagent's inner tool details:
+
+```json
+"payload": {
+  "task_id": "<subagent_a2a_task_id>",
+  "context_id": "<subagent_context_id>",
+  "subagent_name": "k8s_agent",
+  "hitl_parts": [
+    {
+      "name": "adk_request_confirmation",
+      "id": "<inner_confirmation_id>",
+      "originalFunctionCall": {
+        "name": "delete_file",
+        "args": { "path": "/tmp/x" },
+        "id": "<inner_tool_call_id>"
+      }
+    }
+  ]
+}
+```
+
+When `hitl_parts` is present, display the **inner** tool names and
+arguments (not the outer subagent tool name). The inner tool call IDs
+are what you use as keys in batch decisions. Each entry in `hitl_parts`
+describes one of the subagent's pending tool calls:
+
+```json
+{
+  "name": "adk_request_confirmation",
+  "id": "<confirmation_fc_id>",
+  "originalFunctionCall": {
+    "name": "<inner_tool_name>",
+    "args": { ... },
+    "id": "<inner_tool_call_id>"
+  }
+}
+```
+
+### Client → Server: Decision Path
+
+The client sends a standard A2A `Message` with `role: "user"`. The
+message **must** include `taskId` matching the pending approval's task
+so the server routes it to the correct paused task.
+
+The message contains two parts:
+
+1. A `DataPart` with the structured decision
+2. A `TextPart` with a human-readable label (for display/logging)
+
+#### Uniform approve
+
+```json
+{ "kind": "data", "data": { "decision_type": "approve" }, "metadata": {} }
+```
+
+#### Uniform reject
+
+```json
+{ "kind": "data", "data": { "decision_type": "reject" }, "metadata": {} }
+```
+
+#### Batch (mixed or reject-with-reason)
+
+```json
+{
+  "kind": "data",
+  "data": {
+    "decision_type": "batch",
+    "decisions": {
+      "<tool_call_id_1>": "approve",
+      "<tool_call_id_2>": "reject"
+    },
+    "rejection_reasons": {
+      "<tool_call_id_2>": "Too dangerous"
+    }
+  },
+  "metadata": {}
+}
+```
+
+`rejection_reasons` is optional — only include it when at least one
+denied tool has a reason.
+
+The `<tool_call_id>` keys are `originalFunctionCall.id` values from the
+approval request. For subagent HITL, use the **inner** tool call IDs
+from `hitl_parts[].originalFunctionCall.id`.
+
+#### Ask-user answers
+
+When the approval request is for the `ask_user` tool (detected via
+`originalFunctionCall.name === "ask_user"`), send answers instead of
+a simple approve/reject:
+
+```json
+{
+  "kind": "data",
+  "data": {
+    "decision_type": "approve",
+    "ask_user_answers": [
+      { "answer": ["PostgreSQL"] },
+      { "answer": ["Auth", "Caching"] },
+      { "answer": ["Add rate limiting"] }
+    ]
+  },
+  "metadata": {}
+}
+```
+
+The answers array is positional — it corresponds 1:1 with the
+`questions` array in the original `ask_user` function call arguments.
+
+---
+
+## Additional Features Docs
+
+### Rejection Reasons
 
 Add an optional free-text reason to rejections. The reason travels through
 the existing HITL plumbing using `ToolConfirmation.payload` from the `DataPart` from frontend.
@@ -501,14 +418,13 @@ If so, we will append the rejection reason to the callback response to tell the 
 
 ---
 
-## Enhancement: Ask-User Tool
+## Ask-User Tool
 
 Discussed in issue #1415.
 Why this is a good idea: https://www.atcyrus.com/stories/claude-code-ask-user-question-tool-guide
 
-### Design
-
 A built-in `ask_user` tool that:
+
 - Lets the model pose **one or more questions** in a single call (batched).
 - Each question can include **predefined choices** and a flag for whether
   multiple selections are allowed.
@@ -520,7 +436,7 @@ A built-in `ask_user` tool that:
 The tool is added **unconditionally** to every agent as a built-in tool,
 similar to how memory tools are added.
 
-### Tool Schema
+#### Tool Schema
 
 ```python
 ask_user(questions=[
@@ -542,7 +458,7 @@ ask_user(questions=[
 ])
 ```
 
-### Tool Result (returned to model)
+#### Tool Result (returned to model)
 
 ```python
 [
@@ -552,64 +468,43 @@ ask_user(questions=[
 ]
 ```
 
-### Data Flow
+---
 
-- A special path to process ask user result is added to agent executor and HITL converter
-- UI will be updated to recognize and display this
-- This tool will be added to every agent by default
+## Subagent HITL (Remote A2A Agents)
 
-```plaintext
-LLM generates function call: ask_user(questions=[...])
-  ▼
-AskUserTool.run_async (first invocation)
-  │ tool_context.tool_confirmation is None
-  │ Calls tool_context.request_confirmation(hint=<question summary>)
-  │ Returns {"status": "pending", "questions": [...]}
-  ▼
-ADK generates adk_request_confirmation event (built-in)
-  │ originalFunctionCall = {name: "ask_user", args: {questions: [...]}, id: ...}
-  │ long_running_tool_ids set
-  ▼
-Event converter (existing, unchanged)
-  │ Converts to DataPart: {type: "function_call", is_long_running: true}
-  │ Sets TaskState.input_required
-  ▼
-Executor event loop
-  │ Breaks on long_running_tool_ids (existing logic)
-  ▼
-UI detects input_required + adk_request_confirmation
-  │ Sees originalFunctionCall.name === "ask_user"
-  │ Renders AskUserDisplay instead of ToolApprovalRequest card
-  ▼
-AskUserDisplay renders:
-  │ For each question:
-  │   - Header (bold, short) + question text
-  │   - Choice buttons as toggleable chips (single or multi-select)
-  │   - Free-text input always visible below choices
-  │ Single Submit button at the bottom
-  ▼
-User selects choices / types answers, clicks Submit
-  │ UI sends DataPart:
-  │   {decision_type: "approve",
-  │    ask_user_answers: [
-  │      {answer: ["PostgreSQL"]},
-  │      {answer: ["Auth", "Caching"]},
-  │      {answer: ["Add rate limiting"]}
-  │    ]}
-  ▼
-Executor resume path
-  │ Sees decision_type: "approve" + ask_user_answers present
-  │ Constructs ToolConfirmation(confirmed=True,
-  │   payload={"answers": [...]})
-  ▼
-ADK replays ask_user tool call
-  ▼
-AskUserTool.run_async (second invocation)
-  │ tool_context.tool_confirmation.confirmed is True
-  │ Reads payload["answers"]
-  │ Zips answers with original questions
-  │ Returns JSON: [{question: "...", answer: [...]}, ...]
-  ▼
-LLM receives the answers as the function response
-  │ Continues execution with user's input
-```
+When a parent agent delegates work to a subagent via A2A and the
+subagent has tools with `requireApproval`, the subagent's HITL request
+must be propagated up to the parent's UI so the user can approve or
+reject it.
+
+ADK Agent tool does not handle input required states and remote a2a agent cannot forward HITL messages.
+
+Therefore, Kagent replaces the `AgentTool(RemoteA2aAgent(...))` pairing with
+`KAgentRemoteA2ATool` — a single `BaseTool` that directly manages the
+A2A client conversation and uses `request_confirmation()` to propagate
+HITL state through the parent agent's native confirmation flow.
+
+#### Payload Preservation
+
+The `payload` passed to `request_confirmation()` contains state the
+tool needs on resume (the subagent's `task_id`, `context_id`, and the
+inner HITL details). This payload is serialized into the
+`adk_request_confirmation` FunctionCall's `args.toolConfirmation.payload`
+and stored in the session event history.
+
+On resume, `_find_pending_confirmations()` extracts the original payload
+from the session event, and `_build_confirmation_payload()` merges it
+with any decision-specific keys (e.g. `rejection_reason`). This ensures
+the tool's `_handle_resume` can read `task_id` and `context_id` from
+`tool_context.tool_confirmation.payload` to route the decision to the
+correct subagent task.
+
+#### Nested Subagents
+
+The mechanism works recursively. If subagent A calls subagent B via
+A2A and B has HITL tools, B returns `input_required` to A, A's
+`KAgentRemoteA2ATool` calls `request_confirmation()`, which propagates
+up to A's parent, and so on. Each level independently manages its own
+two-phase pause/resume cycle.
+
+However, you are strongly discouraged to nest subagents for various reasons right now.
