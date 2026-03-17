@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { FunctionCall } from "@/types";
+import { FunctionCall, TokenStats } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { convertToUserFriendlyName } from "@/lib/utils";
 import { ChevronDown, ChevronUp, MessageSquare, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import KagentLogo from "../kagent-logo";
+import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 
 export type AgentCallStatus = "requested" | "executing" | "completed";
 
@@ -15,9 +16,10 @@ interface AgentCallDisplayProps {
   };
   status?: AgentCallStatus;
   isError?: boolean;
+  tokenStats?: TokenStats;
 }
 
-const AgentCallDisplay = ({ call, result, status = "requested", isError = false }: AgentCallDisplayProps) => {
+const AgentCallDisplay = ({ call, result, status = "requested", isError = false, tokenStats }: AgentCallDisplayProps) => {
   const [areInputsExpanded, setAreInputsExpanded] = useState(false);
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
 
@@ -78,7 +80,8 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false 
           </div>
           <div className="font-light">{call.id}</div>
         </CardTitle>
-        <div className="flex justify-center items-center text-xs">
+        <div className="flex items-center gap-2 text-xs">
+          {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
           {getStatusDisplay()}
         </div>
       </CardHeader>

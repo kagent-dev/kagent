@@ -4,6 +4,8 @@ import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
+import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
+import type { TokenStats } from "@/types";
 import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
@@ -28,10 +30,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
+  if (!message) return null;
+
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
 
   const source = message.role === "user" ? "user" : "assistant";
+  const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
   const messageId = message.messageId;
 
   // Extract agent name from metadata for display
@@ -67,10 +72,6 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     a = ((a << 5) - a) + b.charCodeAt(0);
     return a & a;
   }, 0)) : 0;
-
-  if (!message) {
-    return null;
-  }
 
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
@@ -168,22 +169,27 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
       <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
-      {source !== "user" && messageId !== undefined && (
+      {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
-          <button
-            onClick={() => handleFeedback(true)}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs up"
-          >
-            <ThumbsUp className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleFeedback(false)}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Thumbs down"
-          >
-            <ThumbsDown className="w-4 h-4" />
-          </button>
+          {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
+          {messageId !== undefined && (
+            <>
+              <button
+                onClick={() => handleFeedback(true)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs up"
+              >
+                <ThumbsUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback(false)}
+                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Thumbs down"
+              >
+                <ThumbsDown className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -25,8 +25,8 @@ export interface BaseResponse<T> {
 
 export interface TokenStats {
   total: number;
-  input: number;
-  output: number;
+  prompt: number;
+  completion: number;
 }
 
 export interface Provider {

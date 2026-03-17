@@ -4,7 +4,7 @@ import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
 import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
-import { FunctionCall, ToolDecision } from "@/types";
+import { FunctionCall, ToolDecision, TokenStats } from "@/types";
 
 interface ToolCallDisplayProps {
   currentMessage: Message;
@@ -302,6 +302,8 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
   if (currentDisplayableCalls.length === 0) return null;
 
+  const tokenStats = (currentMessage.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
+
   return (
     <div className="space-y-2">
       {currentDisplayableCalls.map(toolCall => {
@@ -328,6 +330,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             result={toolCall.result}
             status={effectiveStatus === "pending_approval" ? "requested" : effectiveStatus as AgentCallStatus}
             isError={toolCall.result?.is_error}
+            tokenStats={tokenStats}
           />
         ) : (
           <ToolDisplay
@@ -340,6 +343,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             subagentName={subagentName}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
             onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
+            tokenStats={tokenStats}
           />
         );
       })}
