@@ -3,17 +3,18 @@
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
-      "TOOLS_GO_VERSION": "1.25.5",
+      "TOOLS_GO_VERSION": "1.26.1",
       "TOOLS_NODE_VERSION": "24.13.0",
-      "TOOLS_UV_VERSION": "0.7.2",
+      "TOOLS_UV_VERSION": "0.10.4",
       "TOOLS_K9S_VERSION": "0.50.4",
       "TOOLS_KIND_VERSION": "0.27.0",
       "TOOLS_ISTIO_VERSION": "1.26.0",
+      "TOOLS_ARGO_CD_VERSION": "v1.8.4",
       "TOOLS_KUBECTL_VERSION": "1.33.4"
     }
   },
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": { "moby": false },
     "ghcr.io/mpriscella/features/kind:1": {}
   },
   "customizations": {
@@ -35,8 +36,7 @@
         "ms-vscode.vscode-typescript-next",
         "ms-azuretools.vscode-containers",
         "ms-windows-ai-studio.windows-ai-studio",
-        "GitHub.copilot",
-        "GitHub.copilot-chat",
+        "vscode:extension/anthropic.claude-code",
         "Catppuccin.catppuccin-vsc",
         "Catppuccin.catppuccin-vsc-icons"
       ]
