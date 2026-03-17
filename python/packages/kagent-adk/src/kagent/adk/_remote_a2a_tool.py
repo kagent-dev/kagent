@@ -413,7 +413,11 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": context_id or self._last_context_id}
+            return {
+                "result": result_text,
+                "kagent_usage_metadata": usage,
+                "subagent_session_id": context_id or self._last_context_id,
+            }
         # context_id from the confirmation payload is the original subagent session ID in case of interrupts
         return {"result": result_text, "subagent_session_id": context_id or self._last_context_id}
 

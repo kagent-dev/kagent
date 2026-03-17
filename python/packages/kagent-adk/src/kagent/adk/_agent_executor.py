@@ -53,8 +53,8 @@ from kagent.core.tracing._span_processor import (
 )
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
-from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from ._remote_a2a_tool import SubagentSessionProvider
+from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
