@@ -37,8 +37,8 @@ type Config struct {
 
 const (
 	defaultMaxTimeout   = 120 * time.Second
-	defaultInitialDelay = 2 * time.Second
-	defaultMaxDelay     = 10 * time.Second
+	defaultInitialDelay = 500 * time.Millisecond
+	defaultMaxDelay     = 5 * time.Second
 )
 
 // retryDBConnection attempts to open a GORM connection, retrying with backoff until
@@ -60,7 +60,7 @@ func retryDBConnection(ctx context.Context, url string, cfg *gorm.Config) (*gorm
 			return nil, fmt.Errorf("database not ready after %s: %w", time.Since(start).Round(time.Second), ctx.Err())
 		case <-time.After(delay):
 		}
-		delay += 2 * time.Second
+		delay *= 2
 		if delay > defaultMaxDelay {
 			delay = defaultMaxDelay
 		}
