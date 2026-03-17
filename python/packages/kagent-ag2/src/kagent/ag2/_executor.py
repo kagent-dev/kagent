@@ -13,10 +13,7 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.events import EventQueue
 from a2a.server.request_handling import RequestContext
 from a2a.types import (
-    DataPart,
     Part,
-    TaskState,
-    TaskStatus,
     TextPart,
 )
 from a2a.utils import new_agent_text_message
