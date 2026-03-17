@@ -147,10 +147,7 @@ class KAgentRemoteA2ATool(BaseTool):
         self._httpx_client = httpx_client
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
-        # Pre-generate context_id so the event converter can stamp it onto
-        # function_call events before the tool runs.  The subagent uses
-        # context_id as its session_id, so knowing it early lets the UI
-        # start polling the subagent session during execution.
+        # Pre-generate context_id for UI session polling
         self._last_context_id: str = str(uuid.uuid4())
 
     @property
@@ -183,11 +180,6 @@ class KAgentRemoteA2ATool(BaseTool):
             self.description = self._agent_card.description
 
         # Create the A2A client.
-        # IMPORTANT: pass the interceptor at construction time so it is
-        # registered on the transport's interceptor list.  The SDK's
-        # add_request_middleware() only appends to Client._middleware which
-        # is never read by the transport — so interceptors added after
-        # construction are silently ignored.
         config = A2AClientConfig(
             httpx_client=self._httpx_client,
             streaming=False,
@@ -422,7 +414,8 @@ class KAgentRemoteA2ATool(BaseTool):
         usage = _extract_usage_from_task(task)
         if usage:
             return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": context_id or self._last_context_id}
-        return {"result": result_text or "", "subagent_session_id": context_id or self._last_context_id}
+        # context_id from the confirmation payload is the original subagent session ID in case of interrupts
+        return {"result": result_text, "subagent_session_id": context_id or self._last_context_id}
 
     @staticmethod
     def _extract_text_from_message(message: A2AMessage) -> str:

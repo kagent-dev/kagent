@@ -29,10 +29,6 @@ interface AgentCallDisplayProps {
   subagentSessionId?: string;
 }
 
-// ---------------------------------------------------------------------------
-// SubagentActivityPanel — inline collapsible inside the agent call card
-// Polls for new events while the subagent is still running.
-// ---------------------------------------------------------------------------
 interface SubagentActivityPanelProps {
   sessionId: string;
   isComplete: boolean;
@@ -123,9 +119,6 @@ function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelP
   );
 }
 
-// ---------------------------------------------------------------------------
-// AgentCallDisplay
-// ---------------------------------------------------------------------------
 const AgentCallDisplay = ({ call, result, status = "requested", isError = false, tokenStats, subagentSessionId }: AgentCallDisplayProps) => {
   const [areInputsExpanded, setAreInputsExpanded] = useState(false);
   const [areResultsExpanded, setAreResultsExpanded] = useState(false);
