@@ -83,6 +83,21 @@ def _extract_text_from_task(task: Task) -> str:
     return ""
 
 
+def _extract_usage_from_task(task: Task) -> Optional[dict]:
+    """Extract kagent_usage_metadata from a completed task.
+
+    The A2A task_manager merges the final TaskStatusUpdateEvent.metadata into
+    task.metadata. The agent executor now adds the last LLM invocation's
+    usage_metadata to run_metadata before publishing the final event, so it
+    is available here for non-streaming callers like KAgentRemoteA2ATool.
+    """
+    if task.metadata:
+        usage = task.metadata.get("kagent_usage_metadata")
+        if usage and isinstance(usage, dict):
+            return usage
+    return None
+
+
 class KAgentRemoteA2ATool(BaseTool):
     """A tool that calls a remote A2A agent and propagates HITL state."""
 
@@ -215,8 +230,13 @@ class KAgentRemoteA2ATool(BaseTool):
             error_text = _extract_text_from_task(task)
             return error_text or f"Remote agent '{self.name}' failed."
 
-        # completed or any other terminal state
-        return _extract_text_from_task(task) or ""
+        # completed — include the sub-agent's final LLM usage from task.metadata
+        # so the parent can display it on the AgentCall card in the UI.
+        result_text = _extract_text_from_task(task)
+        usage = _extract_usage_from_task(task)
+        if usage:
+            return {"result": result_text, "kagent_usage_metadata": usage}
+        return result_text or ""
 
     def _handle_input_required(self, task: Task, tool_context: ToolContext) -> dict[str, Any]:
         """Handle a subagent that returned input_required (HITL).
@@ -351,7 +371,11 @@ class KAgentRemoteA2ATool(BaseTool):
             error_text = _extract_text_from_task(task)
             return error_text or f"Remote agent '{subagent_name}' failed after resume."
 
-        return _extract_text_from_task(task) or ""
+        result_text = _extract_text_from_task(task)
+        usage = _extract_usage_from_task(task)
+        if usage:
+            return {"result": result_text, "kagent_usage_metadata": usage}
+        return result_text or ""
 
     @staticmethod
     def _extract_text_from_message(message: A2AMessage) -> str:

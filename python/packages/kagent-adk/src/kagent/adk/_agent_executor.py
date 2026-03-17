@@ -53,7 +53,7 @@ from kagent.core.tracing._span_processor import (
 )
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
-from .converters.event_converter import convert_event_to_a2a_events
+from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
@@ -585,6 +585,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # For streaming A2A update events, the invocation_id is added through event converter
         # This adds the invocation_id of the run to the metadata of the FINAL event (completed or failed)
         real_invocation_id: str | None = None
+        last_usage_metadata = None
 
         task_result_aggregator = TaskResultAggregator()
         async with Aclosing(runner.run_async(**run_args)) as agen:
@@ -594,6 +595,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if event_inv_id and not real_invocation_id:
                     real_invocation_id = event_inv_id
                     run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+
+                # Track the last usage_metadata so it can be included in the final
+                # event's run_metadata. The A2A task_manager merges run_metadata into
+                # task.metadata, making it available to callers (e.g. KAgentRemoteA2ATool).
+                if getattr(adk_event, "usage_metadata", None) is not None:
+                    last_usage_metadata = adk_event.usage_metadata
 
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
@@ -607,6 +614,11 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 # Break on confirmation events that use long running tools
                 if getattr(adk_event, "long_running_tool_ids", None):
                     break
+
+        # Attach the last LLM usage to run_metadata so the A2A task_manager
+        # merges it into task.metadata on the completed Task object.
+        if last_usage_metadata is not None:
+            run_metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(last_usage_metadata)
 
         # publish the task result event - this is final
         if (

@@ -33,7 +33,7 @@ ARTIFACT_ID_SEPARATOR = "-"
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
-def _serialize_metadata_value(value: Any) -> str:
+def serialize_metadata_value(value: Any) -> str:
     """Safely serializes metadata values to string format.
 
     Args:
@@ -90,7 +90,7 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
 
         for field_name, field_value in optional_fields:
             if field_value is not None:
-                metadata[get_kagent_metadata_key(field_name)] = _serialize_metadata_value(field_value)
+                metadata[get_kagent_metadata_key(field_name)] = serialize_metadata_value(field_value)
 
         return metadata
 
