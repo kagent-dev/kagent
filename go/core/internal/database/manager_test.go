@@ -11,14 +11,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestRetryDBConnection_ContextCancelled(t *testing.T) {
+func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	// Use an unreachable address so every attempt fails immediately.
 	_, err := retryDBConnection(ctx, "postgres://user:pass@localhost:1/nodb?connect_timeout=1", &gorm.Config{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestResolveURLFile(t *testing.T) {

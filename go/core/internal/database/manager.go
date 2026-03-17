@@ -47,6 +47,7 @@ func retryDBConnection(ctx context.Context, url string, cfg *gorm.Config) (*gorm
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
 
+	start := time.Now()
 	delay := defaultInitialDelay
 	for attempt := 1; ; attempt++ {
 		db, err := gorm.Open(postgres.Open(url), cfg)
@@ -56,7 +57,7 @@ func retryDBConnection(ctx context.Context, url string, cfg *gorm.Config) (*gorm
 		dbLog.Info("database not ready, retrying", "attempt", attempt, "delay", delay, "error", err.Error())
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("timed out waiting for database after %s: %w", defaultMaxTimeout, err)
+			return nil, fmt.Errorf("database not ready after %s: %w", time.Since(start).Round(time.Second), ctx.Err())
 		case <-time.After(delay):
 		}
 		delay += 2 * time.Second
