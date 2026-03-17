@@ -421,8 +421,8 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": self._last_context_id}
-        return {"result": result_text or "", "subagent_session_id": self._last_context_id}
+            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": context_id or self._last_context_id}
+        return {"result": result_text or "", "subagent_session_id": context_id or self._last_context_id}
 
     @staticmethod
     def _extract_text_from_message(message: A2AMessage) -> str:

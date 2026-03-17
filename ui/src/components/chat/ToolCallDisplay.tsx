@@ -253,11 +253,24 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             const toolCallData = msgMetadata?.toolCallData as ProcessedToolCallData[] | undefined;
             const matchingCallData = toolCallData?.find(tc => tc.id === request.id);
 
+            // For agent tools, resolve the subagent session ID.
+            let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
+            if (!subagentSessionId && isAgentToolName(request.name)) {
+              const fcDataPart = message.parts?.find(p =>
+                p.kind === "data" && p.metadata &&
+                getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
+                (p.data as Record<string, unknown>)?.id === request.id
+              );
+              subagentSessionId = fcDataPart?.metadata
+                ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
+                : undefined;
+            }
+
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
               status: initialStatus,
-              subagentSessionId: matchingCallData?.subagent_session_id,
+              subagentSessionId,
             });
           }
         }

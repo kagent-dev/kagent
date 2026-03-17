@@ -39,12 +39,9 @@ interface SubagentActivityPanelProps {
 }
 
 function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelProps) {
-  const activityDepth = useContext(ActivityDepthContext);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(true);
-
-  console.log(`[SubagentActivityPanel] depth=${activityDepth} sessionId=${sessionId} isComplete=${isComplete}`);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,8 +135,6 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false,
   const agentDisplay = useMemo(() => convertToUserFriendlyName(call.name), [call.name]);
   const hasResult = result !== undefined;
   const showActivitySection = !!subagentSessionId && !isError && activityDepth < MAX_ACTIVITY_DEPTH;
-
-  console.log(`[AgentCallDisplay] depth=${activityDepth} agent=${call.name} sessionId=${subagentSessionId ?? "none"} status=${status} showActivity=${showActivitySection}`);
 
   const getStatusDisplay = () => {
     if (isError && status === "executing") {
