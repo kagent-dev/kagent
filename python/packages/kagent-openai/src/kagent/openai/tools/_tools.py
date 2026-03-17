@@ -7,6 +7,7 @@ These tools are wrappers around the centralized logic in the kagent-skills packa
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from agents.exceptions import UserError
@@ -33,6 +34,7 @@ from .._agent_executor import SessionContext
 
 logger = logging.getLogger(__name__)
 
+_skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", "/skills")
 
 # --- System Tools ---
 
@@ -55,8 +57,10 @@ def read_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        return read_file_content(path, offset, limit)
-    except (FileNotFoundError, IsADirectoryError, OSError) as e:
+        allowed_dirs = [working_dir, Path(_skills_directory)]
+
+        return read_file_content(path, offset, limit, allowed_root=allowed_dirs)
+    except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
         raise UserError(str(e)) from e
 
 
@@ -73,7 +77,7 @@ def write_file(wrapper: RunContextWrapper[SessionContext], file_path: str, conte
         if not path.is_absolute():
             path = working_dir / path
 
-        return write_file_content(path, content)
+        return write_file_content(path, content, allowed_root=working_dir)
     except OSError as e:
         raise UserError(str(e)) from e
 
@@ -97,7 +101,7 @@ def edit_file(
         if not path.is_absolute():
             path = working_dir / path
 
-        return edit_file_content(path, old_string, new_string, replace_all)
+        return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
     except (FileNotFoundError, IsADirectoryError, ValueError, OSError) as e:
         raise UserError(str(e)) from e
 
@@ -111,7 +115,7 @@ async def bash(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
     try:
         session_id = wrapper.context.session_id
         working_dir = get_session_path(session_id)
-        return await execute_command(command, working_dir)
+        return await execute_command(command, working_dir, _skills_directory)
     except Exception as e:
         raise UserError(f"Error executing command: {e}") from e
 
