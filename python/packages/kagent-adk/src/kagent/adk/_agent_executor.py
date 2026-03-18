@@ -704,7 +704,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                             break
 
             state: dict[str, Any] = {"session_name": session_name}
-            # Propagate source (e.g. "subagent") so the session is tagged in the DB.
+            # Propagate source (e.g. "agent") so the session is tagged in the DB.
             source = None
             if context.call_context and context.call_context.state:
                 source = context.call_context.state.get("kagent_source")

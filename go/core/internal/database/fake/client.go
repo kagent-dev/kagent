@@ -336,7 +336,7 @@ func (c *InMemoryFakeClient) ListSessions(_ context.Context, userID string) ([]d
 	return result, nil
 }
 
-// ListSessionsForAgent lists all sessions for an agent, excluding subagent sessions.
+// ListSessionsForAgent lists all sessions for an agent, excluding agent-initiated sessions.
 func (c *InMemoryFakeClient) ListSessionsForAgent(_ context.Context, agentID string, userID string) ([]database.Session, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -344,8 +344,8 @@ func (c *InMemoryFakeClient) ListSessionsForAgent(_ context.Context, agentID str
 	var result []database.Session
 	for _, session := range c.sessions {
 		if session.AgentID != nil && *session.AgentID == agentID && session.UserID == userID {
-			// Exclude subagent sessions from the listing
-			if session.Source != nil && *session.Source == "subagent" {
+			// Exclude agent-initiated sessions from the listing
+			if session.Source != nil && *session.Source == database.SessionSourceAgent {
 				continue
 			}
 			result = append(result, *session)

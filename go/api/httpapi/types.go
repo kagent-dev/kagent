@@ -100,11 +100,10 @@ type AgentResponse struct {
 
 // SessionRequest represents a session creation/update request
 type SessionRequest struct {
-	AgentRef *string `json:"agent_ref,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	ID       *string `json:"id,omitempty"`
-	// Source indicates how this session was created (e.g. "subagent").
-	Source *string `json:"source,omitempty"`
+	AgentRef *string                 `json:"agent_ref,omitempty"`
+	Name     *string                 `json:"name,omitempty"`
+	ID       *string                 `json:"id,omitempty"`
+	Source   *database.SessionSource `json:"source,omitempty"`
 }
 
 // Run types

@@ -48,7 +48,7 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
             if user_id:
                 context.user = KAgentUser(user_id=user_id)
             # Propagate x-kagent-source so downstream code (e.g. session
-            # creation) can tag this session as subagent-originated.
+            # creation) can tag this session as agent-originated.
             source = headers.get("x-kagent-source", None)
             if source:
                 context.state["kagent_source"] = source

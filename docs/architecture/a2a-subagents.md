@@ -36,7 +36,7 @@ On success, `run_async` returns:
 | Header | Value | Purpose |
 |---|---|---|
 | `x-user-id` | parent session's user ID | Scopes the subagent DB session to the same user |
-| `x-kagent-source` | `"subagent"` | Hides the session from the agent's session history sidebar |
+| `x-kagent-source` | `"agent"` | Hides the session from the agent's session history sidebar |
 
 > Interceptors must be passed to `ClientFactory.create(interceptors=[...])` — `A2AClient.add_request_middleware()` appends to a list that the transport never reads.
 
@@ -56,6 +56,6 @@ When sending session requests to Go backend, take note that:
 
 | Session query | Includes subagent sessions? |
 |---|---|
-| `GET /api/sessions/agent/{ns}/{name}` | No — filtered by `source != 'subagent'` |
+| `GET /api/sessions/agent/{ns}/{name}` | No — filtered by `source != 'agent'` |
 | `GET /api/sessions/{id}` | Yes |
 | `GET /api/sessions/{id}/tasks` | Yes |

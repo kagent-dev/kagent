@@ -165,7 +165,7 @@ func (c *clientImpl) ListSessionsForAgent(ctx context.Context, agentID string, u
 	var sessions []dbpkg.Session
 	err := c.db.WithContext(ctx).
 		Where("agent_id = ? AND user_id = ?", agentID, userID).
-		Where("source IS NULL OR source != ?", "subagent").
+		Where("source IS NULL OR source != ?", dbpkg.SessionSourceAgent).
 		Order("created_at ASC").
 		Find(&sessions).Error
 	if err != nil {

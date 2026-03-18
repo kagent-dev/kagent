@@ -57,6 +57,16 @@ func ParseMessages(messages []Event) ([]*protocol.Message, error) {
 	return result, nil
 }
 
+// SessionSource represents the origin of a session.
+type SessionSource string
+
+const (
+	// SessionSourceUser indicates the session was initiated by a user.
+	SessionSourceUser SessionSource = "user"
+	// SessionSourceAgent indicates the session was created by a parent agent's A2A call.
+	SessionSourceAgent SessionSource = "agent"
+)
+
 type Session struct {
 	ID        string         `gorm:"primaryKey;not null" json:"id"`
 	Name      *string        `gorm:"index" json:"name,omitempty"`
@@ -67,8 +77,8 @@ type Session struct {
 
 	AgentID *string `gorm:"index" json:"agent_id"`
 	// Source indicates how this session was created.
-	// nil or empty = user-initiated, "subagent" = created by a parent agent's A2A call.
-	Source *string `gorm:"index" json:"source,omitempty"`
+	// SessionSourceUser = user-initiated, SessionSourceAgent = created by a parent agent's A2A call.
+	Source *SessionSource `gorm:"index" json:"source,omitempty"`
 }
 
 type Task struct {

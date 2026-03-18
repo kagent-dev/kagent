@@ -58,14 +58,14 @@ logger = logging.getLogger("kagent_adk." + __name__)
 
 _USER_ID_CONTEXT_KEY = "x-user-id"
 _SOURCE_HEADER = "x-kagent-source"
-_SOURCE_SUBAGENT = "subagent"
+_SOURCE_SUBAGENT = "agent"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
     """
     Injects the authenticated user's ID as an ``x-user-id`` HTTP header and
-    marks the request as originating from a subagent call via
-    ``x-kagent-source: subagent`` on every outgoing A2A request.
+    marks the request as originating from an agent call via
+    ``x-kagent-source: agent`` on every outgoing A2A request.
     """
 
     async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
