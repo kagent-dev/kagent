@@ -12,15 +12,18 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	kagentagent "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
+	kagentsandbox "github.com/kagent-dev/kagent/go/adk/pkg/sandbox"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/adk/server/adka2a"
+	"google.golang.org/adk/tool"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -143,14 +146,35 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
+	// Set up sandbox support if workspace is enabled.
+	var runnerOpts *runnerpkg.RunnerOptions
+	var execOpts *a2a.ExecutorOptions
+	if agentConfig.Workspace != nil && agentConfig.Workspace.Enabled && kagentURL != "" {
+		logger.Info("Workspace enabled, enabling sandbox support")
+
+		registry := kagentsandbox.NewSandboxRegistry()
+		provisioner := kagentsandbox.NewSandboxProvisioner(httpClient, kagentURL)
+		sandboxToolset := kagentsandbox.NewSandboxToolset(registry)
+
+		runnerOpts = &runnerpkg.RunnerOptions{
+			AgentOptions: &kagentagent.AgentOptions{
+				ExtraToolsets: []tool.Toolset{sandboxToolset},
+			},
+		}
+		execOpts = &a2a.ExecutorOptions{
+			SandboxProvisioner: provisioner,
+			SandboxRegistry:    registry,
+		}
+	}
+
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, runnerOpts)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
 	}
 
 	stream := agentConfig.GetStream()
-	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
+	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger, execOpts)
 	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
 
 	// Build the agent card.

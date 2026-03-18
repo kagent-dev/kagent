@@ -252,6 +252,16 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class WorkspaceConfig(BaseModel):
+    """Workspace configuration from config.json for sandbox provisioning.
+
+    The controller resolves the actual workspace details from the session's
+    agent CRD, so config.json only carries enabled=true.
+    """
+
+    enabled: bool
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -263,6 +273,7 @@ class AgentConfig(BaseModel):
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     context_config: ContextConfig | None = None
+    workspace: WorkspaceConfig | None = None  # Workspace/sandbox configuration
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

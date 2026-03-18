@@ -10160,6 +10160,28 @@ spec:
                         rule: '!(!has(self.agent) && self.type == ''Agent'')'
                     maxItems: 20
                     type: array
+                  workspace:
+                    description: |-
+                      Workspace enables a per-session sandbox environment (filesystem + shell)
+                      for the agent. When enabled, the controller provisions an isolated sandbox
+                      pod for each session via the agent-sandbox SandboxClaim API.
+                    properties:
+                      enabled:
+                        default: true
+                        description: |-
+                          Enabled activates workspace/sandbox provisioning. When true, the
+                          controller generates a SandboxTemplate and provisions a sandbox pod
+                          per session with exec, filesystem, and (if configured) skill tools.
+                        type: boolean
+                      templateRef:
+                        description: |-
+                          TemplateRef optionally references a user-provided SandboxTemplate by
+                          name (in the same namespace). When set, the controller uses this
+                          template instead of generating one automatically.
+                        type: string
+                    required:
+                    - enabled
+                    type: object
                 type: object
                 x-kubernetes-validations:
                 - message: systemMessage and systemMessageFrom are mutually exclusive

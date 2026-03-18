@@ -6,6 +6,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -26,6 +27,7 @@ type Handlers struct {
 	Tasks               *TasksHandler
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
+	Sandbox             *SandboxHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -38,7 +40,7 @@ type Base struct {
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxProvider sandbox.SandboxProvider) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -52,7 +54,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ModelConfig:         NewModelConfigHandler(base),
 		Model:               NewModelHandler(base),
 		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:            NewSessionsHandler(base),
+		Sessions:            NewSessionsHandler(base, sandboxProvider),
 		Agents:              NewAgentsHandler(base),
 		Tools:               NewToolsHandler(base),
 		ToolServers:         NewToolServersHandler(base),
@@ -63,5 +65,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Tasks:               NewTasksHandler(base),
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),
+		Sandbox:             NewSandboxHandler(base, sandboxProvider),
 	}
 }

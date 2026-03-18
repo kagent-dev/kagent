@@ -41,6 +41,7 @@ APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
+SANDBOX_MCP_IMAGE_NAME ?= sandbox-mcp
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -48,6 +49,7 @@ APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
+SANDBOX_MCP_IMAGE_TAG ?= $(VERSION)
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
@@ -55,6 +57,7 @@ APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
+SANDBOX_MCP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SANDBOX_MCP_IMAGE_NAME):$(SANDBOX_MCP_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -219,7 +222,7 @@ prune-docker-images:
 	docker images --filter dangling=true -q | xargs -r docker rmi || :
 
 .PHONY: build
-build: buildx-create build-controller build-ui build-app build-golang-adk build-skills-init
+build: buildx-create build-controller build-ui build-app build-golang-adk build-skills-init build-sandbox-mcp
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -227,6 +230,7 @@ build: buildx-create build-controller build-ui build-app build-golang-adk build-
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
+	@echo "Sandbox MCP Image: $(SANDBOX_MCP_IMG)"
 
 .PHONY: build-monitor
 build-monitor: buildx-create
@@ -286,6 +290,10 @@ build-golang-adk: buildx-create
 .PHONY: build-skills-init
 build-skills-init: buildx-create
 	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+
+.PHONY: build-sandbox-mcp
+build-sandbox-mcp: buildx-create
+	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SANDBOX_MCP_IMG) -f go/sandbox-mcp/Dockerfile ./go/sandbox-mcp
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -374,6 +382,15 @@ helm-install-provider: helm-version check-api-key
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set tools.grafana-mcp.enabled=false \
+		--set agents.kgateway-agent.enabled=false \
+		--set agents.istio-agent.enabled=false \
+		--set agents.promql-agent.enabled=false \
+		--set agents.observability-agent.enabled=false \
+		--set agents.argo-rollouts-agent.enabled=false \
+		--set agents.cilium-policy-agent.enabled=false \
+		--set agents.cilium-manager-agent.enabled=false \
+		--set agents.cilium-debug-agent.enabled=false \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

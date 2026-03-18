@@ -28,11 +28,17 @@ const (
 	DefaultOllamaModel    = "llama3.2"
 )
 
+// AgentOptions holds optional configuration for agent creation.
+type AgentOptions struct {
+	// ExtraToolsets are appended to the agent's toolset list (e.g. sandbox toolset).
+	ExtraToolsets []tool.Toolset
+}
+
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // Toolsets are passed in directly (created by mcp.CreateToolsets).
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, opts *AgentOptions, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -63,6 +69,10 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 
 	if agentName == "" {
 		agentName = "agent"
+	}
+
+	if opts != nil {
+		toolsets = append(toolsets, opts.ExtraToolsets...)
 	}
 
 	llmAgentConfig := llmagent.Config{

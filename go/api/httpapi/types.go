@@ -193,3 +193,12 @@ type SessionRunsResponse struct {
 type SessionRunsData struct {
 	Runs []any `json:"runs"`
 }
+
+// SandboxResponse is returned from sandbox creation/status endpoints.
+type SandboxResponse struct {
+	SandboxID string            `json:"sandbox_id"`
+	MCPUrl    string            `json:"mcp_url"`
+	Protocol  string            `json:"protocol"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Ready     bool              `json:"ready"`
+}

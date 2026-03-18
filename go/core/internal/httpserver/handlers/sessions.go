@@ -8,6 +8,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -17,11 +18,12 @@ import (
 // SessionsHandler handles session-related requests
 type SessionsHandler struct {
 	*Base
+	SandboxProvider sandbox.SandboxProvider
 }
 
 // NewSessionsHandler creates a new SessionsHandler
-func NewSessionsHandler(base *Base) *SessionsHandler {
-	return &SessionsHandler{Base: base}
+func NewSessionsHandler(base *Base, sandboxProvider sandbox.SandboxProvider) *SessionsHandler {
+	return &SessionsHandler{Base: base, SandboxProvider: sandboxProvider}
 }
 
 // RunRequest represents a run creation request
@@ -294,6 +296,13 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	if err := h.DatabaseService.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
 		return
+	}
+
+	// Best-effort sandbox cleanup
+	if h.SandboxProvider != nil {
+		if err := h.SandboxProvider.Destroy(r.Context(), sessionID); err != nil {
+			log.Error(err, "Failed to destroy sandbox for session (best-effort)")
+		}
 	}
 
 	log.Info("Successfully deleted session")

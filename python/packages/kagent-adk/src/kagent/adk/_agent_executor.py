@@ -112,6 +112,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         runner: Callable[..., Runner | Awaitable[Runner]],
         config: Optional[A2aAgentExecutorConfig] = None,
         task_store=None,
+        agent_config=None,
     ):
         # Build upstream config with kagent's custom converters
         upstream_config = UpstreamA2aAgentExecutorConfig(
@@ -123,6 +124,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         super().__init__(runner=runner, config=upstream_config)
         self._kagent_config = config
         self._task_store = task_store
+        self._agent_config = agent_config
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -530,6 +532,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
 
+        # Sandbox provisioning: if workspace is configured, ensure a sandbox
+        # MCP toolset is attached for this session.
+        ws = getattr(self._agent_config, "workspace", None) if self._agent_config else None
+        if ws is not None and ws.enabled:
+            await self._ensure_sandbox_toolset(session, runner, run_args)
+
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
         decision = extract_decision_from_message(context.message)
         if decision:
@@ -666,6 +674,66 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     metadata=run_metadata,
                 )
             )
+
+    async def _ensure_sandbox_toolset(
+        self,
+        session: Session,
+        runner: Runner,
+        run_args: dict[str, Any],
+    ):
+        """Provision a sandbox for this session if not already done.
+
+        Checks session state for an existing sandbox MCP URL. If not present,
+        POSTs to the controller sandbox endpoint (empty body — the controller
+        resolves workspace from the session's agent CRD), stores the URL in
+        session state, and appends a KAgentMcpToolset to the runner's agent
+        tools.
+        """
+        sandbox_mcp_url = (session.state or {}).get("sandbox_mcp_url")
+        if sandbox_mcp_url:
+            # Already provisioned — just add the toolset
+            self._add_sandbox_toolset(runner, sandbox_mcp_url)
+            return
+
+        import os
+
+        import httpx
+
+        kagent_url = os.getenv("KAGENT_URL", "http://localhost:8083")
+        session_id = run_args["session_id"]
+
+        async with httpx.AsyncClient(base_url=kagent_url) as client:
+            resp = await client.post(
+                f"/api/sessions/{session_id}/sandbox",
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        sandbox_mcp_url = data["mcp_url"]
+
+        # Store in session state via system event
+        from google.adk.events import Event, EventActions
+
+        state_event = Event(
+            invocation_id="sandbox_setup",
+            author="system",
+            actions=EventActions(state_delta={"sandbox_mcp_url": sandbox_mcp_url}),
+        )
+        await runner.session_service.append_event(session, state_event)
+
+        self._add_sandbox_toolset(runner, sandbox_mcp_url)
+
+    def _add_sandbox_toolset(self, runner: Runner, mcp_url: str):
+        """Add a sandbox MCP toolset to the runner's agent."""
+        from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+
+        from ._mcp_toolset import KAgentMcpToolset
+
+        toolset = KAgentMcpToolset(
+            connection_params=StreamableHTTPConnectionParams(url=mcp_url),
+        )
+        runner.agent.tools.append(toolset)
 
     async def _prepare_session(self, context: RequestContext, run_args: dict[str, Any], runner: Runner):
         session_id = run_args["session_id"]

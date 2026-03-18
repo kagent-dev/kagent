@@ -693,6 +693,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Translate workspace reference for sandbox support.
+	// config.json only carries {enabled: true} — the controller resolves
+	// the actual workspace details from the session's agent CRD at sandbox
+	// creation time.
+	if ws := agent.Spec.Declarative.Workspace; ws != nil && ws.Enabled {
+		cfg.Workspace = &adk.WorkspaceConfig{Enabled: true}
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {

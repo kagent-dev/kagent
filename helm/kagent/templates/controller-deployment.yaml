@@ -83,13 +83,12 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 15
-            initialDelaySeconds: 15
+            periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 30
+            periodSeconds: 2
           {{- if gt (len .Values.controller.volumeMounts) 0 }}
           volumeMounts:
             {{- with .Values.controller.volumeMounts }}
