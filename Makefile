@@ -177,6 +177,7 @@ push-test-agent: buildx-create build-kagent-adk
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-currency:latest -f python/samples/langgraph/currency/Dockerfile ./python
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create
