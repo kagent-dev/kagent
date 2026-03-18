@@ -162,9 +162,16 @@ func (c *clientImpl) ListTasksForSession(ctx context.Context, sessionID string) 
 }
 
 func (c *clientImpl) ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]dbpkg.Session, error) {
-	return list[dbpkg.Session](c.db.WithContext(ctx),
-		Clause{Key: "agent_id", Value: agentID},
-		Clause{Key: "user_id", Value: userID})
+	var sessions []dbpkg.Session
+	err := c.db.WithContext(ctx).
+		Where("agent_id = ? AND user_id = ?", agentID, userID).
+		Where("source IS NULL OR source != ?", dbpkg.SessionSourceAgent).
+		Order("created_at ASC").
+		Find(&sessions).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions for agent: %w", err)
+	}
+	return sessions, nil
 }
 
 // ListSessions lists all sessions for a user
