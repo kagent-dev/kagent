@@ -214,3 +214,9 @@ file::memory:*
 ## Test certificates
 python/packages/kagent-adk/tests/fixtures/certs/*.pem
 python/packages/kagent-adk/tests/fixtures/certs/*.srl
+
+## Code Knowledge Graph (local SQLite DB, auto-generated)
+.code-review-graph/
+
+## Generated code-tree knowledge graph artifacts (rebuilt on session start)
+docs/code-tree/
