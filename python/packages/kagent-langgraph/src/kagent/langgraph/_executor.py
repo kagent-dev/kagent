@@ -7,6 +7,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -264,9 +265,16 @@ class LangGraphAgentExecutor(AgentExecutor):
         # frontend renders tool-approval cards identically to the ADK executor.
         parts: list[Part] = []
         for action in action_requests_raw:
-            tool_name = action.get("name", "unknown")
-            tool_args = action.get("args", {})
-            tool_call_id = action.get("id")
+            if not isinstance(action, Mapping):
+                logger.warning(
+                    "Skipping malformed action_request entry of type %s: %r",
+                    type(action),
+                    action,
+                )
+                continue
+            tool_name = action["name"]
+            tool_args = action["args"]
+            tool_call_id = action["id"]
             confirmation_id = str(uuid.uuid4())
 
             parts.append(

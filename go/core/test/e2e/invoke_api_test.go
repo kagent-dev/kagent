@@ -753,13 +753,12 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
 
-	// Setup specific resources
-	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := generateOpenAIAgent(baseURL)
 
 	// Create the agent on the cluster
 	err := cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for agent to be ready
 	args := []string{
@@ -780,11 +779,6 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 
 	// Poll until the A2A endpoint is actually serving requests through the proxy
 	waitForEndpoint(t, agent.Namespace, agent.Name)
-
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
 
 	// Setup A2A client - use the agent's actual name
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
@@ -828,6 +822,7 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 	// Create the agent on the cluster
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -861,8 +856,6 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "What is the exchange rate from USD to EUR?", "0.92")
 	})
-
-	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeCrewAIAgent(t *testing.T) {
@@ -903,6 +896,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	// Create the agent on the cluster
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -943,8 +937,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
-
-	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
