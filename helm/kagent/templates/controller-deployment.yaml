@@ -1,4 +1,3 @@
-{{- include "kagent.validateController" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,14 +29,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumes) 0) }}
+      {{- if gt (len .Values.controller.volumes) 0 }}
       volumes:
-      {{- if eq .Values.database.type "sqlite" }}
-      - name: sqlite-volume
-        emptyDir:
-          sizeLimit: 500Mi
-          medium: Memory
-      {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -67,10 +60,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            {{- if eq .Values.database.type "sqlite" }}
-            - name: XDG_CACHE_HOME
-              value: /sqlite-volume/.cache
-            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -100,12 +89,8 @@ spec:
               path: /health
               port: http
             periodSeconds: 2
-          {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumeMounts) 0) }}
+          {{- if gt (len .Values.controller.volumeMounts) 0 }}
           volumeMounts:
-            {{- if eq .Values.database.type "sqlite" }}
-            - name: sqlite-volume
-              mountPath: /sqlite-volume
-            {{- end }}
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

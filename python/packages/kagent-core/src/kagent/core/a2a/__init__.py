@@ -10,7 +10,6 @@ from ._consts import (
     KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_DENY,
     KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
     KAGENT_HITL_DECISIONS_KEY,
@@ -18,11 +17,14 @@ from ._consts import (
     get_kagent_metadata_key,
     read_metadata_value,
 )
-from ._hitl import (
+from ._hitl_utils import (
     DecisionType,
+    HitlPartInfo,
+    OriginalFunctionCall,
     extract_ask_user_answers_from_message,
     extract_batch_decisions_from_message,
     extract_decision_from_message,
+    extract_hitl_info_from_task,
     extract_rejection_reasons_from_message,
 )
 from ._requests import KAgentRequestContextBuilder
@@ -46,7 +48,6 @@ __all__ = [
     # HITL constants
     "KAGENT_HITL_DECISION_TYPE_KEY",
     "KAGENT_HITL_DECISION_TYPE_APPROVE",
-    "KAGENT_HITL_DECISION_TYPE_DENY",
     "KAGENT_HITL_DECISION_TYPE_REJECT",
     "KAGENT_HITL_DECISION_TYPE_BATCH",
     "KAGENT_HITL_DECISIONS_KEY",
@@ -55,9 +56,12 @@ __all__ = [
     "KAGENT_ASK_USER_ANSWERS_KEY",
     # HITL types
     "DecisionType",
+    "HitlPartInfo",
+    "OriginalFunctionCall",
     # HITL utilities
     "extract_decision_from_message",
     "extract_batch_decisions_from_message",
     "extract_rejection_reasons_from_message",
     "extract_ask_user_answers_from_message",
+    "extract_hitl_info_from_task",
 ]

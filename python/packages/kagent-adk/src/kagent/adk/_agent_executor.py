@@ -53,7 +53,7 @@ from kagent.core.tracing._span_processor import (
 )
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
-from .converters.event_converter import convert_event_to_a2a_events
+from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
@@ -347,17 +347,18 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             logger.error("Failed to publish failure event: %s", enqueue_error, exc_info=True)
 
     @staticmethod
-    def _find_pending_confirmations(session: Session) -> dict[str, str | None]:
+    def _find_pending_confirmations(session: Session) -> dict[str, tuple[str | None, dict | None]]:
         """Find pending adk_request_confirmation calls and their original tool call IDs.
 
         Scans session events backwards for the most recent adk_request_confirmation
         FunctionCall events that haven't been responded to yet.
 
         Returns:
-            Dict mapping confirmation function_call_id to the original tool call ID
-            (from args.originalFunctionCall.id), or None if not available.
+            Dict mapping confirmation function_call_id to a tuple of:
+              - the original tool call ID (from args.originalFunctionCall.id), or None
+              - the original toolConfirmation payload (from args.toolConfirmation.payload), or None
         """
-        pending: dict[str, str | None] = {}
+        pending: dict[str, tuple[str | None, dict | None]] = {}
         responded_ids: set[str] = set()
 
         for event in reversed(session.events or []):
@@ -366,16 +367,23 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if fr.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fr.id is not None:
                     responded_ids.add(fr.id)
 
-            # Collect requested confirmation IDs and extract original tool call ID
+            # Collect requested confirmation IDs and extract original tool call ID + payload
             for fc in event.get_function_calls():
                 if fc.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME and fc.id is not None:
-                    # Extract original tool call ID from args.originalFunctionCall.id
                     original_id = None
+                    original_payload = None
                     if fc.args and isinstance(fc.args, dict):
                         orig_fc = fc.args.get("originalFunctionCall")
                         if isinstance(orig_fc, dict):
                             original_id = orig_fc.get("id")
-                    pending[fc.id] = original_id
+                        tool_conf = fc.args.get("toolConfirmation")
+                        if isinstance(tool_conf, dict):
+                            original_payload = tool_conf.get("payload")
+                            if isinstance(original_payload, dict):
+                                original_payload = dict(original_payload)
+                            else:
+                                original_payload = None
+                    pending[fc.id] = (original_id, original_payload)
 
             # Stop scanning once we find confirmation requests (they're recent)
             if pending:
@@ -387,6 +395,27 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
         return pending
 
+    @staticmethod
+    def _build_confirmation_payload(
+        original_payload: dict | None,
+        extra: dict | None,
+    ) -> dict | None:
+        """Merge the original request_confirmation payload with decision-specific data.
+
+        The original payload (set by the tool in ``request_confirmation()``) is
+        preserved so that the tool's ``_handle_resume`` can read its own state
+        (e.g. subagent task_id, context_id).  Decision-specific keys (like
+        ``rejection_reason``) are merged on top.
+        """
+        if not original_payload and not extra:
+            return None
+        merged: dict = {}
+        if original_payload:
+            merged.update(original_payload)
+        if extra:
+            merged.update(extra)
+        return merged
+
     def _process_hitl_decision(
         self, session: Session, decision: str, message: Message
     ) -> list[genai_types.Part] | None:
@@ -396,9 +425,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             return None
 
         logger.info(
-            "HITL continuation detected: decision=%s, pending_confirmations=%d",
+            "HITL continuation: decision=%s, pending=%s",
             decision,
-            len(pending_confirmations),
+            {fc_id: orig_id for fc_id, (orig_id, _) in pending_confirmations.items()},
         )
 
         # Check for ask-user answers — if present, build a single approved
@@ -407,8 +436,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         ask_user_answers = extract_ask_user_answers_from_message(message)
         if ask_user_answers is not None:
             parts = []
-            for fc_id in pending_confirmations:
-                confirmation = ToolConfirmation(confirmed=True, payload={"answers": ask_user_answers})
+            for fc_id, (_, orig_payload) in pending_confirmations.items():
+                payload = self._build_confirmation_payload(orig_payload, {"answers": ask_user_answers})
+                confirmation = ToolConfirmation(confirmed=True, payload=payload)
                 parts.append(
                     genai_types.Part(
                         function_response=genai_types.FunctionResponse(
@@ -426,19 +456,37 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
             # Batch mode: per-tool decisions
             batch_decisions = extract_batch_decisions_from_message(message) or {}
+            logger.info(
+                "HITL batch: batch_decisions=%s, rejection_reasons=%s",
+                batch_decisions,
+                rejection_reasons,
+            )
             parts = []
-            for fc_id, original_id in pending_confirmations.items():
-                # Look up the per-tool decision using the original tool call ID
-                tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
-                confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
-                # Attach rejection reason if provided for this specific tool
-                payload: dict | None = None
-                if not confirmed and rejection_reasons:
-                    reason = rejection_reasons.get(original_id) if original_id else None
-                    if reason:
-                        payload = {"rejection_reason": reason}
-                confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
-                # Append a response for each tool call
+            for fc_id, (original_id, orig_payload) in pending_confirmations.items():
+                # Check if this is a subagent HITL request by checking if orig_payload has hitl_parts.
+                is_subagent = bool(orig_payload and orig_payload.get("hitl_parts"))
+
+                if is_subagent:
+                    # Forward the entire batch decision to the tool so
+                    # _handle_resume can relay it to the subagent as-is.
+                    all_approved = all(d == KAGENT_HITL_DECISION_TYPE_APPROVE for d in batch_decisions.values())
+                    extra: dict = {"batch_decisions": batch_decisions}
+                    if rejection_reasons:
+                        extra["rejection_reasons"] = rejection_reasons
+                    payload = self._build_confirmation_payload(orig_payload, extra)
+                    confirmation = ToolConfirmation(confirmed=all_approved, payload=payload)
+                else:
+                    # Direct tool — look up by original_id as before
+                    tool_decision = batch_decisions.get(original_id, KAGENT_HITL_DECISION_TYPE_APPROVE)
+                    confirmed = tool_decision == KAGENT_HITL_DECISION_TYPE_APPROVE
+                    extra_reject: dict | None = None
+                    if not confirmed and rejection_reasons:
+                        reason = rejection_reasons.get(original_id) if original_id else None
+                        if reason:
+                            extra_reject = {"rejection_reason": reason}
+                    payload = self._build_confirmation_payload(orig_payload, extra_reject)
+                    confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
+
                 parts.append(
                     genai_types.Part(
                         function_response=genai_types.FunctionResponse(
@@ -453,22 +501,26 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             # Uniform mode: same decision for all pending tools
             confirmed = decision == KAGENT_HITL_DECISION_TYPE_APPROVE
             # Attach rejection reason if provided (uniform denial uses "*" sentinel)
-            payload = None
+            uniform_extra: dict | None = None
             if not confirmed and rejection_reasons:
                 reason = rejection_reasons.get("*")
                 if reason:
-                    payload = {"rejection_reason": reason}
-            confirmation = ToolConfirmation(confirmed=confirmed, payload=payload)
-            return [
-                genai_types.Part(
-                    function_response=genai_types.FunctionResponse(
-                        name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                        id=fc_id,
-                        response={"response": confirmation.model_dump_json()},
+                    uniform_extra = {"rejection_reason": reason}
+            parts = []
+            for fc_id, (_, orig_payload) in pending_confirmations.items():
+                merged_payload = self._build_confirmation_payload(orig_payload, uniform_extra)
+                confirmation = ToolConfirmation(confirmed=confirmed, payload=merged_payload)
+                serialized = confirmation.model_dump_json()
+                parts.append(
+                    genai_types.Part(
+                        function_response=genai_types.FunctionResponse(
+                            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+                            id=fc_id,
+                            response={"response": serialized},
+                        )
                     )
                 )
-                for fc_id in pending_confirmations
-            ]
+            return parts
 
     async def _handle_request(
         self,
@@ -541,6 +593,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         # For streaming A2A update events, the invocation_id is added through event converter
         # This adds the invocation_id of the run to the metadata of the FINAL event (completed or failed)
         real_invocation_id: str | None = None
+        last_usage_metadata = None
 
         task_result_aggregator = TaskResultAggregator()
         async with Aclosing(runner.run_async(**run_args)) as agen:
@@ -550,6 +603,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 if event_inv_id and not real_invocation_id:
                     real_invocation_id = event_inv_id
                     run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+
+                # Track the last usage_metadata so it can be included in the final
+                # event's run_metadata. The A2A task_manager merges run_metadata into
+                # task.metadata, making it available to callers (e.g. KAgentRemoteA2ATool).
+                if getattr(adk_event, "usage_metadata", None) is not None:
+                    last_usage_metadata = adk_event.usage_metadata
 
                 for a2a_event in convert_event_to_a2a_events(
                     adk_event, invocation_context, context.task_id, context.context_id
@@ -563,6 +622,11 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 # Break on confirmation events that use long running tools
                 if getattr(adk_event, "long_running_tool_ids", None):
                     break
+
+        # Attach the last LLM usage to run_metadata so the A2A task_manager
+        # merges it into task.metadata on the completed Task object.
+        if last_usage_metadata is not None:
+            run_metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(last_usage_metadata)
 
         # publish the task result event - this is final
         if (

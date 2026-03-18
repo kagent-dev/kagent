@@ -7,15 +7,15 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
+from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._litellm import KAgentLiteLlm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -377,14 +377,14 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
-                remote_a2a_agent = RemoteA2aAgent(
-                    name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
-                    description=remote_agent.description,
-                    httpx_client=client,
+                tools.append(
+                    KAgentRemoteA2AToolset(
+                        name=remote_agent.name,
+                        description=remote_agent.description,
+                        agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
+                        httpx_client=client,
+                    )
                 )
-
-                tools.append(AgentTool(agent=remote_a2a_agent))
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)

@@ -52,16 +52,24 @@ nodeSelector: {}
 # ==============================================================================
 
 database:
-  type: sqlite
-  sqlite:
-    vectorEnabled: true
-    databaseName: kagent.db
   postgres:
-    vectorEnabled: true
-    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
-    # Path to a file containing the database URL.
-    # Takes precedence over url when set.
+    # PostgreSQL connection string. Leave empty to deploy the bundled postgres instance.
+    # Set this to use an external PostgreSQL.
+    url: ""
+    # Path to a file containing the database URL. Takes precedence over url when set.
+    # Leave empty to use the bundled postgres instance.
     urlFile: ""
+    # Enable pgvector extension and memory table migration.
+    # Requires pgvector to be installed on the PostgreSQL server.
+    # Set to false when using an external PostgreSQL that does not have pgvector.
+    vectorEnabled: true
+    # Bundled PostgreSQL configuration — used when url and urlFile are both empty.
+    bundled:
+      image: pgvector/pgvector:pg18-trixie
+      storage: 500Mi
+      database: postgres
+      user: postgres
+      password: kagent
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
