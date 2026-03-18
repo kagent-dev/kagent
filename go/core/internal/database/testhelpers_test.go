@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	sharedManager, err = NewManager(&Config{
+	sharedManager, err = NewManager(context.Background(), &Config{
 		PostgresConfig: &PostgresConfig{
 			URL:           connStr,
 			VectorEnabled: true,

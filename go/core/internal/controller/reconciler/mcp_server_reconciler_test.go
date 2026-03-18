@@ -85,7 +85,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				WithObjects(tc.mcpServer).
 				Build()
 
-			dbManager, err := database.NewManager(&database.Config{
+			dbManager, err := database.NewManager(context.Background(), &database.Config{
 				PostgresConfig: &database.PostgresConfig{
 					URL:           connStr,
 					VectorEnabled: true,
