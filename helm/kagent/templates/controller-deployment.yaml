@@ -14,6 +14,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
         {{- with .Values.controller.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -60,6 +61,20 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- if .Values.database.postgres.urlFile }}
+            - name: POSTGRES_DATABASE_URL_FILE
+              value: {{ .Values.database.postgres.urlFile | quote }}
+            {{- else }}
+            {{- if and .Values.database.postgres.bundled.enabled (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.passwordSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            {{- end }}
+            - name: POSTGRES_DATABASE_URL
+              value: {{ include "kagent.postgresqlUrl" . | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

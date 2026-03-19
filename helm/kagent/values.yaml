@@ -53,23 +53,42 @@ nodeSelector: {}
 
 database:
   postgres:
-    # PostgreSQL connection string. Leave empty to deploy the bundled postgres instance.
-    # Set this to use an external PostgreSQL.
+    # -- External PostgreSQL connection string.
+    # Is always used if set regardless of the `.bundled.enabled` field.
     url: ""
-    # Path to a file containing the database URL. Takes precedence over url when set.
-    # Leave empty to use the bundled postgres instance.
+    # -- Path to a file containing the database URL. Takes precedence over url when set.
+    # Is always used if set regardless of the `.bundled.enabled` field.
     urlFile: ""
-    # Enable pgvector extension and memory table migration.
-    # Requires pgvector to be installed on the PostgreSQL server.
-    # Set to false when using an external PostgreSQL that does not have pgvector.
-    vectorEnabled: true
-    # Bundled PostgreSQL configuration — used when url and urlFile are both empty.
+    # -- Enable the pgvector migration
+    # Required to use features that depend on database vector capability. (e.g. long-term memory)
+    # Set to true when using an external PostgreSQL that has the pgvector extension installed.
+    vectorEnabled: false
+    # -- Bundled PostgreSQL instance — for development and evaluation only.
+    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
-      image: pgvector/pgvector:pg18-trixie
+      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
+      enabled: true
+      image:
+        # -- Bundled PostgreSQL image registry
+        registry: docker.io
+        # -- Bundled PostgreSQL image repository (org/namespace)
+        repository: library
+        # -- Bundled PostgreSQL image name
+        name: postgres
+        # -- Bundled PostgreSQL image tag
+        tag: "16"
+        # -- Bundled PostgreSQL image pull policy
+        pullPolicy: IfNotPresent
+      # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
-      database: postgres
-      user: postgres
-      password: kagent
+      # -- Resource requests/limits for the demo PostgreSQL container
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION

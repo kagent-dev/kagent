@@ -59,4 +59,20 @@ TROUBLESHOOTING:
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 
+{{- if .Values.database.postgres.bundled.enabled }}
+
 ################################################################################
+# WARNING: BUNDLED DATABASE IN USE                                                #
+################################################################################
+  The bundled PostgreSQL instance is enabled. It is intended for development and
+  evaluation only — not suitable for production use. Data may be lost if the
+  pod is restarted or rescheduled.
+
+  To use an external database, set:
+    database.postgres.bundled.enabled=false
+  and:
+    database.postgres.url=<your-connection-string> or database.postgres.urlFile=<path>
+################################################################################
+{{- else }}
+################################################################################
+{{- end }}

@@ -2,6 +2,7 @@ suite: test controller deployment
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
+  - postgresql-secret.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -210,3 +211,97 @@ tests:
           path: spec.template.spec.volumes
       - isNull:
           path: spec.template.spec.containers[0].volumeMounts
+
+  # =============================================================================
+  # Database Configuration Tests
+  # =============================================================================
+
+  - it: should set POSTGRES_DATABASE_URL with bundled connection string by default
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc.cluster.local:5432/kagent?sslmode=disable"
+
+  - it: should set POSTGRES_PASSWORD from secret when bundled is enabled
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-postgresql
+                key: POSTGRES_PASSWORD
+
+  - it: should set POSTGRES_DATABASE_URL with external url when url is set
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          url: "postgres://user:pass@external-host:5432/db"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "postgres://user:pass@external-host:5432/db"
+
+  - it: should set POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile is set
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          urlFile: "/var/secrets/db-url"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL_FILE
+            value: "/var/secrets/db-url"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+
+  - it: should set DATABASE_VECTOR_ENABLED to true when enabled
+    template: controller-configmap.yaml
+    set:
+      database:
+        postgres:
+          vectorEnabled: true
+    asserts:
+      - equal:
+          path: data.DATABASE_VECTOR_ENABLED
+          value: "true"
+
+  - it: should set DATABASE_VECTOR_ENABLED to false by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.DATABASE_VECTOR_ENABLED
+          value: "false"
+
+  - it: should not set POSTGRES_DATABASE_URL in configmap
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.POSTGRES_DATABASE_URL
+
+  - it: should not set POSTGRES_PASSWORD env when bundled is disabled
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+          url: "postgres://user:pass@external-host:5432/db"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+

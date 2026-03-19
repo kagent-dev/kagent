@@ -3,9 +3,9 @@
 _This document provides a General Technical Review of the kagent project. This is a living document that demonstrates to the Technical Advisory Group (TAG) that the project satisfies the Engineering Principle requirements for moving levels. This document follows the template outlined [in the TOC subproject review](https://github.com/cncf/toc/blob/main/toc_subprojects/project-reviews-subproject/general-technical-questions.md)_
 
 - **Project:** kagent
-- **Project Version:** v0.7.5
+- **Project Version:** v0.8.0
 - **Website:** [https://kagent.dev](https://kagent.dev)
-- **Date Updated:** 2025-12-01
+- **Date Updated:** 2026-03-19
 - **Template Version:** v1.0
 - **Description:** kagent is a Kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in Kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
@@ -326,7 +326,7 @@ Default values can be found in [helm/kagent/values.yaml](https://github.com/kage
 **Additional Configurations:**
 For production use, configure:
 
-- PostgreSQL database connection (`database.type=postgres`, `database.postgres.url`)
+- External PostgreSQL connection (set `database.bundled.enabled=false` and set either `database.external.url` or `database.external.urlFile`)
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
