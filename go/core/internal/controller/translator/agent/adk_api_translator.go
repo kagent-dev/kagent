@@ -1671,6 +1671,9 @@ func prepareSkillsInitData(
 				continue
 			}
 			port := u.Port()
+			if port == "22" {
+				port = "" // 22 is the SSH default; omit to avoid -p flag
+			}
 			if port != "" && !portPattern.MatchString(port) {
 				continue
 			}
