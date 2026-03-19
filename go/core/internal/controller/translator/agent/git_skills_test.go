@@ -2,8 +2,8 @@ package agent_test
 
 import (
 	"context"
-	"testing"
 	"fmt"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -388,7 +388,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				for _, v := range deployment.Spec.Template.Spec.Volumes {
 					if v.Secret != nil && v.Name == "git-auth" {
 						hasAuthVolume = true
-						assert.Equal(t, "github-token", v.Secret.SecretName, "auth volume should reference the correct secret")
+						assert.Equal(t, tt.agent.Spec.Skills.GitAuthSecretRef.Name, v.Secret.SecretName, "auth volume should reference the correct secret")
 					}
 				}
 				assert.True(t, hasAuthVolume, "git-auth volume should exist")
@@ -414,7 +414,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				script := skillsInitContainer.Command[2]
 				for _, host := range tt.wantSSHKeyscanHosts {
 					expected := fmt.Sprintf("ssh-keyscan %s", host)
- 					assert.Contains(t, script, expected, "script should ssh-keyscan custom host %q", host)
+					assert.Contains(t, script, expected, "script should ssh-keyscan custom host %q", host)
 				}
 			}
 
