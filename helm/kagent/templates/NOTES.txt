@@ -59,7 +59,7 @@ TROUBLESHOOTING:
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 
-{{- if .Values.database.postgres.bundled.enabled }}
+{{ if .Values.database.postgres.bundled.enabled -}}
 ################################################################################
 {{- if and (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
 # WARNING: BUNDLED DATABASE IN USE                                             #
