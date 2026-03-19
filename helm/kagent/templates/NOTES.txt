@@ -73,6 +73,4 @@ DOCUMENTATION:
   and:
     database.postgres.url=<your-connection-string> or database.postgres.urlFile=<path>
 ################################################################################
-{{- else }}
-################################################################################
 {{- end }}

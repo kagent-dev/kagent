@@ -120,7 +120,9 @@ This installs the following components into your cluster:
 | Prometheus     | Metrics collection                   | `kagent`       |
 | Metrics Server | Kubernetes resource metrics          | `kube-system`  |
 
-PostgreSQL (with pgvector) is deployed automatically as part of `make helm-install` via the bundled Helm chart. The optional addons above provide observability components.
+PostgreSQL is deployed automatically as part of `make helm-install` via the bundled Helm chart. The optional addons above provide observability components.
+
+> **pgvector:** The bundled PostgreSQL image (`postgres:16`) does not include the pgvector extension. If you need vector features (e.g. long-term memory), either use an external PostgreSQL instance with pgvector installed, or override `database.postgres.bundled.image` to a pgvector-capable image such as `pgvector/pgvector:pg16` and set `database.postgres.vectorEnabled=true`.
 
 Verify the database connection by checking the controller logs:
 

@@ -81,6 +81,8 @@ database:
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
+      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
+      # This is intentional for a dev/eval setup. Switch to an external database for production.
       # -- Resource requests/limits for the demo PostgreSQL container
       resources:
         requests:

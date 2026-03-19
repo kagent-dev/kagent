@@ -117,5 +117,6 @@ spec:
       targetPort: postgresql
       protocol: TCP
   selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: database
 {{- end }}

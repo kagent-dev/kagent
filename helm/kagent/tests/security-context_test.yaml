@@ -4,7 +4,6 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
   - postgresql-secret.yaml
-  - validate.yaml
   - ui-deployment.yaml
 tests:
   # =============================================================================
