@@ -42,6 +42,8 @@ class KAgentSessionService(BaseSessionService):
             request_data["id"] = session_id
         if state and state.get("session_name"):
             request_data["name"] = state.get("session_name", "")
+        if state and state.get("source"):
+            request_data["source"] = state.get("source", "")
 
         # Make API call to create session
         response = await self.client.post(

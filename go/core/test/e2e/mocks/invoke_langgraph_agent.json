@@ -1,0 +1,66 @@
+{
+  "openai": [
+    {
+      "name": "exchange_rate_tool_call",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "What is the exchange rate from USD to EUR?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-langgraph-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_lg001",
+                  "type": "function",
+                  "function": {
+                    "name": "_get_exchange_rate",
+                    "arguments": "{\"currency_from\": \"USD\", \"currency_to\": \"EUR\", \"currency_date\": \"latest\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "exchange_rate_tool_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "USD",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-langgraph-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "The current exchange rate from USD to EUR is 0.92."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

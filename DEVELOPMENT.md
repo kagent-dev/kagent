@@ -72,7 +72,13 @@ loaded by the Makefile (via `-include .env`) to inject environment variables
 when you run `make` targets:
 
 ```shell
+# Set your provider (supported: openAI, anthropic, azureOpenAI, gemini, ollama)
+KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+
+# Set the corresponding API key for your provider
 OPENAI_API_KEY=your-openai-api-key
+# ANTHROPIC_API_KEY=your-anthropic-api-key
+# GOOGLE_API_KEY=your-google-api-key
 ```
 
 1. Build images, load them into kind cluster and deploy everything using Helm:

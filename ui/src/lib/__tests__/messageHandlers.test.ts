@@ -354,6 +354,135 @@ describe('createMessageHandlers test', () => {
   });
 });
 
+describe('subagent_session_id propagation', () => {
+  // Shared handler factory for status-update / artifact-update tests
+  function makeHandlers() {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+    return { emitted, handlers };
+  }
+
+  test('status-update: agent function_call with kagent_subagent_session_id in DataPart metadata emits toolCallData with subagent_session_id', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    const statusUpdateCall: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [{
+            kind: 'data',
+            data: { id: 'agent_call_1', name: 'kagent__NS__k8s_agent', args: { request: 'list pods' } },
+            metadata: { kagent_type: 'function_call', kagent_subagent_session_id: 'sess-abc-123' },
+          }],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateCall);
+
+    expect(emitted.length).toBe(1);
+    const meta = emitted[0].metadata as ADKMetadata;
+    expect(meta.originalType).toBe('ToolCallRequestEvent');
+    expect(meta.toolCallData).toHaveLength(1);
+    expect(meta.toolCallData![0].subagent_session_id).toBe('sess-abc-123');
+  });
+
+  test('status-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    const statusUpdateResp: any = {
+      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+      status: {
+        state: 'working',
+        message: {
+          role: 'agent',
+          parts: [{
+            kind: 'data',
+            data: {
+              id: 'agent_call_1',
+              name: 'kagent__NS__k8s_agent',
+              response: { result: 'done', subagent_session_id: 'sess-abc-123' },
+            },
+            metadata: { kagent_type: 'function_response' },
+          }],
+        },
+      },
+    };
+    handlers.handleMessageEvent(statusUpdateResp);
+
+    const execMsg = emitted.find(m => (m.metadata as ADKMetadata)?.originalType === 'ToolCallExecutionEvent');
+    expect(execMsg).toBeDefined();
+    const resultData = (execMsg!.metadata as ADKMetadata).toolResultData!;
+    expect(resultData).toHaveLength(1);
+    expect(resultData[0].subagent_session_id).toBe('sess-abc-123');
+  });
+
+  test('extractMessagesFromTasks: agent function_call DataPart with kagent_subagent_session_id emits toolCallData with subagent_session_id', () => {
+    const tasks = [{
+      contextId: 'ctx',
+      id: 'task',
+      history: [{
+        kind: 'message',
+        messageId: 'msg-1',
+        role: 'agent',
+        parts: [{
+          kind: 'data',
+          data: { id: 'agent_call_3', name: 'kagent__NS__k8s_agent', args: { request: 'list nodes' } },
+          metadata: { kagent_type: 'function_call', kagent_subagent_session_id: 'sess-history-456' },
+        }],
+        metadata: {},
+      }],
+    }] as unknown as Task[];
+
+    const messages = extractMessagesFromTasks(tasks);
+    expect(messages).toHaveLength(1);
+    const meta = messages[0].metadata as ADKMetadata;
+    expect(meta.originalType).toBe('ToolCallRequestEvent');
+    expect(meta.toolCallData).toHaveLength(1);
+    expect(meta.toolCallData![0].subagent_session_id).toBe('sess-history-456');
+  });
+
+  test('extractMessagesFromTasks: agent function_response DataPart with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
+    const tasks = [{
+      contextId: 'ctx',
+      id: 'task',
+      history: [{
+        kind: 'message',
+        messageId: 'msg-3',
+        role: 'agent',
+        parts: [{
+          kind: 'data',
+          data: {
+            id: 'agent_call_3',
+            name: 'kagent__NS__k8s_agent',
+            response: { result: 'nodes listed', subagent_session_id: 'sess-history-456' },
+          },
+          metadata: { kagent_type: 'function_response' },
+        }],
+        metadata: {},
+      }],
+    }] as unknown as Task[];
+
+    const messages = extractMessagesFromTasks(tasks);
+    expect(messages).toHaveLength(1);
+    const meta = messages[0].metadata as ADKMetadata;
+    expect(meta.originalType).toBe('ToolCallExecutionEvent');
+    expect(meta.toolResultData).toHaveLength(1);
+    expect(meta.toolResultData![0].subagent_session_id).toBe('sess-history-456');
+  });
+});
+
 describe('getMetadataValue', () => {
   test('reads kagent_ prefixed key', () => {
     expect(getMetadataValue({ kagent_type: 'function_call' }, 'type')).toBe('function_call');
