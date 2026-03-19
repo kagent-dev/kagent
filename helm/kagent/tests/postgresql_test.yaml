@@ -24,7 +24,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should not render any resources when url is set even if bundled is enabled
+  - it: should still render resources when url is set and bundled is enabled
     template: postgresql.yaml
     set:
       database:
@@ -32,9 +32,9 @@ tests:
           url: "postgres://user:pass@external-host:5432/db"
     asserts:
       - hasDocuments:
-          count: 0
+          count: 3
 
-  - it: should not render any resources when urlFile is set even if bundled is enabled
+  - it: should still render resources when urlFile is set and bundled is enabled
     template: postgresql.yaml
     set:
       database:
@@ -42,7 +42,7 @@ tests:
           urlFile: "/var/secrets/db-url"
     asserts:
       - hasDocuments:
-          count: 0
+          count: 3
 
 
   - it: should render PVC with correct storage size
@@ -255,7 +255,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should not create secret when url is set even if bundled is enabled
+  - it: should still create secret when url is set and bundled is enabled
     template: postgresql-secret.yaml
     set:
       database:
@@ -263,9 +263,9 @@ tests:
           url: "postgres://user:pass@host:5432/db"
     asserts:
       - hasDocuments:
-          count: 0
+          count: 1
 
-  - it: should not create secret when urlFile is set even if bundled is enabled
+  - it: should still create secret when urlFile is set and bundled is enabled
     template: postgresql-secret.yaml
     set:
       database:
@@ -273,5 +273,5 @@ tests:
           urlFile: "/var/secrets/db-url"
     asserts:
       - hasDocuments:
-          count: 0
+          count: 1
 
