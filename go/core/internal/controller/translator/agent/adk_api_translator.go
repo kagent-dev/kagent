@@ -1659,13 +1659,21 @@ func prepareSkillsInitData(
 	if authSecretRef != nil {
 		data.AuthMountPath = "/git-auth"
 		seenHosts := make(map[string]bool)
+		hostPattern := regexp.MustCompile(`^[A-Za-z0-9\.\-:]+$`)
+ 		portPattern := regexp.MustCompile(`^[0-9]+$`)
 		for _, ref := range gitRefs {
 			u, err := url.Parse(ref.URL)
 			if err != nil || u.Scheme != "ssh" {
 				continue
 			}
 			host := u.Hostname()
-			port := u.Port()
+ 			if host == "" || !hostPattern.MatchString(host) {
+ 				continue
+ 			}
+ 			port := u.Port()
+ 			if port != "" && !portPattern.MatchString(port) {
+ 				continue
+ 			}
 			key := host + ":" + port
 			if seenHosts[key] {
 				continue

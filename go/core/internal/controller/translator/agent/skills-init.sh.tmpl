@@ -10,7 +10,19 @@ if [ -f "${_auth_mount}/ssh-privatekey" ]; then
   chmod 600 ~/.ssh/id_rsa
   ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts
 {{- range .SSHHosts }}
-  ssh-keyscan{{ if .Port }} -p {{ .Port }}{{ end }} {{ .Host }} >> ~/.ssh/known_hosts
+  _ssh_host="$(cat <<'ENDVAL'
+{{ .Host }}
+ENDVAL
+)"
+  {{- if .Port }}
+  _ssh_port="$(cat <<'ENDVAL'
+{{ .Port }}
+ENDVAL
+  )"
+  ssh-keyscan -p "$_ssh_port" "$_ssh_host" >> ~/.ssh/known_hosts
+  {{- else }}
+  ssh-keyscan "$_ssh_host" >> ~/.ssh/known_hosts
+  {{- end }}
 {{- end }}
 elif [ -f "${_auth_mount}/token" ]; then
   git config --global credential.helper "!f() { echo username=x-access-token; echo password=\$(cat ${_auth_mount}/token); }; f"

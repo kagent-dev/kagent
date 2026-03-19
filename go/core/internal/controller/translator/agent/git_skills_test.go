@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"testing"
+	"fmt"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -412,7 +413,8 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				require.NotNil(t, skillsInitContainer)
 				script := skillsInitContainer.Command[2]
 				for _, host := range tt.wantSSHKeyscanHosts {
-					assert.Contains(t, script, host, "script should ssh-keyscan custom host %q", host)
+					expected := fmt.Sprintf("ssh-keyscan %s", host)
+ 					assert.Contains(t, script, expected, "script should ssh-keyscan custom host %q", host)
 				}
 			}
 
