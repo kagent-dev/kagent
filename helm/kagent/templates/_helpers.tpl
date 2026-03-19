@@ -137,22 +137,6 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- end -}}
 
 {{/*
-PostgreSQL URL - embeds $(POSTGRES_PASSWORD) for Kubernetes runtime env var expansion.
-When url is set: uses it directly.
-Otherwise: builds URL from hardcoded demo config and service name.
-Note: urlFile is handled separately in the deployment (sets POSTGRES_DATABASE_URL_FILE instead).
-*/}}
-{{- define "kagent.postgresqlUrl" -}}
-{{- if .Values.database.postgres.url -}}
-{{- .Values.database.postgres.url -}}
-{{- else -}}
-{{- printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable"
-    (include "kagent.postgresqlServiceName" .)
-    (include "kagent.namespace" .) -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
 A2A Base URL - computes the default URL based on the controller service name if not explicitly set
 */}}
 {{- define "kagent.a2aBaseUrl" -}}

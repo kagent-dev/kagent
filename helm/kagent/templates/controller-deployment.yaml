@@ -64,16 +64,19 @@ spec:
             {{- if .Values.database.postgres.urlFile }}
             - name: POSTGRES_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}
-            {{- else }}
-            {{- if and .Values.database.postgres.bundled.enabled (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
+            {{- else if .Values.database.postgres.url }}
+            - name: POSTGRES_DATABASE_URL
+              value: {{ .Values.database.postgres.url | quote }}
+            {{- else if .Values.database.postgres.bundled.enabled }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
-            {{- end }}
             - name: POSTGRES_DATABASE_URL
-              value: {{ include "kagent.postgresqlUrl" . | quote }}
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
+            {{- else }}
+            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
