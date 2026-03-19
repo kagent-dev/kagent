@@ -383,12 +383,11 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 
 			// Check auth volume
 			if tt.wantAuthVolume {
-				wantSecretName := tt.agent.Spec.Skills.GitAuthSecretRef.Name
 				hasAuthVolume := false
 				for _, v := range deployment.Spec.Template.Spec.Volumes {
 					if v.Secret != nil && v.Name == "git-auth" {
 						hasAuthVolume = true
-						assert.Equal(t, wantSecretName, v.Secret.SecretName, "auth volume should reference the correct secret")
+						assert.Equal(t, "github-token", v.Secret.SecretName, "auth volume should reference the correct secret")
 					}
 				}
 				assert.True(t, hasAuthVolume, "git-auth volume should exist")
