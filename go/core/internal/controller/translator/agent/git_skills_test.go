@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,13 +45,14 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 		name  string
 		agent *v1alpha2.Agent
 		// assertions
-		wantSkillsInit     bool
-		wantSkillsVolume   bool
-		wantContainsBranch string
-		wantContainsCommit string
-		wantContainsPath   string
-		wantContainsKrane  bool
-		wantAuthVolume     bool
+		wantSkillsInit      bool
+		wantSkillsVolume    bool
+		wantContainsBranch  string
+		wantContainsCommit  string
+		wantContainsPath    string
+		wantContainsKrane   bool
+		wantAuthVolume      bool
+		wantSSHKeyscanHosts []string // substrings expected in the ssh-keyscan lines
 	}{
 		{
 			name: "no skills - no init containers",
@@ -216,6 +218,34 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 			wantAuthVolume:   true,
 		},
 		{
+			name: "git skills with SSH URL and auth secret scans custom host",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-ssh", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						GitAuthSecretRef: &corev1.LocalObjectReference{
+							Name: "gitea-ssh-credentials",
+						},
+						GitRefs: []v1alpha2.GitRepo{
+							{
+								URL: "ssh://git@gitea-ssh.gitea:22/gitops/ssh-skills-repo.git",
+								Ref: "main",
+							},
+						},
+					},
+				},
+			},
+			wantSkillsInit:      true,
+			wantSkillsVolume:    true,
+			wantAuthVolume:      true,
+			wantSSHKeyscanHosts: []string{"gitea-ssh.gitea"},
+		},
+		{
 			name: "git skill with custom name",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-custom-name", Namespace: namespace},
@@ -358,7 +388,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				for _, v := range deployment.Spec.Template.Spec.Volumes {
 					if v.Secret != nil && v.Name == "git-auth" {
 						hasAuthVolume = true
-						assert.Equal(t, "github-token", v.Secret.SecretName, "auth volume should reference the correct secret")
+						assert.Equal(t, tt.agent.Spec.Skills.GitAuthSecretRef.Name, v.Secret.SecretName, "auth volume should reference the correct secret")
 					}
 				}
 				assert.True(t, hasAuthVolume, "git-auth volume should exist")
@@ -376,6 +406,16 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				// Verify script contains credential helper setup
 				script := skillsInitContainer.Command[2]
 				assert.Contains(t, script, "credential.helper")
+			}
+
+			// Verify custom SSH hosts are scanned
+			if len(tt.wantSSHKeyscanHosts) > 0 {
+				require.NotNil(t, skillsInitContainer)
+				script := skillsInitContainer.Command[2]
+				for _, host := range tt.wantSSHKeyscanHosts {
+					expected := fmt.Sprintf("ssh-keyscan %s", host)
+					assert.Contains(t, script, expected, "script should ssh-keyscan custom host %q", host)
+				}
 			}
 
 			// Verify insecure flag for OCI skills
