@@ -375,6 +375,10 @@ helm-install-provider: helm-version check-api-key
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set database.postgres.bundled.image.repository=pgvector \
+		--set database.postgres.bundled.image.name=pgvector \
+		--set database.postgres.bundled.image.tag=pg18-trixie \
+		--set database.postgres.vectorEnabled=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install

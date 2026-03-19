@@ -128,7 +128,7 @@ This installs the following components into your cluster:
 
 PostgreSQL is deployed automatically as part of `make helm-install` via the bundled Helm chart. The optional addons above provide observability components.
 
-> **pgvector:** The bundled PostgreSQL image (`postgres:16`) does not include the pgvector extension. If you need vector features (e.g. long-term memory), either use an external PostgreSQL instance with pgvector installed, or override `database.postgres.bundled.image` to a pgvector-capable image such as `pgvector/pgvector:pg16` and set `database.postgres.vectorEnabled=true`.
+> **pgvector:** The default bundled PostgreSQL image (`postgres:18`) does not include the pgvector extension. If you need vector features (e.g. long-term memory), either use an external PostgreSQL instance with pgvector installed, or override the bundled image to `pgvector/pgvector:pg18-trixie` and set `database.postgres.vectorEnabled=true`. The `make helm-install` target does this automatically for local development.
 
 Verify the database connection by checking the controller logs:
 
