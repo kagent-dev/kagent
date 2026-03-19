@@ -1584,10 +1584,17 @@ func validateSubPath(p string) error {
 
 // skillsInitData holds the template data for the unified skills-init script.
 type skillsInitData struct {
-	AuthMountPath string       // "/git-auth" or "" (for git auth)
-	GitRefs       []gitRefData // git repos to clone
-	OCIRefs       []ociRefData // OCI images to pull
-	InsecureOCI   bool         // --insecure flag for krane
+	AuthMountPath string        // "/git-auth" or "" (for git auth)
+	GitRefs       []gitRefData  // git repos to clone
+	OCIRefs       []ociRefData  // OCI images to pull
+	InsecureOCI   bool          // --insecure flag for krane
+	SSHHosts      []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
+}
+
+// sshHostData holds the host and optional port for an SSH known_hosts entry.
+type sshHostData struct {
+	Host string // hostname or IP
+	Port string // port number, empty means default (22)
 }
 
 // gitRefData holds pre-computed fields for each git skill ref, used by the script template.
@@ -1651,6 +1658,21 @@ func prepareSkillsInitData(
 
 	if authSecretRef != nil {
 		data.AuthMountPath = "/git-auth"
+		seenHosts := make(map[string]bool)
+		for _, ref := range gitRefs {
+			u, err := url.Parse(ref.URL)
+			if err != nil || u.Scheme != "ssh" {
+				continue
+			}
+			host := u.Hostname()
+			port := u.Port()
+			key := host + ":" + port
+			if seenHosts[key] {
+				continue
+			}
+			seenHosts[key] = true
+			data.SSHHosts = append(data.SSHHosts, sshHostData{Host: host, Port: port})
+		}
 	}
 
 	seen := make(map[string]bool)

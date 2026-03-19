@@ -9,6 +9,9 @@ if [ -f "${_auth_mount}/ssh-privatekey" ]; then
   cp "${_auth_mount}/ssh-privatekey" ~/.ssh/id_rsa
   chmod 600 ~/.ssh/id_rsa
   ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts
+{{- range .SSHHosts }}
+  ssh-keyscan{{ if .Port }} -p {{ .Port }}{{ end }} {{ .Host }} >> ~/.ssh/known_hosts
+{{- end }}
 elif [ -f "${_auth_mount}/token" ]; then
   git config --global credential.helper "!f() { echo username=x-access-token; echo password=\$(cat ${_auth_mount}/token); }; f"
 fi
