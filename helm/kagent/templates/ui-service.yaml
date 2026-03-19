@@ -10,6 +10,9 @@ spec:
   ports:
     - port: {{ .Values.ui.service.ports.port }}
       targetPort: {{ .Values.ui.service.ports.targetPort }}
+      {{- if and (eq .Values.ui.service.type "NodePort") .Values.ui.service.ports.nodePort }}
+      nodePort: {{ .Values.ui.service.ports.nodePort }}
+      {{- end }}
       protocol: TCP
       name: ui
   selector:
