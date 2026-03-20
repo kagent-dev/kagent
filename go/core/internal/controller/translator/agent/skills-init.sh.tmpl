@@ -6,15 +6,17 @@ ENDVAL
 )"
 if [ -f "${_auth_mount}/ssh-privatekey" ]; then
   mkdir -p ~/.ssh
+  chmod 700 ~/.ssh
   cp "${_auth_mount}/ssh-privatekey" ~/.ssh/id_rsa
   chmod 600 ~/.ssh/id_rsa
-  ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts
+  touch ~/.ssh/known_hosts
+  chmod 600 ~/.ssh/known_hosts
 {{- range .SSHHosts }}
-  {{- if .Port }}
-  ssh-keyscan -p {{ .Port }} {{ .Host }} >> ~/.ssh/known_hosts
-  {{- else }}
-  ssh-keyscan {{ .Host }} >> ~/.ssh/known_hosts
-  {{- end }}
+{{- if .Port }}
+  ssh-keyscan -H -p "{{ .Port }}" "{{ .Host }}" >> ~/.ssh/known_hosts 2>/dev/null || echo "WARNING: ssh-keyscan failed for {{ .Host }}:{{ .Port }}" >&2
+{{- else }}
+  ssh-keyscan -H "{{ .Host }}" >> ~/.ssh/known_hosts 2>/dev/null || echo "WARNING: ssh-keyscan failed for {{ .Host }}" >&2
+{{- end }}
 {{- end }}
 elif [ -f "${_auth_mount}/token" ]; then
   git config --global credential.helper "!f() { echo username=x-access-token; echo password=\$(cat ${_auth_mount}/token); }; f"
