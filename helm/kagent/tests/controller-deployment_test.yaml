@@ -210,3 +210,52 @@ tests:
           path: spec.template.spec.volumes
       - isNull:
           path: spec.template.spec.containers[0].volumeMounts
+
+  - it: should not include metrics port by default
+    template: controller-deployment.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1
+
+  - it: should include metrics port when enabled
+    template: controller-deployment.yaml
+    set:
+      controller:
+        metrics:
+          enabled: true
+          port: 9093
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 2
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: metrics
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 9093
+
+  - it: should set metrics env vars in configmap when enabled
+    template: controller-configmap.yaml
+    set:
+      controller:
+        metrics:
+          enabled: true
+          port: 9093
+          secure: false
+    asserts:
+      - equal:
+          path: data.METRICS_BIND_ADDRESS
+          value: ":9093"
+      - equal:
+          path: data.METRICS_SECURE
+          value: "false"
+
+  - it: should not set metrics env vars when disabled
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.METRICS_BIND_ADDRESS
+      - notExists:
+          path: data.METRICS_SECURE

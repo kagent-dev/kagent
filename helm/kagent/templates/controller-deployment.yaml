@@ -73,6 +73,11 @@ spec:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
+            {{- if .Values.controller.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.controller.metrics.port }}
+              protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           {{- with (.Values.controller.securityContext | default .Values.securityContext) }}
