@@ -433,9 +433,8 @@ kagent-addon-install: use-kind-cluster
 
 .PHONY: open-dev-container
 open-dev-container:
-	@echo "Opening dev container..."
-	devcontainer build .
-	@devcontainer open .
+	@echo "Building and starting dev container..."
+	devcontainer up --workspace-folder .
 
 .PHONY: otel-local
 otel-local:
