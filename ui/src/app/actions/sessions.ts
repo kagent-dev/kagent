@@ -91,6 +91,34 @@ export async function getSessionTasks(sessionId: string): Promise<BaseResponse<T
 }
 
 /**
+ * Gets a session together with its tasks (events) in a single call.
+ * @param sessionId The subagent session ID
+ * @returns A promise with { session, tasks }
+ */
+export async function getSubagentSessionWithEvents(
+  sessionId: string
+): Promise<BaseResponse<{ session: Session; tasks: Task[] }>> {
+  try {
+    // fetchApi appends user_id=admin@kagent.dev automatically.
+    const [sessionResp, tasksResp] = await Promise.all([
+      fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`),
+      fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`),
+    ]);
+
+    const session = sessionResp.data?.session;
+    if (!session) {
+      return { message: "Subagent session not found", error: "Subagent session not found" };
+    }
+    return {
+      message: "Session with events fetched successfully",
+      data: { session, tasks: tasksResp.data ?? [] },
+    };
+  } catch (error) {
+    return createErrorResponse<{ session: Session; tasks: Task[] }>(error, "Error fetching session with events");
+  }
+}
+
+/**
  * Check if a session exists
  * @param sessionId The session ID to check
  * @returns A promise with boolean indicating if session exists

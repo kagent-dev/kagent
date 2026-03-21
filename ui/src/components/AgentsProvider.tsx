@@ -7,7 +7,7 @@ import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsRespon
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
-interface ValidationErrors {
+export interface ValidationErrors {
   name?: string;
   namespace?: string;
   description?: string;
@@ -57,7 +57,7 @@ export interface AgentFormData {
   serviceAccountName?: string;
 }
 
-interface AgentsContextType {
+export interface AgentsContextType {
   agents: AgentResponse[];
   models: ModelConfig[];
   loading: boolean;
@@ -72,7 +72,7 @@ interface AgentsContextType {
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
-const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
+export const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
 
 export function useAgents() {
   const context = useContext(AgentsContext);
@@ -82,7 +82,7 @@ export function useAgents() {
   return context;
 }
 
-interface AgentsProviderProps {
+export interface AgentsProviderProps {
   children: ReactNode;
 }
 
@@ -211,7 +211,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       const agent = agentResult.data;
-      
+
       if (!agent) {
         console.warn(`Agent with name ${name} and namespace ${namespace} not found`);
         return null;

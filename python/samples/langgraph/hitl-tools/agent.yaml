@@ -1,0 +1,16 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: hitl-tools-agent
+spec:
+  description: A LangGraph agent demonstrating HITL tool approval with safe and dangerous tools
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/langgraph-hitl-tools:latest
+      env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-openai
+              key: OPENAI_API_KEY
