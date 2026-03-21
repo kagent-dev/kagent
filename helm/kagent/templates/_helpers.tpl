@@ -122,14 +122,18 @@ PostgreSQL service name for the bundled postgres instance
 {{- end -}}
 
 {{/*
-PostgreSQL URL - auto-computed from bundled config when url is empty, otherwise uses database.postgres.url
+Bundled PostgreSQL image - constructs the full image reference from registry/repository/name/tag
 */}}
-{{- define "kagent.postgresqlUrl" -}}
-{{- if not (eq .Values.database.postgres.url "") -}}
-{{- .Values.database.postgres.url -}}
-{{- else -}}
-{{- printf "postgres://%s:%s@%s.%s.svc.cluster.local:5432/%s" .Values.database.postgres.bundled.user .Values.database.postgres.bundled.password (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) .Values.database.postgres.bundled.database -}}
+{{- define "kagent.postgresql.image" -}}
+{{- $pg := .Values.database.postgres.bundled -}}
+{{- printf "%s/%s/%s:%s" $pg.image.registry $pg.image.repository $pg.image.name $pg.image.tag -}}
 {{- end -}}
+
+{{/*
+Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWORD.
+*/}}
+{{- define "kagent.passwordSecretName" -}}
+{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
 {{/*
