@@ -61,7 +61,7 @@ For Helm install, other LLM providers, and provider-specific configuration, see 
 
 kagent uses Kubernetes CRDs to manage agents, models, and tools:
 
-- **Agent** (`kagent.dev/v1alpha2`) — Defines an AI agent. Two types: **Declarative** (YAML-defined, controller-managed) and **BYO** (custom container image with any framework: Google ADK, OpenAI Agents SDK, LangGraph, CrewAI).
+- **Agent** (`kagent.dev/v1alpha2`) — Defines an AI agent. Two types: **Declarative** (YAML-defined, controller-managed) and **BYO** (custom container image with any framework: Google ADK, AG2, OpenAI Agents SDK, LangGraph, CrewAI).
 - **ModelConfig** (`kagent.dev/v1alpha2`) — Configures LLM provider and model. Agents reference a ModelConfig by name.
 - **RemoteMCPServer** (`kagent.dev/v1alpha2`) — Connects agents to external MCP tool servers via HTTP.
 - **MCPServer** (KMCP) — Deploys and manages MCP server pods in the cluster.

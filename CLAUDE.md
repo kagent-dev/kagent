@@ -68,7 +68,7 @@ kagent/
 | Language | Use For | Don't Use For |
 |----------|---------|---------------|
 | **Go** | K8s controllers, CLI tools, core APIs, HTTP server, database layer | Agent runtime, LLM integrations, UI |
-| **Python** | Agent runtime, ADK, LLM integrations, AI/ML logic | Kubernetes controllers, CLI, infrastructure |
+| **Python** | Agent runtime, ADK, AG2, LLM integrations, AI/ML logic | Kubernetes controllers, CLI, infrastructure |
 | **TypeScript** | Web UI components and API clients only | Backend logic, controllers, agents |
 
 **Rule of thumb:** Infrastructure in Go, AI/Agent logic in Python, User interface in TypeScript.
