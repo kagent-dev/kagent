@@ -121,52 +121,6 @@ func TestSandboxNetwork_AllowedDomains(t *testing.T) {
 	allowed, ok := network["allowedDomains"].([]any)
 	require.True(t, ok, "network should have allowedDomains")
 	assert.Equal(t, []any{"api.example.com", "*.github.com"}, allowed)
-
-	_, ok = network["deniedDomains"]
-	assert.False(t, ok, "deniedDomains should not be present")
-}
-
-func TestSandboxNetwork_DeniedDomains(t *testing.T) {
-	agent := newTestAgent(&v1alpha2.SandboxNetworkConfig{
-		DeniedDomains: []string{"malicious.com"},
-	})
-
-	result := translateAgent(t, agent)
-	secret := findSecret(t, result)
-
-	srtSettingsJSON, ok := secret.StringData["srt-settings.json"]
-	require.True(t, ok, "srt-settings.json should be present in Secret")
-
-	var settings map[string]any
-	require.NoError(t, json.Unmarshal([]byte(srtSettingsJSON), &settings))
-
-	network := settings["network"].(map[string]any)
-	denied, ok := network["deniedDomains"].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"malicious.com"}, denied)
-
-	_, ok = network["allowedDomains"]
-	assert.False(t, ok, "allowedDomains should not be present")
-}
-
-func TestSandboxNetwork_BothDomains(t *testing.T) {
-	agent := newTestAgent(&v1alpha2.SandboxNetworkConfig{
-		AllowedDomains: []string{"api.example.com"},
-		DeniedDomains:  []string{"malicious.com"},
-	})
-
-	result := translateAgent(t, agent)
-	secret := findSecret(t, result)
-
-	srtSettingsJSON, ok := secret.StringData["srt-settings.json"]
-	require.True(t, ok)
-
-	var settings map[string]any
-	require.NoError(t, json.Unmarshal([]byte(srtSettingsJSON), &settings))
-
-	network := settings["network"].(map[string]any)
-	assert.Contains(t, network, "allowedDomains")
-	assert.Contains(t, network, "deniedDomains")
 }
 
 func TestSandboxNetwork_Nil(t *testing.T) {
@@ -182,7 +136,6 @@ func TestSandboxNetwork_Nil(t *testing.T) {
 func TestSandboxNetwork_EmptyLists(t *testing.T) {
 	agent := newTestAgent(&v1alpha2.SandboxNetworkConfig{
 		AllowedDomains: []string{},
-		DeniedDomains:  []string{},
 	})
 
 	result := translateAgent(t, agent)

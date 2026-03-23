@@ -378,15 +378,12 @@ func (a *adkApiTranslator) buildManifest(
 	// Generate srt-settings.json if sandbox network is configured
 	if agent.Spec.SandboxNetwork != nil {
 		sn := agent.Spec.SandboxNetwork
-		if len(sn.AllowedDomains) > 0 || len(sn.DeniedDomains) > 0 {
-			network := map[string]any{}
-			if len(sn.AllowedDomains) > 0 {
-				network["allowedDomains"] = sn.AllowedDomains
-			}
-			if len(sn.DeniedDomains) > 0 {
-				network["deniedDomains"] = sn.DeniedDomains
-			}
-			srtSettings, err := json.Marshal(map[string]any{"network": network})
+		if len(sn.AllowedDomains) > 0 {
+			srtSettings, err := json.Marshal(map[string]any{
+				"network": map[string]any{
+					"allowedDomains": sn.AllowedDomains,
+				},
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal srt settings: %w", err)
 			}

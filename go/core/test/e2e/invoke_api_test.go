@@ -1319,7 +1319,6 @@ func TestE2ESandboxNetworkConfig(t *testing.T) {
 		},
 		SandboxNetwork: &v1alpha2.SandboxNetworkConfig{
 			AllowedDomains: []string{"api.example.com", "*.example.com"},
-			DeniedDomains:  []string{"malicious.example.com"},
 		},
 	})
 

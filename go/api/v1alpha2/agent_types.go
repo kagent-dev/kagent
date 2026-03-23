@@ -201,16 +201,11 @@ type DeclarativeAgentSpec struct {
 // If not specified, the sandbox runs with its default network restrictions (no outbound access).
 type SandboxNetworkConfig struct {
 	// AllowedDomains is the list of domains the sandbox is permitted to access.
-	// Supports wildcards (e.g. "*.github.com"). An empty list means no outbound access.
+	// Supports wildcards (e.g. "*.github.com"). Only listed domains are reachable;
+	// all other outbound access is blocked.
 	// +optional
 	// +kubebuilder:validation:MaxItems=50
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
-
-	// DeniedDomains is the list of domains the sandbox is explicitly denied from accessing.
-	// Takes precedence over AllowedDomains. Supports wildcards.
-	// +optional
-	// +kubebuilder:validation:MaxItems=50
-	DeniedDomains []string `json:"deniedDomains,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.
