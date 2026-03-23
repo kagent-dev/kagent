@@ -218,7 +218,7 @@ func (m *MapValue) String() string {
 
 func (m *MapValue) Set(raw string) error {
 	result := make(map[string]string)
-	for _, pair := range strings.Split(raw, ",") {
+	for pair := range strings.SplitSeq(raw, ",") {
 		pair = strings.TrimSpace(pair)
 		if pair == "" {
 			continue
