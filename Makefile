@@ -1,7 +1,5 @@
 # Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
 -include .env
-# Export selected override variables so .env values propagate to recipes and sub-make invocations
-export DOCKER_REGISTRY BASE_IMAGE_REGISTRY DOCKER_REPO HELM_REPO HELM_DIST_FOLDER VERSION
 
 # Image configuration
 DOCKER_REGISTRY ?= localhost:5001
