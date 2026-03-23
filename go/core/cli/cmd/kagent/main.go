@@ -427,7 +427,19 @@ Examples:
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
+	experimentalTuiCmd := &cobra.Command{
+		Use:   "experimental-tui",
+		Short: "Run the experimental TUI (for development/testing)",
+		Long:  `Run the experimental TUI (for development/testing)`,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := cli.RunExperimentalTUI(cmd.Context(), runCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error running experimental TUI: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, experimentalTuiCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
 
 	// Initialize config
 	if err := config.Init(); err != nil {

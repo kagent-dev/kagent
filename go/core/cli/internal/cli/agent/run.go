@@ -11,6 +11,7 @@ import (
 
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
+	experimentaltui "github.com/kagent-dev/kagent/go/core/cli/internal/experimental_tui"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -185,4 +186,9 @@ func waitForAgent(ctx context.Context, agentURL string, timeout time.Duration) e
 			}
 		}
 	}
+}
+
+func RunExperimentalTUI(ctx context.Context, cfg *RunCfg) error {
+	experimentaltui.Run()
+	return nil
 }
