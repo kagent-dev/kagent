@@ -15,7 +15,9 @@ from kagent.skills import (
     read_file_content,
     write_file_content,
 )
-from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
+# --- UNCOMMENT 5: Import _get_srt_settings_args ---
+# from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
+from kagent.skills.shell import _sanitize_env
 
 
 @pytest.fixture
@@ -342,74 +344,74 @@ async def test_execute_command_strips_secret_env_vars(tmp_path):
     assert env["HOME"] == "/home/user"
 
 
-# --- SRT settings args tests ---
-
-
-def test_srt_settings_no_env_var():
-    """Returns empty list when KAGENT_SRT_SETTINGS_PATH is not set."""
-    with patch.dict("os.environ", {}, clear=True):
-        assert _get_srt_settings_args() == []
-
-
-def test_srt_settings_with_path():
-    """Returns --settings args when KAGENT_SRT_SETTINGS_PATH is set."""
-    with patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json"}, clear=True):
-        assert _get_srt_settings_args() == ["--settings", "/config/srt-settings.json"]
-
-
-def test_srt_settings_empty_value():
-    """Returns empty list when KAGENT_SRT_SETTINGS_PATH is empty string."""
-    with patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": ""}, clear=True):
-        assert _get_srt_settings_args() == []
-
-
-@pytest.mark.asyncio
-async def test_execute_command_passes_srt_settings(tmp_path):
-    """SRT settings args are passed between 'srt' and 'sh' when configured."""
-    captured = {}
-
-    async def mock_exec(*args, **kwargs):
-        captured["args"] = args
-        mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_process.returncode = 0
-        return mock_process
-
-    with (
-        patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json", "PATH": "/usr/bin"}, clear=True),
-        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
-    ):
-        await execute_command("echo hello", working_dir=tmp_path, skills_dir=Path("/skills"))
-
-    args = captured["args"]
-    assert args[0] == "srt"
-    assert args[1] == "--settings"
-    assert args[2] == "/config/srt-settings.json"
-    assert args[3] == "sh"
-    assert args[4] == "-c"
-    assert args[5] == "echo hello"
-
-
-@pytest.mark.asyncio
-async def test_execute_command_no_srt_settings(tmp_path):
-    """SRT args unchanged when KAGENT_SRT_SETTINGS_PATH is not set."""
-    captured = {}
-
-    async def mock_exec(*args, **kwargs):
-        captured["args"] = args
-        mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_process.returncode = 0
-        return mock_process
-
-    with (
-        patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True),
-        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
-    ):
-        await execute_command("echo hello", working_dir=tmp_path, skills_dir=Path("/skills"))
-
-    args = captured["args"]
-    assert args[0] == "srt"
-    assert args[1] == "sh"
-    assert args[2] == "-c"
-    assert args[3] == "echo hello"
+# --- UNCOMMENT 5: SRT settings args tests ---
+#
+#
+# def test_srt_settings_no_env_var():
+#     """Returns empty list when KAGENT_SRT_SETTINGS_PATH is not set."""
+#     with patch.dict("os.environ", {}, clear=True):
+#         assert _get_srt_settings_args() == []
+#
+#
+# def test_srt_settings_with_path():
+#     """Returns --settings args when KAGENT_SRT_SETTINGS_PATH is set."""
+#     with patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json"}, clear=True):
+#         assert _get_srt_settings_args() == ["--settings", "/config/srt-settings.json"]
+#
+#
+# def test_srt_settings_empty_value():
+#     """Returns empty list when KAGENT_SRT_SETTINGS_PATH is empty string."""
+#     with patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": ""}, clear=True):
+#         assert _get_srt_settings_args() == []
+#
+#
+# @pytest.mark.asyncio
+# async def test_execute_command_passes_srt_settings(tmp_path):
+#     """SRT settings args are passed between 'srt' and 'sh' when configured."""
+#     captured = {}
+#
+#     async def mock_exec(*args, **kwargs):
+#         captured["args"] = args
+#         mock_process = MagicMock()
+#         mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+#         mock_process.returncode = 0
+#         return mock_process
+#
+#     with (
+#         patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json", "PATH": "/usr/bin"}, clear=True),
+#         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+#     ):
+#         await execute_command("echo hello", working_dir=tmp_path, skills_dir=Path("/skills"))
+#
+#     args = captured["args"]
+#     assert args[0] == "srt"
+#     assert args[1] == "--settings"
+#     assert args[2] == "/config/srt-settings.json"
+#     assert args[3] == "sh"
+#     assert args[4] == "-c"
+#     assert args[5] == "echo hello"
+#
+#
+# @pytest.mark.asyncio
+# async def test_execute_command_no_srt_settings(tmp_path):
+#     """SRT args unchanged when KAGENT_SRT_SETTINGS_PATH is not set."""
+#     captured = {}
+#
+#     async def mock_exec(*args, **kwargs):
+#         captured["args"] = args
+#         mock_process = MagicMock()
+#         mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+#         mock_process.returncode = 0
+#         return mock_process
+#
+#     with (
+#         patch.dict("os.environ", {"PATH": "/usr/bin"}, clear=True),
+#         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+#     ):
+#         await execute_command("echo hello", working_dir=tmp_path, skills_dir=Path("/skills"))
+#
+#     args = captured["args"]
+#     assert args[0] == "srt"
+#     assert args[1] == "sh"
+#     assert args[2] == "-c"
+#     assert args[3] == "echo hello"

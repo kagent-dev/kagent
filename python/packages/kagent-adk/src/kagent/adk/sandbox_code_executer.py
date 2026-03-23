@@ -22,7 +22,9 @@ from google.adk.code_executors.code_execution_utils import CodeExecutionInput, C
 from pydantic import Field
 from typing_extensions import override
 
-from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
+# --- UNCOMMENT 3: Import _get_srt_settings_args ---
+# from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
+from kagent.skills.shell import _sanitize_env
 
 
 class SandboxedLocalCodeExecutor(BaseCodeExecutor):
@@ -55,9 +57,11 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
 
         try:
             # Execute the provided code by piping it to `python -` inside the sandbox.
-            srt_args = _get_srt_settings_args()
+            # --- UNCOMMENT 3: Pass srt settings args ---
+            # srt_args = _get_srt_settings_args()
             proc = subprocess.run(
-                ["srt", *srt_args, "python", "-"],
+                # ["srt", *srt_args, "python", "-"],
+                ["srt", "python", "-"],
                 input=code_execution_input.code,
                 capture_output=True,
                 text=True,

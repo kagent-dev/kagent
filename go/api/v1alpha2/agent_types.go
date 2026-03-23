@@ -69,11 +69,12 @@ type AgentSpec struct {
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
+	// --- UNCOMMENT 1: Add SandboxNetwork field to AgentSpec ---
 	// SandboxNetwork configures outbound network access for the sandbox runtime
 	// used by skills and code execution. If not specified, no outbound network
 	// access is allowed (secure by default).
 	// +optional
-	SandboxNetwork *SandboxNetworkConfig `json:"sandboxNetwork,omitempty"`
+	// SandboxNetwork *SandboxNetworkConfig `json:"sandboxNetwork,omitempty"`
 
 	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
@@ -196,17 +197,18 @@ type DeclarativeAgentSpec struct {
 	Context *ContextConfig `json:"context,omitempty"`
 }
 
+// --- UNCOMMENT 1: Add SandboxNetworkConfig type ---
 // SandboxNetworkConfig configures outbound network access for the sandbox runtime.
-// When specified, the sandbox runtime will enforce the configured domain allowlist/denylist.
+// When specified, the sandbox runtime will enforce the configured domain allowlist.
 // If not specified, the sandbox runs with its default network restrictions (no outbound access).
-type SandboxNetworkConfig struct {
-	// AllowedDomains is the list of domains the sandbox is permitted to access.
-	// Supports wildcards (e.g. "*.github.com"). Only listed domains are reachable;
-	// all other outbound access is blocked.
-	// +optional
-	// +kubebuilder:validation:MaxItems=50
-	AllowedDomains []string `json:"allowedDomains,omitempty"`
-}
+// type SandboxNetworkConfig struct {
+// 	// AllowedDomains is the list of domains the sandbox is permitted to access.
+// 	// Supports wildcards (e.g. "*.github.com"). Only listed domains are reachable;
+// 	// all other outbound access is blocked.
+// 	// +optional
+// 	// +kubebuilder:validation:MaxItems=50
+// 	AllowedDomains []string `json:"allowedDomains,omitempty"`
+// }
 
 // ContextConfig configures context management for an agent.
 type ContextConfig struct {

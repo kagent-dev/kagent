@@ -159,12 +159,13 @@ def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
 
 
-def _get_srt_settings_args() -> list[str]:
-    """Return srt CLI args for --settings if a settings file is configured, else []."""
-    path = os.environ.get("KAGENT_SRT_SETTINGS_PATH", "")
-    if path:
-        return ["--settings", path]
-    return []
+# --- UNCOMMENT 3: Add _get_srt_settings_args function ---
+# def _get_srt_settings_args() -> list[str]:
+#     """Return srt CLI args for --settings if a settings file is configured, else []."""
+#     path = os.environ.get("KAGENT_SRT_SETTINGS_PATH", "")
+#     if path:
+#         return ["--settings", path]
+#     return []
 
 
 def _get_command_timeout_seconds(command: str) -> float:
@@ -196,10 +197,11 @@ async def execute_command(command: str, working_dir: Path, skills_dir: Path = Pa
         env["VIRTUAL_ENV"] = bash_venv_path
 
     try:
-        srt_args = _get_srt_settings_args()
+        # --- UNCOMMENT 3: Pass srt settings args ---
+        # srt_args = _get_srt_settings_args()
         process = await asyncio.create_subprocess_exec(
             "srt",
-            *srt_args,
+            # *srt_args,
             "sh",
             "-c",
             command,
