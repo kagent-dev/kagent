@@ -102,6 +102,17 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	return os.WriteFile(path, []byte(newContent), 0644)
 }
 
+// --- UNCOMMENT 3: Add getSrtSettingsArgs function ---
+// getSrtSettingsArgs returns the srt CLI args for --settings if a settings file
+// is configured via the KAGENT_SRT_SETTINGS_PATH environment variable.
+// func getSrtSettingsArgs() []string {
+// 	path := os.Getenv("KAGENT_SRT_SETTINGS_PATH")
+// 	if path != "" {
+// 		return []string{"--settings", path}
+// 	}
+// 	return nil
+// }
+
 // ExecuteCommand executes a shell command.
 func ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	timeout := 30 * time.Second
@@ -112,8 +123,9 @@ func ExecuteCommand(ctx context.Context, command string, workingDir string) (str
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// In the python version, it uses 'srt' for sandboxing.
-	// Here we'll execute the command directly but you might want to wrap it in a sandbox.
+	// --- UNCOMMENT 3: Use srt for sandboxed execution ---
+	// args := append(getSrtSettingsArgs(), "sh", "-c", command)
+	// cmd := exec.CommandContext(ctx, "srt", args...)
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
 
