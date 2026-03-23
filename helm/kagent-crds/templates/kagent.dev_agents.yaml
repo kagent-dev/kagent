@@ -10166,6 +10166,29 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              sandboxNetwork:
+                description: |-
+                  SandboxNetwork configures outbound network access for the sandbox runtime
+                  used by skills and code execution. If not specified, no outbound network
+                  access is allowed (secure by default).
+                properties:
+                  allowedDomains:
+                    description: |-
+                      AllowedDomains is the list of domains the sandbox is permitted to access.
+                      Supports wildcards (e.g. "*.github.com"). An empty list means no outbound access.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
+                  deniedDomains:
+                    description: |-
+                      DeniedDomains is the list of domains the sandbox is explicitly denied from accessing.
+                      Takes precedence over AllowedDomains. Supports wildcards.
+                    items:
+                      type: string
+                    maxItems: 50
+                    type: array
+                type: object
               skills:
                 description: |-
                   Skills to load into the agent. They will be pulled from the specified container images.

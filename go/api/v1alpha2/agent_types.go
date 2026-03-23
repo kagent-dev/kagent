@@ -69,6 +69,12 @@ type AgentSpec struct {
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
+	// SandboxNetwork configures outbound network access for the sandbox runtime
+	// used by skills and code execution. If not specified, no outbound network
+	// access is allowed (secure by default).
+	// +optional
+	SandboxNetwork *SandboxNetworkConfig `json:"sandboxNetwork,omitempty"`
+
 	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
@@ -188,6 +194,23 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+}
+
+// SandboxNetworkConfig configures outbound network access for the sandbox runtime.
+// When specified, the sandbox runtime will enforce the configured domain allowlist/denylist.
+// If not specified, the sandbox runs with its default network restrictions (no outbound access).
+type SandboxNetworkConfig struct {
+	// AllowedDomains is the list of domains the sandbox is permitted to access.
+	// Supports wildcards (e.g. "*.github.com"). An empty list means no outbound access.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
+
+	// DeniedDomains is the list of domains the sandbox is explicitly denied from accessing.
+	// Takes precedence over AllowedDomains. Supports wildcards.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	DeniedDomains []string `json:"deniedDomains,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.

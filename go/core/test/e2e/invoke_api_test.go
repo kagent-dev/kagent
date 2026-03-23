@@ -163,6 +163,7 @@ type AgentOptions struct {
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
+	SandboxNetwork *v1alpha2.SandboxNetworkConfig
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -447,6 +448,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if opts.PromptTemplate != nil {
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
+	}
+
+	if opts.SandboxNetwork != nil {
+		agent.Spec.SandboxNetwork = opts.SandboxNetwork
 	}
 
 	return agent
@@ -1295,6 +1300,38 @@ You are {{.AgentName}}, operating in {{.AgentNamespace}}.
 		// Verify the agent still responds correctly
 		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
 	})
+}
+
+func TestE2ESandboxNetworkConfig(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_sandbox_network.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Setup specific resources
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		Skills: &v1alpha2.SkillForAgent{
+			InsecureSkipVerify: true,
+			Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+		},
+		SandboxNetwork: &v1alpha2.SandboxNetworkConfig{
+			AllowedDomains: []string{"api.example.com", "*.example.com"},
+			DeniedDomains:  []string{"malicious.example.com"},
+		},
+	})
+
+	// Setup A2A client
+	a2aClient := setupA2AClient(t, agent)
+
+	// The mock LLM tells the agent to read /config/srt-settings.json via bash.
+	// This verifies the entire pipeline: CRD sandboxNetwork field → Go translator
+	// generates srt-settings.json in the config Secret → file is mounted in the pod.
+	// The mock matches on "api.example.com" in the tool response, confirming the
+	// settings file contains the configured domain.
+	runSyncTest(t, a2aClient, "check sandbox network config", "Configuration verified successfully", nil)
 }
 
 func TestE2EIAgentRunsCode(t *testing.T) {

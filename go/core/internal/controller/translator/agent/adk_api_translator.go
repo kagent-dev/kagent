@@ -370,13 +370,49 @@ func (a *adkApiTranslator) buildManifest(
 	}
 
 	// Secret
+	secretData := map[string]string{
+		"config.json":     cfgJson,
+		"agent-card.json": agentCard,
+	}
+
+	// Generate srt-settings.json if sandbox network is configured
+	if agent.Spec.SandboxNetwork != nil {
+		sn := agent.Spec.SandboxNetwork
+		if len(sn.AllowedDomains) > 0 || len(sn.DeniedDomains) > 0 {
+			network := map[string]any{}
+			if len(sn.AllowedDomains) > 0 {
+				network["allowedDomains"] = sn.AllowedDomains
+			}
+			if len(sn.DeniedDomains) > 0 {
+				network["deniedDomains"] = sn.DeniedDomains
+			}
+			srtSettings, err := json.Marshal(map[string]any{"network": network})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal srt settings: %w", err)
+			}
+			secretData["srt-settings.json"] = string(srtSettings)
+
+			// Ensure the config Secret volume is mounted (for BYO agents
+			// that don't have config.json/agent-card.json, the volume
+			// isn't set up by default)
+			if len(secretVol) == 0 {
+				secretVol = []corev1.Volume{{
+					Name: "config",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: agent.Name,
+						},
+					},
+				}}
+				secretMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
+			}
+		}
+	}
+
 	outputs.Manifest = append(outputs.Manifest, &corev1.Secret{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: objMeta(),
-		StringData: map[string]string{
-			"config.json":     cfgJson,
-			"agent-card.json": agentCard,
-		},
+		StringData: secretData,
 	})
 
 	// Service Account - only created if using the default name
@@ -469,6 +505,14 @@ func (a *adkApiTranslator) buildManifest(
 		}
 		initContainers = append(initContainers, container)
 		volumes = append(volumes, skillsVolumes...)
+	}
+
+	// Add srt settings path env var if sandbox network config was generated
+	if _, ok := secretData["srt-settings.json"]; ok {
+		sharedEnv = append(sharedEnv, corev1.EnvVar{
+			Name:  "KAGENT_SRT_SETTINGS_PATH",
+			Value: "/config/srt-settings.json",
+		})
 	}
 
 	// Token volume
