@@ -359,6 +359,18 @@ func TestMapValueWithLoadFromEnv(t *testing.T) {
 	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, target)
 }
 
+func TestMapValueWithLoadFromEnvEqualsInValue(t *testing.T) {
+	t.Setenv("DEFAULT_AGENT_POD_LABELS", "token=abc=def,team=platform")
+
+	var target map[string]string
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
+
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"token": "abc=def", "team": "platform"}, target)
+}
+
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
 		"METRICS_BIND_ADDRESS":           ":9090",
