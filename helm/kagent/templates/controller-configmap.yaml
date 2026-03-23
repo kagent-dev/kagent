@@ -62,8 +62,8 @@ data:
   {{- end }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.podLabels }}
   {{- $pairs := list }}
-  {{- range $k, $v := .Values.controller.agentDeployment.podLabels }}
-  {{- $pairs = append $pairs (printf "%s=%s" $k $v) }}
+  {{- range $k := keys .Values.controller.agentDeployment.podLabels | sortAlpha }}
+  {{- $pairs = append $pairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.podLabels $k | toString)) }}
   {{- end }}
   {{- if $pairs }}
   DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
