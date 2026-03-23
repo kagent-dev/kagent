@@ -51,11 +51,6 @@ data:
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
-  {{- if not (eq .Values.database.postgres.urlFile "") }}
-  POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
-  {{- else }}
-  POSTGRES_DATABASE_URL: {{ include "kagent.postgresqlUrl" . | quote }}
-  {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
