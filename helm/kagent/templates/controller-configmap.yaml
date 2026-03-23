@@ -65,3 +65,12 @@ data:
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
   DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
   {{- end }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.podLabels }}
+  {{- $pairs := list }}
+  {{- range $k, $v := .Values.controller.agentDeployment.podLabels }}
+  {{- $pairs = append $pairs (printf "%s=%s" $k $v) }}
+  {{- end }}
+  {{- if $pairs }}
+  DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
+  {{- end }}
+  {{- end }}

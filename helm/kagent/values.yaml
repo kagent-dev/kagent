@@ -88,6 +88,14 @@ controller:
     # Precedence: agent-level serviceAccountName > this default > auto-created SA.
     # @default -- "" (auto-create per-agent ServiceAccount)
     serviceAccountName: ""
+    # -- Default labels applied to all agent pod templates.
+    # Per-agent labels in the Agent CRD take precedence over these defaults.
+    # @default -- {} (no extra labels)
+    podLabels: {}
+    # Example:
+    #   podLabels:
+    #     team: platform
+    #     environment: production
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""

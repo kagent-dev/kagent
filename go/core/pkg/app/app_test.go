@@ -265,6 +265,85 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
+func TestParseLabels(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name:  "single label",
+			input: "team=platform",
+			want:  map[string]string{"team": "platform"},
+		},
+		{
+			name:  "multiple labels",
+			input: "team=platform,env=prod",
+			want:  map[string]string{"team": "platform", "env": "prod"},
+		},
+		{
+			name:  "labels with spaces",
+			input: " team = platform , env = prod ",
+			want:  map[string]string{"team": "platform", "env": "prod"},
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  map[string]string{},
+		},
+		{
+			name:  "trailing comma",
+			input: "team=platform,",
+			want:  map[string]string{"team": "platform"},
+		},
+		{
+			name:  "empty value",
+			input: "team=",
+			want:  map[string]string{"team": ""},
+		},
+		{
+			name:    "missing equals",
+			input:   "teamplatform",
+			wantErr: true,
+		},
+		{
+			name:    "empty key",
+			input:   "=value",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseLabels(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseLabels() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestDefaultAgentPodLabelsEnvVar(t *testing.T) {
+	t.Setenv("DEFAULT_AGENT_POD_LABELS", "team=platform,env=prod")
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	var raw string
+	fs.StringVar(&raw, "default-agent-pod-labels", "", "test flag")
+
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, "team=platform,env=prod", raw)
+
+	parsed, err := ParseLabels(raw)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, parsed)
+}
+
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
 		"METRICS_BIND_ADDRESS":           ":9090",
