@@ -303,6 +303,11 @@ func TestMapValue(t *testing.T) {
 			want:  map[string]string{"team": ""},
 		},
 		{
+			name:  "value containing equals",
+			input: "annotation=key=value",
+			want:  map[string]string{"annotation": "key=value"},
+		},
+		{
 			name:    "missing equals",
 			input:   "teamplatform",
 			wantErr: true,
@@ -337,6 +342,9 @@ func TestMapValueString(t *testing.T) {
 
 	target = map[string]string{"team": "platform"}
 	assert.Equal(t, "team=platform", mv.String())
+
+	target = map[string]string{"team": "platform", "env": "prod"}
+	assert.Equal(t, "env=prod,team=platform", mv.String())
 }
 
 func TestMapValueWithLoadFromEnv(t *testing.T) {

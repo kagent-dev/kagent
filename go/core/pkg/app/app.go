@@ -25,6 +25,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -209,9 +210,14 @@ func (m *MapValue) String() string {
 	if m.Target == nil || *m.Target == nil {
 		return ""
 	}
-	pairs := make([]string, 0, len(*m.Target))
-	for k, v := range *m.Target {
-		pairs = append(pairs, k+"="+v)
+	keys := make([]string, 0, len(*m.Target))
+	for k := range *m.Target {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+"="+(*m.Target)[k])
 	}
 	return strings.Join(pairs, ",")
 }
