@@ -439,7 +439,12 @@ Examples:
 		},
 	}
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, experimentalTuiCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
+	commands := []*cobra.Command{installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd()}
+	if os.Getenv("ENVIRONMENT") == "local" {
+		commands = append(commands, experimentalTuiCmd)
+	}
+
+	rootCmd.AddCommand(commands...)
 
 	// Initialize config
 	if err := config.Init(); err != nil {
