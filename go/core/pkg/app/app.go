@@ -77,10 +77,9 @@ import (
 )
 
 var (
-	scheme                   = runtime.NewScheme()
-	setupLog                 = ctrl.Log.WithName("setup")
-	kagentNamespace          = common.GetResourceNamespace()
-	defaultAgentPodLabelsRaw string
+	scheme          = runtime.NewScheme()
+	setupLog        = ctrl.Log.WithName("setup")
+	kagentNamespace = common.GetResourceNamespace()
 
 	// These variables should be set during build time using -ldflags
 	Version   = version.Version
@@ -179,7 +178,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
-	commandLine.StringVar(&defaultAgentPodLabelsRaw, "default-agent-pod-labels", "", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -200,9 +199,24 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 	return loadErr
 }
 
-// ParseLabels parses a comma-separated list of key=value pairs into a map.
-// For example: "team=platform,env=prod" -> {"team": "platform", "env": "prod"}
-func ParseLabels(raw string) (map[string]string, error) {
+// MapValue implements flag.Value for a map[string]string.
+// It parses comma-separated key=value pairs (e.g. "team=platform,env=prod").
+type MapValue struct {
+	Target *map[string]string
+}
+
+func (m *MapValue) String() string {
+	if m.Target == nil || *m.Target == nil {
+		return ""
+	}
+	pairs := make([]string, 0, len(*m.Target))
+	for k, v := range *m.Target {
+		pairs = append(pairs, k+"="+v)
+	}
+	return strings.Join(pairs, ",")
+}
+
+func (m *MapValue) Set(raw string) error {
 	result := make(map[string]string)
 	for _, pair := range strings.Split(raw, ",") {
 		pair = strings.TrimSpace(pair)
@@ -211,16 +225,17 @@ func ParseLabels(raw string) (map[string]string, error) {
 		}
 		k, v, ok := strings.Cut(pair, "=")
 		if !ok {
-			return nil, fmt.Errorf("invalid label format %q: expected key=value", pair)
+			return fmt.Errorf("invalid format %q: expected key=value", pair)
 		}
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)
 		if k == "" {
-			return nil, fmt.Errorf("invalid label: empty key in %q", pair)
+			return fmt.Errorf("invalid entry: empty key in %q", pair)
 		}
 		result[k] = v
 	}
-	return result, nil
+	*m.Target = result
+	return nil
 }
 
 type BootstrapConfig struct {
@@ -258,16 +273,6 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	if err := LoadFromEnv(flag.CommandLine); err != nil {
 		setupLog.Error(err, "failed to load configuration from environment variables")
 		os.Exit(1)
-	}
-
-	// Parse default agent pod labels from comma-separated key=value string
-	if defaultAgentPodLabelsRaw != "" {
-		parsed, err := ParseLabels(defaultAgentPodLabelsRaw)
-		if err != nil {
-			setupLog.Error(err, "failed to parse default-agent-pod-labels")
-			os.Exit(1)
-		}
-		agent_translator.DefaultAgentPodLabels = parsed
 	}
 
 	logger := zap.New(zap.UseFlagOptions(&opts))

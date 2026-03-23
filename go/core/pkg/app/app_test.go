@@ -265,7 +265,7 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
-func TestParseLabels(t *testing.T) {
+func TestMapValue(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
@@ -316,32 +316,39 @@ func TestParseLabels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseLabels(tt.input)
+			var target map[string]string
+			mv := &MapValue{Target: &target}
+			err := mv.Set(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseLabels() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("MapValue.Set() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
-				assert.Equal(t, tt.want, got)
+				assert.Equal(t, tt.want, target)
 			}
 		})
 	}
 }
 
-func TestDefaultAgentPodLabelsEnvVar(t *testing.T) {
+func TestMapValueString(t *testing.T) {
+	var target map[string]string
+	mv := &MapValue{Target: &target}
+	assert.Equal(t, "", mv.String())
+
+	target = map[string]string{"team": "platform"}
+	assert.Equal(t, "team=platform", mv.String())
+}
+
+func TestMapValueWithLoadFromEnv(t *testing.T) {
 	t.Setenv("DEFAULT_AGENT_POD_LABELS", "team=platform,env=prod")
 
+	var target map[string]string
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	var raw string
-	fs.StringVar(&raw, "default-agent-pod-labels", "", "test flag")
+	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
 
 	err := LoadFromEnv(fs)
 	assert.NoError(t, err)
-	assert.Equal(t, "team=platform,env=prod", raw)
-
-	parsed, err := ParseLabels(raw)
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, parsed)
+	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, target)
 }
 
 func TestLoadFromEnvIntegration(t *testing.T) {
