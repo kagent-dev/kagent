@@ -371,6 +371,64 @@ func TestMapValueWithLoadFromEnvEqualsInValue(t *testing.T) {
 	assert.Equal(t, map[string]string{"token": "abc=def", "team": "platform"}, target)
 }
 
+func TestRedactURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "postgres URL with credentials",
+			url:  "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres",
+			want: "postgres://postgres:xxxxx@kagent-postgresql.kagent.svc.cluster.local:5432/postgres",
+		},
+		{
+			name: "URL without credentials",
+			url:  "postgres://kagent-postgresql.kagent.svc.cluster.local:5432/postgres",
+			want: "postgres://kagent-postgresql.kagent.svc.cluster.local:5432/postgres",
+		},
+		{
+			name: "URL with username only",
+			url:  "postgres://postgres@localhost:5432/db",
+			want: "postgres://postgres@localhost:5432/db",
+		},
+		{
+			name: "empty string",
+			url:  "",
+			want: "",
+		},
+		{
+			name: "invalid URL",
+			url:  "://invalid",
+			want: "***",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactURL(tt.url)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestConfigMarshalLog(t *testing.T) {
+	cfg := Config{}
+	cfg.Database.Url = "postgres://postgres:supersecret@localhost:5432/mydb"
+	cfg.Database.VectorEnabled = true
+	cfg.HttpServerAddr = ":8083"
+
+	result := cfg.MarshalLog()
+	rc, ok := result.(redactedConfig)
+	assert.True(t, ok, "MarshalLog should return redactedConfig")
+	assert.Equal(t, "postgres://postgres:xxxxx@localhost:5432/mydb", rc.Database.Url)
+	assert.Equal(t, true, rc.Database.VectorEnabled)
+	assert.Equal(t, ":8083", rc.HttpServerAddr)
+
+	// Original config should not be modified
+	assert.Equal(t, "postgres://postgres:supersecret@localhost:5432/mydb", cfg.Database.Url)
+}
+
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
 		"METRICS_BIND_ADDRESS":           ":9090",
