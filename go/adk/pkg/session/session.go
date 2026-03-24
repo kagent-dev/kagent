@@ -173,12 +173,6 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 		if e.Content == nil && e.Author == "" && e.InvocationID == "" && e.FinishReason == "" && !e.Partial {
 			continue
 		}
-		// Drop HITL placeholder events on read (for events persisted before
-		// the write-side fix). See AppendEvent for the full rationale.
-		if isPlaceholderEvent(e) {
-			log.V(1).Info("Filtering HITL placeholder event on read", "eventIndex", i)
-			continue
-		}
 		normalizeConfirmationEventRole(e)
 		adkEvents = append(adkEvents, e)
 	}
@@ -234,11 +228,6 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, adkSess adksessi
 	}
 
 	log := logr.FromContextOrDiscard(ctx)
-
-	// Drop HITL placeholder events
-	if isPlaceholderEvent(event) {
-		return nil
-	}
 
 	normalizeConfirmationEventRole(event)
 
@@ -326,30 +315,12 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 	return err
 }
 
-// isPlaceholderEvent returns true if the event is an upstream ADK HITL
-// placeholder that should not be persisted.
-func isPlaceholderEvent(event *adksession.Event) bool {
-	if event == nil {
-		return false
-	}
-	return len(event.Actions.RequestedToolConfirmations) > 0
-}
-
 // normalizeConfirmationEventRole fixes the role on adk_request_confirmation
 // functionCall events from "model" to "user".
 //
 // The upstream Go ADK (generateRequestConfirmationEvent in functions.go) sets
-// role="model" on these events. Python sets role="user". OpenAI requires strict
-// tool_calls/tool response pairing: every "tool" role message must directly
-// follow the "assistant" message whose tool_calls it responds to. When
-// adk_request_confirmation is emitted as role="model" (assistant), it inserts
-// a new assistant message with tool_calls between the original tool call and
-// its tool response, breaking the chain and causing:
-//
-//	"messages with role 'tool' must be a response to a preceding message with 'tool_calls'"
-//
-// By setting role="user", the confirmation event is treated as a user message
-// and does not interfere with the tool_calls/tool pairing.
+// role="model" on these events. Python sets role="user", resulting in inconsistencies
+// and breaking some model provider's APIs.
 func normalizeConfirmationEventRole(event *adksession.Event) {
 	if event == nil || event.Content == nil || len(event.Content.Parts) == 0 {
 		return

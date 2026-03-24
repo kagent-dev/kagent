@@ -22,10 +22,30 @@ func agentNameFromAppName(appName string) string {
 	return appName
 }
 
-// CreateRunnerConfig creates a runner.Config suitable for use with adka2a.Executor.
-// Also returns subagentSessionIDs: a map of tool name → pre-generated context_id
-// for each KAgentRemoteA2ATool, to be forwarded to NewExecutorConfig so the
-// executor can stamp function_call DataParts for UI live-polling.
+// SubagentSessionProvider is implemented by toolsets that delegate to a remote
+// subagent and can expose the subagent's session ID for UI live-polling.
+// KAgentRemoteA2AToolset satisfies this interface.
+type SubagentSessionProvider interface {
+	SubagentSessionID() string
+}
+
+// ExtractSubagentSessionIDs walks toolsets and returns a map of
+// toolset-name -> session-ID for every toolset that implements SubagentSessionProvider.
+func ExtractSubagentSessionIDs(toolsets []adktool.Toolset) map[string]string {
+	result := make(map[string]string)
+	for _, ts := range toolsets {
+		if provider, ok := ts.(SubagentSessionProvider); ok {
+			if id := provider.SubagentSessionID(); id != "" {
+				result[ts.Name()] = id
+			}
+		}
+	}
+	return result
+}
+
+// CreateRunnerConfig builds a runner.Config and extracts subagent session IDs
+// from the agent's toolsets. The returned map is passed to KAgentExecutorConfig
+// so the executor can stamp function_call DataParts for UI live-polling.
 // sessionService implements adksession.Service directly; pass nil for in-memory.
 // memoryService is optional; pass nil when memory is not configured.
 func CreateRunnerConfig(
@@ -40,12 +60,13 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, kagentmemory.NewSaveMemoryTool(memoryService))
 	}
 
-	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
+	adkAgent, toolsets, err := agent.CreateGoogleADKAgentAndToolsets(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
 	if err != nil {
 		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
-	// KAgentSessionService implements adksession.Service directly.
+	subagentSessionIDs := ExtractSubagentSessionIDs(toolsets)
+
 	var adkSessionService adksession.Service
 	if sessionService != nil {
 		adkSessionService = sessionService
@@ -62,10 +83,11 @@ func CreateRunnerConfig(
 		runnerMemory = memoryService
 	}
 
-	return runner.Config{
+	cfg := runner.Config{
 		AppName:        appName,
 		Agent:          adkAgent,
 		SessionService: adkSessionService,
 		MemoryService:  runnerMemory,
-	}, subagentSessionIDs, nil
+	}
+	return cfg, subagentSessionIDs, nil
 }

@@ -9,18 +9,8 @@ import (
 
 	adkmodel "google.golang.org/adk/model"
 	adksession "google.golang.org/adk/session"
-	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
-
-func sessionResponse(id, userID string) map[string]any {
-	return map[string]any{
-		"data": map[string]any{
-			"session": map[string]any{"id": id, "user_id": userID},
-			"events":  []any{},
-		},
-	}
-}
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
@@ -268,112 +258,6 @@ func TestCreateSession_Success(t *testing.T) {
 	err := svc.CreateSession(context.Background(), "app", "u", nil, "s")
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
-	}
-}
-
-func TestAppendEvent_DropsPlaceholderEvents(t *testing.T) {
-	// HITL placeholder events (with RequestedToolConfirmations) must be
-	// dropped — they violate the HITL protocol contract and cause the UI
-	// to show "confirmation_requested" as a result instead of pending approval.
-	var httpCallCount int
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sessions/sess-1/events", func(w http.ResponseWriter, r *http.Request) {
-		httpCallCount++
-		w.WriteHeader(http.StatusCreated)
-	})
-
-	svc := newService(t, mux)
-	ls := &localSession{
-		appName:   "app",
-		userID:    "u",
-		sessionID: "sess-1",
-		state:     make(map[string]any),
-	}
-
-	event := &adksession.Event{
-		ID:     "evt-placeholder",
-		Author: "user",
-		LLMResponse: adkmodel.LLMResponse{
-			Content: &genai.Content{
-				Role: genai.RoleUser,
-				Parts: []*genai.Part{
-					{
-						FunctionResponse: &genai.FunctionResponse{
-							Name:     "some_tool",
-							ID:       "call_A",
-							Response: map[string]any{"status": "confirmation_requested"},
-						},
-					},
-				},
-			},
-		},
-		Actions: adksession.EventActions{
-			SkipSummarization: true,
-			RequestedToolConfirmations: map[string]toolconfirmation.ToolConfirmation{
-				"call_A": {Hint: "Tool 'some_tool' requires approval."},
-			},
-		},
-	}
-
-	if err := svc.AppendEvent(context.Background(), ls, event); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
-	}
-
-	if httpCallCount != 0 {
-		t.Errorf("expected 0 HTTP calls (placeholder dropped), got %d", httpCallCount)
-	}
-
-	evts := EventsFromSession(ls)
-	if len(evts) != 0 {
-		t.Errorf("expected 0 local events (placeholder dropped), got %d", len(evts))
-	}
-}
-
-func TestAppendEvent_DropsMultiPartPlaceholder(t *testing.T) {
-	// Batch HITL: multiple parallel tool calls produce a single placeholder
-	// event with multiple parts and multiple RequestedToolConfirmations entries.
-	var httpCallCount int
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sessions/sess-1/events", func(w http.ResponseWriter, r *http.Request) {
-		httpCallCount++
-		w.WriteHeader(http.StatusCreated)
-	})
-
-	svc := newService(t, mux)
-	ls := &localSession{
-		appName:   "app",
-		userID:    "u",
-		sessionID: "sess-1",
-		state:     make(map[string]any),
-	}
-
-	event := &adksession.Event{
-		ID:     "evt-batch-placeholder",
-		Author: "user",
-		LLMResponse: adkmodel.LLMResponse{
-			Content: &genai.Content{
-				Role: genai.RoleUser,
-				Parts: []*genai.Part{
-					{FunctionResponse: &genai.FunctionResponse{Name: "tool_a", ID: "call_A", Response: map[string]any{"status": "confirmation_requested"}}},
-					{FunctionResponse: &genai.FunctionResponse{Name: "tool_b", ID: "call_B", Response: map[string]any{"status": "confirmation_requested"}}},
-				},
-			},
-		},
-		Actions: adksession.EventActions{
-			SkipSummarization: true,
-			RequestedToolConfirmations: map[string]toolconfirmation.ToolConfirmation{
-				"call_A": {Hint: "Tool 'tool_a' requires approval."},
-				"call_B": {Hint: "Tool 'tool_b' requires approval."},
-			},
-		},
-	}
-
-	if err := svc.AppendEvent(context.Background(), ls, event); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
-	}
-
-	if httpCallCount != 0 {
-		t.Errorf("expected 0 HTTP calls (batch placeholder dropped), got %d", httpCallCount)
 	}
 }
 
