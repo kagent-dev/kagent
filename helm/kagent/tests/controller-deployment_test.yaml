@@ -139,6 +139,47 @@ tests:
       - notExists:
           path: data.IMAGE_PULL_SECRET
 
+  - it: should set DEFAULT_AGENT_POD_LABELS when podLabels are configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          podLabels:
+            team: platform
+            env: prod
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_POD_LABELS
+          value: "env=prod,team=platform"
+
+  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are empty
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          podLabels: {}
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_POD_LABELS
+
+  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are not configured
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_POD_LABELS
+
+  - it: should set DEFAULT_AGENT_POD_LABELS with single label
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          podLabels:
+            team: platform
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_POD_LABELS
+          value: "team=platform"
+
   - it: should configure watch namespaces
     template: controller-configmap.yaml
     set:

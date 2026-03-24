@@ -111,6 +111,10 @@ var DefaultSkillsInitImageConfig = ImageConfig{
 // instead of auto-creating a per-agent ServiceAccount.
 var DefaultServiceAccountName string
 
+// DefaultAgentPodLabels is a set of labels applied to all agent pod templates.
+// Per-agent labels from the Agent CRD spec take precedence over these defaults.
+var DefaultAgentPodLabels map[string]string
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
