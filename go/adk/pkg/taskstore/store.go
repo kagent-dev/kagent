@@ -16,8 +16,17 @@ import (
 const (
 	metadataKeyKagentAdkPartial = "kagent_adk_partial"
 	metadataKeyAdkPartial       = "adk_partial"
+	metadataKeyKagentType       = "kagent_type"
+	metadataKeyAdkType          = "adk_type"
+	metadataKeyKagentLongRun    = "kagent_is_long_running"
+	metadataKeyAdkLongRun       = "adk_is_long_running"
 	headerContentType           = "Content-Type"
 	contentTypeJSON             = "application/json"
+	partTypeFunctionCall        = "function_call"
+	partTypeFunctionResponse    = "function_response"
+	partKeyName                 = "name"
+	partKeyResponse             = "response"
+	confirmationFunctionName    = "adk_request_confirmation"
 )
 
 // KAgentTaskStore persists A2A tasks to KAgent via REST API
@@ -68,7 +77,9 @@ func cleanPartialEvents(history []*a2atype.Message) []*a2atype.Message {
 		if item != nil && isPartialMeta(item.Metadata) {
 			continue
 		}
-		cleaned = append(cleaned, item)
+		if normalized := normalizeMessage(item); normalized != nil {
+			cleaned = append(cleaned, normalized)
+		}
 	}
 	return cleaned
 }
@@ -80,9 +91,160 @@ func cleanPartialArtifacts(artifacts []*a2atype.Artifact) []*a2atype.Artifact {
 		if a != nil && isPartialMeta(a.Metadata) {
 			continue
 		}
-		cleaned = append(cleaned, a)
+		if normalized := normalizeArtifact(a); normalized != nil {
+			cleaned = append(cleaned, normalized)
+		}
 	}
 	return cleaned
+}
+
+func normalizeArtifact(artifact *a2atype.Artifact) *a2atype.Artifact {
+	if artifact == nil {
+		return nil
+	}
+	parts := normalizeParts(artifact.Parts)
+	if len(parts) == 0 {
+		return nil
+	}
+	copyArtifact := *artifact
+	copyArtifact.Parts = parts
+	return &copyArtifact
+}
+
+func normalizeMessage(message *a2atype.Message) *a2atype.Message {
+	if message == nil {
+		return nil
+	}
+	parts := normalizeParts(message.Parts)
+	if len(parts) == 0 {
+		return nil
+	}
+	copyMessage := *message
+	copyMessage.Parts = parts
+	return &copyMessage
+}
+
+func normalizeParts(parts a2atype.ContentParts) a2atype.ContentParts {
+	var normalized a2atype.ContentParts
+	for _, part := range parts {
+		switch typed := part.(type) {
+		case *a2atype.DataPart:
+			if cleaned := normalizeDataPart(*typed); cleaned != nil {
+				normalized = append(normalized, cleaned)
+			}
+		case a2atype.DataPart:
+			if cleaned := normalizeDataPart(typed); cleaned != nil {
+				normalized = append(normalized, cleaned)
+			}
+		default:
+			normalized = append(normalized, part)
+		}
+	}
+	return normalized
+}
+
+func normalizeDataPart(part a2atype.DataPart) a2atype.Part {
+	if isTransientHitlResponse(part) {
+		return nil
+	}
+	return part
+}
+
+func isTransientHitlResponse(part a2atype.DataPart) bool {
+	if readPartType(part.Metadata) != partTypeFunctionResponse {
+		return false
+	}
+	response, _ := part.Data[partKeyResponse].(map[string]any)
+	if response == nil {
+		return false
+	}
+	status, _ := response["status"].(string)
+	switch status {
+	case "confirmation_requested", "pending":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeStatusMessage(task *a2atype.Task) {
+	if task == nil {
+		return
+	}
+
+	task.Status.Message = normalizeMessage(task.Status.Message)
+	if task.Status.State != a2atype.TaskStateInputRequired {
+		return
+	}
+	if hasPendingConfirmationMessage(task.Status.Message) {
+		return
+	}
+	for i := len(task.History) - 1; i >= 0; i-- {
+		if hasPendingConfirmationMessage(task.History[i]) {
+			task.Status.Message = task.History[i]
+			return
+		}
+	}
+}
+
+func hasPendingConfirmationMessage(message *a2atype.Message) bool {
+	if message == nil {
+		return false
+	}
+	for _, part := range message.Parts {
+		dp := asDataPart(part)
+		if dp == nil {
+			continue
+		}
+		if readPartType(dp.Metadata) != partTypeFunctionCall {
+			continue
+		}
+		if !readLongRunning(dp.Metadata) {
+			continue
+		}
+		name, _ := dp.Data[partKeyName].(string)
+		if name == confirmationFunctionName {
+			return true
+		}
+	}
+	return false
+}
+
+func asDataPart(part a2atype.Part) *a2atype.DataPart {
+	switch typed := part.(type) {
+	case *a2atype.DataPart:
+		return typed
+	case a2atype.DataPart:
+		return &typed
+	default:
+		return nil
+	}
+}
+
+func readPartType(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	if value, _ := metadata[metadataKeyAdkType].(string); value != "" {
+		return value
+	}
+	if value, _ := metadata[metadataKeyKagentType].(string); value != "" {
+		return value
+	}
+	return ""
+}
+
+func readLongRunning(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	if value, ok := metadata[metadataKeyAdkLongRun].(bool); ok {
+		return value
+	}
+	if value, ok := metadata[metadataKeyKagentLongRun].(bool); ok {
+		return value
+	}
+	return false
 }
 
 // Save saves a task to KAgent
@@ -99,6 +261,7 @@ func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task) error {
 	if taskCopy.Artifacts != nil {
 		taskCopy.Artifacts = cleanPartialArtifacts(taskCopy.Artifacts)
 	}
+	normalizeStatusMessage(&taskCopy)
 
 	taskJSON, err := json.Marshal(&taskCopy)
 	if err != nil {

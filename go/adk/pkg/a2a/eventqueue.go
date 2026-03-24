@@ -46,8 +46,8 @@ func NewEventQueue(inner eventqueue.Queue, reqCtx *a2asrv.RequestContext) *Event
 }
 
 // WrapExecutorQueue wraps an a2asrv.AgentExecutor so that each execution's
-// queue is automatically wrapped with an EventQueue. Use this for opaque
-// executors where you cannot modify the Execute method.
+// queue is automatically wrapped with an EventQueue and HITL decisions are
+// pre-processed before the inner executor runs.
 func WrapExecutorQueue(inner a2asrv.AgentExecutor) a2asrv.AgentExecutor {
 	return &executorQueueWrapper{inner: inner}
 }
@@ -62,7 +62,22 @@ func (w *executorQueueWrapper) Execute(ctx context.Context, reqCtx *a2asrv.Reque
 	if reqCtx.Message == nil {
 		return fmt.Errorf("A2A request message cannot be nil")
 	}
+
+	// HITL resume: inject FunctionResponse parts into reqCtx.Message before
+	// inner.Execute runs toGenAIContent
+	injectHITLDecision(reqCtx)
+
 	return w.inner.Execute(ctx, reqCtx, NewEventQueue(queue, reqCtx))
+}
+
+// injectHITLDecision reads the pending adk_request_confirmation FunctionCall
+// IDs directly from reqCtx.StoredTask, builds a FunctionResponse for each one carrying the user's decision
+func injectHITLDecision(reqCtx *a2asrv.RequestContext) {
+	resumeMessage := BuildResumeHITLMessage(reqCtx.StoredTask, reqCtx.Message)
+	if resumeMessage == nil {
+		return
+	}
+	reqCtx.Message = resumeMessage
 }
 
 func (w *executorQueueWrapper) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {

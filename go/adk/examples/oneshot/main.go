@@ -66,7 +66,7 @@ func main() {
 		agentConfig.Stream = &t
 	}
 
-	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, "oneshot")
+	adkAgent, _, err := agent.CreateGoogleADKAgent(ctx, agentConfig, "oneshot")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error creating agent: %v\n", err)
 		os.Exit(1)
