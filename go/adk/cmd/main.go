@@ -115,7 +115,7 @@ func main() {
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
-	var sessionService session.SessionService
+	var sessionService *session.KAgentSessionService
 	if kagentURL != "" {
 		sessionService = session.NewKAgentSessionService(kagentURL, httpClient)
 		logger.Info("Using KAgent session service", "url", kagentURL)
@@ -143,14 +143,14 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
+	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
 	}
 
 	stream := agentConfig.GetStream()
-	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
+	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, subagentSessionIDs, stream, appName, logger)
 	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
 
 	// Build the agent card.
