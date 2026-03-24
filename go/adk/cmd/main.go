@@ -20,7 +20,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"google.golang.org/adk/server/adka2a"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -150,8 +149,14 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
-	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, subagentSessionIDs, stream, appName, logger)
-	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
+	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
+		RunnerConfig:       runnerConfig,
+		SubagentSessionIDs: subagentSessionIDs,
+		SessionService:     sessionService,
+		Stream:             stream,
+		AppName:            appName,
+		Logger:             logger,
+	})
 
 	// Build the agent card.
 	if agentCard == nil {

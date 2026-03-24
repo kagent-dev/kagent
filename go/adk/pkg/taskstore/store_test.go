@@ -10,9 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 )
 
-func TestSave_NormalizesHitlTaskPersistence(t *testing.T) {
-	t.Helper()
-
+func TestSave_PersistsTaskWithHistory(t *testing.T) {
 	var persisted map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/tasks" {
@@ -39,19 +37,6 @@ func TestSave_NormalizesHitlTaskPersistence(t *testing.T) {
 				Metadata: map[string]any{
 					"adk_type":            "function_call",
 					"adk_is_long_running": false,
-				},
-			}),
-			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.DataPart{
-				Data: map[string]any{
-					"name": "k8s_get_resources",
-					"id":   "call-1",
-					"response": map[string]any{
-						"status": "confirmation_requested",
-						"tool":   "k8s_get_resources",
-					},
-				},
-				Metadata: map[string]any{
-					"adk_type": "function_response",
 				},
 			}),
 			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.DataPart{
@@ -91,15 +76,18 @@ func TestSave_NormalizesHitlTaskPersistence(t *testing.T) {
 			State: a2atype.TaskStateInputRequired,
 			Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.DataPart{
 				Data: map[string]any{
-					"name": "k8s_get_resources",
-					"id":   "call-1",
-					"response": map[string]any{
-						"status": "confirmation_requested",
-						"tool":   "k8s_get_resources",
+					"name": "adk_request_confirmation",
+					"id":   "confirm-1",
+					"args": map[string]any{
+						"originalFunctionCall": map[string]any{
+							"name": "k8s_get_resources",
+							"id":   "call-1",
+						},
 					},
 				},
 				Metadata: map[string]any{
-					"adk_type": "function_response",
+					"adk_type":            "function_call",
+					"adk_is_long_running": true,
 				},
 			}),
 		},
@@ -109,28 +97,13 @@ func TestSave_NormalizesHitlTaskPersistence(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
+	// All 3 history messages are persisted (no HITL filtering at the task level).
 	history, _ := persisted["history"].([]any)
 	if len(history) != 3 {
 		t.Fatalf("persisted history length = %d, want 3", len(history))
 	}
 
-	secondMsg, _ := history[1].(map[string]any)
-	secondParts, _ := secondMsg["parts"].([]any)
-	secondPart, _ := secondParts[0].(map[string]any)
-	secondData, _ := secondPart["data"].(map[string]any)
-	if got := secondData["name"]; got != "adk_request_confirmation" {
-		t.Fatalf("history[1] name = %v, want adk_request_confirmation", got)
-	}
-
-	thirdMsg, _ := history[2].(map[string]any)
-	thirdParts, _ := thirdMsg["parts"].([]any)
-	thirdPart, _ := thirdParts[0].(map[string]any)
-	thirdData, _ := thirdPart["data"].(map[string]any)
-	thirdResponse, _ := thirdData["response"].(map[string]any)
-	if got, _ := thirdResponse["output"].(string); got != "NAME   DATA\ncfg    1\n" {
-		t.Fatalf("tool response output = %v, want original text", got)
-	}
-
+	// status.message is persisted as-is (the adk_request_confirmation FunctionCall).
 	status, _ := persisted["status"].(map[string]any)
 	statusMessage, _ := status["message"].(map[string]any)
 	statusParts, _ := statusMessage["parts"].([]any)
@@ -138,5 +111,39 @@ func TestSave_NormalizesHitlTaskPersistence(t *testing.T) {
 	statusData, _ := statusPart["data"].(map[string]any)
 	if got := statusData["name"]; got != "adk_request_confirmation" {
 		t.Fatalf("status.message name = %v, want adk_request_confirmation", got)
+	}
+}
+
+func TestSave_StripsPartialEventsFromHistory(t *testing.T) {
+	var persisted map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&persisted); err != nil {
+			t.Fatalf("failed to decode persisted task: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	store := NewKAgentTaskStoreWithClient(server.URL, server.Client())
+	task := &a2atype.Task{
+		ID: "task-2",
+		History: []*a2atype.Message{
+			// Non-partial: should be kept.
+			a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: "hello"}),
+			// Partial: should be stripped.
+			{
+				Parts:    a2atype.ContentParts{a2atype.TextPart{Text: "streaming chunk"}},
+				Metadata: map[string]any{metadataKeyAdkPartial: true},
+			},
+		},
+	}
+
+	if err := store.Save(context.Background(), task); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	history, _ := persisted["history"].([]any)
+	if len(history) != 1 {
+		t.Fatalf("persisted history length = %d, want 1 (partial stripped)", len(history))
 	}
 }

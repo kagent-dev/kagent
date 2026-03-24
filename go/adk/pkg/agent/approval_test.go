@@ -10,6 +10,7 @@ import (
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
+
 // mockTool satisfies tool.Tool for testing.
 type mockTool struct{ name string }
 

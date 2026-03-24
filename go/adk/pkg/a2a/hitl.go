@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"encoding/json"
+	"maps"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"google.golang.org/adk/tool/toolconfirmation"
@@ -318,12 +319,8 @@ func BuildConfirmationPayload(originalPayload, extra map[string]any) map[string]
 		return nil
 	}
 	merged := make(map[string]any)
-	for k, v := range originalPayload {
-		merged[k] = v
-	}
-	for k, v := range extra {
-		merged[k] = v
-	}
+	maps.Copy(merged, originalPayload)
+	maps.Copy(merged, extra)
 	return merged
 }
 
@@ -515,9 +512,7 @@ func parseDecisionMap(raw any) map[string]DecisionType {
 			return nil
 		}
 		result := make(map[string]DecisionType, len(typed))
-		for id, decision := range typed {
-			result[id] = decision
-		}
+		maps.Copy(result, typed)
 		return result
 	case map[string]string:
 		if len(typed) == 0 {
