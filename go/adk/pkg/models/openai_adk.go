@@ -248,11 +248,9 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 					maps.Copy(paramsMap, m)
 				}
 			} else if fd.Parameters != nil {
-				// Convert genai.Schema to a JSON schema map. Tools that use
-				// Declaration() with genai.Schema (e.g. KAgentRemoteA2ATool,
-				// AskUserTool) set fd.Parameters, not fd.ParametersJsonSchema.
-				// Without this conversion, OpenAI sees an empty parameter
-				// schema and omits required arguments.
+				// Tools that use Declaration() with genai.Schema set fd.Parameters,
+				// not fd.ParametersJsonSchema. Without this conversion,
+				// OpenAI sees an empty parameter schema and omits required arguments.
 				if m := genaiSchemaToMap(fd.Parameters); m != nil {
 					maps.Copy(paramsMap, m)
 				}
@@ -277,10 +275,7 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 	return out
 }
 
-// genaiSchemaToMap converts a genai.Schema to a map[string]any suitable for
-// OpenAI's function parameters. Uses JSON round-trip to avoid hand-mapping
-// every schema field, then lowercases "type" values (Gemini uses "STRING",
-// OpenAI expects "string").
+// Converts a genai.Schema to a map[string]any suitable for OpenAI's function parameters.
 func genaiSchemaToMap(s *genai.Schema) map[string]any {
 	if s == nil {
 		return nil
@@ -297,9 +292,7 @@ func genaiSchemaToMap(s *genai.Schema) map[string]any {
 	return m
 }
 
-// lowercaseSchemaTypes recursively lowercases "type" values in a JSON schema
-// map. Gemini uses uppercase types ("STRING", "OBJECT", "ARRAY", etc.) while
-// OpenAI / JSON Schema requires lowercase ("string", "object", "array").
+// Gemini schema uses uppercase ("STRING") while OpenAI uses lower case
 func lowercaseSchemaTypes(m map[string]any) {
 	if t, ok := m["type"].(string); ok {
 		m["type"] = strings.ToLower(t)

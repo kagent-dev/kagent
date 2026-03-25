@@ -113,9 +113,8 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		app.sessionService = sessionSvc
 		log.Info("Using KAgent session service", "url", cfg.KAgentURL)
 
-		taskStoreInstance := taskstore.NewKAgentTaskStoreWithClient(cfg.KAgentURL, httpClient)
-		taskStoreAdapter := taskstore.NewA2ATaskStoreAdapter(taskStoreInstance)
-		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStoreAdapter))
+		taskStore := taskstore.NewKAgentTaskStoreWithClient(cfg.KAgentURL, httpClient)
+		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStore))
 		log.Info("Using KAgent task store", "url", cfg.KAgentURL)
 	} else {
 		log.Info("No KAgentURL configured, using in-memory session and no task persistence")

@@ -215,7 +215,7 @@ func (t *KAgentRemoteA2ATool) handleResume(ctx tool.Context) (map[string]any, er
 		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
 		Role:      a2atype.MessageRoleUser,
-		Parts:     a2atype.ContentParts{&a2atype.DataPart{Data: decisionData}},
+		Parts:     a2atype.ContentParts{a2atype.DataPart{Data: decisionData}},
 	}
 
 	decisionType, _ := decisionData[a2a.KAgentHitlDecisionTypeKey].(string)
@@ -291,7 +291,17 @@ func (t *KAgentRemoteA2ATool) processResult(ctx tool.Context, result a2atype.Sen
 // handleInputRequired pauses parent agent execution via RequestConfirmation,
 // storing task_id and context_id so the resume path can forward the decision.
 func (t *KAgentRemoteA2ATool) handleInputRequired(ctx tool.Context, task *a2atype.Task) map[string]any {
-	hitlParts := a2a.ExtractHitlInfoFromParts(task.Status.Message.Parts)
+	if task == nil {
+		slog.Error("Subagent returned input_required without task", "tool", t.name)
+		return map[string]any{
+			"error": fmt.Sprintf("Remote agent '%s' returned input_required without task context.", t.name),
+		}
+	}
+
+	var hitlParts []a2a.HitlPartInfo
+	if task.Status.Message != nil {
+		hitlParts = a2a.ExtractHitlInfoFromParts(task.Status.Message.Parts)
+	}
 
 	var innerToolNames []string
 	for _, hp := range hitlParts {

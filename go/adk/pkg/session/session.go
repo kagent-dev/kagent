@@ -23,16 +23,10 @@ const (
 // ErrSessionNotFound indicates the requested persisted session does not exist.
 var ErrSessionNotFound = errors.New("session not found")
 
-// KAgentSessionService implements adksession.Service directly, storing events
-// in the KAgent HTTP backend. This mirrors Python's KAgentSessionService which
-// extends BaseSessionService directly — no separate adapter type is needed.
 type KAgentSessionService struct {
 	BaseURL string
 	Client  *http.Client
 }
-
-// Compile-time check that KAgentSessionService satisfies adksession.Service.
-var _ adksession.Service = (*KAgentSessionService)(nil)
 
 // NewKAgentSessionService creates a new KAgentSessionService.
 // If client is nil, http.DefaultClient is used.
