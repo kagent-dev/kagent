@@ -25,7 +25,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/kagent-dev/kmcp v0.2.7
 	github.com/kagent-dev/mockllm v0.0.5
-	github.com/modelcontextprotocol/go-sdk v1.4.0
+	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/muesli/reflow v0.3.0
 	github.com/openai/openai-go/v3 v3.26.0
 	github.com/pgvector/pgvector-go v0.3.0
@@ -191,7 +191,7 @@ require (
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	github.com/segmentio/encoding v0.5.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.2 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
