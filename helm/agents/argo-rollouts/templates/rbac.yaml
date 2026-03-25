@@ -1,10 +1,4 @@
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "kagent.fullname" . }}-argo-role
-  labels:
-    {{- include "kagent.labels" . | nindent 4 }}
-rules:
+{{- define "argo-rollouts.rules" -}}
 - apiGroups:
     - ''
   resources:
@@ -109,6 +103,31 @@ rules:
     - pods/portforward
   verbs:
     - create
+{{- end -}}
+
+{{- $create := true }}
+{{- if and (hasKey .Values "rbac") (hasKey .Values.rbac "create") }}{{ $create = .Values.rbac.create }}{{ end }}
+{{- if and (hasKey .Values "global") (hasKey .Values.global "rbac") (hasKey .Values.global.rbac "create") }}{{ $create = .Values.global.rbac.create }}{{ end }}
+
+{{- if $create }}
+{{- $clusterScoped := true }}
+{{- if and (hasKey .Values "rbac") (hasKey .Values.rbac "clusterScoped") }}{{ $clusterScoped = .Values.rbac.clusterScoped }}{{ end }}
+{{- if and (hasKey .Values "global") (hasKey .Values.global "rbac") (hasKey .Values.global.rbac "clusterScoped") }}{{ $clusterScoped = .Values.global.rbac.clusterScoped }}{{ end }}
+
+{{- $namespaces := list .Release.Namespace }}
+{{- if and (hasKey .Values "rbac") (hasKey .Values.rbac "namespaces") }}{{ $namespaces = .Values.rbac.namespaces }}{{ end }}
+{{- if and (hasKey .Values "global") (hasKey .Values.global "rbac") (hasKey .Values.global.rbac "namespaces") }}{{ $namespaces = .Values.global.rbac.namespaces }}{{ end }}
+{{- if empty $namespaces }}{{ $namespaces = list .Release.Namespace }}{{ end }}
+
+{{- if $clusterScoped }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-argo-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+  {{- include "argo-rollouts.rules" . | nindent 2 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -124,3 +143,34 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "kagent.fullname" . }}
     namespace: {{ include "kagent.namespace" . }}
+{{- else }}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagent.fullname" $ }}-argo-role
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+rules:
+  {{- include "argo-rollouts.rules" $ | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kagent.fullname" $ }}-argo-rolebinding
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kagent.fullname" $ }}-argo-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kagent.fullname" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}
