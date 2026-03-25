@@ -103,6 +103,21 @@ type SkillForAgent struct {
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+
+	// Configuration for the skills-init init container.
+	// +optional
+	InitContainer *SkillsInitContainer `json:"initContainer,omitempty"`
+}
+
+// SkillsInitContainer configures the skills-init init container.
+type SkillsInitContainer struct {
+	// Resource requirements for the skills-init init container.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Security context for the skills-init init container.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // GitRepo specifies a single Git repository to fetch skills from.
