@@ -45,7 +45,7 @@ class TestEmbeddingDispatch:
     @pytest.mark.asyncio
     async def test_openai_embed(self):
         svc = make_service(provider="openai", model="text-embedding-3-small")
-        vec = [0.1, 0.2, 0.3]
+        vec = [0.1] * 768
         mock_response = make_openai_embedding_response([vec])
         with mock.patch("openai.AsyncOpenAI") as mock_cls:
             instance = mock.AsyncMock()
@@ -59,7 +59,7 @@ class TestEmbeddingDispatch:
         svc = make_service(
             provider="azure_openai", model="text-embedding-ada-002", base_url="https://myazure.openai.azure.com"
         )
-        vec = [0.5] * 10
+        vec = [0.5] * 768
         mock_response = make_openai_embedding_response([vec])
         with (
             mock.patch.dict(
@@ -78,7 +78,7 @@ class TestEmbeddingDispatch:
     @pytest.mark.asyncio
     async def test_ollama_embed(self):
         svc = make_service(provider="ollama", model="nomic-embed-text")
-        vecs = [[0.1, 0.2, 0.3]]
+        vecs = [[0.1] * 768]
         mock_result = mock.MagicMock()
         mock_result.embeddings = vecs
         mock_client = mock.AsyncMock()
@@ -95,7 +95,7 @@ class TestEmbeddingDispatch:
     async def test_ollama_uses_api_base_url(self):
         svc = make_service(provider="ollama", model="nomic-embed-text", base_url="http://custom-ollama:11434")
         mock_result = mock.MagicMock()
-        mock_result.embeddings = [[0.0, 0.1]]
+        mock_result.embeddings = [[0.0] * 768]
         mock_client = mock.AsyncMock()
         mock_client.embed = mock.AsyncMock(return_value=mock_result)
 
@@ -120,7 +120,7 @@ class TestEmbeddingDispatch:
     @pytest.mark.asyncio
     async def test_unknown_provider_falls_back_to_openai(self):
         svc = make_service(provider="custom_provider", model="my-model")
-        vec = [0.1, 0.2]
+        vec = [0.1] * 768
         mock_response = make_openai_embedding_response([vec])
         with mock.patch("openai.AsyncOpenAI") as mock_cls:
             instance = mock.AsyncMock()
@@ -135,6 +135,18 @@ class TestEmbeddingDispatch:
         with mock.patch("openai.AsyncOpenAI") as mock_cls:
             instance = mock.AsyncMock()
             instance.embeddings.create = mock.AsyncMock(side_effect=Exception("API error"))
+            mock_cls.return_value = instance
+            result = await svc._generate_embedding_async("test")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_embedding_shorter_than_768_rejected(self):
+        svc = make_service(provider="openai", model="text-embedding-3-small")
+        short_vec = [0.1] * 64
+        mock_response = make_openai_embedding_response([short_vec])
+        with mock.patch("openai.AsyncOpenAI") as mock_cls:
+            instance = mock.AsyncMock()
+            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
             mock_cls.return_value = instance
             result = await svc._generate_embedding_async("test")
         assert result == []

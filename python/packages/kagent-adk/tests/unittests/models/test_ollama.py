@@ -4,8 +4,9 @@ import os
 from unittest import mock
 
 import pytest
+from google.genai import types
 
-from kagent.adk.models._ollama import KAgentOllamaLlm, create_ollama_llm
+from kagent.adk.models._ollama import KAgentOllamaLlm, _convert_content_to_ollama_messages, create_ollama_llm
 
 
 class TestKAgentOllamaLlm:
@@ -90,6 +91,32 @@ class TestKAgentOllamaLlm:
             [r async for r in llm.generate_content_async(request, stream=False)]
 
         assert mock_client.chat.call_args.kwargs["options"] == opts
+
+
+class TestConvertContentToOllamaMessages:
+    def test_image_inline_data_included(self):
+        content = types.Content(
+            role="user",
+            parts=[
+                types.Part(inline_data=types.Blob(mime_type="image/png", data=b"imgdata")),
+            ],
+        )
+        messages = _convert_content_to_ollama_messages([content])
+        assert len(messages) == 1
+        assert messages[0].images == [b"imgdata"]
+
+    def test_non_image_inline_data_excluded(self):
+        content = types.Content(
+            role="user",
+            parts=[
+                types.Part(inline_data=types.Blob(mime_type="application/pdf", data=b"pdfdata")),
+                types.Part(text="hello"),
+            ],
+        )
+        messages = _convert_content_to_ollama_messages([content])
+        assert len(messages) == 1
+        assert not messages[0].images
+        assert messages[0].content == "hello"
 
 
 class TestCreateOllamaLlm:

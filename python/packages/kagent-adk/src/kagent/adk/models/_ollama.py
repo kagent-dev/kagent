@@ -45,7 +45,12 @@ def _convert_content_to_ollama_messages(
                 function_calls.append(part.function_call)
             elif part.function_response:
                 function_responses.append(part.function_response)
-            elif part.inline_data and part.inline_data.data:
+            elif (
+                part.inline_data
+                and part.inline_data.data
+                and getattr(part.inline_data, "mime_type", None)
+                and str(part.inline_data.mime_type).startswith("image/")
+            ):
                 images.append(part.inline_data.data)
 
         if function_calls:

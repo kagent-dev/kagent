@@ -338,9 +338,16 @@ class KagentMemoryService(BaseMemoryService):
         # We must ensure embeddings have consistent dimensions for the vector storage backend.
         embeddings = []
         for embedding in raw_embeddings:
-            if len(embedding) > 768:
+            dim = len(embedding)
+            if dim > 768:
                 embedding = embedding[:768]
                 embedding = self._normalize_l2(embedding)
+            elif dim < 768:
+                logger.error(
+                    "Embedding dimension %d is smaller than required 768; rejecting embeddings batch",
+                    dim,
+                )
+                return []
             embeddings.append(embedding)
 
         if is_batch:
