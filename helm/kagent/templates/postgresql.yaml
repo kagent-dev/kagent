@@ -3,6 +3,15 @@
 {{- $fullname := include "kagent.postgresqlServiceName" . }}
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ $fullname }}
