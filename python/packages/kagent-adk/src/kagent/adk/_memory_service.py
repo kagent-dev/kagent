@@ -413,8 +413,7 @@ class KagentMemoryService(BaseMemoryService):
         model_name: str,
         texts: List[str],
     ) -> List[List[float]]:
-        """Embed using google-genai (Gemini or Vertex AI).
-        """
+        """Embed using google-genai (Gemini or Vertex AI)."""
         from google import genai
         from google.genai import types as genai_types
 
