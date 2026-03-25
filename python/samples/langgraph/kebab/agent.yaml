@@ -1,0 +1,10 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: langgraph-kebab
+spec:
+  description: LangGraph kebab sample (fake make_kebab tool; use with mock LLM in E2E).
+  type: BYO
+  byo:
+    deployment:
+      image: localhost:5001/langgraph-kebab:latest
