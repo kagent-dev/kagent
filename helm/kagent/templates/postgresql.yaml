@@ -39,6 +39,7 @@ spec:
         {{- include "kagent.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: database
     spec:
+      serviceAccountName: {{ $fullname }}
       securityContext:
         fsGroup: 999
         runAsUser: 999

@@ -2,6 +2,7 @@ suite: test postgresql
 templates:
   - postgresql.yaml
   - postgresql-secret.yaml
+  - postgresql-serviceaccount.yaml
 tests:
   # =============================================================================
   # bundled mode (default — url and urlFile both empty, bundled.enabled true)
@@ -220,6 +221,40 @@ tests:
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
           value: database
+
+  - it: should set serviceAccountName on Deployment
+    template: postgresql.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-postgresql
+
+  # =============================================================================
+  # postgresql-serviceaccount.yaml
+  # =============================================================================
+
+  - it: should create ServiceAccount when bundled is enabled
+    template: postgresql-serviceaccount.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-postgresql
+
+  - it: should not create ServiceAccount when bundled is disabled
+    template: postgresql-serviceaccount.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
 
   # =============================================================================
   # postgresql-secret.yaml
