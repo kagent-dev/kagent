@@ -76,6 +76,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
+  const agentContext = useMemo(() => ({
+    namespace: selectedNamespace,
+    agentName: selectedAgentName
+  }), [selectedNamespace, selectedAgentName]);
+
+  const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
+
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
@@ -207,7 +214,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -639,11 +646,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stored-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
@@ -656,11 +660,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stream-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
