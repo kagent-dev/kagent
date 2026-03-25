@@ -1,0 +1,22 @@
+[project]
+name = "kebab"
+version = "0.1.0"
+description = "Minimal LangGraph kebab sample for kagent (fake tool, no external APIs)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "kagent-langgraph",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel>=0.46.2"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+kebab = "kebab.cli:main"
+
+[tool.uv.sources]
+kagent-langgraph = { workspace = true }

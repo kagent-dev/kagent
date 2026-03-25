@@ -21,6 +21,7 @@ members = [
     "kagent-langgraph",
     "kagent-openai",
     "kagent-skills",
+    "kebab",
     "poem-flow",
     "research-crew",
 ]
@@ -2559,6 +2560,25 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "kebab"
+version = "0.1.0"
+source = { editable = "samples/langgraph/kebab" }
+dependencies = [
+    { name = "kagent-langgraph" },
+    { name = "langchain-core" },
+    { name = "langchain-openai" },
+    { name = "langgraph" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "kagent-langgraph", editable = "packages/kagent-langgraph" },
+    { name = "langchain-core", specifier = ">=0.3.0" },
+    { name = "langchain-openai", specifier = ">=0.3.0" },
+    { name = "langgraph", specifier = ">=0.2.0" },
+]
 
 [[package]]
 name = "kubernetes"
