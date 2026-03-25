@@ -673,15 +673,15 @@ func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
 func generateLangGraphAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "currency-converter-test",
+			Name:      "langgraph-kebab-test",
 			Namespace: "kagent",
 		},
 		Spec: v1alpha2.AgentSpec{
-			Description: "A currency converter LangGraph agent that can convert currencies",
+			Description: "LangGraph kebab sample for E2E testing",
 			Type:        v1alpha2.AgentType_BYO,
 			BYO: &v1alpha2.BYOAgentSpec{
 				Deployment: &v1alpha2.ByoDeploymentSpec{
-					Image: "localhost:5001/langgraph-currency:latest",
+					Image: "localhost:5001/langgraph-kebab:latest",
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						Env: []corev1.EnvVar{
 							{
@@ -813,8 +813,7 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Clean up any leftover agent from a previous failed run
-	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "currency-converter-test", Namespace: "kagent"}})
+	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "langgraph-kebab-test", Namespace: "kagent"}})
 
 	// Generate the LangGraph agent and inject the mock server's URL
 	agent := generateLangGraphAgent(baseURL)
@@ -850,11 +849,11 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What is the exchange rate from USD to EUR?", "0.92", nil)
+		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready", nil)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
-		runStreamingTest(t, a2aClient, "What is the exchange rate from USD to EUR?", "0.92")
+		runStreamingTest(t, a2aClient, "make me a kebab", "kebab is ready")
 	})
 }
 
