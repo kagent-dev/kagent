@@ -143,7 +143,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	if e.sessionService != nil {
 		sess, err := e.sessionService.GetSession(ctx, e.appName, userID, sessionID)
 		if err != nil {
-			return fmt.Errorf("failed to lookup session %s: %w", sessionID, err)
+			e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
+			sess = nil
 		}
 		if sess == nil {
 			sessionName := extractSessionName(reqCtx.Message)
@@ -282,7 +283,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			}
 			// Stamp kagent_subagent_session_id onto function_call DataParts.
 			if len(subagentSessionIDs) > 0 {
-				stampSubagentSessionID(a2aPart, subagentSessionIDs)
+				a2aPart = stampSubagentSessionID(a2aPart, subagentSessionIDs)
 			}
 			a2aParts = append(a2aParts, a2aPart)
 		}
@@ -417,10 +418,6 @@ func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestConte
 	event.Final = true
 	return queue.Write(ctx, event)
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // extractSessionName extracts session name from the first text part of a message.
 func extractSessionName(message *a2atype.Message) string {

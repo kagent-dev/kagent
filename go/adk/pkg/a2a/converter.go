@@ -11,10 +11,6 @@ import (
 	"google.golang.org/genai"
 )
 
-// ---------------------------------------------------------------------------
-// Part predicates / filters
-// ---------------------------------------------------------------------------
-
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.
 // The ADK processor emits such parts as cleanup signals for streaming partial
 // artifacts and as a fallback for unrecognized GenAI part types.
@@ -33,10 +29,6 @@ func filterTextParts(parts a2atype.ContentParts) a2atype.ContentParts {
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// Inbound: A2A → GenAI
-// ---------------------------------------------------------------------------
 
 // messageToGenAIContent converts an A2A message to *genai.Content using kagent
 // a2aPartConverter logic: handle kagent_type and adk_type DataParts explicitly,
@@ -64,10 +56,6 @@ func messageToGenAIContent(ctx context.Context, msg *a2atype.Message) (*genai.Co
 }
 
 // a2aPartConverter converts inbound A2A parts to GenAI parts.
-//
-// DataParts with kagent_type metadata are converted explicitly (function_call /
-// function_response).  DataParts with no recognised metadata — including HITL
-// decision parts like {decision_type: "approve"} — are dropped (return nil).
 func a2aPartConverter(_ context.Context, _ a2atype.Event, part a2atype.Part) (*genai.Part, error) {
 	dp := asDataPart(part)
 	if dp == nil {
@@ -126,17 +114,30 @@ func convertDataPartToGenAI(p *a2atype.DataPart, typeKey string) (*genai.Part, e
 	return adka2a.ToGenAIPart(p)
 }
 
-// ---------------------------------------------------------------------------
-// Outbound: GenAI → A2A stamping / metadata
-// ---------------------------------------------------------------------------
+// stampSubagentSessionID adds kagent_subagent_session_id to function_call
+// DataParts when the tool name is present in subagentSessionIDs.
+// Part can be either a *a2atype.DataPart or a2atype.DataPart.
+func stampSubagentSessionID(part a2atype.Part, subagentSessionIDs map[string]string) a2atype.Part {
+	switch p := part.(type) {
+	case *a2atype.DataPart:
+		cp := *p
+		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
+		return cp
+	case a2atype.DataPart:
+		cp := p
+		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
+		return cp
+	default:
+		return part
+	}
+}
 
-// stampSubagentSessionID adds kagent_subagent_session_id to the metadata of a
-// function_call DataPart if the tool name is in subagentSessionIDs.
-// Port of event_converter.py:_process_subagent_session_id().
-func stampSubagentSessionID(part a2atype.Part, subagentSessionIDs map[string]string) {
-	dp := asDataPart(part)
-	if dp == nil || dp.Metadata == nil {
+func stampSubagentSessionIDOnDataPart(dp *a2atype.DataPart, subagentSessionIDs map[string]string) {
+	if dp == nil || len(subagentSessionIDs) == 0 {
 		return
+	}
+	if dp.Metadata == nil {
+		dp.Metadata = map[string]any{}
 	}
 	partType, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataTypeKey)
 	if partType != A2ADataPartMetadataTypeFunctionCall {
@@ -151,12 +152,7 @@ func stampSubagentSessionID(part a2atype.Part, subagentSessionIDs map[string]str
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Metadata helpers
-// ---------------------------------------------------------------------------
-
 // toA2AMetadataMap converts v to map[string]any via JSON so values placed in A2A
-// Metadata are gob-friendly (no concrete genai types stored in interface{} slots).
 func toA2AMetadataMap(v any) (map[string]any, error) {
 	if v == nil {
 		return nil, nil
@@ -189,9 +185,6 @@ func buildEventMeta(baseMeta map[string]any, adkEvent *adksession.Event) map[str
 		}
 	}
 	if adkEvent.UsageMetadata != nil {
-		// Store usage as map[string]any (JSON round-trip), matching adka2a.addMeta. Raw
-		// *genai.GenerateContentResponseUsageMetadata in map values breaks gob encoding
-		// when the a2a stack persists task/event metadata.
 		if um, err := toA2AMetadataMap(adkEvent.UsageMetadata); err == nil && um != nil {
 			result[adka2a.ToA2AMetaKey("usage_metadata")] = um
 		}

@@ -513,9 +513,9 @@ func TestProcessHitlDecision(t *testing.T) {
 		if len(parts) != 1 {
 			t.Fatalf("len = %d, want 1", len(parts))
 		}
-		dp, ok := parts[0].(*a2atype.DataPart)
-		if !ok {
-			t.Fatal("part is not *DataPart")
+		dp := asDataPart(parts[0])
+		if dp == nil {
+			t.Fatal("part is not DataPart")
 		}
 		if dp.Data[PartKeyName] != "adk_request_confirmation" {
 			t.Errorf("name = %v", dp.Data[PartKeyName])

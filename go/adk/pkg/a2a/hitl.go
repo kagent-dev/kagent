@@ -176,7 +176,6 @@ func asDataPart(part a2atype.Part) *a2atype.DataPart {
 
 // ExtractDecisionFromMessage extracts a decision from an A2A message.
 // Only structured DataPart decisions are supported (no text keyword matching).
-// Port of _hitl_utils.py:extract_decision_from_message().
 func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 	if message == nil || len(message.Parts) == 0 {
 		return ""
@@ -200,7 +199,6 @@ func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 
 // ExtractBatchDecisionsFromMessage extracts per-tool decisions from a batch decision message.
 // Returns map[originalToolCallID]DecisionType.
-// Port of _hitl_utils.py:extract_batch_decisions_from_message().
 func ExtractBatchDecisionsFromMessage(message *a2atype.Message) map[string]DecisionType {
 	if message == nil {
 		return nil
@@ -217,7 +215,6 @@ func ExtractBatchDecisionsFromMessage(message *a2atype.Message) map[string]Decis
 
 // ExtractRejectionReasonsFromMessage extracts rejection reasons.
 // For uniform reject: returns {"*": reason}. For batch: returns {toolCallID: reason}.
-// Port of _hitl_utils.py:extract_rejection_reasons_from_message().
 func ExtractRejectionReasonsFromMessage(message *a2atype.Message) map[string]string {
 	if message == nil {
 		return nil
@@ -240,7 +237,6 @@ func ExtractRejectionReasonsFromMessage(message *a2atype.Message) map[string]str
 }
 
 // ExtractAskUserAnswersFromMessage extracts ask-user answers from a decision message.
-// Port of _hitl_utils.py:extract_ask_user_answers_from_message().
 func ExtractAskUserAnswersFromMessage(message *a2atype.Message) []map[string]any {
 	if message == nil {
 		return nil
@@ -268,7 +264,6 @@ func ExtractAskUserAnswersFromMessage(message *a2atype.Message) []map[string]any
 }
 
 // HitlPartInfoFromDataPartData constructs a HitlPartInfo from a raw DataPart.Data map.
-// Port of HitlPartInfo.from_data_part_data().
 func HitlPartInfoFromDataPartData(data map[string]any) HitlPartInfo {
 	name, _ := data["name"].(string)
 	if name == "" {
@@ -295,7 +290,6 @@ func HitlPartInfoFromDataPartData(data map[string]any) HitlPartInfo {
 }
 
 // ExtractHitlInfoFromParts scans A2A content parts for adk_request_confirmation DataParts.
-// Port of extract_hitl_info_from_task() but operating on parts directly.
 func ExtractHitlInfoFromParts(parts a2atype.ContentParts) []HitlPartInfo {
 	var result []HitlPartInfo
 	for _, part := range parts {
@@ -313,7 +307,6 @@ func ExtractHitlInfoFromParts(parts a2atype.ContentParts) []HitlPartInfo {
 }
 
 // BuildConfirmationPayload merges the original request_confirmation payload with extra data.
-// Port of _agent_executor.py:_build_confirmation_payload().
 func BuildConfirmationPayload(originalPayload, extra map[string]any) map[string]any {
 	if len(originalPayload) == 0 && len(extra) == 0 {
 		return nil
@@ -398,7 +391,6 @@ func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message)
 
 // ProcessHitlDecision processes a HITL decision and returns A2A DataParts
 // representing FunctionResponse(s) with ToolConfirmation payloads.
-// Port of _agent_executor.py:_process_hitl_decision().
 func ProcessHitlDecision(
 	pending map[string]PendingConfirmation,
 	decision DecisionType,
@@ -477,7 +469,7 @@ func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[stri
 		Payload:   payload,
 	}
 	serialized, _ := json.Marshal(tc)
-	return &a2atype.DataPart{
+	return a2atype.DataPart{
 		Data: map[string]any{
 			PartKeyName:     toolconfirmation.FunctionCallName,
 			PartKeyID:       fcID,
@@ -646,6 +638,15 @@ func parseHitlPartsValue(raw any) []HitlPartInfo {
 			return nil
 		}
 		return append([]HitlPartInfo(nil), typed...)
+	case []map[string]any:
+		if len(typed) == 0 {
+			return nil
+		}
+		result := make([]HitlPartInfo, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, HitlPartInfoFromDataPartData(item))
+		}
+		return result
 	case []any:
 		if len(typed) == 0 {
 			return nil
