@@ -24,7 +24,7 @@ class KagentMemoryService(BaseMemoryService):
 
     This service:
     1. Extracts text content from Session events
-    2. Generates embeddings using LiteLLM
+    2. Generates embeddings using provider-specific SDK clients
     3. Stores/searches via Kagent API backed by pgvector
     """
 
@@ -57,7 +57,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             session: The session to add to memory
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
         asyncio.create_task(self._add_session_to_memory_background(session, model))
 
@@ -69,7 +69,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             session: The session to add to memory
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
         try:
             # Extract content from session events
@@ -413,7 +413,8 @@ class KagentMemoryService(BaseMemoryService):
         model_name: str,
         texts: List[str],
     ) -> List[List[float]]:
-        """Embed using google-genai (Gemini or Vertex AI)."""
+        """Embed using google-genai (Gemini or Vertex AI).
+        """
         from google import genai
         from google.genai import types as genai_types
 
@@ -422,15 +423,13 @@ class KagentMemoryService(BaseMemoryService):
         else:
             client = genai.Client()
 
-        embeddings = []
-        for text in texts:
-            response = client.models.embed_content(
-                model=model_name,
-                contents=text,
-                config=genai_types.EmbedContentConfig(output_dimensionality=768),
-            )
-            embeddings.append(list(response.embeddings[0].values))
-        return embeddings
+        response = await asyncio.to_thread(
+            client.models.embed_content,
+            model=model_name,
+            contents=texts,
+            config=genai_types.EmbedContentConfig(output_dimensionality=768),
+        )
+        return [list(emb.values) for emb in response.embeddings]
 
     async def _summarize_session_content_async(
         self,
@@ -444,7 +443,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             content: The raw session content to summarize
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use.
                    If not provided, summarization is skipped.
 
         Returns:

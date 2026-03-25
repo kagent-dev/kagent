@@ -496,11 +496,11 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
         ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
+        # api key passthrough is not applicable for ollama
         return create_ollama_llm(
             model=model_config.model,
             options=ollama_options,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
         )
     if model_config.type == "azure_openai":
         return OpenAIAzure(
@@ -515,6 +515,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     if model_config.type == "gemini":
         return model_config.model
     if model_config.type == "bedrock":
+        # api key passthrough is not applicable for bedrock
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,

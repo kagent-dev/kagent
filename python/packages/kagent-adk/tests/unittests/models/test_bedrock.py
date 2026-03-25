@@ -68,6 +68,39 @@ class TestKAgentBedrockLlm:
         assert len(responses) == 1
         assert responses[0].content.parts[0].text == "hello"
 
+    @pytest.mark.asyncio
+    async def test_streaming_captures_usage_metadata(self):
+        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+        stream_events = [
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"text": "hello"}}},
+            {"messageStop": {"stopReason": "end_turn"}},
+            {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+        ]
+        mock_client = mock.MagicMock()
+        mock_client.converse_stream.return_value = {"stream": stream_events}
+
+        async def fake_to_thread(fn, **kwargs):
+            return fn(**kwargs)
+
+        request = mock.MagicMock()
+        request.model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        request.contents = []
+        request.config = None
+
+        with (
+            mock.patch("kagent.adk.models._bedrock._get_bedrock_client", return_value=mock_client),
+            mock.patch("kagent.adk.models._bedrock.asyncio.to_thread", side_effect=fake_to_thread),
+        ):
+            responses = [r async for r in llm.generate_content_async(request, stream=True)]
+
+        final = responses[-1]
+        assert final.usage_metadata is not None
+        assert final.usage_metadata.prompt_token_count == 10
+        assert final.usage_metadata.candidates_token_count == 5
+        assert final.usage_metadata.total_token_count == 15
+
     def test_create_llm_from_bedrock_model_config(self):
         """Integration: _create_llm_from_model_config returns KAgentBedrockLlm for bedrock type."""
         from kagent.adk.types import Bedrock, _create_llm_from_model_config

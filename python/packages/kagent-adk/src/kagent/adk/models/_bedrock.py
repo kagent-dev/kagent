@@ -181,6 +181,7 @@ class KAgentBedrockLlm(BaseLlm):
                 tool_uses: dict[str, dict] = {}  # toolUseId -> {name, input_json}
                 current_tool_id: Optional[str] = None
                 stop_reason = "end_turn"
+                usage_metadata: Optional[types.GenerateContentResponseUsageMetadata] = None
 
                 for event in stream_body:
                     if "contentBlockStart" in event:
@@ -207,6 +208,15 @@ class KAgentBedrockLlm(BaseLlm):
                     elif "messageStop" in event:
                         stop_reason = event["messageStop"].get("stopReason", "end_turn")
 
+                    elif "metadata" in event:
+                        usage = event["metadata"].get("usage", {})
+                        if usage:
+                            usage_metadata = types.GenerateContentResponseUsageMetadata(
+                                prompt_token_count=usage.get("inputTokens"),
+                                candidates_token_count=usage.get("outputTokens"),
+                                total_token_count=usage.get("totalTokens"),
+                            )
+
                 final_parts = []
                 if aggregated_text:
                     final_parts.append(types.Part.from_text(text=aggregated_text))
@@ -222,6 +232,7 @@ class KAgentBedrockLlm(BaseLlm):
                     partial=False,
                     turn_complete=True,
                     finish_reason=_stop_reason_to_finish_reason(stop_reason),
+                    usage_metadata=usage_metadata,
                 )
 
             else:
