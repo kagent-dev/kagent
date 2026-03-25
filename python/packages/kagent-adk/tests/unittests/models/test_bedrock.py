@@ -1,10 +1,34 @@
 """Tests for KAgentBedrockLlm."""
 
+import asyncio
 from unittest import mock
 
-from anthropic import AsyncAnthropicBedrock
+import pytest
 
-from kagent.adk.models._bedrock import KAgentBedrockLlm
+from kagent.adk.models._bedrock import KAgentBedrockLlm, _get_bedrock_client
+
+
+class TestGetBedrockClient:
+    def test_uses_aws_default_region_env(self):
+        with mock.patch.dict("os.environ", {"AWS_DEFAULT_REGION": "eu-west-1"}):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                _get_bedrock_client()
+                assert mock_boto.call_args.kwargs["region_name"] == "eu-west-1"
+
+    def test_falls_back_to_aws_region_env(self):
+        env = {k: v for k, v in __import__("os").environ.items() if k != "AWS_DEFAULT_REGION"}
+        env["AWS_REGION"] = "ap-southeast-1"
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                _get_bedrock_client()
+                assert mock_boto.call_args.kwargs["region_name"] == "ap-southeast-1"
+
+    def test_defaults_to_us_east_1(self):
+        env = {k: v for k, v in __import__("os").environ.items() if k not in ("AWS_DEFAULT_REGION", "AWS_REGION")}
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                _get_bedrock_client()
+                assert mock_boto.call_args.kwargs["region_name"] == "us-east-1"
 
 
 class TestKAgentBedrockLlm:
@@ -12,45 +36,43 @@ class TestKAgentBedrockLlm:
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
         assert llm.model == "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
-    def test_construction_with_headers(self):
-        llm = KAgentBedrockLlm(
-            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
-            extra_headers={"X-Custom": "value"},
-        )
-        assert llm.extra_headers == {"X-Custom": "value"}
+    def test_non_anthropic_model_accepted(self):
+        llm = KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0")
+        assert llm.model == "meta.llama3-8b-instruct-v1:0"
 
-    def test_client_created(self):
+    @pytest.mark.asyncio
+    async def test_generate_calls_converse(self):
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
-        with mock.patch("kagent.adk.models._bedrock.AsyncAnthropicBedrock") as mock_bedrock:
-            mock_bedrock.return_value = mock.MagicMock(spec=AsyncAnthropicBedrock)
-            _ = llm._anthropic_client
-            assert mock_bedrock.called
+        converse_response = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "hello"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+        }
+        mock_client = mock.MagicMock()
+        mock_client.converse.return_value = converse_response
 
-    def test_client_uses_extra_headers(self):
-        llm = KAgentBedrockLlm(
-            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
-            extra_headers={"X-Amz-Custom": "val"},
-        )
-        with mock.patch("kagent.adk.models._bedrock.AsyncAnthropicBedrock") as mock_bedrock:
-            mock_bedrock.return_value = mock.MagicMock(spec=AsyncAnthropicBedrock)
-            _ = llm._anthropic_client
-            assert mock_bedrock.call_args.kwargs.get("default_headers") == {"X-Amz-Custom": "val"}
+        async def fake_to_thread(fn, **kwargs):
+            return fn(**kwargs)
 
-    def test_client_no_headers_by_default(self):
-        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
-        with mock.patch("kagent.adk.models._bedrock.AsyncAnthropicBedrock") as mock_bedrock:
-            mock_bedrock.return_value = mock.MagicMock(spec=AsyncAnthropicBedrock)
-            _ = llm._anthropic_client
-            assert "default_headers" not in mock_bedrock.call_args.kwargs
+        request = mock.MagicMock()
+        request.model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        request.contents = []
+        request.config = None
+
+        with (
+            mock.patch("kagent.adk.models._bedrock._get_bedrock_client", return_value=mock_client),
+            mock.patch("kagent.adk.models._bedrock.asyncio.to_thread", side_effect=fake_to_thread),
+        ):
+            responses = [r async for r in llm.generate_content_async(request)]
+
+        assert len(responses) == 1
+        assert responses[0].content.parts[0].text == "hello"
 
     def test_create_llm_from_bedrock_model_config(self):
         """Integration: _create_llm_from_model_config returns KAgentBedrockLlm for bedrock type."""
         from kagent.adk.types import Bedrock, _create_llm_from_model_config
 
-        config = Bedrock(
-            type="bedrock",
-            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
-        )
+        config = Bedrock(type="bedrock", model="meta.llama3-8b-instruct-v1:0")
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentBedrockLlm)
-        assert result.model == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        assert result.model == "meta.llama3-8b-instruct-v1:0"
