@@ -12,6 +12,7 @@ import (
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
@@ -504,4 +505,235 @@ func Test_AdkApiTranslator_SkillsConfigurableImage(t *testing.T) {
 	}
 	require.NotNil(t, skillsInitContainer)
 	assert.Equal(t, "custom-registry/skills-init:latest", skillsInitContainer.Image)
+}
+
+func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "default"
+	modelName := "test-model"
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	defaultModel := types.NamespacedName{
+		Namespace: namespace,
+		Name:      modelName,
+	}
+
+	boolFalse := false
+
+	tests := []struct {
+		name                 string
+		agent                *v1alpha2.Agent
+		wantResources        corev1.ResourceRequirements
+		wantSecurityContext  *corev1.SecurityContext
+		wantEnvContains      []string // env var names expected on the init container
+		wantDefaultResources bool     // expect the default resource values
+	}{
+		{
+			name: "no initContainer - gets default resources and no securityContext",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-defaults", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+					},
+				},
+			},
+			wantDefaultResources: true,
+		},
+		{
+			name: "custom resources on initContainer",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-custom-resources", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+						InitContainer: &v1alpha2.SkillsInitContainer{
+							Resources: &corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantResources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("50m"),
+					corev1.ResourceMemory: resource.MustParse("64Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("200m"),
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+			},
+		},
+		{
+			name: "custom securityContext on initContainer",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-custom-secctx", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+						InitContainer: &v1alpha2.SkillsInitContainer{
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: &boolFalse,
+							},
+						},
+					},
+				},
+			},
+			wantDefaultResources: true,
+			wantSecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: &boolFalse,
+			},
+		},
+		{
+			name: "both resources and securityContext on initContainer",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-both-overrides", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+						InitContainer: &v1alpha2.SkillsInitContainer{
+							Resources: &corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("100m"),
+								},
+							},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: &boolFalse,
+							},
+						},
+					},
+				},
+			},
+			wantResources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				},
+			},
+			wantSecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: &boolFalse,
+			},
+		},
+		{
+			name: "init container receives dep env vars",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-env", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+						Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+							SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+								Env: []corev1.EnvVar{
+									{Name: "CUSTOM_VAR", Value: "custom-value"},
+								},
+							},
+						},
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+					},
+				},
+			},
+			wantDefaultResources: true,
+			wantEnvContains:      []string{"CUSTOM_VAR", "KAGENT_SKILLS_FOLDER"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig, tt.agent).
+				Build()
+
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			require.NoError(t, err)
+
+			var deployment *appsv1.Deployment
+			for _, obj := range outputs.Manifest {
+				if d, ok := obj.(*appsv1.Deployment); ok {
+					deployment = d
+				}
+			}
+			require.NotNil(t, deployment)
+
+			var initContainer *corev1.Container
+			for i := range deployment.Spec.Template.Spec.InitContainers {
+				if deployment.Spec.Template.Spec.InitContainers[i].Name == "skills-init" {
+					initContainer = &deployment.Spec.Template.Spec.InitContainers[i]
+				}
+			}
+			require.NotNil(t, initContainer, "skills-init container should exist")
+
+			// Check resources
+			if tt.wantDefaultResources {
+				assert.Equal(t, resource.MustParse("100m"), initContainer.Resources.Requests[corev1.ResourceCPU])
+				assert.Equal(t, resource.MustParse("384Mi"), initContainer.Resources.Requests[corev1.ResourceMemory])
+				assert.Equal(t, resource.MustParse("2000m"), initContainer.Resources.Limits[corev1.ResourceCPU])
+				assert.Equal(t, resource.MustParse("1Gi"), initContainer.Resources.Limits[corev1.ResourceMemory])
+			} else {
+				assert.Equal(t, tt.wantResources, initContainer.Resources)
+			}
+
+			// Check securityContext
+			if tt.wantSecurityContext != nil {
+				require.NotNil(t, initContainer.SecurityContext)
+				assert.Equal(t, tt.wantSecurityContext, initContainer.SecurityContext)
+			}
+
+			// Check env vars
+			if len(tt.wantEnvContains) > 0 {
+				envNames := make(map[string]bool)
+				for _, e := range initContainer.Env {
+					envNames[e.Name] = true
+				}
+				for _, name := range tt.wantEnvContains {
+					assert.True(t, envNames[name], "init container should have env var %s", name)
+				}
+			}
+		})
+	}
 }
