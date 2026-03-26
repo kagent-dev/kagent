@@ -97,8 +97,6 @@ database:
 # ==============================================================================
 
 rbac:
-  # -- Specifies whether RBAC resources should be created
-  create: true
   # -- If true, creates ClusterRole and ClusterRoleBinding resources.
   # If false, creates Role and RoleBinding resources instead.
   clusterScoped: true
