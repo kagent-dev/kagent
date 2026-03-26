@@ -452,6 +452,10 @@ func (a *adkApiTranslator) buildManifest(
 			Name:  env.KagentSkillsFolder.Name(),
 			Value: "/skills",
 		}
+		// Skills use the BashTool which calls srt (Anthropic Sandbox Runtime) → bubblewrap.
+		// Mark that a sandbox is needed so Privileged is set when possible.
+		// Exception: if the user explicitly set AllowPrivilegeEscalation=false (PSS Restricted),
+		// we respect their security context and let srt fall back to user-namespace sandboxing.
 		needSandbox = true
 		volumes = append(volumes, corev1.Volume{
 			Name: "kagent-skills",
@@ -515,12 +519,16 @@ func (a *adkApiTranslator) buildManifest(
 	if dep.SecurityContext != nil {
 		// Deep copy the user-provided security context
 		securityContext = dep.SecurityContext.DeepCopy()
-		// If sandbox is needed, ensure Privileged is set (may override user setting)
-		if needSandbox {
+		// Set Privileged for sandbox ONLY if it won't create an invalid securityContext.
+		// Kubernetes rejects {Privileged:true, AllowPrivilegeEscalation:false} as contradictory.
+		// When the user explicitly sets AllowPrivilegeEscalation=false (PSS Restricted namespace),
+		// we respect their choice: srt will use unprivileged user-namespace sandboxing instead.
+		// On modern kernels (EKS, GKE) unprivileged_userns_clone is enabled by default.
+		if needSandbox && !allowPrivilegeEscalationExplicitlyFalse(securityContext) {
 			securityContext.Privileged = new(true)
 		}
 	} else if needSandbox {
-		// Only create security context if sandbox is needed
+		// No user-provided securityContext: create one with Privileged for full sandbox
 		securityContext = &corev1.SecurityContext{
 			Privileged: new(true),
 		}
@@ -1799,4 +1807,12 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent
 		}
 	}
 	return errs
+}
+
+// allowPrivilegeEscalationExplicitlyFalse reports whether the security context
+// has AllowPrivilegeEscalation explicitly set to false (PSS Restricted profile).
+// This is used to detect when adding Privileged:true would create an invalid
+// securityContext that Kubernetes refuses to admit.
+func allowPrivilegeEscalationExplicitlyFalse(sc *corev1.SecurityContext) bool {
+	return sc != nil && sc.AllowPrivilegeEscalation != nil && !*sc.AllowPrivilegeEscalation
 }
