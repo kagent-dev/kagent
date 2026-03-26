@@ -51,12 +51,19 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
-Removes duplicates
+Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
+Precedence: controller.watchNamespaces > rbac.namespaces (when clusterScoped=false) > empty (watch all).
 */}}
 {{- define "kagent.watchNamespaces" -}}
-{{- $nsSet := dict }}
-{{- .Values.controller.watchNamespaces | default list | uniq | join "," }}
+{{- if .Values.controller.watchNamespaces -}}
+  {{- .Values.controller.watchNamespaces | uniq | join "," -}}
+{{- else if and .Values.rbac (not .Values.rbac.clusterScoped) -}}
+  {{- if .Values.rbac.namespaces -}}
+    {{- .Values.rbac.namespaces | uniq | join "," -}}
+  {{- else -}}
+    {{- .Release.Namespace -}}
+  {{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
