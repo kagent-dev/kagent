@@ -106,6 +106,7 @@ jobs:
       - name: Run namespace-scoped e2e tests
         if: success()
         env:
+          OPENAI_API_KEY: fake
           KAGENT_HELM_EXTRA_ARGS: >-
             --set rbac.clusterScoped=false
             --set 'rbac.namespaces={kagent}'
