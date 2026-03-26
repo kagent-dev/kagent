@@ -1,6 +1,5 @@
 # Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
 -include .env
-export
 
 # Image configuration
 DOCKER_REGISTRY ?= localhost:5001
@@ -177,7 +176,7 @@ push-test-agent: buildx-create build-kagent-adk
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-currency:latest -f python/samples/langgraph/currency/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create
@@ -375,6 +374,10 @@ helm-install-provider: helm-version check-api-key
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set database.postgres.bundled.image.repository=pgvector \
+		--set database.postgres.bundled.image.name=pgvector \
+		--set database.postgres.bundled.image.tag=pg18-trixie \
+		--set database.postgres.vectorEnabled=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
@@ -433,9 +436,8 @@ kagent-addon-install: use-kind-cluster
 
 .PHONY: open-dev-container
 open-dev-container:
-	@echo "Opening dev container..."
-	devcontainer build .
-	@devcontainer open .
+	@echo "Building and starting dev container..."
+	devcontainer up --workspace-folder .
 
 .PHONY: otel-local
 otel-local:

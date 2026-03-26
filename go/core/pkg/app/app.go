@@ -25,6 +25,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -177,6 +178,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
+
+	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -195,6 +198,50 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 	})
 
 	return loadErr
+}
+
+// MapValue implements flag.Value for a map[string]string.
+// It parses comma-separated key=value pairs (e.g. "team=platform,env=prod").
+type MapValue struct {
+	Target *map[string]string
+}
+
+func (m *MapValue) String() string {
+	if m.Target == nil || *m.Target == nil {
+		return ""
+	}
+	keys := make([]string, 0, len(*m.Target))
+	for k := range *m.Target {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+"="+(*m.Target)[k])
+	}
+	return strings.Join(pairs, ",")
+}
+
+func (m *MapValue) Set(raw string) error {
+	result := make(map[string]string)
+	for pair := range strings.SplitSeq(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok {
+			return fmt.Errorf("invalid format %q: expected key=value", pair)
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" {
+			return fmt.Errorf("invalid entry: empty key in %q", pair)
+		}
+		result[k] = v
+	}
+	*m.Target = result
+	return nil
 }
 
 type BootstrapConfig struct {

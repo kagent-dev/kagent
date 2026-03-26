@@ -1,11 +1,11 @@
 {
   "openai": [
     {
-      "name": "exchange_rate_tool_call",
+      "name": "make_kebab_tool_call",
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "What is the exchange rate from USD to EUR?",
+          "content": "make me a kebab",
           "role": "user"
         }
       },
@@ -25,8 +25,8 @@
                   "id": "call_lg001",
                   "type": "function",
                   "function": {
-                    "name": "_get_exchange_rate",
-                    "arguments": "{\"currency_from\": \"USD\", \"currency_to\": \"EUR\", \"currency_date\": \"latest\"}"
+                    "name": "make_kebab",
+                    "arguments": "{\"style\": \"mixed\"}"
                   }
                 }
               ]
@@ -37,11 +37,11 @@
       }
     },
     {
-      "name": "exchange_rate_tool_result",
+      "name": "make_kebab_after_tool",
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "USD",
+          "content": "fake_e2e",
           "role": "tool"
         }
       },
@@ -55,7 +55,7 @@
             "index": 0,
             "message": {
               "role": "assistant",
-              "content": "The current exchange rate from USD to EUR is 0.92."
+              "content": "Your kebab is ready."
             },
             "finish_reason": "stop"
           }
