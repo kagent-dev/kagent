@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _done_reason_to_finish_reason(done_reason: str) -> types.FinishReason:
+    if done_reason == "length":
+        return types.FinishReason.MAX_TOKENS
+    return types.FinishReason.STOP
+
+
 def _convert_content_to_ollama_messages(
     contents: list[types.Content],
     system_instruction: Optional[str] = None,
@@ -202,10 +208,20 @@ class KAgentOllamaLlm(BaseLlm):
                             if part.function_call:
                                 part.function_call.id = str(uuid.uuid4())
                             final_parts.append(part)
+                        finish_reason = _done_reason_to_finish_reason(chunk.done_reason) if chunk.done_reason else None
+                        usage_metadata = None
+                        if chunk.prompt_eval_count is not None or chunk.eval_count is not None:
+                            usage_metadata = types.GenerateContentResponseUsageMetadata(
+                                prompt_token_count=chunk.prompt_eval_count,
+                                candidates_token_count=chunk.eval_count,
+                                total_token_count=(chunk.prompt_eval_count or 0) + (chunk.eval_count or 0),
+                            )
                         yield LlmResponse(
                             content=types.Content(role="model", parts=final_parts),
                             partial=False,
                             turn_complete=True,
+                            finish_reason=finish_reason,
+                            usage_metadata=usage_metadata,
                         )
             else:
                 response = await self._client.chat(
@@ -223,7 +239,19 @@ class KAgentOllamaLlm(BaseLlm):
                     if part.function_call:
                         part.function_call.id = str(uuid.uuid4())
                     parts.append(part)
-                yield LlmResponse(content=types.Content(role="model", parts=parts))
+                finish_reason = _done_reason_to_finish_reason(response.done_reason) if response.done_reason else None
+                usage_metadata = None
+                if response.prompt_eval_count is not None or response.eval_count is not None:
+                    usage_metadata = types.GenerateContentResponseUsageMetadata(
+                        prompt_token_count=response.prompt_eval_count,
+                        candidates_token_count=response.eval_count,
+                        total_token_count=(response.prompt_eval_count or 0) + (response.eval_count or 0),
+                    )
+                yield LlmResponse(
+                    content=types.Content(role="model", parts=parts),
+                    finish_reason=finish_reason,
+                    usage_metadata=usage_metadata,
+                )
 
         except Exception as e:
             yield LlmResponse(error_code="API_ERROR", error_message=str(e))

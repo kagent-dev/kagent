@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 import boto3
@@ -164,6 +165,10 @@ class KAgentBedrockLlm(BaseLlm):
     extra_headers: Optional[dict[str, str]] = None
     model_config = {"arbitrary_types_allowed": True}
 
+    @cached_property
+    def _client(self):
+        return _get_bedrock_client(self.extra_headers)
+
     @classmethod
     def supported_models(cls) -> list[str]:
         return []
@@ -171,7 +176,7 @@ class KAgentBedrockLlm(BaseLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
-        client = _get_bedrock_client(self.extra_headers)
+        client = self._client
         model_id = llm_request.model or self.model
 
         messages = _convert_content_to_converse_messages(llm_request.contents or [])
@@ -194,10 +199,26 @@ class KAgentBedrockLlm(BaseLlm):
                 if converse_tools:
                     kwargs["toolConfig"] = {"tools": converse_tools}
 
+        inference_config: dict[str, Any] = {}
+        if llm_request.config:
+            if llm_request.config.temperature is not None:
+                inference_config["temperature"] = llm_request.config.temperature
+            if llm_request.config.max_output_tokens is not None:
+                inference_config["maxTokens"] = llm_request.config.max_output_tokens
+            if llm_request.config.top_p is not None:
+                inference_config["topP"] = llm_request.config.top_p
+            if llm_request.config.stop_sequences:
+                inference_config["stopSequences"] = list(llm_request.config.stop_sequences)
+        if inference_config:
+            kwargs["inferenceConfig"] = inference_config
+
+        def _run_converse_stream(**kw):
+            resp = client.converse_stream(**kw)
+            return list(resp.get("stream", []))
+
         try:
             if stream:
-                response = await asyncio.to_thread(client.converse_stream, **kwargs)
-                stream_body = response.get("stream", [])
+                stream_body = await asyncio.to_thread(_run_converse_stream, **kwargs)
 
                 aggregated_text = ""
                 tool_uses: dict[str, dict] = {}  # toolUseId -> {name, input_json}

@@ -341,7 +341,7 @@ class KagentMemoryService(BaseMemoryService):
             dim = len(embedding)
             if dim > 768:
                 embedding = embedding[:768]
-                embedding = self._normalize_l2(embedding)
+                embedding = self._normalize_l2(embedding).tolist()
             elif dim < 768:
                 logger.error(
                     "Embedding dimension %d is smaller than required 768; rejecting embeddings batch",
