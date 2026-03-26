@@ -92,6 +92,30 @@ def _extract_tool_result_content(response: object) -> list[dict]:
     return [{"text": str(response)}]
 
 
+# Fields not valid in JSON Schema draft 2020-12
+_INVALID_SCHEMA_FIELDS = {"nullable", "propertyOrdering"}
+
+
+def _normalize_schema(schema: dict) -> dict:
+    """Recursively normalize a schema dict to be valid JSON Schema draft 2020-12.
+
+    Assumes the dict was produced by model_dump(by_alias=True, mode='json'),
+    so field names are already camelCase and enum values are already strings.
+    """
+    result = {}
+    for key, value in schema.items():
+        if key in _INVALID_SCHEMA_FIELDS:
+            continue
+        if key == "type" and isinstance(value, str):
+            value = value.lower()
+        elif isinstance(value, dict):
+            value = _normalize_schema(value)
+        elif isinstance(value, list):
+            value = [_normalize_schema(v) if isinstance(v, dict) else v for v in value]
+        result[key] = value
+    return result
+
+
 def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
     converse_tools = []
     for tool in tools:
@@ -100,10 +124,8 @@ def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
             required = []
             if func_decl.parameters:
                 for prop_name, prop_schema in (func_decl.parameters.properties or {}).items():
-                    value_dict = prop_schema.model_dump(exclude_none=True)
-                    if "type" in value_dict:
-                        value_dict["type"] = value_dict["type"].lower()
-                    properties[prop_name] = value_dict
+                    raw = prop_schema.model_dump(exclude_none=True, by_alias=True, mode="json")
+                    properties[prop_name] = _normalize_schema(raw)
                 required = func_decl.parameters.required or []
 
             converse_tools.append(
