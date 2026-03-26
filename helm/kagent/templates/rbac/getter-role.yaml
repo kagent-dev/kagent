@@ -80,7 +80,7 @@
   - list
   - watch
 - apiGroups:
-  - gateway.networking.k8s.io/v1
+  - gateway.networking.k8s.io
   resources:
   - "*"
   verbs:
@@ -100,7 +100,7 @@ metadata:
 rules:
   {{- include "kagent.getter.rules" . | nindent 2 }}
 {{- else }}
-{{- $namespaces := .Values.rbac.namespaces | default (list .Release.Namespace) }}
+{{- $namespaces := .Values.rbac.namespaces | default (list (include "kagent.namespace" .)) }}
 {{- range $namespace := $namespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -13,9 +13,9 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "kagent.fullname" . }}-controller
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "kagent.namespace" . }}
 {{- else }}
-{{- $namespaces := .Values.rbac.namespaces | default (list .Release.Namespace) }}
+{{- $namespaces := .Values.rbac.namespaces | default (list (include "kagent.namespace" .)) }}
 {{- range $namespace := $namespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -32,7 +32,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "kagent.fullname" $ }}-controller
-  namespace: {{ $.Release.Namespace }}
+  namespace: {{ include "kagent.namespace" $ }}
 {{- end }}
 {{- end }}
 {{- end }}
