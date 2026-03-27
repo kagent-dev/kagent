@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -29,17 +30,39 @@ const (
 )
 
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
-// Toolsets are passed in directly (created by mcp.CreateToolsets).
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
+	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, extraTools...)
+	return a, err
+}
+
+// CreateGoogleADKAgentWithSubagentSessionIDs creates a Google ADK agent and a
+// map of remote-subagent tool name → A2A context session ID (for stamping
+// outbound A2A events). Callers that only need the agent can use
+// CreateGoogleADKAgent.
+func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
-		return nil, fmt.Errorf("agent config is required")
+		return nil, nil, fmt.Errorf("agent config is required")
 	}
 
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
+	subagentSessionIDs := make(map[string]string)
+
+	for _, ra := range agentConfig.RemoteAgents {
+		if ra.Url == "" {
+			log.Info("Skipping remote agent with empty URL", "name", ra.Name)
+			continue
+		}
+		ts := tools.NewKAgentRemoteA2AToolset(ra.Name, ra.Description, ra.Url, nil, ra.Headers)
+		if id := ts.SubagentSessionID(); id != "" {
+			subagentSessionIDs[ts.Name()] = id
+		}
+		toolsets = append(toolsets, ts)
+		log.Info("Wired remote A2A agent toolset", "name", ra.Name, "url", ra.Url)
+	}
 
 	// Add memory tools if memory is configured
 	var memoryTools []tool.Tool
@@ -52,30 +75,52 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	}
 	memoryTools = append(memoryTools, extraTools...)
 
+	// Add AskUserTool unconditionally to every agent (matches Python behavior).
+	memoryTools = append(memoryTools, &tools.AskUserTool{})
+
 	if agentConfig.Model == nil {
-		return nil, fmt.Errorf("model configuration is required")
+		return nil, nil, fmt.Errorf("model configuration is required")
 	}
 
 	llmModel, err := CreateLLM(ctx, agentConfig.Model, log)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM: %w", err)
+		return nil, nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
 
 	if agentName == "" {
 		agentName = "agent"
 	}
 
+	// Collect tool names that require approval from HttpTools and SseTools.
+	approvalSet := make(map[string]bool)
+	for _, ht := range agentConfig.HttpTools {
+		for _, name := range ht.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+	for _, st := range agentConfig.SseTools {
+		for _, name := range st.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+
+	// Build BeforeToolCallbacks. Approval gating runs first.
+	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
+	if len(approvalSet) > 0 {
+		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
+		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
+	}
+	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
+
 	llmAgentConfig := llmagent.Config{
-		Name:            agentName,
-		Description:     agentConfig.Description,
-		Instruction:     agentConfig.Instruction,
-		Model:           llmModel,
-		IncludeContents: llmagent.IncludeContentsDefault,
-		Tools:           memoryTools,
-		Toolsets:        toolsets,
-		BeforeToolCallbacks: []llmagent.BeforeToolCallback{
-			makeBeforeToolCallback(log),
-		},
+		Name:                agentName,
+		Description:         agentConfig.Description,
+		Instruction:         agentConfig.Instruction,
+		Model:               llmModel,
+		IncludeContents:     llmagent.IncludeContentsDefault,
+		Tools:               memoryTools,
+		Toolsets:            toolsets,
+		BeforeToolCallbacks: beforeToolCallbacks,
 		AfterToolCallbacks: []llmagent.AfterToolCallback{
 			makeAfterToolCallback(log),
 		},
@@ -93,14 +138,14 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 
 	llmAgent, err := llmagent.New(llmAgentConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM agent: %w", err)
+		return nil, nil, fmt.Errorf("failed to create LLM agent: %w", err)
 	}
 
 	log.Info("Successfully created Google ADK LLM agent",
 		"toolsCount", len(llmAgentConfig.Tools),
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
-	return llmAgent, nil
+	return llmAgent, subagentSessionIDs, nil
 }
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.

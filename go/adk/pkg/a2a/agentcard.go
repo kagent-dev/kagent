@@ -21,4 +21,9 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	if card.Description == "" && agent.Description() != "" {
 		card.Description = agent.Description()
 	}
+
+	// Default to JSONRPC when no transport is explicitly configured.
+	if card.PreferredTransport == "" {
+		card.PreferredTransport = a2atype.TransportProtocolJSONRPC
+	}
 }

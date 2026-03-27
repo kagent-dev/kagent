@@ -22,25 +22,28 @@ func agentNameFromAppName(appName string) string {
 	return appName
 }
 
-// CreateRunnerConfig creates a runner.Config suitable for use with adka2a.Executor.
-// memoryService is optional; pass nil when memory is not configured.
-func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessionService session.SessionService, appName string, memoryService *kagentmemory.KagentMemoryService) (runner.Config, error) {
-	// If a memory service is provided, create the save_memory tool so the agent
-	// can explicitly save content. The load_memory tool is provided by the
-	// upstream Google ADK.
+// CreateRunnerConfig builds a runner.Config and subagent session IDs for A2A
+// stamping (from remote agent wiring in the agent builder).
+func CreateRunnerConfig(
+	ctx context.Context,
+	agentConfig *adk.AgentConfig,
+	sessionService *session.KAgentSessionService,
+	appName string,
+	memoryService *kagentmemory.KagentMemoryService,
+) (runner.Config, map[string]string, error) {
 	var extraTools []adktool.Tool
 	if memoryService != nil {
 		extraTools = append(extraTools, kagentmemory.NewSaveMemoryTool(memoryService))
 	}
 
-	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
+	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
 	if err != nil {
-		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
+		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	var adkSessionService adksession.Service
 	if sessionService != nil {
-		adkSessionService = session.NewSessionServiceAdapter(sessionService)
+		adkSessionService = sessionService
 	} else {
 		adkSessionService = adksession.InMemoryService()
 	}
@@ -49,17 +52,16 @@ func CreateRunnerConfig(ctx context.Context, agentConfig *adk.AgentConfig, sessi
 		appName = "kagent-app"
 	}
 
-	// The runner's MemoryService handles automatic session-level memory
-	// (AddSession after each turn). The save_memory tool handles explicit saves.
 	var runnerMemory adkmemory.Service
 	if memoryService != nil {
 		runnerMemory = memoryService
 	}
 
-	return runner.Config{
+	cfg := runner.Config{
 		AppName:        appName,
 		Agent:          adkAgent,
 		SessionService: adkSessionService,
 		MemoryService:  runnerMemory,
-	}, nil
+	}
+	return cfg, subagentSessionIDs, nil
 }
