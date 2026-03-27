@@ -293,3 +293,28 @@ tests:
       - hasDocuments:
           count: 1
 
+  - it: should not render imagePullSecret by default
+    template: postgresql.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Deployment
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: should render imagePullSecret when available 
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      global.imagePullSecrets:
+      - name: secret1
+      - name: secret2
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: secret1
+            - name: secret2
+

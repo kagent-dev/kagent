@@ -93,6 +93,18 @@ database:
           memory: 512Mi
 
 # ==============================================================================
+# RBAC CONFIGURATION
+# ==============================================================================
+
+rbac:
+  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
+  # If false, creates Role and RoleBinding resources instead.
+  clusterScoped: true
+  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
+  # If empty, defaults to the release namespace.
+  namespaces: []
+
+# ==============================================================================
 # CONTROLLER CONFIGURATION
 # ==============================================================================
 
