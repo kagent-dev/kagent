@@ -165,6 +165,12 @@ controller:
     repository: kagent-dev/kagent/controller
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+  migrate:
+    image:
+      registry: ""
+      repository: kagent-dev/kagent/migrate
+      tag: "" # Will default to global, then Chart version
+      pullPolicy: ""
   resources:
     requests:
       cpu: 100m

@@ -3,10 +3,17 @@ package dbtest
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	_ "github.com/lib/pq"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -57,4 +64,110 @@ func StartT(ctx context.Context, t *testing.T) string {
 	t.Cleanup(cleanup)
 
 	return connStr
+}
+
+// Migrate runs the embedded OSS migrations against connStr and returns any error.
+// If vectorEnabled is true the vector pass is also applied.
+// Use MigrateT in tests that have a *testing.T; use Migrate in TestMain where no T is available.
+func Migrate(connStr string, vectorEnabled bool) error {
+	if err := runMigrationDir(connStr, "core", "schema_migrations"); err != nil {
+		return fmt.Errorf("core migrations: %w", err)
+	}
+	if vectorEnabled {
+		if err := runMigrationDir(connStr, "vector", "vector_schema_migrations"); err != nil {
+			return fmt.Errorf("vector migrations: %w", err)
+		}
+	}
+	return nil
+}
+
+// MigrateT runs the embedded OSS migrations against connStr and calls t.Fatal on error.
+// If vectorEnabled is true the vector pass is also applied.
+func MigrateT(t *testing.T, connStr string, vectorEnabled bool) {
+	t.Helper()
+	if err := Migrate(connStr, vectorEnabled); err != nil {
+		t.Fatalf("dbtest.MigrateT: %v", err)
+	}
+}
+
+// MigrateDown runs the embedded OSS down-migrations against connStr and returns any error.
+// If vectorEnabled is true the vector pass is also rolled back first.
+func MigrateDown(connStr string, vectorEnabled bool) error {
+	if vectorEnabled {
+		if err := downMigrationDir(connStr, "vector", "vector_schema_migrations"); err != nil {
+			return fmt.Errorf("vector down migrations: %w", err)
+		}
+	}
+	return downMigrationDir(connStr, "core", "schema_migrations")
+}
+
+func runMigrationDir(connStr, dir, migrationsTable string) error {
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("open db for %s: %w", dir, err)
+	}
+
+	src, err := iofs.New(migrations.FS, dir)
+	if err != nil {
+		return fmt.Errorf("load migration files from %s: %w", dir, err)
+	}
+
+	driver, err := migratepg.WithInstance(db, &migratepg.Config{
+		MigrationsTable: migrationsTable,
+	})
+	if err != nil {
+		return fmt.Errorf("create migration driver for %s: %w", dir, err)
+	}
+
+	mg, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
+	if err != nil {
+		return fmt.Errorf("create migrator for %s: %w", dir, err)
+	}
+	defer closeMigrate(dir, mg)
+
+	if err := mg.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("run migrations for %s: %w", dir, err)
+	}
+	return nil
+}
+
+func downMigrationDir(connStr, dir, migrationsTable string) error {
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("open db for %s: %w", dir, err)
+	}
+
+	src, err := iofs.New(migrations.FS, dir)
+	if err != nil {
+		return fmt.Errorf("load migration files from %s: %w", dir, err)
+	}
+
+	driver, err := migratepg.WithInstance(db, &migratepg.Config{
+		MigrationsTable: migrationsTable,
+	})
+	if err != nil {
+		return fmt.Errorf("create migration driver for %s: %w", dir, err)
+	}
+
+	mg, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
+	if err != nil {
+		return fmt.Errorf("create migrator for %s: %w", dir, err)
+	}
+	defer closeMigrate(dir, mg)
+
+	if err := mg.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("down migrations for %s: %w", dir, err)
+	}
+	return nil
+}
+
+// closeMigrate closes mg, logging source and database close errors separately.
+func closeMigrate(dir string, mg *migrate.Migrate) {
+	srcErr, dbErr := mg.Close()
+	if srcErr != nil {
+		fmt.Printf("warning: closing migration source for %s: %v\n", dir, srcErr)
+	}
+	if dbErr != nil {
+		fmt.Printf("warning: closing migration database for %s: %v\n", dir, dbErr)
+	}
 }
