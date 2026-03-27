@@ -22,26 +22,8 @@ func agentNameFromAppName(appName string) string {
 	return appName
 }
 
-type SubagentSessionProvider interface {
-	SubagentSessionID() string
-}
-
-// ExtractSubagentSessionIDs returns a map of toolset-name -> session-ID
-// for every toolset that implements SubagentSessionProvider.
-func ExtractSubagentSessionIDs(toolsets []adktool.Toolset) map[string]string {
-	result := make(map[string]string)
-	for _, ts := range toolsets {
-		if provider, ok := ts.(SubagentSessionProvider); ok {
-			if id := provider.SubagentSessionID(); id != "" {
-				result[ts.Name()] = id
-			}
-		}
-	}
-	return result
-}
-
-// CreateRunnerConfig builds a runner.Config and extracts subagent session IDs
-// from the agent's toolsets.
+// CreateRunnerConfig builds a runner.Config and subagent session IDs for A2A
+// stamping (from remote agent wiring in the agent builder).
 func CreateRunnerConfig(
 	ctx context.Context,
 	agentConfig *adk.AgentConfig,
@@ -54,12 +36,10 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, kagentmemory.NewSaveMemoryTool(memoryService))
 	}
 
-	adkAgent, toolsets, err := agent.CreateGoogleADKAgentAndToolsets(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
+	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
 	if err != nil {
 		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
-
-	subagentSessionIDs := ExtractSubagentSessionIDs(toolsets)
 
 	var adkSessionService adksession.Service
 	if sessionService != nil {
