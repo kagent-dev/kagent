@@ -1,0 +1,21 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: ag2-research-report
+spec:
+  type: BYO
+  description: >-
+    Multi-agent research team using AG2 (formerly AutoGen).
+    Two agents collaborate to produce structured reports.
+  byo:
+    deployment:
+      image: ag2-research-report:latest
+      port: 8080
+      env:
+        - name: MODEL_NAME
+          value: gpt-4o-mini
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-credentials
+              key: api-key

@@ -1,0 +1,17 @@
+{
+    "name": "AG2 Research Report",
+    "description": "A multi-agent research team powered by AG2 (formerly AutoGen). Two specialists (researcher + analyst) collaborate to produce structured reports on any topic.",
+    "url": "http://localhost:8080",
+    "version": "0.1.0",
+    "capabilities": {
+        "streaming": false,
+        "pushNotifications": false
+    },
+    "skills": [
+        {
+            "id": "research-report",
+            "name": "Research Report",
+            "description": "Produce a structured research report on a given topic"
+        }
+    ]
+}

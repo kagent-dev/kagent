@@ -297,7 +297,7 @@ metadata:
   name: internal-assistant
   namespace: kagent
 spec:
-  # Framework selection (ADK, LangGraph, or CrewAI)
+  # Framework selection (ADK, AG2, LangGraph, or CrewAI)
   framework: ADK
 
   # Reference to ModelConfig with TLS configuration
