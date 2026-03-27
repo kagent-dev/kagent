@@ -48,6 +48,7 @@ spec:
         {{- include "kagent.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: database
     spec:
+      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
       serviceAccountName: {{ $fullname }}
       securityContext:
         fsGroup: 999
