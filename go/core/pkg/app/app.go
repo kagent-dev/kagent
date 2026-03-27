@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -129,6 +130,24 @@ type Config struct {
 		UrlFile       string
 		VectorEnabled bool
 	}
+}
+
+// redactedConfig is a type alias for Config without MarshalLog to avoid recursion.
+type redactedConfig Config
+
+// MarshalLog implements logr.Marshaler to redact sensitive fields when logging.
+func (c Config) MarshalLog() interface{} {
+	rc := redactedConfig(c)
+	rc.Database.Url = redactURL(rc.Database.Url)
+	return rc
+}
+
+func redactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "***"
+	}
+	return u.Redacted()
 }
 
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
