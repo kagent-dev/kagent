@@ -33,15 +33,15 @@ const (
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, _, err := CreateGoogleADKAgentAndToolsets(ctx, agentConfig, agentName, extraTools...)
+	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, extraTools...)
 	return a, err
 }
 
-// CreateGoogleADKAgentAndToolsets creates a Google ADK agent together with the
-// toolsets used to build it. Callers that need to inspect the toolsets (e.g. to
-// extract subagent session IDs) should use this function; callers that only need
-// the agent can use CreateGoogleADKAgent.
-func CreateGoogleADKAgentAndToolsets(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, []tool.Toolset, error) {
+// CreateGoogleADKAgentWithSubagentSessionIDs creates a Google ADK agent and a
+// map of remote-subagent tool name → A2A context session ID (for stamping
+// outbound A2A events). Callers that only need the agent can use
+// CreateGoogleADKAgent.
+func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -49,15 +49,17 @@ func CreateGoogleADKAgentAndToolsets(ctx context.Context, agentConfig *adk.Agent
 	}
 
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
+	subagentSessionIDs := make(map[string]string)
 
-	// Wire remote agent toolsets. The toolsets are returned alongside the agent
-	// so callers can extract subagent session IDs (see runner.ExtractSubagentSessionIDs).
 	for _, ra := range agentConfig.RemoteAgents {
 		if ra.Url == "" {
 			log.Info("Skipping remote agent with empty URL", "name", ra.Name)
 			continue
 		}
 		ts := tools.NewKAgentRemoteA2AToolset(ra.Name, ra.Description, ra.Url, nil, ra.Headers)
+		if id := ts.SubagentSessionID(); id != "" {
+			subagentSessionIDs[ts.Name()] = id
+		}
 		toolsets = append(toolsets, ts)
 		log.Info("Wired remote A2A agent toolset", "name", ra.Name, "url", ra.Url)
 	}
@@ -143,7 +145,7 @@ func CreateGoogleADKAgentAndToolsets(ctx context.Context, agentConfig *adk.Agent
 		"toolsCount", len(llmAgentConfig.Tools),
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
-	return llmAgent, toolsets, nil
+	return llmAgent, subagentSessionIDs, nil
 }
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
