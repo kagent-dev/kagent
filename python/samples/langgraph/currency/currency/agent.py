@@ -38,7 +38,6 @@ def _get_exchange_rate(
         response = httpx.get(
             f"https://api.frankfurter.app/{currency_date}",
             params={"from": currency_from, "to": currency_to},
-            timeout=30.0,
         )
         response.raise_for_status()
 
