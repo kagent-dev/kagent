@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
@@ -49,6 +50,8 @@ type KAgentRemoteA2ATool struct {
 
 	a2aClient *a2aclient.Client
 	agentCard *a2atype.AgentCard
+	initOnce  sync.Once
+	initErr   error
 
 	lastContextID string
 }
@@ -116,56 +119,63 @@ func (t *KAgentRemoteA2ATool) ProcessRequest(_ tool.Context, req *model.LLMReque
 }
 
 // ensureClient lazily resolves the agent card and initialises the A2A client.
+// Initialization is protected by sync.Once to avoid races under concurrent use.
 func (t *KAgentRemoteA2ATool) ensureClient(ctx context.Context) (*a2aclient.Client, error) {
-	if t.a2aClient != nil {
-		return t.a2aClient, nil
-	}
+	t.initOnce.Do(func() {
+		resolver := agentcard.NewResolver(t.httpClient)
 
-	resolver := agentcard.NewResolver(t.httpClient)
+		// Build ResolveOptions for extra headers.
+		var resolveOpts []agentcard.ResolveOption
+		for k, v := range t.extraHeaders {
+			resolveOpts = append(resolveOpts, agentcard.WithRequestHeader(k, v))
+		}
 
-	// Build ResolveOptions for extra headers.
-	var resolveOpts []agentcard.ResolveOption
-	for k, v := range t.extraHeaders {
-		resolveOpts = append(resolveOpts, agentcard.WithRequestHeader(k, v))
-	}
+		card, err := resolver.Resolve(ctx, t.baseURL, resolveOpts...)
+		if err != nil {
+			t.initErr = fmt.Errorf("failed to resolve agent card for %s: %w", t.name, err)
+			return
+		}
+		t.agentCard = card
 
-	card, err := resolver.Resolve(ctx, t.baseURL, resolveOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve agent card for %s: %w", t.name, err)
-	}
-	t.agentCard = card
+		// Auto-populate description from agent card when not explicitly set.
+		if t.description == "" && card.Description != "" {
+			t.description = card.Description
+		}
 
-	// Auto-populate description from agent card when not explicitly set.
-	if t.description == "" && card.Description != "" {
-		t.description = card.Description
-	}
+		opts := []a2aclient.FactoryOption{
+			a2aclient.WithJSONRPCTransport(t.httpClient),
+		}
+		// Always inject x-kagent-source: agent to mark this as an agent-originated call.
+		meta := a2aclient.CallMeta{}
+		meta.Append("x-kagent-source", "agent")
+		for k, v := range t.extraHeaders {
+			meta.Append(k, v)
+		}
+		opts = append(opts, a2aclient.WithInterceptors(
+			a2aclient.NewStaticCallMetaInjector(meta),
+			&userIDForwardingInterceptor{},
+		))
 
-	opts := []a2aclient.FactoryOption{
-		a2aclient.WithJSONRPCTransport(t.httpClient),
-	}
-	// Always inject x-kagent-source: subagent to mark this as a subagent call.
-	meta := a2aclient.CallMeta{}
-	meta.Append("x-kagent-source", "agent")
-	for k, v := range t.extraHeaders {
-		meta.Append(k, v)
-	}
-	opts = append(opts, a2aclient.WithInterceptors(
-		a2aclient.NewStaticCallMetaInjector(meta),
-		&userIDForwardingInterceptor{},
-	))
-
-	client, err := a2aclient.NewFromCard(ctx, card, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create A2A client for %s: %w", t.name, err)
-	}
-	t.a2aClient = client
-	return client, nil
+		client, err := a2aclient.NewFromCard(ctx, card, opts...)
+		if err != nil {
+			t.initErr = fmt.Errorf("failed to create A2A client for %s: %w", t.name, err)
+			return
+		}
+		t.a2aClient = client
+	})
+	return t.a2aClient, t.initErr
 }
 
 // handleFirstCall is Phase 1: send the request to the remote agent.
 func (t *KAgentRemoteA2ATool) handleFirstCall(ctx tool.Context, args any) (map[string]any, error) {
-	argsMap, _ := args.(map[string]any)
+	argsMap, ok := args.(map[string]any)
+	if !ok {
+		return map[string]any{"error": fmt.Sprintf("invalid tool arguments: expected map, got %T", args)}, nil
+	}
 	requestText, _ := argsMap["request"].(string)
+	if requestText == "" {
+		return map[string]any{"error": "missing or empty 'request' argument"}, nil
+	}
 
 	client, err := t.ensureClient(ctx)
 	if err != nil {

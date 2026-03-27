@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -113,7 +114,7 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(1).Info("Getting session", "appName", req.AppName, "userID", req.UserID, "sessionID", req.SessionID)
 
-	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s&limit=-1&order=asc", s.BaseURL, req.SessionID, req.UserID)
+	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s&limit=-1&order=asc", s.BaseURL, url.PathEscape(req.SessionID), url.QueryEscape(req.UserID))
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build get session request: %w", err)
@@ -190,7 +191,7 @@ func (s *KAgentSessionService) List(_ context.Context, _ *adksession.ListRequest
 // Delete implements adksession.Service.
 func (s *KAgentSessionService) Delete(ctx context.Context, req *adksession.DeleteRequest) error {
 	log := logr.FromContextOrDiscard(ctx)
-	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s", s.BaseURL, req.SessionID, req.UserID)
+	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s", s.BaseURL, url.PathEscape(req.SessionID), url.QueryEscape(req.UserID))
 	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build delete session request: %w", err)
@@ -248,7 +249,7 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, adkSess adksessi
 		return fmt.Errorf("failed to marshal append event request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/sessions/%s/events?user_id=%s", s.BaseURL, adkSess.ID(), adkSess.UserID())
+	url := fmt.Sprintf("%s/api/sessions/%s/events?user_id=%s", s.BaseURL, url.PathEscape(adkSess.ID()), url.QueryEscape(adkSess.UserID()))
 	httpReq, err := http.NewRequestWithContext(persistCtx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to build append event request: %w", err)
