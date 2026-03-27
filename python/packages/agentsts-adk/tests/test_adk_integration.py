@@ -18,12 +18,14 @@ from agentsts.core.client import TokenExchangeResponse
 class TestADKTokenPropagationPlugin:
     """Unit tests for token propagation plugin covering: none, downstream, and STS exchange."""
 
-    def _make_invocation_context(self, session_id: str, headers: dict | None):
+    def _make_invocation_context(self, session_id: str, headers: dict | None, extra_state: dict | None = None):
         session = Mock()
         session.id = session_id
         session.state = {}
         if headers is not None:
             session.state[HEADERS_KEY] = headers
+        if extra_state is not None:
+            session.state.update(extra_state)
         invocation_context = Mock()
         invocation_context.session = session
         return invocation_context
@@ -48,8 +50,82 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base.logger") as mock_logger:
             result = await plugin.before_run_callback(invocation_context=ic)
             assert result is None
-            mock_logger.debug.assert_called_once_with("No subject token found in headers for token propagation")
+            mock_logger.debug.assert_called_once_with("subject token not found in session state for token propagation")
         assert plugin.token_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_subject_token_from_callback(self):
+        """Case: get_subject_token callback set -> reads token from session state via callback."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.get_subject_token = lambda state: state.get("subject-token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-token")
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context(
+            "sess-key-1",
+            headers=None,
+            extra_state={"subject-token": "subject-jwt-from-vertex"},
+        )
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        sts.exchange_token.assert_called_once_with(
+            subject_token="subject-jwt-from-vertex",
+            subject_token_type=TokenType.JWT,
+            actor_token="actor-token",
+            actor_token_type=TokenType.JWT,
+        )
+        assert "sess-key-1" in plugin.token_cache
+        assert plugin.token_cache["sess-key-1"].token == "exchanged-token"
+
+    @pytest.mark.asyncio
+    async def test_subject_token_callback_returns_none(self):
+        """Case: get_subject_token callback returns None -> returns None."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.get_subject_token = lambda state: None
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context("sess-key-2", headers=None)
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            result = await plugin.before_run_callback(invocation_context=ic)
+            assert result is None
+            mock_logger.debug.assert_called_once_with("subject token not found in session state for token propagation")
+        assert plugin.token_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_no_sts_no_headers_returns_none(self):
+        """Case: no STS integration, no headers -> default callback returns None, no token cached."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context(
+            "sess-key-3",
+            headers=None,
+        )
+        # Default callback looks for headers, finds none -> no token cached
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        assert plugin.token_cache == {}
+
+    @pytest.mark.asyncio
+    async def test_default_callback_extracts_from_headers(self):
+        """Case: no get_subject_token callback -> default extracts from headers."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-via-headers")
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context("sess-key-4", headers={"Authorization": "Bearer header-jwt"})
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        sts.exchange_token.assert_called_once_with(
+            subject_token="header-jwt",
+            subject_token_type=TokenType.JWT,
+            actor_token="actor-token",
+            actor_token_type=TokenType.JWT,
+        )
+        assert plugin.token_cache["sess-key-4"].token == "exchanged-via-headers"
 
     @pytest.mark.asyncio
     async def test_downstream_token_propagation_without_sts(self):
@@ -83,6 +159,7 @@ class TestADKTokenPropagationPlugin:
     async def test_sts_token_exchange_success(self):
         """Case: STS integration exchanges token -> access token cached and returned by header provider."""
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "actor-token"
         sts.exchange_token = AsyncMock(return_value="access-token-XYZ")
@@ -115,6 +192,7 @@ class TestADKTokenPropagationPlugin:
     async def test_sts_token_exchange_failure(self):
         """Case: STS exchange raises -> no cache entry, graceful warning."""
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "actor-token"
         sts.exchange_token = AsyncMock(side_effect=Exception("boom"))
@@ -161,6 +239,7 @@ class TestADKTokenPropagationPlugin:
         """Case: sync fetch_actor_token is called successfully and token is exchanged."""
         fetch_token_mock = Mock(return_value="dynamic-actor-token")
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = fetch_token_mock
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token-dynamic")
@@ -200,6 +279,7 @@ class TestADKTokenPropagationPlugin:
             return "dynamic-actor-token-async"
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = async_fetch_token
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token-dynamic-async")
@@ -233,6 +313,7 @@ class TestADKTokenPropagationPlugin:
         """Case: sync fetch_actor_token raises exception -> no token exchange, graceful handling."""
         fetch_token_mock = Mock(side_effect=Exception("Token fetch failed"))
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = fetch_token_mock
         sts._actor_token = None
 
@@ -262,6 +343,7 @@ class TestADKTokenPropagationPlugin:
             raise Exception("Async token fetch failed")
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = async_fetch_token_failing
         sts._actor_token = None
 
@@ -290,6 +372,7 @@ class TestADKTokenPropagationPlugin:
         jwt_token = "header.payload.signature"  # Mock JWT
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = Mock(return_value="dynamic-actor")
         sts.exchange_token = AsyncMock(return_value=jwt_token)
 
@@ -321,6 +404,7 @@ class TestADKTokenPropagationPlugin:
         jwt_token = "header.payload.signature"  # Mock JWT
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = Mock(return_value="dynamic-actor")
         sts.exchange_token = AsyncMock(return_value=jwt_token)
 
@@ -344,6 +428,7 @@ class TestADKTokenPropagationPlugin:
     async def test_valid_token_preserved_in_cache(self):
         """Case: valid token (not expired) is preserved in after_run_callback."""
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "static-actor"
         sts.exchange_token = AsyncMock(return_value="access-token-static")
@@ -378,6 +463,7 @@ class TestADKTokenPropagationPlugin:
             return "dynamic-actor-token"
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = sync_fetch_token
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
@@ -417,6 +503,7 @@ class TestADKTokenPropagationPlugin:
             return f"dynamic-actor-token-{fetch_count}"
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = sync_fetch_token
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
@@ -450,6 +537,7 @@ class TestADKTokenPropagationPlugin:
         past_expiry = int(time.time()) - 100
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = Mock(return_value="dynamic-actor")
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
@@ -482,6 +570,7 @@ class TestADKTokenPropagationPlugin:
         future_expiry = int(time.time()) + 3600
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = Mock(return_value="dynamic-actor")
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
@@ -514,6 +603,7 @@ class TestADKTokenPropagationPlugin:
             return "actor-token-no-expiry"
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = sync_fetch_token
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
@@ -548,6 +638,7 @@ class TestADKTokenPropagationPlugin:
         future_expiry = int(time.time()) + 3600
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "static-actor"
         sts.exchange_token = AsyncMock(return_value="exchanged-token")
@@ -582,6 +673,7 @@ class TestADKTokenPropagationPlugin:
         future_expiry = int(time.time()) + 3600
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "static-actor"
         sts.exchange_token = AsyncMock(side_effect=["token-1", "token-2"])
@@ -613,6 +705,7 @@ class TestADKTokenPropagationPlugin:
     async def test_subject_token_cache_no_expiry(self):
         """Case: subject token without expiry is cached indefinitely and reused."""
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = None
         sts._actor_token = "static-actor"
         sts.exchange_token = AsyncMock(return_value="exchanged-token-no-exp")
@@ -650,6 +743,7 @@ class TestADKTokenPropagationPlugin:
             return "dynamic-actor-token-async"
 
         sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
         sts.fetch_actor_token = async_fetch_token
         sts._actor_token = None
         sts.exchange_token = AsyncMock(return_value="access-token")
