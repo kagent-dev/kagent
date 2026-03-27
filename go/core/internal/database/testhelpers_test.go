@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -10,7 +11,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 )
 
-var sharedManager *Manager
+var (
+	sharedDB      *sql.DB
+	sharedConnStr string
+)
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -23,17 +27,19 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to start postgres container: %v\n", err)
 		os.Exit(1)
 	}
+	sharedConnStr = connStr
 
-	sharedManager, err = NewManager(context.Background(), &Config{
-		PostgresConfig: &PostgresConfig{
-			URL:           connStr,
-			VectorEnabled: true,
-		},
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create shared manager: %v\n", err)
+	if err := dbtest.Migrate(connStr, true); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to migrate test database: %v\n", err)
 		os.Exit(1)
 	}
+
+	db, err := Connect(context.Background(), &PostgresConfig{URL: connStr})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to test database: %v\n", err)
+		os.Exit(1)
+	}
+	sharedDB = db
 
 	os.Exit(m.Run())
 }

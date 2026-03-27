@@ -410,26 +410,18 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	// Initialize database
-	dbManager, err := database.NewManager(ctx, &database.Config{
-		PostgresConfig: &database.PostgresConfig{
-			URL:           cfg.Database.Url,
-			URLFile:       cfg.Database.UrlFile,
-			VectorEnabled: cfg.Database.VectorEnabled,
-		},
+	// Connect to database
+	db, err := database.Connect(ctx, &database.PostgresConfig{
+		URL:           cfg.Database.Url,
+		URLFile:       cfg.Database.UrlFile,
+		VectorEnabled: cfg.Database.VectorEnabled,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to initialize database")
+		setupLog.Error(err, "unable to connect to database")
 		os.Exit(1)
 	}
 
-	// Initialize database tables
-	if err := dbManager.Initialize(); err != nil {
-		setupLog.Error(err, "unable to initialize database")
-		os.Exit(1)
-	}
-
-	dbClient := database.NewClient(dbManager)
+	dbClient := database.NewClient(db)
 	router := mux.NewRouter()
 	extensionCfg, err := getExtensionConfig(BootstrapConfig{
 		Ctx:      ctx,

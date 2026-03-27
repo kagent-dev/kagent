@@ -10,7 +10,6 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -71,7 +70,6 @@ type HTTPServer struct {
 	config        ServerConfig
 	router        *mux.Router
 	handlers      *handlers.Handlers
-	dbManager     *database.Manager
 	authenticator auth.AuthProvider
 }
 
@@ -124,12 +122,6 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 		defer cancel()
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			log.Error(err, "Failed to properly shutdown HTTP server")
-		}
-		// Close database connection
-		if s.dbManager != nil {
-			if err := s.dbManager.Close(); err != nil {
-				log.Error(err, "Failed to close database connection")
-			}
 		}
 	}()
 

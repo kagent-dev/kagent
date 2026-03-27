@@ -1,0 +1,35 @@
+name: Migration Immutability
+
+on:
+  pull_request:
+    branches: [main, release/v0.7.x]
+    paths:
+      - "go/core/pkg/migrations/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if any existing migration file was modified
+        run: |
+          # List files under go/core/pkg/migrations/ that were changed relative
+          # to the merge base of this PR.  We only care about modifications (M)
+          # and renames (R); additions (A) are fine.
+          BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
+          MODIFIED=$(git diff --name-only --diff-filter=MR "$BASE" HEAD \
+            -- 'go/core/pkg/migrations/**/*.sql')
+
+          if [ -n "$MODIFIED" ]; then
+            echo "ERROR: The following migration files were modified."
+            echo "Migration files are immutable once merged."
+            echo "Fix bugs with a new migration instead."
+            echo ""
+            echo "$MODIFIED"
+            exit 1
+          fi
+
+          echo "OK: no existing migration files were modified."
