@@ -45,13 +45,13 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_KEY,
+    KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
+    KAGENT_HITL_DECISION_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_REJECT,
+    KAGENT_HITL_REJECTION_REASONS_KEY,
     TaskResultAggregator,
-    extract_ask_user_answers_from_message,
-    extract_batch_decisions_from_message,
     extract_decision_from_message,
-    extract_rejection_reasons_from_message,
     get_kagent_metadata_key,
 )
 from kagent.core.tracing._span_processor import (
@@ -274,7 +274,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 continue
             tool_name = action["name"]
             tool_args = action["args"]
-            tool_call_id = action["id"]
+            tool_call_id = action.get("id", tool_name)
             confirmation_id = str(uuid.uuid4())
 
             parts.append(
@@ -384,18 +384,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         # The graph receives this as the return value of interrupt().
         resume_value: dict[str, Any] = {"decision_type": decision_type}
 
-        if decision_type == KAGENT_HITL_DECISION_TYPE_BATCH:
-            batch_decisions = extract_batch_decisions_from_message(context.message)
-            if batch_decisions:
-                resume_value["decisions"] = batch_decisions
-
-        rejection_reasons = extract_rejection_reasons_from_message(context.message)
-        if rejection_reasons:
-            resume_value["rejection_reasons"] = rejection_reasons
-
-        ask_user_answers = extract_ask_user_answers_from_message(context.message)
-        if ask_user_answers:
-            resume_value["ask_user_answers"] = ask_user_answers
+        resume_value["decisions"] = _convert_batch_decisions_from_message(context.message)
 
         logger.info(
             "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
@@ -406,7 +395,6 @@ class LangGraphAgentExecutor(AgentExecutor):
             "rejection_reasons" in resume_value,
             "ask_user_answers" in resume_value,
         )
-
         resume_input = Command(resume=resume_value)
         span_attributes = _convert_a2a_request_to_span_attributes(context)
 
@@ -632,3 +620,46 @@ def _convert_a2a_request_to_span_attributes(
         span_attributes["gen_ai.task.id"] = request.task_id
 
     return span_attributes
+
+
+def _convert_batch_decisions_from_message(message: Message | None):
+    if not message or not message.parts:
+        return None
+
+    decisions = []
+    for part in message.parts:
+        if not hasattr(part, "root"):
+            continue
+
+        inner = part.root
+
+        if isinstance(inner, DataPart):
+            data = inner.data
+
+            dtype = data.get(KAGENT_HITL_DECISION_TYPE_KEY)
+
+            if dtype == KAGENT_HITL_DECISION_TYPE_REJECT:
+                decisions.append({"type": dtype, "message": data.get("rejection_reason")})
+            elif dtype == KAGENT_HITL_DECISION_TYPE_APPROVE:
+                decisions.append({"type": dtype})
+            elif dtype == KAGENT_HITL_DECISION_TYPE_BATCH:
+                if isinstance(decisions, dict):
+                    for call_id, decision in decisions.items():
+                        # Ensure key type and decision value are valid
+                        if not isinstance(call_id, str):
+                            logger.warning("Ignoring HITL batch decision with non-string key: %r", call_id)
+                            continue
+                        if decision == KAGENT_HITL_DECISION_TYPE_APPROVE:
+                            decisions.append({"type": decision})
+                        elif decision == KAGENT_HITL_DECISION_TYPE_REJECT:
+                            decisions.append(
+                                {"type": dtype, "message": data.get(KAGENT_HITL_REJECTION_REASONS_KEY).get(call_id)}
+                            )
+                        else:
+                            logger.warning(
+                                "Ignoring HITL batch decision with invalid value %r for call_id %r",
+                                decision,
+                                call_id,
+                            )
+
+    return decisions

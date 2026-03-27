@@ -34,6 +34,10 @@ audit: build
 basic-langchain-sample:
 	docker build . -f samples/langgraph/currency/Dockerfile --tag localhost:5001/langgraph-currency:latest --push
 
+.PHONY: hitl-agent-sample
+hitl-agent-sample:
+	docker build . -f samples/langgraph/hitl-agent/Dockerfile --tag localhost:5001/langgraph-hitl-agent:latest --push
+
 .PHONY: research-crew-sample
 research-crew-sample:
 	docker build . -f samples/crewai/research-crew/Dockerfile --tag localhost:5001/research-crew:latest --push

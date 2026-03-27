@@ -1,0 +1,19 @@
+{
+  "name": "hitl-agent",
+  "description": "A LangGraph agent demonstrating HITL agent approval.",
+  "url": "localhost:8080",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "hitl-agent",
+      "name": "HITL Agent Demo",
+      "description": "Demonstrates agent approval flow with safe and dangerous tools",
+      "tags": ["hitl", "agent", "approval"]
+    }
+  ]
+}
