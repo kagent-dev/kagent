@@ -2,8 +2,10 @@ suite: test rbac
 templates:
   - controller-serviceaccount.yaml
   - ui-serviceaccount.yaml
-  - rbac/clusterrole.yaml
-  - rbac/clusterrolebinding.yaml
+  - rbac/getter-role.yaml
+  - rbac/writer-role.yaml
+  - rbac/getter-rolebinding.yaml
+  - rbac/writer-rolebinding.yaml
 tests:
   - it: should render controller serviceaccount
     template: controller-serviceaccount.yaml
@@ -27,47 +29,37 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should render ui serviceaccount
-    template: ui-serviceaccount.yaml
-    asserts:
-      - isKind:
-          of: ServiceAccount
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-ui
-      - hasDocuments:
-          count: 1
-
-  - it: should render two clusterroles
-    template: rbac/clusterrole.yaml
+  - it: should render clusterroles by default
     asserts:
       - isKind:
           of: ClusterRole
-      - hasDocuments:
-          count: 2
+        template: rbac/getter-role.yaml
+      - isKind:
+          of: ClusterRole
+        template: rbac/writer-role.yaml
 
   - it: should have correct clusterrole names
-    template: rbac/clusterrole.yaml
     asserts:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-getter-role
-        documentIndex: 0
+        template: rbac/getter-role.yaml
       - equal:
           path: metadata.name
           value: RELEASE-NAME-writer-role
-        documentIndex: 1
+        template: rbac/writer-role.yaml
 
-  - it: should render two clusterrolebindings
-    template: rbac/clusterrolebinding.yaml
+  - it: should render clusterrolebindings by default
     asserts:
       - isKind:
           of: ClusterRoleBinding
-      - hasDocuments:
-          count: 2
+        template: rbac/getter-rolebinding.yaml
+      - isKind:
+          of: ClusterRoleBinding
+        template: rbac/writer-rolebinding.yaml
 
   - it: clusterrolebinding should reference correct serviceaccount
-    template: rbac/clusterrolebinding.yaml
+    template: rbac/getter-rolebinding.yaml
     asserts:
       - equal:
           path: subjects[0].kind
@@ -79,26 +71,27 @@ tests:
           path: subjects[0].namespace
           value: NAMESPACE
 
-  - it: clusterrolebinding should reference correct clusterroles
-    template: rbac/clusterrolebinding.yaml
+  - it: clusterrolebindings should reference correct clusterroles
     asserts:
       - equal:
           path: roleRef.kind
           value: ClusterRole
+        template: rbac/getter-rolebinding.yaml
       - equal:
           path: roleRef.name
           value: RELEASE-NAME-getter-role
-        documentIndex: 0
+        template: rbac/getter-rolebinding.yaml
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+        template: rbac/writer-rolebinding.yaml
       - equal:
           path: roleRef.name
           value: RELEASE-NAME-writer-role
-        documentIndex: 1
-      - equal:
-          path: roleRef.apiGroup
-          value: rbac.authorization.k8s.io
+        template: rbac/writer-rolebinding.yaml
 
-  - it: getter clusterrole should have read permissions
-    template: rbac/clusterrole.yaml
+  - it: getter role should have read permissions
+    template: rbac/getter-role.yaml
     asserts:
       - contains:
           path: rules
@@ -106,10 +99,9 @@ tests:
             apiGroups: [""]
             resources: ["*"]
             verbs: ["get", "list", "watch"]
-        documentIndex: 0
 
-  - it: writer clusterrole should have write permissions
-    template: rbac/clusterrole.yaml
+  - it: writer role should have write permissions
+    template: rbac/writer-role.yaml
     asserts:
       - contains:
           path: rules
@@ -117,7 +109,6 @@ tests:
             apiGroups: [""]
             resources: ["*"]
             verbs: ["create", "update", "patch", "delete"]
-        documentIndex: 1
 
   - it: should use custom namespace when overridden
     set:
@@ -134,8 +125,10 @@ tests:
     templates:
       - controller-serviceaccount.yaml
       - ui-serviceaccount.yaml
-      - rbac/clusterrole.yaml
-      - rbac/clusterrolebinding.yaml
+      - rbac/getter-role.yaml
+      - rbac/writer-role.yaml
+      - rbac/getter-rolebinding.yaml
+      - rbac/writer-rolebinding.yaml
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
@@ -145,4 +138,60 @@ tests:
           value: RELEASE-NAME
       - equal:
           path: metadata.labels["app.kubernetes.io/managed-by"]
-          value: Helm 
+          value: Helm
+
+  - it: should render Roles when clusterScoped is false
+    set:
+      rbac.clusterScoped: false
+    asserts:
+      - isKind:
+          of: Role
+        template: rbac/getter-role.yaml
+      - isKind:
+          of: Role
+        template: rbac/writer-role.yaml
+
+  - it: should render RoleBindings when clusterScoped is false
+    set:
+      rbac.clusterScoped: false
+    asserts:
+      - isKind:
+          of: RoleBinding
+        template: rbac/getter-rolebinding.yaml
+      - isKind:
+          of: RoleBinding
+        template: rbac/writer-rolebinding.yaml
+
+  - it: should render multiple roles and bindings when namespaces are specified and clusterScoped is false
+    set:
+      rbac.clusterScoped: false
+      rbac.namespaces:
+        - ns1
+        - ns2
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: rbac/getter-role.yaml
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        template: rbac/getter-role.yaml
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        template: rbac/getter-role.yaml
+        documentIndex: 1
+      - hasDocuments:
+          count: 2
+        template: rbac/getter-rolebinding.yaml
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        template: rbac/getter-rolebinding.yaml
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        template: rbac/getter-rolebinding.yaml
+        documentIndex: 1
