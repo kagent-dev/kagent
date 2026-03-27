@@ -535,6 +535,10 @@ func (m *workspaceModel) renderDetails() {
 					name = t.Agent.Name
 				}
 				fmt.Fprintf(&m.details, "- Agent tool: %s\n", name)
+			case v1alpha2.ToolProviderType_Builtin:
+				if t.Builtin != nil && len(t.Builtin.ToolNames) > 0 {
+					fmt.Fprintf(&m.details, "- Builtin tools: %s\n", strings.Join(t.Builtin.ToolNames, ", "))
+				}
 			default:
 				fmt.Fprintf(&m.details, "- Tool: (unknown type)\n")
 			}

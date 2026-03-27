@@ -265,6 +265,7 @@ class AgentConfig(BaseModel):
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     context_config: ContextConfig | None = None
+    builtin_tools: list[str] | None = None  # Built-in tools to enable (e.g., ["ask_user"])
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -380,8 +381,11 @@ class AgentConfig(BaseModel):
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
-        # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
-        tools.append(AskUserTool())
+        # Add built-in tools only when explicitly enabled in the agent config.
+        if self.builtin_tools:
+            for builtin_name in self.builtin_tools:
+                if builtin_name == "ask_user":
+                    tools.append(AskUserTool())
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None

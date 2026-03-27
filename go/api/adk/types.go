@@ -439,6 +439,7 @@ type AgentConfig struct {
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	BuiltinTools  []string              `json:"builtin_tools,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set

@@ -210,12 +210,13 @@ export interface ResourceMetadata {
   namespace?: string;
 }
 
-export type ToolProviderType = "McpServer" | "Agent"
+export type ToolProviderType = "McpServer" | "Agent" | "Builtin"
 
 export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
   agent?: TypedLocalReference;
+  builtin?: BuiltinTool;
 }
 
 export interface TypedLocalReference {
@@ -228,6 +229,10 @@ export interface TypedLocalReference {
 export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
   requireApproval?: string[];
+}
+
+export interface BuiltinTool {
+  toolNames: string[];
 }
 
 export type AgentType = "Declarative" | "BYO";

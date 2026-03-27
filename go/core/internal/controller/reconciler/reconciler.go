@@ -537,6 +537,8 @@ func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context,
 			if err := a.validateAgentToolReference(ctx, agent.Namespace, tool.Agent); err != nil {
 				return err
 			}
+		case tool.Builtin != nil:
+			// Builtin tools are self-contained, no cross-namespace validation needed
 		}
 	}
 
