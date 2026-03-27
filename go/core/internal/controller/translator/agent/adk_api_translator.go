@@ -300,6 +300,7 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Ag
 			if err != nil {
 				return err
 			}
+		case v1alpha2.ToolProviderType_Builtin:
 		}
 	}
 
@@ -746,6 +747,8 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
+		case tool.Builtin != nil:
+			cfg.BuiltinTools = append(cfg.BuiltinTools, tool.Builtin.ToolNames...)
 
 		default:
 			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")

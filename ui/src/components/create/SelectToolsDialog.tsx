@@ -8,13 +8,18 @@ import { Badge } from "@/components/ui/badge";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, isBuiltinTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
 // Maximum number of tools that can be selected
 const MAX_TOOLS_LIMIT = 20;
+
+// Available built-in tools that can be added to agents
+const AVAILABLE_BUILTIN_TOOLS = [
+  { name: "ask_user", description: "Allows the agent to ask the user questions during execution" }
+];
 
 interface SelectToolsDialogProps {
   open: boolean;
@@ -30,7 +35,20 @@ interface SelectToolsDialogProps {
 
 
 // Helper function to get display info for a tool or agent
-const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
+interface BuiltinToolItem {
+  name: string;
+  description: string;
+}
+
+const isBuiltinToolItem = (item: unknown): item is BuiltinToolItem => {
+  if (!item || typeof item !== "object") return false;
+  const obj = item as Record<string, unknown>;
+  return typeof obj.name === "string" && typeof obj.description === "string" && !("agent" in obj) && !("server_name" in obj) && !("id" in obj);
+};
+
+type SelectableItem = ToolsResponse | AgentResponse | BuiltinToolItem;
+
+const getItemDisplayInfo = (item: SelectableItem): {
   displayName: string;
   description?: string;
   identifier: string;
@@ -39,6 +57,18 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   iconColor: string;
   isAgent: boolean;
 } => {
+
+  if (isBuiltinToolItem(item)) {
+    return {
+      displayName: item.name,
+      description: item.description,
+      identifier: `builtin-${item.name}`,
+      providerText: "Built-in",
+      Icon: FunctionSquare,
+      iconColor: "text-purple-400",
+      isAgent: false
+    };
+  }
 
   if (isAgentResponse(item)) {
     const agentResp = item as AgentResponse;
@@ -100,6 +130,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         categoryCollapseState["Agents"] = true;
       }
 
+      uniqueCategories.add("Built-in");
+      categoryCollapseState["Built-in"] = true;
+
       setCategories(uniqueCategories);
       setSelectedCategories(new Set());
       setExpandedCategories(categoryCollapseState);
@@ -112,6 +145,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     return localSelectedTools.reduce((acc, tool) => {
       if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
         return acc + tool.mcpServer.toolNames.length;
+      }
+      if (tool.builtin && tool.builtin.toolNames && tool.builtin.toolNames.length > 0) {
+        return acc + tool.builtin.toolNames.length;
       }
       return acc + 1;
     }, 0);
@@ -151,7 +187,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
   }, [availableTools, availableAgents, searchTerm, selectedCategories]);
 
   const groupedAvailableItems = useMemo(() => {
-    const groups: { [key: string]: Array< ToolsResponse | AgentResponse> } = {};
+    const groups: { [key: string]: Array<SelectableItem> } = {};
     
     const sortedTools = [...filteredAvailableItems.tools].sort((a, b) => {
       return getToolResponseDisplayName(a.tool).localeCompare(getToolResponseDisplayName(b.tool));
@@ -172,13 +208,30 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         return aRef.localeCompare(bRef)
       });
     }
+
+    if (selectedCategories.size === 0 || selectedCategories.has("Built-in")) {
+      const searchLower = searchTerm.toLowerCase();
+      const builtinItems = AVAILABLE_BUILTIN_TOOLS.filter(bt =>
+        bt.name.toLowerCase().includes(searchLower) ||
+        bt.description.toLowerCase().includes(searchLower)
+      );
+      if (builtinItems.length > 0) {
+        groups["Built-in"] = builtinItems;
+      }
+    }
     
     return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
            .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
            
-  }, [filteredAvailableItems]);
+  }, [filteredAvailableItems, selectedCategories, searchTerm]);
 
-  const isItemSelected = (item: ToolsResponse | AgentResponse): boolean => {
+  const isItemSelected = (item: SelectableItem): boolean => {
+    if (isBuiltinToolItem(item)) {
+      return localSelectedTools.some(tool => 
+        isBuiltinTool(tool) && tool.builtin?.toolNames?.includes(item.name)
+      );
+    }
+
     if (isAgentResponse(item)) {
       const agentResp = item as AgentResponse;
 
@@ -216,12 +269,33 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     }
   };
 
-  const handleAddItem = (item: ToolsResponse | AgentResponse) => {
+  const handleAddItem = (item: SelectableItem) => {
     if (isItemSelected(item)) {
       return;
     }
 
     if (actualSelectedCount >= MAX_TOOLS_LIMIT) {
+      return;
+    }
+
+    if (isBuiltinToolItem(item)) {
+      const existingBuiltin = localSelectedTools.find(t => isBuiltinTool(t));
+      if (existingBuiltin && existingBuiltin.builtin) {
+        if (existingBuiltin.builtin.toolNames.includes(item.name)) return;
+        const updated = {
+          ...existingBuiltin,
+          builtin: {
+            ...existingBuiltin.builtin,
+            toolNames: [...existingBuiltin.builtin.toolNames, item.name]
+          }
+        };
+        setLocalSelectedTools(prev => prev.map(t => t === existingBuiltin ? updated : t));
+      } else {
+        setLocalSelectedTools(prev => [...prev, {
+          type: "Builtin" as const,
+          builtin: { toolNames: [item.name] }
+        }]);
+      }
       return;
     }
 
@@ -420,7 +494,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                                   {isSelected && (
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {
                                       e.stopPropagation();
-                                      if ('agent' in item) {
+                                      if (isBuiltinToolItem(item)) {
+                                        const existingBuiltin = localSelectedTools.find(t => isBuiltinTool(t));
+                                        if (existingBuiltin && existingBuiltin.builtin) {
+                                          const newNames = existingBuiltin.builtin.toolNames.filter(n => n !== item.name);
+                                          if (newNames.length === 0) {
+                                            handleRemoveTool(existingBuiltin);
+                                          } else {
+                                            setLocalSelectedTools(prev => prev.map(t => t === existingBuiltin ? { ...existingBuiltin, builtin: { ...existingBuiltin.builtin!, toolNames: newNames } } : t));
+                                          }
+                                        }
+                                      } else if ('agent' in item) {
                                         const agentResp = item as AgentResponse;
                                         const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
                                         const toolToRemove = localSelectedTools.find(tool => 
@@ -546,6 +630,33 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         </div>
                         );
                       });
+                    } else if (tool.builtin && tool.builtin.toolNames && tool.builtin.toolNames.length > 0) {
+                      return tool.builtin.toolNames.map((toolName: string) => (
+                        <div key={`builtin-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
+                          <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                            <FunctionSquare className="h-4 w-4 flex-shrink-0 text-purple-400" />
+                            <div className="flex-1 overflow-hidden">
+                              <p className="text-sm font-medium truncate">{toolName} (Built-in)</p>
+                              <p className="text-xs text-muted-foreground truncate">Built-in agent capability</p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 ml-2 flex-shrink-0"
+                            onClick={() => {
+                              const updated = { ...tool, builtin: { ...tool.builtin!, toolNames: tool.builtin!.toolNames.filter(n => n !== toolName) }};
+                              if (updated.builtin.toolNames.length === 0) {
+                                handleRemoveTool(tool);
+                              } else {
+                                setLocalSelectedTools(prev => prev.map(t => t === tool ? updated : t));
+                              }
+                            }}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ));
                     } else {
                       const matchedAgent = isAgentTool(tool)
                         ? availableAgents.find(a => {
