@@ -467,7 +467,18 @@ func (a *adkApiTranslator) buildManifest(
 		sharedEnv = append(sharedEnv, skillsEnv)
 
 		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
-		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext)
+		initEnv := append(dep.Env, sharedEnv...)
+
+		var initResources *corev1.ResourceRequirements
+		initSecCtx := dep.SecurityContext.DeepCopy()
+		if agent.Spec.Skills.InitContainer != nil {
+			initResources = agent.Spec.Skills.InitContainer.Resources.DeepCopy()
+			if agent.Spec.Skills.InitContainer.SecurityContext != nil {
+				initSecCtx = agent.Spec.Skills.InitContainer.SecurityContext.DeepCopy()
+			}
+		}
+
+		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, initSecCtx, initEnv, getDefaultResources(initResources))
 		if err != nil {
 			return nil, fmt.Errorf("failed to build skills init container: %w", err)
 		}
@@ -1744,6 +1755,8 @@ func buildSkillsInitContainer(
 	ociRefs []string,
 	insecureOCI bool,
 	securityContext *corev1.SecurityContext,
+	env []corev1.EnvVar,
+	resources corev1.ResourceRequirements,
 ) (container corev1.Container, volumes []corev1.Volume, err error) {
 	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
 	if err != nil {
@@ -1752,11 +1765,6 @@ func buildSkillsInitContainer(
 	script, err := buildSkillsScript(data)
 	if err != nil {
 		return corev1.Container{}, nil, err
-	}
-
-	initSecCtx := securityContext
-	if initSecCtx != nil {
-		initSecCtx = initSecCtx.DeepCopy()
 	}
 
 	volumeMounts := []corev1.VolumeMount{
@@ -1785,7 +1793,9 @@ func buildSkillsInitContainer(
 		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
 		VolumeMounts:    volumeMounts,
-		SecurityContext: initSecCtx,
+		SecurityContext: securityContext,
+		Env:             env,
+		Resources:       resources,
 	}
 
 	return container, volumes, nil
