@@ -21,7 +21,7 @@ class STSIntegrationBase:
         timeout: int = 30,
         verify_ssl: bool = True,
         use_issuer_host: bool = False,
-        additional_config: Optional[Dict[str, Any]] = None,
+        get_subject_token: Optional[Callable[[dict], Optional[str]]] = None,
     ):
         """Initialize the STS integration.
 
@@ -32,13 +32,14 @@ class STSIntegrationBase:
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
             use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
-            additional_config: Additional configuration for the specific framework
+            get_subject_token: Optional callback that takes session state (dict) and returns
+                the subject token string or None
         """
         self.well_known_uri = well_known_uri
         self.timeout = timeout
         self.verify_ssl = verify_ssl
-        self.additional_config = additional_config or {}
         self.fetch_actor_token = fetch_actor_token
+        self.get_subject_token = get_subject_token
 
         # Initialize STS client
         config = STSConfig(
