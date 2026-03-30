@@ -1,5 +1,5 @@
--- Baseline migration: matches the schema produced by GORM AutoMigrate in the
--- prior kagent release. Each subsequent migration applies additive changes.
+-- Baseline migration: matches the schema produced by GORM AutoMigrate as of
+-- kagent v0.8.0. Upgrading to v0.8.0 before this version is required.
 
 CREATE TABLE IF NOT EXISTS agent (
     id         TEXT        PRIMARY KEY,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS agent (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
     type       TEXT        NOT NULL,
-    config     JSONB
+    config     JSON
 );
 CREATE INDEX IF NOT EXISTS idx_agent_deleted_at ON agent(deleted_at);
 
@@ -19,11 +19,13 @@ CREATE TABLE IF NOT EXISTS session (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
     agent_id   TEXT,
+    source     TEXT,
     PRIMARY KEY (id, user_id)
 );
-CREATE INDEX IF NOT EXISTS idx_session_name      ON session(name);
-CREATE INDEX IF NOT EXISTS idx_session_agent_id  ON session(agent_id);
+CREATE INDEX IF NOT EXISTS idx_session_name       ON session(name);
+CREATE INDEX IF NOT EXISTS idx_session_agent_id   ON session(agent_id);
 CREATE INDEX IF NOT EXISTS idx_session_deleted_at ON session(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_session_source     ON session(source);
 
 CREATE TABLE IF NOT EXISTS event (
     id         TEXT        NOT NULL,
@@ -116,18 +118,18 @@ CREATE TABLE IF NOT EXISTS lg_checkpoint (
 );
 CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_parent_checkpoint_id ON lg_checkpoint(parent_checkpoint_id);
 CREATE INDEX IF NOT EXISTS idx_lgcp_list                          ON lg_checkpoint(created_at);
-CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_deleted_at          ON lg_checkpoint(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_deleted_at           ON lg_checkpoint(deleted_at);
 
 CREATE TABLE IF NOT EXISTS lg_checkpoint_write (
-    user_id       TEXT    NOT NULL,
-    thread_id     TEXT    NOT NULL,
-    checkpoint_ns TEXT    NOT NULL DEFAULT '',
-    checkpoint_id TEXT    NOT NULL,
-    write_idx     INTEGER NOT NULL,
-    value         TEXT    NOT NULL,
-    value_type    TEXT    NOT NULL,
-    channel       TEXT    NOT NULL,
-    task_id       TEXT    NOT NULL,
+    user_id       TEXT        NOT NULL,
+    thread_id     TEXT        NOT NULL,
+    checkpoint_ns TEXT        NOT NULL DEFAULT '',
+    checkpoint_id TEXT        NOT NULL,
+    write_idx     INTEGER     NOT NULL,
+    value         TEXT        NOT NULL,
+    value_type    TEXT        NOT NULL,
+    channel       TEXT        NOT NULL,
+    task_id       TEXT        NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at    TIMESTAMPTZ,

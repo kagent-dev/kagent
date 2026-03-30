@@ -1,10 +1,12 @@
 package database
 
 // TestUpgradeFromGORM validates that the golang-migrate migrations run cleanly
-// against a database that was previously managed by GORM AutoMigrate, and that
-// pre-existing data is accessible via the new sqlc client afterwards.
+// against a database that was previously managed by GORM AutoMigrate (kagent
+// v0.8.0), and that pre-existing data is accessible via the new sqlc client
+// afterwards. v0.8.0 is the minimum required version before upgrading to this
+// release.
 //
-// It simulates an existing deployment by:
+// It simulates an existing v0.8.0 deployment by:
 //  1. Creating the schema that GORM AutoMigrate would have produced (no migration
 //     tracking tables, no gen_random_uuid() default on memory.id).
 //  2. Seeding representative rows, including soft-deleted CrewAI rows that GORM's
@@ -25,8 +27,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gormSchema reproduces the DDL that GORM AutoMigrate emitted for the kagent
-// models. Key differences from the current migrations:
+// gormSchema reproduces the DDL that GORM AutoMigrate emitted for kagent v0.8.0.
+// Key differences from the current migrations:
 //   - No schema_migrations / vector_schema_migrations tracking tables.
 //   - memory.id has no DEFAULT (GORM relied on the BeforeCreate hook).
 //   - Indexes may have different names (GORM derives them from the struct name).
