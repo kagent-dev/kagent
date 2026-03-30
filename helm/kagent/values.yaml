@@ -81,6 +81,8 @@ database:
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
+      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
+      storageClassName: ""
       # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
       # This is intentional for a dev/eval setup. Switch to an external database for production.
       # -- Resource requests/limits for the demo PostgreSQL container
@@ -494,3 +496,4 @@ otel:
         endpoint: ""
         timeout: 15
         insecure: true
+
