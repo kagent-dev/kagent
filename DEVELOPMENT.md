@@ -22,8 +22,6 @@ Before you can run kagent in Kubernetes, you need to have the following tools in
 - **Docker Buildx** (v0.23.0+)
 - **Make**
 
-
-
 ### Installation Verification
 
 You can verify your installation by running:
@@ -39,7 +37,6 @@ docker buildx version
 make --version
 ```
 
-
 ## How to run everything in Kubernetes
 
 1. Create a cluster:
@@ -48,13 +45,13 @@ make --version
 make create-kind-cluster
 ```
 
-2. Configure the cluster and set the default namespace `kagent`:
+1. Configure the cluster and set the default namespace `kagent`:
 
 ```shell
 make use-kind-cluster
 ```
 
-3. Set your model provider:
+1. Set your model provider:
 
 ```shell
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
@@ -62,7 +59,7 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
 ```
 
-4. Set your providers API_KEY:
+1. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
@@ -70,10 +67,33 @@ export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-5. Build images, load them into kind cluster and deploy everything using Helm:
+Alternatively, create a `.env` file at the repo root (gitignored). This file is
+loaded by the Makefile (via `-include .env`) to inject environment variables
+when you run `make` targets:
+
+```shell
+# Set your provider (supported: openAI, anthropic, azureOpenAI, gemini, ollama)
+KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+
+# Set the corresponding API key for your provider
+OPENAI_API_KEY=your-openai-api-key
+# ANTHROPIC_API_KEY=your-anthropic-api-key
+# GOOGLE_API_KEY=your-google-api-key
+```
+
+1. Build images, load them into kind cluster and deploy everything using Helm:
 
 ```shell
 make helm-install
+```
+
+To apply personal Helm overrides without committing them, create
+`helm/kagent/values.local.yaml` (gitignored) and set `KAGENT_HELM_EXTRA_ARGS` in
+your `.env` file (which is read by the Makefile when you run `make`):
+
+```shell
+# .env
+KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
 ```
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
@@ -99,34 +119,22 @@ make kagent-addon-install
 
 This installs the following components into your cluster:
 
-| Addon          | Description                                         | Namespace |
-|----------------|-----------------------------------------------------|-----------|
-| Istio          | Service mesh (demo profile)                         | `istio-system` |
-| Grafana        | Dashboards and visualization                        | `kagent` |
-| Prometheus     | Metrics collection                                  | `kagent` |
-| Metrics Server | Kubernetes resource metrics                         | `kube-system` |
-| Postgres       | Relational database (for kagent controller storage) | `kagent` |
+| Addon          | Description                          | Namespace      |
+|----------------|--------------------------------------|----------------|
+| Istio          | Service mesh (demo profile)          | `istio-system` |
+| Grafana        | Dashboards and visualization         | `kagent`       |
+| Prometheus     | Metrics collection                   | `kagent`       |
+| Metrics Server | Kubernetes resource metrics          | `kube-system`  |
 
-#### Using Postgres as the Datastore
+PostgreSQL is deployed automatically as part of `make helm-install` via the bundled Helm chart. The optional addons above provide observability components.
 
-By default, kagent uses a local SQLite database for data persistence. To use
-postgres as the backing store instead, deploy kagent via:
+> **pgvector:** The default bundled PostgreSQL image (`postgres:18`) does not include the pgvector extension. If you need vector features (e.g. long-term memory), either use an external PostgreSQL instance with pgvector installed, or override the bundled image to `pgvector/pgvector:pg18-trixie` and set `database.postgres.vectorEnabled=true`. The `make helm-install` target does this automatically for local development.
 
-> **Warning:**  
-> The following example uses hardcoded Postgres credentials (`postgres:kagent`) for local development only.  
-> **Do not use these credentials in production environments.**  
-```shell
-KAGENT_HELM_EXTRA_ARGS="--set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@postgres.kagent.svc.cluster.local:5432/kagent" \
-  make helm-install
-```
-
-Verify the connection by checking the controller logs:
+Verify the database connection by checking the controller logs:
 
 ```shell
 kubectl logs -n kagent deployment/kagent-controller | grep -i postgres
 ```
-
-**To revert to SQLite:** Run `make helm-install` without the `KAGENT_HELM_EXTRA_ARGS` variable.
 
 ### Troubleshooting
 
@@ -148,7 +156,7 @@ docker buildx create --name kagent-builder-v0.23.0 --platform linux/amd64,linux/
 
 Then run the `make helm-install` command again.
 
-### Run kagent and an agent locally.
+### Run kagent and an agent locally
 
 create a minimal cluster with kind. scale kagent to 0 replicas, as we will run it locally.
 

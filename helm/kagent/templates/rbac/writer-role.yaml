@@ -1,0 +1,90 @@
+{{- define "kagent.writer.rules" -}}
+- apiGroups:
+  - kagent.dev
+  resources:
+  - agents
+  - modelconfigs
+  - modelproviderconfigs
+  - toolservers
+  - memories
+  - remotemcpservers
+  - mcpservers
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - kagent.dev
+  resources:
+  - agents/finalizers
+  - modelconfigs/finalizers
+  - modelproviderconfigs/finalizers
+  - toolservers/finalizers
+  - memories/finalizers
+  - remotemcpservers/finalizers
+  - mcpservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - "*"
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - "apps"
+  resources:
+  - "*"
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - "batch"
+  resources:
+  - "*"
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - "*"
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
+{{- end -}}
+
+{{- if .Values.rbac.clusterScoped }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-writer-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+  {{- include "kagent.writer.rules" . | nindent 2 }}
+{{- else }}
+{{- $namespaces := .Values.rbac.namespaces | default (list (include "kagent.namespace" .)) }}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagent.fullname" $ }}-writer-role
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+rules:
+  {{- include "kagent.writer.rules" $ | nindent 2 }}
+{{- end }}
+{{- end }}

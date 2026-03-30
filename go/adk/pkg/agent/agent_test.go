@@ -308,8 +308,8 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 				},
 				Description: "Test agent with all fields",
 				Instruction: "You are a helpful test assistant",
-				Stream:      boolPtr(true),
-				ExecuteCode: boolPtr(false), // Deprecated, not implemented in Go
+				Stream:      new(true),
+				ExecuteCode: new(false), // Deprecated, not implemented in Go
 				Memory: &adk.MemoryConfig{
 					TTLDays: 15,
 					Embedding: &adk.EmbeddingConfig{
@@ -384,12 +384,4 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 			// This test primarily validates the AgentConfig structure itself.
 		})
 	}
-}
-
-func boolPtr(b bool) *bool {
-	return &b
-}
-
-func intPtr(i int) *int {
-	return &i
 }

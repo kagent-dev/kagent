@@ -63,7 +63,6 @@ def read_metadata_value(metadata: dict | None, key: str, default=None):
 
 KAGENT_HITL_DECISION_TYPE_KEY = "decision_type"
 KAGENT_HITL_DECISION_TYPE_APPROVE = "approve"
-KAGENT_HITL_DECISION_TYPE_DENY = "deny"
 KAGENT_HITL_DECISION_TYPE_REJECT = "reject"
 KAGENT_HITL_DECISION_TYPE_BATCH = "batch"
 KAGENT_HITL_DECISIONS_KEY = "decisions"

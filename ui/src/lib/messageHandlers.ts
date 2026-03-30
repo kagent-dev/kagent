@@ -1,7 +1,7 @@
 import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, messageUtils } from "@/lib/utils";
-import { TokenStats, ChatStatus } from "@/types";
+import { convertToUserFriendlyName, isAgentToolName, messageUtils } from "@/lib/utils";
+import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
 // Helper functions for extracting data from stored tasks
@@ -10,46 +10,151 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const seenMessageIds = new Set<string>();
 
   for (const task of tasks) {
-    if (task.history) {
-      // Loop over task history to reconstruct chat messages
-      for (let i = 0; i < task.history.length; i++) {
-        const historyItem = task.history[i];
-        if (historyItem.kind === "message") {
-          // Deduplicate by messageId to avoid showing the same message twice
-          if (seenMessageIds.has(historyItem.messageId)) continue;
+    if (!task.history) continue;
 
-          // If this history message IS an adk_request_confirmation, replace
-          // it with a ToolApprovalRequest card carrying the decision status.
-          const confirmationParts = findConfirmationParts(historyItem);
-          if (confirmationParts.length > 0) {
-            // Find the decision that applies to THIS confirmation (first decision AFTER this message)
-            const decision = findDecisionAfterIndex(
-              task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>,
-              i
-            );
+    // Track the most recent LLM usage seen so far within this task so we can
+    // attach it to HITL confirmation cards (which share the same invocation as
+    // the preceding function_call but don't carry usage_metadata themselves).
+    let lastSeenStats: TokenStats | undefined;
 
-            // Skip unresolved confirmations — extractApprovalMessagesFromTasks
-            // handles pending ones via task.status.message to avoid duplicates.
-            if (!decision) {
-              seenMessageIds.add(historyItem.messageId);
-              continue;
-            }
+    for (let i = 0; i < task.history.length; i++) {
+      const historyItem = task.history[i];
+      if (historyItem.kind !== "message") continue;
 
-            for (const confPart of confirmationParts) {
-              const approvalMsg = buildApprovalMessage(confPart, task.contextId, task.id, decision);
-              messages.push(approvalMsg);
-            }
-            seenMessageIds.add(historyItem.messageId);
-            continue;
-          }
+      // Deduplicate by messageId to avoid showing the same message twice
+      if (seenMessageIds.has(historyItem.messageId)) continue;
+      seenMessageIds.add(historyItem.messageId);
 
-          // Skip user decision messages — the decision is shown on the
-          // approval card itself, not as a separate chat bubble.
-          if (isUserDecisionMessage(historyItem)) continue;
+      // If this history message IS an adk_request_confirmation, replace
+      // it with a ToolApprovalRequest card carrying the decision status.
+      const confirmationParts = findConfirmationParts(historyItem);
+      if (confirmationParts.length > 0) {
+        // Find the decision that applies to THIS confirmation (first decision AFTER this message)
+        const decision = findDecisionAfterIndex(
+          task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>,
+          i
+        );
 
-          seenMessageIds.add(historyItem.messageId);
-          messages.push(historyItem);
+        // Skip unresolved confirmations — extractApprovalMessagesFromTasks
+        // handles pending ones via task.status.message to avoid duplicates.
+        if (!decision) continue;
+
+        for (const confPart of confirmationParts) {
+          // Use lastSeenStats: the confirmation message shares an invocation with
+          // the preceding function_call message that carries the usage.
+          messages.push(buildApprovalMessage(confPart, task.contextId, task.id, decision, lastSeenStats));
         }
+        continue;
+      }
+
+      // Skip user decision messages — the decision is shown on the
+      // approval card itself, not as a separate chat bubble.
+      if (isUserDecisionMessage(historyItem)) continue;
+
+      // User messages: push as-is (no tokenStats needed).
+      if (historyItem.role === "user") {
+        messages.push(historyItem);
+        continue;
+      }
+
+      // Agent messages: convert function_call / function_response DataParts to
+      // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
+      // by the live-stream handlers so the rendering component can display them.
+      const msgContextId = historyItem.contextId ?? task.contextId;
+      const msgTaskId = historyItem.taskId ?? task.id;
+      const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
+      const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
+
+      if (msgStats) lastSeenStats = msgStats;
+
+      let hasConvertedParts = false;
+      for (const part of historyItem.parts ?? []) {
+        if (part.kind !== "data") continue;
+        const dp = part as DataPart;
+        const partMeta = dp.metadata as Record<string, unknown> | undefined;
+        const partType = getMetadataValue<string>(partMeta, "type");
+
+        if (partType === "function_call") {
+          const fcName = (dp.data as Record<string, unknown>)?.name as string | undefined;
+          // Skip ADK internal calls — confirmations are handled above.
+          if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") continue;
+
+          const toolData = dp.data as unknown as ToolCallData;
+          // Agent calls get no initial tokenStats; child stats arrive later via
+          // the function_response and are stamped on this card below.
+          // Regular tool calls use the message's own invocation stats.
+          const toolStats = isAgentToolName(toolData.name) ? undefined : msgStats;
+          const fcSubagentSessionId = isAgentToolName(toolData.name)
+            ? getMetadataValue<string>(partMeta, "subagent_session_id")
+            : undefined;
+          messages.push(createMessage("", source, {
+            originalType: "ToolCallRequestEvent",
+            contextId: msgContextId,
+            taskId: msgTaskId,
+            additionalMetadata: {
+              toolCallData: [{
+                id: toolData.id,
+                name: toolData.name,
+                args: (toolData.args as Record<string, unknown>) || {},
+                ...(fcSubagentSessionId ? { subagent_session_id: fcSubagentSessionId } : {}),
+              }],
+              ...(toolStats && { tokenStats: toolStats }),
+            },
+          }));
+          hasConvertedParts = true;
+
+        } else if (partType === "function_response") {
+          const toolData = dp.data as unknown as ToolResponseData;
+          let frSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            const responseObj = toolData.response as Record<string, unknown> | undefined;
+            if (responseObj && typeof responseObj.subagent_session_id === "string") {
+              frSubagentSessionId = responseObj.subagent_session_id;
+            }
+          }
+          messages.push(createMessage("", source, {
+            originalType: "ToolCallExecutionEvent",
+            contextId: msgContextId,
+            taskId: msgTaskId,
+            additionalMetadata: {
+              toolResultData: [{
+                call_id: toolData.id,
+                name: toolData.name,
+                content: normalizeToolResultToText(toolData),
+                is_error: toolData.response?.isError || false,
+                ...(frSubagentSessionId ? { subagent_session_id: frSubagentSessionId } : {}),
+              }],
+            },
+          }));
+          hasConvertedParts = true;
+
+          // For agent tools, extract child usage from the response dict and
+          // stamp it on the matching ToolCallRequestEvent card.
+          if (isAgentToolName(toolData.name)) {
+            const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
+            if (responseUsage) {
+              const agentCallStats = getMessageTokenStats({ kagent_usage_metadata: responseUsage } as Record<string, unknown>);
+              if (agentCallStats) {
+                for (let j = messages.length - 2; j >= 0; j--) {
+                  const prevMeta = messages[j].metadata as ADKMetadata | undefined;
+                  if (prevMeta?.originalType === "ToolCallRequestEvent" &&
+                      prevMeta?.toolCallData?.some(tc => tc.id === toolData.id)) {
+                    messages[j] = { ...messages[j], metadata: { ...(messages[j].metadata as object || {}), tokenStats: agentCallStats } };
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Text messages (or any message without data parts): push with tokenStats.
+      if (!hasConvertedParts) {
+        messages.push(msgStats
+          ? { ...historyItem, metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } }
+          : historyItem
+        );
       }
     }
   }
@@ -57,7 +162,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
-/** Returns true if the message is a user HITL decision (approve/deny) or ask-user answer. */
+/** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
   if (message.role !== "user" || !message.parts) return false;
   return message.parts.some((p: Part) => {
@@ -135,22 +240,22 @@ function findDecisionAfterIndex(
 
 /**
  * Resolve the decision for a specific tool from the user's decision data.
- * Handles uniform ("approve"/"deny") and batch modes.
+ * Handles uniform ("approve"/"reject") and batch modes.
  */
 function resolveToolDecision(
   decisionData: Record<string, unknown> | undefined,
   toolId: string
-): string | undefined {
+): ToolDecision | undefined {
   if (!decisionData) return undefined;
   const decisionType = decisionData.decision_type as string;
 
   if (decisionType === "batch") {
-    const decisions = decisionData.decisions as Record<string, string> | undefined;
-    return decisions?.[toolId]; // "approve" | "deny" | undefined
+    const decisions = decisionData.decisions as Record<string, ToolDecision> | undefined;
+    return decisions?.[toolId];
   }
 
   // Uniform decision — applies to all tools
-  return decisionType; // "approve" | "deny"
+  return decisionType as ToolDecision;
 }
 
 /**
@@ -163,13 +268,10 @@ export function buildApprovalMessage(
   confPart: DataPart,
   contextId: string | undefined,
   taskId: string | undefined,
-  decisionData?: Record<string, unknown>
+  decisionData?: Record<string, unknown>,
+  tokenStats?: TokenStats
 ): Message {
-  const data = confPart.data as {
-    name: string;
-    args: { originalFunctionCall: { name: string; args: Record<string, unknown>; id?: string } };
-    id: string;
-  };
+  const data = confPart.data as unknown as AdkRequestConfirmationData;
   const origFc = data.args.originalFunctionCall;
   const toolId = origFc.id || data.id;
 
@@ -190,50 +292,133 @@ export function buildApprovalMessage(
         askUserAnswers: askUserAnswers || null,
         // Track the decision type so we know it was resolved
         approvalDecision: decisionData?.decision_type ? "approve" : undefined,
+        ...(tokenStats && { tokenStats }),
       },
     });
   }
 
-  const toolCallContent: ProcessedToolCallData[] = [{
-    id: toolId,
-    name: origFc.name,
-    args: origFc.args || {},
-  }];
+  // Check for inner subagent tool details in toolConfirmation.payload.hitl_parts.
+  // When a subagent's tool needs approval, KAgentRemoteA2ATool stores the
+  // subagent's adk_request_confirmation DataParts in the payload so we can
+  // show the actual inner tool(s) instead of the generic "call subagent" request.
+  const hitlParts: HitlPartInfo[] | undefined = data.args.toolConfirmation?.payload?.hitl_parts;
+
+  // Subagent ask_user: if the only inner tool is ask_user, render the
+  // AskUserDisplay instead of a generic approval card.
+  if (hitlParts && hitlParts.length === 1 && hitlParts[0].originalFunctionCall.name === "ask_user") {
+    const innerFc = hitlParts[0].originalFunctionCall;
+    const innerToolId = innerFc.id || hitlParts[0].id || toolId;
+    const askUserAnswers = decisionData?.ask_user_answers as Array<{ answer: string[] }> | undefined;
+    const subagentNameForAskUser: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
+    return createMessage("", "agent", {
+      originalType: "AskUserRequest",
+      contextId,
+      taskId,
+      additionalMetadata: {
+        askUserData: {
+          id: innerToolId,
+          questions: (innerFc.args as { questions?: unknown }).questions || [],
+        },
+        askUserAnswers: askUserAnswers || null,
+        approvalDecision: decisionData?.decision_type ? "approve" : undefined,
+        subagentName: subagentNameForAskUser,
+        ...(tokenStats && { tokenStats }),
+      },
+    });
+  }
+
+  let toolCallContent: ProcessedToolCallData[];
+
+  if (hitlParts && hitlParts.length > 0) {
+    toolCallContent = hitlParts.map((hp: HitlPartInfo) => ({
+      id: hp.originalFunctionCall.id || hp.id || toolId,
+      name: hp.originalFunctionCall.name || origFc.name,
+      args: hp.originalFunctionCall.args || {},
+    }));
+  } else {
+    toolCallContent = [{
+      id: toolId,
+      name: origFc.name,
+      args: origFc.args || {},
+    }];
+  }
+
+  // Resolve the approval decision for this message.
+  // For subagent HITL with batch decisions, the decision keys are inner tool
+  // IDs (not the outer toolId), so return the full per-tool map.
+  let approvalDecision: ApprovalDecision | undefined;
+  if (hitlParts && hitlParts.length > 0 && decisionData?.decision_type === "batch") {
+    approvalDecision = decisionData.decisions as Record<string, ToolDecision> | undefined;
+  } else {
+    approvalDecision = resolveToolDecision(decisionData, toolId);
+  }
+
+  // Extract subagent name if this is a subagent HITL request
+  const subagentName: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
+
   return createMessage("", "agent", {
     originalType: "ToolApprovalRequest",
     contextId,
     taskId,
     additionalMetadata: {
       toolCallData: toolCallContent,
-      // "approve" | "deny" | undefined — ToolCallDisplay reads this to
-      // set the initial status to "approved", "rejected", or "pending_approval".
-      approvalDecision: resolveToolDecision(decisionData, toolId),
+      approvalDecision,
+      subagentName,
+      ...(tokenStats && { tokenStats }),
     },
   });
 }
 
+/**
+ * Extract token stats from a single message's own metadata (if the message
+ * was generated by an LLM call and carries per-call usage).
+ */
+function getMessageTokenStats(metadata: Record<string, unknown> | undefined): TokenStats | undefined {
+  const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(metadata, "usage_metadata");
+  if (!usage) return undefined;
+  return {
+    total: usage.totalTokenCount ?? 0,
+    prompt: usage.promptTokenCount ?? 0,
+    completion: usage.candidatesTokenCount ?? 0,
+  };
+}
+
 export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
-  let maxTotal = 0;
-  let maxInput = 0;
-  let maxOutput = 0;
-  
+  let total = 0, prompt = 0, completion = 0;
   for (const task of tasks) {
-    if (task.metadata) {
-      const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(task.metadata as Record<string, unknown>, "usage_metadata");
-      
-      if (usage) {
-        maxTotal = Math.max(maxTotal, usage.totalTokenCount || 0);
-        maxInput = Math.max(maxInput, usage.promptTokenCount || 0);
-        maxOutput = Math.max(maxOutput, usage.candidatesTokenCount || 0);
+    for (const item of task.history ?? []) {
+      const msg = item as unknown as { kind?: string; role?: string; metadata?: Record<string, unknown>; parts?: Part[] };
+      if (msg.kind !== "message" || msg.role === "user") continue;
+
+      // Message-level usage (most agent messages carry this).
+      const stats = getMessageTokenStats(msg.metadata);
+      if (stats) {
+        total += stats.total;
+        prompt += stats.prompt;
+        completion += stats.completion;
+      }
+
+      // function_response from agent tools carries child-agent usage inside the
+      // response dict rather than in message-level metadata — include it here.
+      for (const part of msg.parts ?? []) {
+        if (part.kind !== "data") continue;
+        const dp = part as DataPart;
+        const partMeta = dp.metadata as Record<string, unknown> | undefined;
+        if (getMetadataValue<string>(partMeta, "type") !== "function_response") continue;
+        const toolData = dp.data as unknown as ToolResponseData;
+        if (!isAgentToolName(toolData.name)) continue;
+        const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
+        if (!responseUsage) continue;
+        const childStats = getMessageTokenStats({ kagent_usage_metadata: responseUsage } as Record<string, unknown>);
+        if (childStats) {
+          total += childStats.total;
+          prompt += childStats.prompt;
+          completion += childStats.completion;
+        }
       }
     }
   }
-  
-  return {
-    total: maxTotal,
-    input: maxInput,
-    output: maxOutput
-  };
+  return { total, prompt, completion };
 }
 
 export type OriginalMessageType =
@@ -300,6 +485,7 @@ export interface ProcessedToolCallData {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  subagent_session_id?: string;
 }
 
 export interface ProcessedToolResultData {
@@ -307,6 +493,7 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
+  subagent_session_id?: string;
 }
 
 // Normalize various tool response result shapes into plain text
@@ -412,8 +599,15 @@ export type MessageHandlers = {
   setMessages: (updater: (prev: Message[]) => Message[]) => void;
   setIsStreaming: (value: boolean) => void;
   setStreamingContent: (updater: (prev: string) => string) => void;
-  setTokenStats: (updater: (prev: TokenStats) => TokenStats) => void;
   setChatStatus?: (status: ChatStatus) => void;
+  setSessionStats?: (updater: (prev: TokenStats) => TokenStats) => void;
+  /**
+   * External mutable container for pending turn stats. Pass a ref-like object
+   * (`useRef<TokenStats | undefined>(undefined)`) from the component so that
+   * `pendingTurnStats` survives re-renders instead of being reset to `undefined`
+   * every time `createMessageHandlers` is called.
+   */
+  pendingTurnStats?: { current: TokenStats | undefined };
   agentContext?: {
     namespace: string;
     agentName: string;
@@ -425,19 +619,23 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     handlers.setMessages(prev => [...prev, message]);
   };
 
-  const updateTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined) => {
+  // Stores the latest usage stats from the current turn.
+  // Usage arrives on intermediate status-update events (before the TextMessage
+  // is created via artifact update), so we carry it forward here.
+  //
+  // We use an external ref-like container (if provided) so that the value
+  // survives React re-renders between A2A stream events.  If no container is
+  // provided we fall back to a local one (fine for tests / non-React usage).
+  const pts = handlers.pendingTurnStats ?? { current: undefined as TokenStats | undefined };
+
+  const getTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined): TokenStats | undefined => {
     const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(adkMetadata as Record<string, unknown>, "usage_metadata");
-    if (!usage) return;
-    const tokenStats = {
-      total: usage.totalTokenCount || 0,
-      input: usage.promptTokenCount || 0,
-      output: usage.candidatesTokenCount || 0,
+    if (!usage) return undefined;
+    return {
+      total: usage.totalTokenCount ?? 0,
+      prompt: usage.promptTokenCount ?? 0,
+      completion: usage.candidatesTokenCount ?? 0,
     };
-    handlers.setTokenStats(prev => ({
-      total: Math.max(prev.total, tokenStats.total),
-      input: Math.max(prev.input, tokenStats.input),
-      output: Math.max(prev.output, tokenStats.output),
-    }));
   };
 
   const aggregatePartsToText = (parts: Part[]): string => {
@@ -457,9 +655,23 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     }).join("");
   };
 
+  const accumulateSessionStats = (stats: TokenStats) => {
+    if (handlers.setSessionStats) {
+      handlers.setSessionStats(prev => ({
+        total: prev.total + stats.total,
+        prompt: prev.prompt + stats.prompt,
+        completion: prev.completion + stats.completion,
+      }));
+    }
+  };
+
   const finalizeStreaming = () => {
     handlers.setIsStreaming(false);
     handlers.setStreamingContent(() => "");
+    if (pts.current) {
+      accumulateSessionStats(pts.current);
+    }
+    pts.current = undefined;
     if (handlers.setChatStatus) {
       handlers.setChatStatus("ready");
     }
@@ -470,7 +682,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     contextId: string | undefined,
     taskId: string | undefined,
     source: string,
-    options?: { setProcessingStatus?: boolean }
+    options?: { setProcessingStatus?: boolean; tokenStats?: TokenStats; subagentSessionId?: string }
   ) => {
     if (options?.setProcessingStatus && handlers.setChatStatus) {
       handlers.setChatStatus("processing_tools");
@@ -478,7 +690,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     const toolCallContent: ProcessedToolCallData[] = [{
       id: toolData.id,
       name: toolData.name,
-      args: toolData.args || {}
+      args: toolData.args || {},
+      ...(options?.subagentSessionId ? { subagent_session_id: options.subagentSessionId } : {}),
     }];
     const convertedMessage = createMessage(
       "",
@@ -487,7 +700,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         originalType: "ToolCallRequestEvent",
         contextId,
         taskId,
-        additionalMetadata: { toolCallData: toolCallContent }
+        additionalMetadata: { toolCallData: toolCallContent, ...(options?.tokenStats && { tokenStats: options.tokenStats }) }
       }
     );
     appendMessage(convertedMessage);
@@ -499,11 +712,22 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     taskId: string | undefined,
     defaultSource: string
   ) => {
+    const content = normalizeToolResultToText(toolData);
+    let subagentSessionId: string | undefined;
+
+    if (isAgentToolName(toolData.name)) {
+      const responseObj = toolData.response as Record<string, unknown> | undefined;
+      if (responseObj && typeof responseObj.subagent_session_id === "string") {
+        subagentSessionId = responseObj.subagent_session_id;
+      }
+    }
+
     const toolResultContent: ProcessedToolResultData[] = [{
       call_id: toolData.id,
       name: toolData.name,
-      content: normalizeToolResultToText(toolData),
+      content,
       is_error: toolData.response?.isError || false,
+      ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
     }];
     const execEvent = createMessage(
       "",
@@ -516,20 +740,81 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }
     );
     appendMessage(execEvent);
+
+    // If the sub-agent included its own usage metadata in the response dict,
+    // tag the matching AgentCall card (ToolCallRequestEvent) with those stats.
+    // We match by call ID to be precise regardless of message ordering.
+    const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
+    if (responseUsage && isAgentToolName(toolData.name)) {
+      const agentCallStats = getTokenStatsFromMetadata({ kagent_usage_metadata: responseUsage } as ADKMetadata);
+      if (agentCallStats) {
+        handlers.setMessages(prev => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            const msgMeta = updated[i].metadata as ADKMetadata | undefined;
+            if (msgMeta?.originalType === "ToolCallRequestEvent" &&
+                msgMeta?.toolCallData?.some(tc => tc.id === toolData.id)) {
+              updated[i] = { ...updated[i], metadata: { ...(updated[i].metadata as object || {}), tokenStats: agentCallStats } };
+              break;
+            }
+          }
+          return updated;
+        });
+        accumulateSessionStats(agentCallStats);
+      }
+    }
   };
 
   const isUserMessage = (message: Message): boolean => message.role === "user";
 
   // Simple fallback source when metadata is not available
-  const defaultAgentSource = handlers.agentContext 
+  const defaultAgentSource = handlers.agentContext
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
   const handleA2ATaskStatusUpdate = (statusUpdate: TaskStatusUpdateEvent) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
+      const turnStats = getTokenStatsFromMetadata(adkMetadata);
 
-      updateTokenStatsFromMetadata(adkMetadata);
+      // When usage arrives, retroactively tag all agent messages from the
+      // current invocation. The loop stops at an invocation boundary so that
+      // messages from earlier LLM calls keep their own stats.
+      if (turnStats) {
+        // If a previous invocation already deposited stats that DIFFER from the
+        // current event's stats, accumulate them before replacing — each LLM
+        // call within a turn is independent.
+        // When stats are identical the current event is a state transition from
+        // the same LLM call (e.g. working→input-required both carry {470}).
+        // Accumulating in that case would double-count; the input-required
+        // branch handles the single accumulation instead.
+        const isNewInvocation = pts.current && (
+          pts.current.total !== turnStats.total ||
+          pts.current.prompt !== turnStats.prompt ||
+          pts.current.completion !== turnStats.completion
+        );
+        if (isNewInvocation) {
+          accumulateSessionStats(pts.current!);
+        }
+        pts.current = turnStats;
+        handlers.setMessages(prev => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (updated[i].role === "user") break;
+            // Stop at an invocation boundary — everything before belongs to an
+            // earlier LLM call and must not be tagged with this turn's stats.
+            // ToolApprovalRequest: HITL boundary; ToolCallExecutionEvent: the
+            // tool response that separates two back-to-back LLM invocations.
+            const iterMeta = updated[i].metadata as ADKMetadata | undefined;
+            const type = iterMeta?.originalType;
+            if (type === "ToolApprovalRequest" || type === "ToolCallExecutionEvent") break;
+            // AgentCall cards get stats from the child agent's function_response — don't overwrite with parent synthesis stats
+            if (type === "ToolCallRequestEvent" && iterMeta?.toolCallData?.some(tc => isAgentToolName(tc.name))) break;
+            updated[i] = { ...updated[i], metadata: { ...(updated[i].metadata as object || {}), tokenStats: turnStats } };
+          }
+          return updated;
+        });
+      }
 
       // Check for tool approval interrupt
       if (
@@ -540,8 +825,18 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
         if (confirmationParts.length > 0) {
           for (const confPart of confirmationParts) {
-            appendMessage(buildApprovalMessage(confPart, statusUpdate.contextId, statusUpdate.taskId));
+            // Use pts.current (accumulated turn stats) in preference to turnStats
+            // (current event's stats) — the confirmation event often carries no
+            // usage_metadata of its own; the stats live in the preceding event.
+            appendMessage(buildApprovalMessage(confPart, statusUpdate.contextId, statusUpdate.taskId, undefined, pts.current ?? turnStats));
           }
+
+          // Accumulate this turn's stats now — the HITL interrupt ends the
+          // current invocation and the stream will pause until the user decides.
+          if (pts.current) {
+            accumulateSessionStats(pts.current);
+          }
+          pts.current = undefined;
 
           if (handlers.setChatStatus) {
             handlers.setChatStatus("input_required");
@@ -572,7 +867,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
                 {
                   originalType: "TextMessage",
                   contextId: statusUpdate.contextId,
-                  taskId: statusUpdate.taskId
+                  taskId: statusUpdate.taskId,
+                  additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
                 }
               );
               handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
@@ -599,7 +895,17 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               }
               const toolData = data as unknown as ToolCallData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true });
+
+              // Extract subagent_session_id from DataPart metadata for agent tools
+              let subagentSessionId: string | undefined;
+              if (fcName && isAgentToolName(fcName)) {
+                subagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
+              }
+
+              // Don't stamp AgentCall cards with the parent invocation's stats —
+              // those belong on the confirmation dialog. The AgentCall card gets
+              // its own stats from the child agent's function_response.
+              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true, tokenStats: isAgentToolName(toolData.name) ? undefined : turnStats, subagentSessionId });
 
             } else if (partType === "function_response") {
               // Skip internal HITL markers: the before_tool_callback stub and
@@ -636,7 +942,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
     }
 
-    updateTokenStatsFromMetadata(adkMetadata);
+    // Usage metadata arrives on status-update events, not artifact events.
+    const turnStats = pts.current;
 
     // Add artifact content and convert tool parts to messages
     let artifactText = "";
@@ -654,8 +961,18 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
         if (partType === "function_call") {
           const toolData = data as unknown as ToolCallData;
-          const toolCallContent: ProcessedToolCallData[] = [{ id: toolData.id, name: toolData.name, args: toolData.args || {} }];
-          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent } });
+          // Extract subagent_session_id from DataPart metadata for agent tools
+          let artifactFcSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            artifactFcSubagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
+          }
+          const toolCallContent: ProcessedToolCallData[] = [{
+            id: toolData.id,
+            name: toolData.name,
+            args: toolData.args || {},
+            ...(artifactFcSubagentSessionId ? { subagent_session_id: artifactFcSubagentSessionId } : {}),
+          }];
+          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent, ...(turnStats && { tokenStats: turnStats }) } });
           convertedMessages.push(convertedMessage);
           continue;
         }
@@ -663,7 +980,20 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
           const textContent = normalizeToolResultToText(toolData);
-          const toolResultContent: ProcessedToolResultData[] = [{ call_id: toolData.id, name: toolData.name, content: textContent, is_error: toolData.response?.isError || false }];
+          let artifactSubagentSessionId: string | undefined;
+          if (isAgentToolName(toolData.name)) {
+            const responseObj = toolData.response as Record<string, unknown> | undefined;
+            if (responseObj && typeof responseObj.subagent_session_id === "string") {
+              artifactSubagentSessionId = responseObj.subagent_session_id;
+            }
+          }
+          const toolResultContent: ProcessedToolResultData[] = [{
+            call_id: toolData.id,
+            name: toolData.name,
+            content: textContent,
+            is_error: toolData.response?.isError || false,
+            ...(artifactSubagentSessionId ? { subagent_session_id: artifactSubagentSessionId } : {}),
+          }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
           convertedMessages.push(convertedMessage);
           continue;
@@ -686,6 +1016,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     if (artifactUpdate.lastChunk) {
       handlers.setIsStreaming(false);
       handlers.setStreamingContent(() => "");
+      // Do NOT accumulate pts.current here — the final status update that always
+      // follows a completed artifact will call finalizeStreaming(), which does
+      // the single accumulation.  Accumulating here AND in finalizeStreaming()
+      // would double-count the last turn's stats.
 
       const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       if (artifactText) {
@@ -695,7 +1029,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           {
             originalType: "TextMessage",
             contextId: artifactUpdate.contextId,
-            taskId: artifactUpdate.taskId
+            taskId: artifactUpdate.taskId,
+            additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
           }
         );
         handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
@@ -704,7 +1039,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (convertedMessages.length > 0) {
         handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
       }
-      
+
       // Add a tool call summary message to mark any pending tool calls as completed
       const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
       const toolSummaryMessage = createMessage(
@@ -776,4 +1111,4 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   return {
     handleMessageEvent
   };
-}; 
+};

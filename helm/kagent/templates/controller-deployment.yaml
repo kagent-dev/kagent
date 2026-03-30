@@ -1,4 +1,3 @@
-{{- include "kagent.validateController" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +14,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
         {{- with .Values.controller.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -25,17 +25,13 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
-        {{- toYaml (.Values.controller.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
-      serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumes) 0) }}
-      volumes:
-      {{- if eq .Values.database.type "sqlite" }}
-      - name: sqlite-volume
-        emptyDir:
-          sizeLimit: 500Mi
-          medium: Memory
+        {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "kagent.fullname" . }}-controller
+      {{- if gt (len .Values.controller.volumes) 0 }}
+      volumes:
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -65,6 +61,23 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- if .Values.database.postgres.urlFile }}
+            - name: POSTGRES_DATABASE_URL_FILE
+              value: {{ .Values.database.postgres.urlFile | quote }}
+            {{- else if .Values.database.postgres.url }}
+            - name: POSTGRES_DATABASE_URL
+              value: {{ .Values.database.postgres.url | quote }}
+            {{- else if .Values.database.postgres.bundled.enabled }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.passwordSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DATABASE_URL
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
+            {{- else }}
+            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -80,8 +93,10 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- with (.Values.controller.securityContext | default .Values.securityContext) }}
           securityContext:
-            {{- toYaml .Values.controller.securityContext | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           startupProbe:
             httpGet:
               path: /health
@@ -93,12 +108,8 @@ spec:
               path: /health
               port: http
             periodSeconds: 30
-          {{- if or (eq .Values.database.type "sqlite") (gt (len .Values.controller.volumeMounts) 0) }}
+          {{- if gt (len .Values.controller.volumeMounts) 0 }}
           volumeMounts:
-            {{- if eq .Values.database.type "sqlite" }}
-            - name: sqlite-volume
-              mountPath: /sqlite-volume
-            {{- end }}
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

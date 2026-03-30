@@ -11,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -35,17 +34,17 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						PodSecurityContext: &corev1.PodSecurityContext{
-							RunAsUser:          ptr.To(int64(1000)),
-							RunAsGroup:         ptr.To(int64(1000)),
-							FSGroup:            ptr.To(int64(1000)),
-							RunAsNonRoot:       ptr.To(true),
+							RunAsUser:          new(int64(1000)),
+							RunAsGroup:         new(int64(1000)),
+							FSGroup:            new(int64(1000)),
+							RunAsNonRoot:       new(true),
 							SupplementalGroups: []int64{1000},
 						},
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:                ptr.To(int64(1000)),
-							RunAsGroup:               ptr.To(int64(1000)),
-							RunAsNonRoot:             ptr.To(true),
-							AllowPrivilegeEscalation: ptr.To(false),
+							RunAsUser:                new(int64(1000)),
+							RunAsGroup:               new(int64(1000)),
+							RunAsNonRoot:             new(true),
+							AllowPrivilegeEscalation: new(false),
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{"ALL"},
 								Add:  []corev1.Capability{"NET_BIND_SERVICE"},
@@ -142,8 +141,8 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						PodSecurityContext: &corev1.PodSecurityContext{
-							RunAsUser:  ptr.To(int64(2000)),
-							RunAsGroup: ptr.To(int64(2000)),
+							RunAsUser:  new(int64(2000)),
+							RunAsGroup: new(int64(2000)),
 						},
 					},
 				},
@@ -217,8 +216,8 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:  ptr.To(int64(3000)),
-							RunAsGroup: ptr.To(int64(3000)),
+							RunAsUser:  new(int64(3000)),
+							RunAsGroup: new(int64(3000)),
 						},
 					},
 				},
@@ -295,8 +294,8 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:  ptr.To(int64(1000)),
-							RunAsGroup: ptr.To(int64(1000)),
+							RunAsUser:  new(int64(1000)),
+							RunAsGroup: new(int64(1000)),
 						},
 					},
 				},

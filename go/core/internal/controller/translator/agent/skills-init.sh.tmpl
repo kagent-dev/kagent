@@ -9,6 +9,13 @@ if [ -f "${_auth_mount}/ssh-privatekey" ]; then
   cp "${_auth_mount}/ssh-privatekey" ~/.ssh/id_rsa
   chmod 600 ~/.ssh/id_rsa
   ssh-keyscan github.com gitlab.com bitbucket.org >> ~/.ssh/known_hosts
+{{- range .SSHHosts }}
+  {{- if .Port }}
+  ssh-keyscan -p {{ .Port }} {{ .Host }} >> ~/.ssh/known_hosts
+  {{- else }}
+  ssh-keyscan {{ .Host }} >> ~/.ssh/known_hosts
+  {{- end }}
+{{- end }}
 elif [ -f "${_auth_mount}/token" ]; then
   git config --global credential.helper "!f() { echo username=x-access-token; echo password=\$(cat ${_auth_mount}/token); }; f"
 fi
@@ -55,7 +62,20 @@ _dest="$(cat <<'ENDVAL'
 ENDVAL
 )"
 echo "Exporting OCI image ${_image} into ${_dest}"
-krane export{{ if $.InsecureOCI }} --insecure{{ end }} "$_image" '/tmp/oci-skill.tar'
+_uname="$(uname -m)"
+case "$_uname" in
+  x86_64|amd64)
+    _arch="amd64"
+    ;;
+  aarch64|arm64)
+    _arch="arm64"
+    ;;
+  *)
+    echo "Unsupported architecture for OCI export: ${_uname}" >&2
+    exit 1
+    ;;
+esac
+krane export{{ if $.InsecureOCI }} --insecure{{ end }} --platform "linux/${_arch}" "$_image" '/tmp/oci-skill.tar'
 mkdir -p "$_dest"
 tar xf '/tmp/oci-skill.tar' -C "$_dest"
 rm -f '/tmp/oci-skill.tar'

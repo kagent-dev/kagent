@@ -7,6 +7,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 import asyncio
 import logging
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -25,9 +26,9 @@ except ImportError:
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
-from a2a.server.tasks import TaskStore
 from a2a.types import (
     Artifact,
+    DataPart,
     Message,
     Part,
     Role,
@@ -41,13 +42,17 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from kagent.core.a2a import (
-    KAGENT_HITL_DECISION_TYPE_DENY,
+    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
+    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+    A2A_DATA_PART_METADATA_TYPE_KEY,
+    KAGENT_HITL_DECISION_TYPE_BATCH,
+    KAGENT_HITL_DECISION_TYPE_REJECT,
     TaskResultAggregator,
-    ToolApprovalRequest,
+    extract_ask_user_answers_from_message,
+    extract_batch_decisions_from_message,
     extract_decision_from_message,
+    extract_rejection_reasons_from_message,
     get_kagent_metadata_key,
-    handle_tool_approval_interrupt,
-    is_input_required_task,
 )
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
@@ -170,7 +175,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                 task_id=context.task_id,
                 context_id=context.context_id,
                 event_queue=event_queue,
-                task_store=context.task_store,
             )
             # Interrupt detected - input_required event already sent, so return early
             return
@@ -228,14 +232,16 @@ class LangGraphAgentExecutor(AgentExecutor):
         task_id: str,
         context_id: str,
         event_queue: EventQueue,
-        task_store: TaskStore,
     ) -> None:
         """Handle interrupt from LangGraph and convert to A2A input_required event.
 
-        This is the LangGraph-specific adapter that extracts interrupt data from
-        LangGraph's format and delegates to the generic handler in kagent-core.
+        The BYO graph is expected to call ``interrupt()`` with a dict containing
+        ``action_requests`` -- a list of tool calls that need approval.
+
+        This method converts them into ``DataPart`` objects with the same
+        ``adk_request_confirmation`` shape the ADK executor emits, so the
+        frontend can render them identically.
         """
-        # Extract interrupt details from LangGraph format
         if not interrupt_data:
             logger.warning("Empty interrupt data received")
             return
@@ -250,29 +256,71 @@ class LangGraphAgentExecutor(AgentExecutor):
             logger.error(f"Unexpected interrupt data type: {type(first_item)}")
             return
 
-        # Extract LangGraph-specific fields
         action_requests_raw = interrupt_value.get("action_requests", [])
-        review_configs = interrupt_value.get("review_configs", [])
+        if not action_requests_raw:
+            logger.warning("Interrupt has no action_requests, ignoring")
+            return
 
-        # Convert to generic ToolApprovalRequest format
-        action_requests = [
-            ToolApprovalRequest(
-                name=action.get("name", "unknown"),
-                args=action.get("args", {}),
-                id=action.get("id"),
+        # Build DataParts in the adk_request_confirmation wire format so the
+        # frontend renders tool-approval cards identically to the ADK executor.
+        parts: list[Part] = []
+        for action in action_requests_raw:
+            if not isinstance(action, Mapping):
+                logger.warning(
+                    "Skipping malformed action_request entry of type %s: %r",
+                    type(action),
+                    action,
+                )
+                continue
+            tool_name = action["name"]
+            tool_args = action["args"]
+            tool_call_id = action["id"]
+            confirmation_id = str(uuid.uuid4())
+
+            parts.append(
+                Part(
+                    DataPart(
+                        data={
+                            "name": "adk_request_confirmation",
+                            "id": confirmation_id,
+                            "args": {
+                                "originalFunctionCall": {
+                                    "name": tool_name,
+                                    "args": tool_args,
+                                    "id": tool_call_id,
+                                },
+                                "toolConfirmation": {
+                                    "hint": f"Tool '{tool_name}' requires approval before execution.",
+                                    "confirmed": False,
+                                    "payload": None,
+                                },
+                            },
+                        },
+                        metadata={
+                            get_kagent_metadata_key(
+                                A2A_DATA_PART_METADATA_TYPE_KEY
+                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                            get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
+                        },
+                    )
+                )
             )
-            for action in action_requests_raw
-        ]
 
-        # Delegate to generic handler in kagent-core
-        await handle_tool_approval_interrupt(
-            action_requests=action_requests,
-            task_id=task_id,
-            context_id=context_id,
-            event_queue=event_queue,
-            task_store=task_store,
-            app_name=self.app_name,
-            review_configs=review_configs,
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=task_id,
+                status=TaskStatus(
+                    state=TaskState.input_required,
+                    timestamp=datetime.now(UTC).isoformat(),
+                    message=Message(
+                        message_id=str(uuid.uuid4()),
+                        role=Role.agent,
+                        parts=parts,
+                    ),
+                ),
+                context_id=context_id,
+                final=False,
+            )
         )
 
     @override
@@ -282,15 +330,12 @@ class LangGraphAgentExecutor(AgentExecutor):
         raise NotImplementedError("Cancellation is not implemented")
 
     def _is_resume_command(self, context: RequestContext) -> bool:
-        """Check if message is a resume command for an interrupted task.
-
-        Uses generic utilities from kagent-core for decision extraction.
-        """
+        """Check if message is a resume command for an interrupted task."""
         # Must have an existing task in input_required state to resume
         if not context.current_task:
             return False
 
-        if not is_input_required_task(context.current_task.status.state):
+        if context.current_task.status.state != TaskState.input_required:
             return False
 
         # Check if message contains a decision
@@ -302,14 +347,29 @@ class LangGraphAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        """Resume graph execution after interrupt with user decision."""
+        """Resume graph execution after interrupt with user decision.
+
+        Extracts the full HITL decision payload from the A2A message and
+        forwards it to the graph via ``Command(resume=...)``.  The resume
+        value includes:
+
+        - ``decision_type``: ``"approve"``, ``"reject"``, or ``"batch"``
+        - ``decisions``: per-tool decisions when ``decision_type`` is ``"batch"``
+        - ``rejection_reasons``: optional per-tool rejection reasons
+        - ``ask_user_answers``: optional answers when resuming an ``ask_user`` interrupt
+
+        The BYO graph's interrupt handler is responsible for reading and
+        acting on these fields.
+        """
         # Extract decision from message using core utility
         decision_type = extract_decision_from_message(context.message)
 
         if not decision_type:
-            # Security: Default to deny if decision cannot be determined
-            logger.warning(f"Could not determine decision from message for task {context.task_id}, defaulting to deny")
-            decision_type = KAGENT_HITL_DECISION_TYPE_DENY
+            # Security: Default to reject if decision cannot be determined
+            logger.warning(
+                f"Could not determine decision from message for task {context.task_id}, defaulting to reject"
+            )
+            decision_type = KAGENT_HITL_DECISION_TYPE_REJECT
 
         # Get thread_id from existing task metadata (critical for resume!)
         thread_id = None
@@ -320,12 +380,34 @@ class LangGraphAgentExecutor(AgentExecutor):
             # Fallback to computing from context (same as initial)
             thread_id = getattr(context, "session_id", None) or context.context_id
 
+        # Build the resume payload with all available HITL data.
+        # The graph receives this as the return value of interrupt().
+        resume_value: dict[str, Any] = {"decision_type": decision_type}
+
+        if decision_type == KAGENT_HITL_DECISION_TYPE_BATCH:
+            batch_decisions = extract_batch_decisions_from_message(context.message)
+            if batch_decisions:
+                resume_value["decisions"] = batch_decisions
+
+        rejection_reasons = extract_rejection_reasons_from_message(context.message)
+        if rejection_reasons:
+            resume_value["rejection_reasons"] = rejection_reasons
+
+        ask_user_answers = extract_ask_user_answers_from_message(context.message)
+        if ask_user_answers:
+            resume_value["ask_user_answers"] = ask_user_answers
+
         logger.info(
-            f"Resuming after interrupt - task_id={context.task_id}, thread_id={thread_id}, decision={decision_type}"
+            "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
+            context.task_id,
+            thread_id,
+            decision_type,
+            "decisions" in resume_value,
+            "rejection_reasons" in resume_value,
+            "ask_user_answers" in resume_value,
         )
 
-        # Create resume input
-        resume_input = Command(resume={"decisions": [{"type": decision_type}]})
+        resume_input = Command(resume=resume_value)
         span_attributes = _convert_a2a_request_to_span_attributes(context)
 
         # Create graph config with explicit thread_id

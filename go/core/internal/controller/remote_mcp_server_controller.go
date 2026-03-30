@@ -24,7 +24,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -58,7 +57,7 @@ func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Requ
 func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
-			NeedLeaderElection: ptr.To(true),
+			NeedLeaderElection: new(true),
 		}).
 		For(&v1alpha2.RemoteMCPServer{}).
 		Named("remotemcpserver").

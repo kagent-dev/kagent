@@ -8,7 +8,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -72,6 +71,9 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 		labels.AppPartOf:    labels.ManagedByKagent,
 		labels.AppName:      agentName,
 	}
+	// Global default labels (from --default-agent-pod-labels flag) override built-in defaults
+	maps.Copy(defaultLabels, DefaultAgentPodLabels)
+	// Per-agent labels override global defaults
 	maps.Copy(defaultLabels, incoming)
 	return defaultLabels
 }
@@ -115,7 +117,7 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 		"/config",
 	}
 
-	serviceAccountName := ptr.To(agent.Name)
+	serviceAccountName := new(agent.Name)
 
 	// Start with spec deployment spec
 	spec := v1alpha2.DeclarativeDeploymentSpec{}
@@ -178,7 +180,7 @@ func resolveInlineDeployment(agent *v1alpha2.Agent, mdd *modelDeploymentData) (*
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
 		if DefaultServiceAccountName != "" {
-			dep.ServiceAccountName = ptr.To(DefaultServiceAccountName)
+			dep.ServiceAccountName = new(DefaultServiceAccountName)
 		} else {
 			dep.ServiceAccountName = serviceAccountName
 		}
@@ -230,7 +232,7 @@ func resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
 
 	replicas := spec.Replicas
 	if replicas == nil {
-		replicas = ptr.To(int32(1))
+		replicas = new(int32(1))
 	}
 
 	dep := &resolvedDeployment{
@@ -259,9 +261,9 @@ func resolveByoDeployment(agent *v1alpha2.Agent) (*resolvedDeployment, error) {
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
 	if dep.ServiceAccountName == nil {
 		if DefaultServiceAccountName != "" {
-			dep.ServiceAccountName = ptr.To(DefaultServiceAccountName)
+			dep.ServiceAccountName = new(DefaultServiceAccountName)
 		} else {
-			dep.ServiceAccountName = ptr.To(agent.Name)
+			dep.ServiceAccountName = new(agent.Name)
 		}
 	}
 

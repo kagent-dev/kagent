@@ -23,9 +23,18 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with (.Values.ui.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-ui
+      volumes:
+        - name: nextjs-cache
+          emptyDir:
+            sizeLimit: {{ .Values.ui.volumes.nextjsCache }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.ui.volumes.tmp }}
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -36,8 +45,10 @@ spec:
       {{- end }}
       containers:
         - name: ui
+          {{- with (.Values.ui.securityContext | default .Values.securityContext) }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
           env:
@@ -50,6 +61,11 @@ spec:
             - name: http
               containerPort: {{ .Values.ui.service.ports.targetPort }}
               protocol: TCP
+          volumeMounts:
+            - name: nextjs-cache
+              mountPath: /app/ui/.next/cache
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
           startupProbe:

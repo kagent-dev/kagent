@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-func boolPtr(b bool) *bool          { return &b }
-func stringPtr(s string) *string    { return &s }
-func float64Ptr(f float64) *float64 { return &f }
-func intPtr(i int) *int             { return &i }
-
 func TestMarshalJSON_TypeDiscriminator(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -102,9 +97,9 @@ func TestMarshalJSON_BaseModelFields(t *testing.T) {
 	base := BaseModel{
 		Model:                 "test-model",
 		Headers:               map[string]string{"X-Custom": "value"},
-		TLSInsecureSkipVerify: boolPtr(true),
-		TLSCACertPath:         stringPtr("/etc/ssl/ca.crt"),
-		TLSDisableSystemCAs:   boolPtr(false),
+		TLSInsecureSkipVerify: new(true),
+		TLSCACertPath:         new("/etc/ssl/ca.crt"),
+		TLSDisableSystemCAs:   new(false),
 		APIKeyPassthrough:     true,
 	}
 
@@ -167,9 +162,9 @@ func TestMarshalJSON_TypeSpecificFields(t *testing.T) {
 		m := &OpenAI{
 			BaseModel:       BaseModel{Model: "gpt-4o"},
 			BaseUrl:         "https://api.openai.com",
-			MaxTokens:       intPtr(1024),
-			Temperature:     float64Ptr(0.7),
-			ReasoningEffort: stringPtr("low"),
+			MaxTokens:       new(1024),
+			Temperature:     new(0.7),
+			ReasoningEffort: new("low"),
 		}
 		data, err := json.Marshal(m)
 		if err != nil {
@@ -263,8 +258,8 @@ func TestParseModel_Roundtrip(t *testing.T) {
 			model: &OpenAI{
 				BaseModel:   BaseModel{Model: "gpt-4o", Headers: map[string]string{"X-Key": "val"}},
 				BaseUrl:     "https://api.openai.com",
-				Temperature: float64Ptr(0.7),
-				MaxTokens:   intPtr(1024),
+				Temperature: new(0.7),
+				MaxTokens:   new(1024),
 			},
 			wantType: ModelTypeOpenAI,
 		},
@@ -307,7 +302,7 @@ func TestParseModel_Roundtrip(t *testing.T) {
 		{
 			name: "Bedrock roundtrip",
 			model: &Bedrock{
-				BaseModel: BaseModel{Model: "claude-v2", TLSInsecureSkipVerify: boolPtr(true)},
+				BaseModel: BaseModel{Model: "claude-v2", TLSInsecureSkipVerify: new(true)},
 				Region:    "us-west-2",
 			},
 			wantType: ModelTypeBedrock,
@@ -527,8 +522,8 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}, BaseUrl: "https://api.openai.com"},
 		Description: "test",
 		Instruction: "be helpful",
-		Stream:      boolPtr(true),
-		ExecuteCode: boolPtr(true),
+		Stream:      new(true),
+		ExecuteCode: new(true),
 		HttpTools: []HttpMcpServerConfig{
 			{
 				Params: StreamableHTTPConnectionParams{Url: "http://localhost:8080"},
@@ -544,12 +539,12 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 		},
 		ContextConfig: &AgentContextConfig{
 			Compaction: &AgentCompressionConfig{
-				CompactionInterval: intPtr(5),
-				OverlapSize:        intPtr(2),
+				CompactionInterval: new(5),
+				OverlapSize:        new(2),
 				SummarizerModel:    &Anthropic{BaseModel: BaseModel{Model: "claude-3-haiku"}, BaseUrl: ""},
 				PromptTemplate:     "Summarize",
-				TokenThreshold:     intPtr(50000),
-				EventRetentionSize: intPtr(10),
+				TokenThreshold:     new(50000),
+				EventRetentionSize: new(10),
 			},
 		},
 	}
@@ -850,7 +845,7 @@ func TestAgentConfig_ScanAndValue(t *testing.T) {
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},
 		Description: "test",
 		Instruction: "be helpful",
-		Stream:      boolPtr(true),
+		Stream:      new(true),
 	}
 
 	// Test Value (driver.Valuer)

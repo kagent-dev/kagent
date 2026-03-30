@@ -7,7 +7,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"k8s.io/utils/ptr"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -17,9 +16,9 @@ func GetA2AAgentCard(agent *v1alpha2.Agent) *server.AgentCard {
 		Description: agent.Spec.Description,
 		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
 		Capabilities: server.AgentCapabilities{
-			Streaming:              ptr.To(true),
-			PushNotifications:      ptr.To(false),
-			StateTransitionHistory: ptr.To(true),
+			Streaming:              new(true),
+			PushNotifications:      new(false),
+			StateTransitionHistory: new(true),
 		},
 		// Can't be null for Python, so set to empty list
 		Skills:             []server.AgentSkill{},

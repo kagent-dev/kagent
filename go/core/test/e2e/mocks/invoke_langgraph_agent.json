@@ -1,0 +1,66 @@
+{
+  "openai": [
+    {
+      "name": "make_kebab_tool_call",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "make me a kebab",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-langgraph-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_lg001",
+                  "type": "function",
+                  "function": {
+                    "name": "make_kebab",
+                    "arguments": "{\"style\": \"mixed\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "make_kebab_after_tool",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "fake_e2e",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-langgraph-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Your kebab is ready."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

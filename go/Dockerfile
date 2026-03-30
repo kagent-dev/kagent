@@ -10,16 +10,13 @@ ARG BUILDPLATFORM
 ARG BUILD_PACKAGE=core/cmd/controller/main.go
 
 WORKDIR /workspace
-# Copy the Go workspace and all module manifests
-COPY go.work .
-COPY api/go.mod api/go.sum api/
-COPY core/go.mod core/go.sum core/
-COPY adk/go.mod adk/go.sum adk/
+# Copy the Go module manifests
+COPY go.mod go.sum .
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
     --mount=type=cache,target=/root/.cache/go-build,rw \
-     go work sync && go mod download
+     go mod download
 # Copy all source
 COPY api/ api/
 COPY core/ core/
@@ -33,10 +30,9 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
-# Use distroless/cc-debian12 which includes C/C++ runtime libraries
-# This is required for turso-go's purego library loading
+# Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/static:nonroot
 ARG TARGETPLATFORM
 
 WORKDIR /

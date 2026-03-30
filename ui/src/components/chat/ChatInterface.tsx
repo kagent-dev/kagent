@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import StreamingMessage from "./StreamingMessage";
-import TokenStatsDisplay from "./TokenStats";
-import type { TokenStats, Session, ChatStatus } from "@/types";
+import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
+import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
 import { getCurrentUserId } from "@/app/actions/utils";
@@ -39,11 +39,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
-  const [tokenStats, setTokenStats] = useState<TokenStats>({
-    total: 0,
-    input: 0,
-    output: 0,
-  });
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -58,8 +53,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [sessionNotFound, setSessionNotFound] = useState<boolean>(false);
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
-  const [pendingDecisions, setPendingDecisions] = useState<Record<string, "approve" | "deny">>({});
-  const pendingDecisionsRef = useRef<Record<string, "approve" | "deny">>({});
+  const [sessionStats, setSessionStats] = useState<TokenStats>({ total: 0, prompt: 0, completion: 0 });
+  // Mutable ref so pendingTurnStats survives re-renders between A2A stream events
+  const pendingTurnStatsRef = useRef<TokenStats | undefined>(undefined);
+  const [pendingDecisions, setPendingDecisions] = useState<Record<string, ToolDecision>>({});
+  const pendingDecisionsRef = useRef<Record<string, ToolDecision>>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
 
@@ -78,25 +76,34 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     },
   });
 
-  const { handleMessageEvent } = createMessageHandlers({
+  const agentContext = useMemo(() => ({
+    namespace: selectedNamespace,
+    agentName: selectedAgentName
+  }), [selectedNamespace, selectedAgentName]);
+
+  const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
+
+  const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
     setStreamingContent,
-    setTokenStats,
     setChatStatus,
+    setSessionStats,
+    pendingTurnStats: pendingTurnStatsRef,
     agentContext: {
       namespace: selectedNamespace,
       agentName: selectedAgentName
     }
-  });
+  }), [selectedNamespace, selectedAgentName]);
 
   useEffect(() => {
     async function initializeChat() {
-      setTokenStats({ total: 0, input: 0, output: 0 });
+      setSessionStats({ total: 0, prompt: 0, completion: 0 });
       setStreamingMessages([]);
       setPendingDecisions({});
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
+      pendingTurnStatsRef.current = undefined;
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -129,11 +136,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
           setStoredMessages([]);
-          setTokenStats({ total: 0, input: 0, output: 0 });
+          setSessionStats({ total: 0, prompt: 0, completion: 0 });
         }
         else {
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
-          const extractedTokenStats = extractTokenStatsFromTasks(messagesResponse.data);
+          setSessionStats(extractTokenStatsFromTasks(messagesResponse.data));
 
           // Resolved approvals are already inline in extractedMessages (with
           // approved/rejected badges). Only pending approvals need appending.
@@ -144,7 +151,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               ? [...extractedMessages, ...pendingApprovalMessages]
               : extractedMessages
           );
-          setTokenStats(extractedTokenStats);
 
           if (hasPendingApproval) {
             setChatStatus("input_required");
@@ -192,6 +198,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setPendingDecisions({});
     pendingDecisionsRef.current = {};
     pendingRejectionReasonsRef.current = {};
+    pendingTurnStatsRef.current = undefined;
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
@@ -207,7 +214,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -406,22 +413,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
+    // approvalDecision is either a uniform ToolDecision or a per-tool map
+    // (Record<string, ToolDecision>) for batch decisions.
     const stampDecision = (msgs: Message[]) => msgs.map(m => {
       const meta = m.metadata as Record<string, unknown> | undefined;
       if (meta?.originalType === "ToolApprovalRequest" && !meta.approvalDecision) {
-        const toolCallData = meta?.toolCallData as Array<{ id?: string }> | undefined;
-        const toolId = toolCallData?.[0]?.id;
-        // For uniform decisions, stamp all; for batch, stamp per-tool
         const dt = decisionData.decision_type as string;
-        let resolvedDecision: string | undefined;
         if (dt === "batch") {
-          const decisions = decisionData.decisions as Record<string, string>;
-          resolvedDecision = toolId ? decisions[toolId] : undefined;
+          // Store the per-tool decisions map so ToolCallDisplay can resolve
+          // each inner tool independently.
+          const decisions = decisionData.decisions as Record<string, ToolDecision>;
+          return { ...m, metadata: { ...meta, approvalDecision: decisions } };
         } else {
-          resolvedDecision = dt; // "approve" or "deny"
-        }
-        if (resolvedDecision) {
-          return { ...m, metadata: { ...meta, approvalDecision: resolvedDecision } };
+          return { ...m, metadata: { ...meta, approvalDecision: dt as ToolDecision } };
         }
       }
       return m;
@@ -465,10 +469,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Submit all collected decisions to the backend. Called when every pending
   // tool has a decision recorded in `pendingDecisions`, or immediately for
   // "approve all" / uniform decisions.
-  const submitDecisions = (decisions: Record<string, "approve" | "deny">) => {
+  const submitDecisions = (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
-    const allDeny = values.every(v => v !== "approve");
+    const allReject = values.every(v => v !== "approve");
     const reasons = pendingRejectionReasonsRef.current;
 
     if (allApprove) {
@@ -477,24 +481,27 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         { decision_type: "approve" },
         "Approved",
       );
-    } else if (allDeny && Object.values(reasons).length === 0) {
-      // Uniform deny without reason, otherwise fall through to batch
+    } else if (allReject && Object.values(reasons).length === 0) {
+      // Uniform reject without reason, otherwise fall through to batch
       sendApprovalDecision(
-        { decision_type: "deny" },
+        { decision_type: "reject" },
         "Rejected",
       );
     } else {
-      // Mixed decisions — use batch mode with per-tool decisions
+      // Mixed decisions — use batch mode with per-tool decisions.
+      // For subagent HITL the keys are inner subagent tool IDs; the backend
+      // detects this via hitl_parts in the pending confirmation payload and
+      // forwards the batch to the subagent.
       const decisionData: Record<string, unknown> = { decision_type: "batch", decisions };
       // Include per-tool rejection reasons for denied tools (if any)
-      const deniedReasons: Record<string, string> = {};
+      const rejectedReasons: Record<string, string> = {};
       for (const [toolId, decision] of Object.entries(decisions)) {
-        if (decision === "deny" && reasons[toolId]) {
-          deniedReasons[toolId] = reasons[toolId];
+        if (decision === "reject" && reasons[toolId]) {
+          rejectedReasons[toolId] = reasons[toolId];
         }
       }
-      if (Object.keys(deniedReasons).length > 0) {
-        decisionData.rejection_reasons = deniedReasons;
+      if (Object.keys(rejectedReasons).length > 0) {
+        decisionData.rejection_reasons = rejectedReasons;
       }
       sendApprovalDecision(
         decisionData,
@@ -503,13 +510,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
-  const recordDecision = (toolCallId: string, decision: "approve" | "deny", reason?: string) => {
+  const recordDecision = (toolCallId: string, decision: ToolDecision, reason?: string) => {
     const updated = { ...pendingDecisionsRef.current, [toolCallId]: decision };
     pendingDecisionsRef.current = updated;
     setPendingDecisions(updated);
 
     // Track rejection reason (if any)
-    if (decision === "deny" && reason) {
+    if (decision === "reject" && reason) {
       const updatedReasons = { ...pendingRejectionReasonsRef.current, [toolCallId]: reason };
       pendingRejectionReasonsRef.current = updatedReasons;
     }
@@ -528,7 +535,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleReject = (toolCallId: string, reason?: string) => {
-    recordDecision(toolCallId, "deny", reason);
+    recordDecision(toolCallId, "reject", reason);
   };
 
   /**
@@ -639,11 +646,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stored-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
@@ -656,11 +660,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stream-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
@@ -682,7 +683,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
         <div className="flex items-center justify-between mb-4">
           <StatusDisplay chatStatus={chatStatus} />
-          <TokenStatsDisplay stats={tokenStats} />
+          {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
         </div>
 
         <form onSubmit={handleSendMessage}>

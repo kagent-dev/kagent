@@ -7,16 +7,18 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
-from kagent.adk.models._litellm import KAgentLiteLlm
+from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
+from kagent.adk.models._anthropic import KAgentAnthropicLlm
+from kagent.adk.models._bedrock import KAgentBedrockLlm
+from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
@@ -366,14 +368,14 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
-                remote_a2a_agent = RemoteA2aAgent(
-                    name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
-                    description=remote_agent.description,
-                    httpx_client=client,
+                tools.append(
+                    KAgentRemoteA2AToolset(
+                        name=remote_agent.name,
+                        description=remote_agent.description,
+                        agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
+                        httpx_client=client,
+                    )
                 )
-
-                tools.append(AgentTool(agent=remote_a2a_agent))
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
@@ -482,8 +484,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             api_key_passthrough=model_config.api_key_passthrough,
         )
     if model_config.type == "anthropic":
-        return KAgentLiteLlm(
-            model=f"anthropic/{model_config.model}",
+        return KAgentAnthropicLlm(
+            model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
             api_key_passthrough=model_config.api_key_passthrough,
@@ -494,11 +496,11 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
         ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
-        return KAgentLiteLlm(
-            model=f"ollama_chat/{model_config.model}",
+        # api key passthrough is not applicable for ollama
+        return create_ollama_llm(
+            model=model_config.model,
+            options=ollama_options,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
-            **ollama_options,
         )
     if model_config.type == "azure_openai":
         return OpenAIAzure(
@@ -513,10 +515,10 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     if model_config.type == "gemini":
         return model_config.model
     if model_config.type == "bedrock":
-        return KAgentLiteLlm(
-            model=f"bedrock/{model_config.model}",
+        # api key passthrough is not applicable for bedrock
+        return KAgentBedrockLlm(
+            model=model_config.model,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
         )
     raise ValueError(f"Invalid model type: {model_config.type}")
 

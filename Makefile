@@ -1,3 +1,6 @@
+# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
+-include .env
+
 # Image configuration
 DOCKER_REGISTRY ?= localhost:5001
 BASE_IMAGE_REGISTRY ?= cgr.dev
@@ -52,9 +55,9 @@ KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(K
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 
-#take from go/core/go.mod
+#take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
-TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/core/go.mod)
+TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
@@ -105,7 +108,7 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 
 # KMCP
 KMCP_ENABLED ?= true
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/core/go.mod) # KMCP version defaults to what's referenced in go.mod
+KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
 HELM_ACTION=upgrade --install
 
@@ -173,6 +176,7 @@ push-test-agent: buildx-create build-kagent-adk
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create
@@ -370,6 +374,10 @@ helm-install-provider: helm-version check-api-key
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set database.postgres.bundled.image.repository=pgvector \
+		--set database.postgres.bundled.image.name=pgvector \
+		--set database.postgres.bundled.image.tag=pg18-trixie \
+		--set database.postgres.vectorEnabled=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
@@ -420,19 +428,16 @@ kagent-addon-install: use-kind-cluster
 	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --set profile=demo -y
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
-	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/postgres.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml
 	# wait for pods to be ready
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=grafana    -n kagent --timeout=60s
-	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=postgres   -n kagent --timeout=60s
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
 open-dev-container:
-	@echo "Opening dev container..."
-	devcontainer build .
-	@devcontainer open .
+	@echo "Building and starting dev container..."
+	devcontainer up --workspace-folder .
 
 .PHONY: otel-local
 otel-local:

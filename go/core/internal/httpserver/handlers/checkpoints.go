@@ -114,7 +114,7 @@ func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.
 		CheckpointType:     req.Type,
 	}
 	// Store checkpoint and writes atomically
-	if err := h.DatabaseService.StoreCheckpoint(checkpoint); err != nil {
+	if err := h.DatabaseService.StoreCheckpoint(r.Context(), checkpoint); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store checkpoint", err))
 		return
 	}
@@ -157,7 +157,7 @@ func (h *CheckpointsHandler) HandleListCheckpoints(w ErrorResponseWriter, r *htt
 	log = log.WithValues("userID", userID, "threadID", threadID, "checkpointNS", checkpointNS, "limit", limit)
 
 	log.V(1).Info("Listing checkpoints")
-	checkpoints, err := h.DatabaseService.ListCheckpoints(userID, threadID, checkpointNS, checkpointID, limit)
+	checkpoints, err := h.DatabaseService.ListCheckpoints(r.Context(), userID, threadID, checkpointNS, checkpointID, limit)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list checkpoints", err))
 		return
@@ -243,7 +243,7 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 	log.V(1).Info("Storing checkpoint with writes", "writesCount", len(writes))
 
 	// Store checkpoint and writes atomically
-	if err := h.DatabaseService.StoreCheckpointWrites(writes); err != nil {
+	if err := h.DatabaseService.StoreCheckpointWrites(r.Context(), writes); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to store checkpoint writes", err))
 		return
 	}
@@ -271,7 +271,7 @@ func (h *CheckpointsHandler) HandleDeleteThread(w ErrorResponseWriter, r *http.R
 
 	log = log.WithValues("userID", userID, "threadID", threadID)
 
-	if err := h.DatabaseService.DeleteCheckpoint(userID, threadID); err != nil {
+	if err := h.DatabaseService.DeleteCheckpoint(r.Context(), userID, threadID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete thread", err))
 		return
 	}

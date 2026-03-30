@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/database"
@@ -60,7 +60,7 @@ func TestSessionsHandler(t *testing.T) {
 		agent := &database.Agent{
 			ID: agentRef,
 		}
-		dbClient.StoreAgent(agent) //nolint:errcheck
+		dbClient.StoreAgent(context.Background(), agent) //nolint:errcheck
 		// The fake client should assign an ID, but we'll use a default for testing
 		agent.ID = "1" // Simulate the ID that would be assigned by GORM
 		return agent
@@ -69,11 +69,11 @@ func TestSessionsHandler(t *testing.T) {
 	createTestSession := func(dbClient database.Client, sessionID, userID string, agentID string) *database.Session {
 		session := &database.Session{
 			ID:      sessionID,
-			Name:    ptr.To(sessionID),
+			Name:    new(sessionID),
 			UserID:  userID,
 			AgentID: &agentID,
 		}
-		dbClient.StoreSession(session) //nolint:errcheck
+		dbClient.StoreSession(context.Background(), session) //nolint:errcheck
 		return session
 	}
 
@@ -123,7 +123,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			sessionReq := api.SessionRequest{
 				AgentRef: &agentRef,
-				Name:     ptr.To("test-session"),
+				Name:     new("test-session"),
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
@@ -288,7 +288,7 @@ func TestSessionsHandler(t *testing.T) {
 				CreatedAt: time.Now().Add(-1 * time.Hour),
 				Data:      "{}",
 			}
-			dbClient.StoreEvents(event1, event2)
+			dbClient.StoreEvents(context.Background(), event1, event2)
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"?order=asc", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
