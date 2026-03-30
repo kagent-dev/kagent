@@ -43,7 +43,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/go-logr/zapr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"go.uber.org/zap"
@@ -121,7 +120,7 @@ func main() {
 		RunnerConfig: runnerConfig,
 		RunConfig:    runConfig,
 	}
-	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
+	executor := adka2a.NewExecutor(execConfig)
 
 	kagentApp, err := app.New(app.AppConfig{
 		AgentCard: a2atype.AgentCard{

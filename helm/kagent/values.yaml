@@ -81,6 +81,8 @@ database:
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
+      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
+      storageClassName: ""
       # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
       # This is intentional for a dev/eval setup. Switch to an external database for production.
       # -- Resource requests/limits for the demo PostgreSQL container
@@ -91,6 +93,18 @@ database:
         limits:
           cpu: 500m
           memory: 512Mi
+
+# ==============================================================================
+# RBAC CONFIGURATION
+# ==============================================================================
+
+rbac:
+  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
+  # If false, creates Role and RoleBinding resources instead.
+  clusterScoped: true
+  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
+  # If empty, defaults to the release namespace.
+  namespaces: []
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -477,3 +491,4 @@ otel:
         endpoint: ""
         timeout: 15
         insecure: true
+

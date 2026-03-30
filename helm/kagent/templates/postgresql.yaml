@@ -22,6 +22,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  {{- if $pg.storageClassName }}
+  storageClassName: {{ $pg.storageClassName | quote }}
+  {{- end }}
   resources:
     requests:
       storage: {{ $pg.storage | quote }}
@@ -48,6 +51,7 @@ spec:
         {{- include "kagent.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: database
     spec:
+      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
       serviceAccountName: {{ $fullname }}
       securityContext:
         fsGroup: 999
@@ -133,3 +137,4 @@ spec:
     {{- include "kagent.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: database
 {{- end }}
+
