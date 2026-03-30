@@ -429,10 +429,27 @@ Examples:
 
 	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
 
-	// Initialize config
+	// Initialize config file and viper defaults
 	if err := config.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Bind cobra flags to viper so config file values are used when flags
+	// are not explicitly set on the command line.
+	config.BindFlags(rootCmd.PersistentFlags())
+
+	// Populate cfg from the merged viper state (config file + env + flags)
+	// before any subcommand runs, ensuring all commands see config file values.
+	originalPreRunE := rootCmd.PersistentPreRunE
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := config.Apply(cfg); err != nil {
+			return fmt.Errorf("error applying config: %w", err)
+		}
+		if originalPreRunE != nil {
+			return originalPreRunE(cmd, args)
+		}
+		return nil
 	}
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
