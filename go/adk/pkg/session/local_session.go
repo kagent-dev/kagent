@@ -162,3 +162,21 @@ var (
 	_ adksession.Events  = (*events)(nil)
 	_ adksession.State   = (*sessionState)(nil)
 )
+
+// EventsFromSession extracts the typed event slice from an adksession.Session.
+// If the underlying session is a *localSession (as created by KAgentSessionService),
+// it returns the slice directly. Otherwise it falls back to iterating Events().
+func EventsFromSession(sess adksession.Session) []*adksession.Event {
+	if ls, ok := sess.(*localSession); ok {
+		ls.mu.RLock()
+		snapshot := make([]*adksession.Event, len(ls.events))
+		copy(snapshot, ls.events)
+		ls.mu.RUnlock()
+		return snapshot
+	}
+	var result []*adksession.Event
+	for e := range sess.Events().All() {
+		result = append(result, e)
+	}
+	return result
+}
