@@ -259,8 +259,8 @@ github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8Hm
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/kagent-dev/kmcp v0.2.7 h1:aDPpsmJVYqigC0inZablon1ap7GDBi8R+KRqH3OFTM0=
-github.com/kagent-dev/kmcp v0.2.7/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
+github.com/kagent-dev/kmcp v0.2.8 h1:X03WYFUQsFLtMGZ1sFKUhtdNKaFmMytLK6EQUfmaEXM=
+github.com/kagent-dev/kmcp v0.2.8/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
 github.com/kagent-dev/mockllm v0.0.5 h1:mm9Ml3NH6/E/YKVMgMwWYMNsNGkDze6I6TC0ppHZAo8=
 github.com/kagent-dev/mockllm v0.0.5/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=
