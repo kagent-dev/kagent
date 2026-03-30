@@ -62,7 +62,7 @@ jobs:
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           install_only: true
 
