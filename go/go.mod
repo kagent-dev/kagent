@@ -7,7 +7,7 @@ require (
 	dario.cat/mergo v1.0.2
 
 	// adk dependencies
-	github.com/a2aproject/a2a-go v0.3.6
+	github.com/a2aproject/a2a-go v0.3.10
 	github.com/abiosoft/ishell/v2 v2.0.2
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
@@ -44,7 +44,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/text v0.34.0
-	google.golang.org/adk v0.6.0
+	google.golang.org/adk v1.0.0
 	google.golang.org/genai v1.40.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
