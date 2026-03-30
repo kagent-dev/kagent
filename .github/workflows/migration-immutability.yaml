@@ -2,7 +2,7 @@ name: Migration Immutability
 
 on:
   pull_request:
-    branches: [main, release/v0.7.x]
+    branches: [main]
     paths:
       - "go/core/pkg/migrations/**"
 
