@@ -37,10 +37,10 @@ import (
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
-	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -248,7 +248,7 @@ func resolveURL() (string, error) {
 // newMigrate opens a database connection and constructs a migrate.Migrate for the given dir/table.
 // The caller is responsible for calling closeMigrate on the returned instance.
 func newMigrate(url string, migrationsFS fs.FS, dir, migrationsTable string) (*migrate.Migrate, error) {
-	db, err := sql.Open("postgres", url)
+	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return nil, fmt.Errorf("open database for %s: %w", dir, err)
 	}
@@ -258,7 +258,7 @@ func newMigrate(url string, migrationsFS fs.FS, dir, migrationsTable string) (*m
 		return nil, fmt.Errorf("load migration files from %s: %w", dir, err)
 	}
 
-	driver, err := migratepg.WithInstance(db, &migratepg.Config{
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{
 		MigrationsTable: migrationsTable,
 	})
 	if err != nil {

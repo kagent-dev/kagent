@@ -212,7 +212,7 @@ func TestUpgradeFromGORM(t *testing.T) {
 	connStr := dbtest.StartT(ctx, t)
 
 	// ── Step 1: apply the GORM-era schema ────────────────────────────────────
-	rawDB, err := sql.Open("postgres", connStr)
+	rawDB, err := sql.Open("pgx", connStr)
 	require.NoError(t, err)
 	t.Cleanup(func() { rawDB.Close() })
 

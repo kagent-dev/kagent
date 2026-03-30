@@ -18,7 +18,7 @@ LIMIT 1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
-	row := q.db.QueryRowContext(ctx, getAgent, id)
+	row := q.db.QueryRow(ctx, getAgent, id)
 	var i Agent
 	err := row.Scan(
 		&i.ID,
@@ -38,7 +38,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgents)
+	rows, err := q.db.Query(ctx, listAgents)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +58,6 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -72,7 +69,7 @@ UPDATE agent SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) SoftDeleteAgent(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, softDeleteAgent, id)
+	_, err := q.db.Exec(ctx, softDeleteAgent, id)
 	return err
 }
 
@@ -93,6 +90,6 @@ type UpsertAgentParams struct {
 }
 
 func (q *Queries) UpsertAgent(ctx context.Context, arg UpsertAgentParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAgent, arg.ID, arg.Type, arg.Config)
+	_, err := q.db.Exec(ctx, upsertAgent, arg.ID, arg.Type, arg.Config)
 	return err
 }

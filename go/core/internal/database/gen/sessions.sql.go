@@ -7,7 +7,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 )
 
 const getSession = `-- name: GetSession :one
@@ -22,7 +21,7 @@ type GetSessionParams struct {
 }
 
 func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (Session, error) {
-	row := q.db.QueryRowContext(ctx, getSession, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getSession, arg.ID, arg.UserID)
 	var i Session
 	err := row.Scan(
 		&i.ID,
@@ -44,7 +43,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListSessions(ctx context.Context, userID string) ([]Session, error) {
-	rows, err := q.db.QueryContext(ctx, listSessions, userID)
+	rows, err := q.db.Query(ctx, listSessions, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +64,6 @@ func (q *Queries) ListSessions(ctx context.Context, userID string) ([]Session, e
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -83,12 +79,12 @@ ORDER BY created_at ASC
 `
 
 type ListSessionsForAgentParams struct {
-	AgentID sql.NullString
+	AgentID *string
 	UserID  string
 }
 
 func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error) {
-	rows, err := q.db.QueryContext(ctx, listSessionsForAgent, arg.AgentID, arg.UserID)
+	rows, err := q.db.Query(ctx, listSessionsForAgent, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -109,9 +105,6 @@ func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForA
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -130,7 +123,7 @@ type SoftDeleteSessionParams struct {
 }
 
 func (q *Queries) SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteSession, arg.ID, arg.UserID)
+	_, err := q.db.Exec(ctx, softDeleteSession, arg.ID, arg.UserID)
 	return err
 }
 
@@ -147,13 +140,13 @@ ON CONFLICT (id, user_id) DO UPDATE SET
 type UpsertSessionParams struct {
 	ID      string
 	UserID  string
-	Name    sql.NullString
-	AgentID sql.NullString
-	Source  sql.NullString
+	Name    *string
+	AgentID *string
+	Source  *string
 }
 
 func (q *Queries) UpsertSession(ctx context.Context, arg UpsertSessionParams) error {
-	_, err := q.db.ExecContext(ctx, upsertSession,
+	_, err := q.db.Exec(ctx, upsertSession,
 		arg.ID,
 		arg.UserID,
 		arg.Name,

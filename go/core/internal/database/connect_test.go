@@ -14,7 +14,7 @@ func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err := retryDBConnection(ctx, "postgres://user:pass@localhost:1/nodb?connect_timeout=1")
+	_, err := retryDBConnection(ctx, "postgres://user:pass@localhost:1/nodb?connect_timeout=1", false)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 

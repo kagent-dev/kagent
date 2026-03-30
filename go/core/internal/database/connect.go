@@ -2,14 +2,15 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
@@ -26,9 +27,9 @@ const (
 )
 
 // Connect opens a Postgres connection using cfg, resolving the URL from a file
-// if URLFile is set, and retries PingContext with exponential backoff until the
+// if URLFile is set, and retries Ping with exponential backoff until the
 // connection succeeds or defaultMaxTimeout elapses.
-func Connect(ctx context.Context, cfg *PostgresConfig) (*sql.DB, error) {
+func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
 	url := cfg.URL
 	if cfg.URLFile != "" {
 		resolved, err := resolveURLFile(cfg.URLFile)
@@ -37,31 +38,42 @@ func Connect(ctx context.Context, cfg *PostgresConfig) (*sql.DB, error) {
 		}
 		url = resolved
 	}
-	return retryDBConnection(ctx, url)
+	return retryDBConnection(ctx, url, cfg.VectorEnabled)
 }
 
-// retryDBConnection opens a database connection and retries PingContext with
-// exponential backoff until the connection succeeds or defaultMaxTimeout elapses.
-func retryDBConnection(ctx context.Context, url string) (*sql.DB, error) {
+// retryDBConnection opens a pgxpool connection, registering pgvector types when
+// vectorEnabled is true, and retries Ping with exponential backoff until the
+// connection succeeds or defaultMaxTimeout elapses.
+func retryDBConnection(ctx context.Context, url string, vectorEnabled bool) (*pgxpool.Pool, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
 
-	db, err := sql.Open("postgres", url)
+	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	if vectorEnabled {
+		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			return pgvectorpgx.RegisterTypes(ctx, conn)
+		}
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database pool: %w", err)
 	}
 
 	start := time.Now()
 	delay := defaultInitialDelay
 	for attempt := 1; ; attempt++ {
-		if err := db.PingContext(ctx); err == nil {
-			return db, nil
+		if err := pool.Ping(ctx); err == nil {
+			return pool, nil
 		} else {
 			log.Printf("database not ready (attempt %d, elapsed %s): %v", attempt, time.Since(start).Round(time.Second), err)
 		}
 		select {
 		case <-ctx.Done():
-			_ = db.Close()
+			pool.Close()
 			return nil, fmt.Errorf("database not ready after %s: %w", time.Since(start).Round(time.Second), ctx.Err())
 		case <-time.After(delay):
 		}

@@ -5,7 +5,6 @@
 package dbgen
 
 import (
-	"database/sql"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -17,7 +16,7 @@ type Agent struct {
 	ID        string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt sql.NullTime
+	DeletedAt *time.Time
 	Type      string
 	Config    *adk.AgentConfig
 }
@@ -27,7 +26,7 @@ type CrewaiAgentMemory struct {
 	ThreadID   string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
-	DeletedAt  sql.NullTime
+	DeletedAt  *time.Time
 	MemoryData string
 }
 
@@ -37,28 +36,28 @@ type CrewaiFlowState struct {
 	MethodName string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
-	DeletedAt  sql.NullTime
+	DeletedAt  *time.Time
 	StateData  string
 }
 
 type Event struct {
 	ID        string
 	UserID    string
-	SessionID sql.NullString
+	SessionID *string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt sql.NullTime
+	DeletedAt *time.Time
 	Data      string
 }
 
 type Feedback struct {
 	ID           int64
-	CreatedAt    sql.NullTime
-	UpdatedAt    sql.NullTime
-	DeletedAt    sql.NullTime
+	CreatedAt    *time.Time
+	UpdatedAt    *time.Time
+	DeletedAt    *time.Time
 	UserID       string
-	MessageID    sql.NullInt64
-	IsPositive   sql.NullBool
+	MessageID    *int64
+	IsPositive   *bool
 	FeedbackText string
 	IssueType    *database.FeedbackIssueType
 }
@@ -68,14 +67,14 @@ type LgCheckpoint struct {
 	ThreadID           string
 	CheckpointNs       string
 	CheckpointID       string
-	ParentCheckpointID sql.NullString
+	ParentCheckpointID *string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
-	DeletedAt          sql.NullTime
+	DeletedAt          *time.Time
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            sql.NullInt32
+	Version            *int32
 }
 
 type LgCheckpointWrite struct {
@@ -90,19 +89,19 @@ type LgCheckpointWrite struct {
 	TaskID       string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-	DeletedAt    sql.NullTime
+	DeletedAt    *time.Time
 }
 
 type Memory struct {
 	ID          string
-	AgentName   sql.NullString
-	UserID      sql.NullString
-	Content     sql.NullString
+	AgentName   *string
+	UserID      *string
+	Content     *string
 	Embedding   pgvector_go.Vector
-	Metadata    sql.NullString
+	Metadata    *string
 	CreatedAt   time.Time
-	ExpiresAt   sql.NullTime
-	AccessCount sql.NullInt32
+	ExpiresAt   *time.Time
+	AccessCount *int32
 }
 
 type PushNotification struct {
@@ -110,28 +109,28 @@ type PushNotification struct {
 	TaskID    string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt sql.NullTime
+	DeletedAt *time.Time
 	Data      string
 }
 
 type Session struct {
 	ID        string
 	UserID    string
-	Name      sql.NullString
+	Name      *string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt sql.NullTime
-	AgentID   sql.NullString
-	Source    sql.NullString
+	DeletedAt *time.Time
+	AgentID   *string
+	Source    *string
 }
 
 type Task struct {
 	ID        string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt sql.NullTime
+	DeletedAt *time.Time
 	Data      string
-	SessionID sql.NullString
+	SessionID *string
 }
 
 type Tool struct {
@@ -140,8 +139,8 @@ type Tool struct {
 	GroupKind   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
-	DeletedAt   sql.NullTime
-	Description sql.NullString
+	DeletedAt   *time.Time
+	Description *string
 }
 
 type Toolserver struct {
@@ -149,7 +148,7 @@ type Toolserver struct {
 	GroupKind     string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-	DeletedAt     sql.NullTime
-	Description   sql.NullString
-	LastConnected sql.NullTime
+	DeletedAt     *time.Time
+	Description   *string
+	LastConnected *time.Time
 }

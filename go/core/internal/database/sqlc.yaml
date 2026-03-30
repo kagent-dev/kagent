@@ -7,9 +7,21 @@ sql:
       go:
         package: "dbgen"
         out: "gen"
+        sql_package: "pgx/v5"
         emit_interface: true
         emit_pointers_for_null_types: true
         overrides:
+          # pgx/v5 native mode maps all timestamptz → pgtype.Timestamptz by default.
+          # Override to keep idiomatic time.Time / *time.Time throughout.
+          - db_type: "timestamptz"
+            nullable: false
+            go_type:
+              type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
           # Use domain types for columns that would otherwise be plain strings/bytes.
           - column: "agent.config"
             go_type:

@@ -21,7 +21,7 @@ type GetPushNotificationParams struct {
 }
 
 func (q *Queries) GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error) {
-	row := q.db.QueryRowContext(ctx, getPushNotification, arg.TaskID, arg.ID)
+	row := q.db.QueryRow(ctx, getPushNotification, arg.TaskID, arg.ID)
 	var i PushNotification
 	err := row.Scan(
 		&i.ID,
@@ -41,7 +41,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error) {
-	rows, err := q.db.QueryContext(ctx, listPushNotifications, taskID)
+	rows, err := q.db.Query(ctx, listPushNotifications, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,9 +61,6 @@ func (q *Queries) ListPushNotifications(ctx context.Context, taskID string) ([]P
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -76,7 +73,7 @@ WHERE task_id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) SoftDeletePushNotification(ctx context.Context, taskID string) error {
-	_, err := q.db.ExecContext(ctx, softDeletePushNotification, taskID)
+	_, err := q.db.Exec(ctx, softDeletePushNotification, taskID)
 	return err
 }
 
@@ -95,6 +92,6 @@ type UpsertPushNotificationParams struct {
 }
 
 func (q *Queries) UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error {
-	_, err := q.db.ExecContext(ctx, upsertPushNotification, arg.ID, arg.TaskID, arg.Data)
+	_, err := q.db.Exec(ctx, upsertPushNotification, arg.ID, arg.TaskID, arg.Data)
 	return err
 }

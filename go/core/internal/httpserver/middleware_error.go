@@ -1,11 +1,11 @@
 package httpserver
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	apierrors "github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -56,7 +56,7 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 		}
 	}
 
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		log.Error(err, message)
 	} else {
 		log.Info(message)

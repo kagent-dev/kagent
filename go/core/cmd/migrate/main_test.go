@@ -8,8 +8,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	_ "github.com/lib/pq"
 )
 
 // --- migration fixtures ---
@@ -61,7 +61,7 @@ func mergeFS(fsMaps ...fstest.MapFS) fstest.MapFS {
 // Returns 0 if the table is empty or does not exist (fully rolled back).
 func trackVersion(t *testing.T, connStr, table string) uint {
 	t.Helper()
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		t.Fatalf("trackVersion: open db: %v", err)
 	}

@@ -7,7 +7,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 )
 
 const getTask = `-- name: GetTask :one
@@ -17,7 +16,7 @@ LIMIT 1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
-	row := q.db.QueryRowContext(ctx, getTask, id)
+	row := q.db.QueryRow(ctx, getTask, id)
 	var i Task
 	err := row.Scan(
 		&i.ID,
@@ -36,8 +35,8 @@ WHERE session_id = $1 AND deleted_at IS NULL
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListTasksForSession(ctx context.Context, sessionID sql.NullString) ([]Task, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksForSession, sessionID)
+func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listTasksForSession, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,9 +56,6 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID sql.NullStr
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -71,7 +67,7 @@ UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) SoftDeleteTask(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, softDeleteTask, id)
+	_, err := q.db.Exec(ctx, softDeleteTask, id)
 	return err
 }
 
@@ -82,7 +78,7 @@ SELECT EXISTS (
 `
 
 func (q *Queries) TaskExists(ctx context.Context, id string) (bool, error) {
-	row := q.db.QueryRowContext(ctx, taskExists, id)
+	row := q.db.QueryRow(ctx, taskExists, id)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -100,10 +96,10 @@ ON CONFLICT (id) DO UPDATE SET
 type UpsertTaskParams struct {
 	ID        string
 	Data      string
-	SessionID sql.NullString
+	SessionID *string
 }
 
 func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) error {
-	_, err := q.db.ExecContext(ctx, upsertTask, arg.ID, arg.Data, arg.SessionID)
+	_, err := q.db.Exec(ctx, upsertTask, arg.ID, arg.Data, arg.SessionID)
 	return err
 }

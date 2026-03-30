@@ -6,7 +6,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 )
 
 type Querier interface {
@@ -32,7 +31,7 @@ type Querier interface {
 	ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
-	ListEventsByContextID(ctx context.Context, sessionID sql.NullString) ([]Event, error)
+	ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error)
 	ListEventsByContextIDLimit(ctx context.Context, arg ListEventsByContextIDLimitParams) ([]Event, error)
 	ListEventsForSessionAsc(ctx context.Context, arg ListEventsForSessionAscParams) ([]Event, error)
 	ListEventsForSessionAscLimit(ctx context.Context, arg ListEventsForSessionAscLimitParams) ([]Event, error)
@@ -42,7 +41,7 @@ type Querier interface {
 	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error)
-	ListTasksForSession(ctx context.Context, sessionID sql.NullString) ([]Task, error)
+	ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)

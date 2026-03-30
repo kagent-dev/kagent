@@ -7,7 +7,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
@@ -23,7 +22,7 @@ type GetEventParams struct {
 }
 
 func (q *Queries) GetEvent(ctx context.Context, arg GetEventParams) (Event, error) {
-	row := q.db.QueryRowContext(ctx, getEvent, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getEvent, arg.ID, arg.UserID)
 	var i Event
 	err := row.Scan(
 		&i.ID,
@@ -45,12 +44,12 @@ VALUES ($1, $2, $3, $4, NOW(), NOW())
 type InsertEventParams struct {
 	ID        string
 	UserID    string
-	SessionID sql.NullString
+	SessionID *string
 	Data      string
 }
 
 func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertEvent,
+	_, err := q.db.Exec(ctx, insertEvent,
 		arg.ID,
 		arg.UserID,
 		arg.SessionID,
@@ -65,8 +64,8 @@ WHERE session_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListEventsByContextID(ctx context.Context, sessionID sql.NullString) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsByContextID, sessionID)
+func (q *Queries) ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEventsByContextID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,9 +85,6 @@ func (q *Queries) ListEventsByContextID(ctx context.Context, sessionID sql.NullS
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -104,12 +100,12 @@ LIMIT $2
 `
 
 type ListEventsByContextIDLimitParams struct {
-	SessionID sql.NullString
+	SessionID *string
 	Limit     int32
 }
 
 func (q *Queries) ListEventsByContextIDLimit(ctx context.Context, arg ListEventsByContextIDLimitParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsByContextIDLimit, arg.SessionID, arg.Limit)
+	rows, err := q.db.Query(ctx, listEventsByContextIDLimit, arg.SessionID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +125,6 @@ func (q *Queries) ListEventsByContextIDLimit(ctx context.Context, arg ListEvents
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -147,13 +140,13 @@ ORDER BY created_at ASC
 `
 
 type ListEventsForSessionAscParams struct {
-	SessionID sql.NullString
+	SessionID *string
 	UserID    string
 	Column3   time.Time
 }
 
 func (q *Queries) ListEventsForSessionAsc(ctx context.Context, arg ListEventsForSessionAscParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsForSessionAsc, arg.SessionID, arg.UserID, arg.Column3)
+	rows, err := q.db.Query(ctx, listEventsForSessionAsc, arg.SessionID, arg.UserID, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
@@ -173,9 +166,6 @@ func (q *Queries) ListEventsForSessionAsc(ctx context.Context, arg ListEventsFor
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -192,14 +182,14 @@ LIMIT $4
 `
 
 type ListEventsForSessionAscLimitParams struct {
-	SessionID sql.NullString
+	SessionID *string
 	UserID    string
 	Column3   time.Time
 	Limit     int32
 }
 
 func (q *Queries) ListEventsForSessionAscLimit(ctx context.Context, arg ListEventsForSessionAscLimitParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsForSessionAscLimit,
+	rows, err := q.db.Query(ctx, listEventsForSessionAscLimit,
 		arg.SessionID,
 		arg.UserID,
 		arg.Column3,
@@ -225,9 +215,6 @@ func (q *Queries) ListEventsForSessionAscLimit(ctx context.Context, arg ListEven
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -242,13 +229,13 @@ ORDER BY created_at DESC
 `
 
 type ListEventsForSessionDescParams struct {
-	SessionID sql.NullString
+	SessionID *string
 	UserID    string
 	Column3   time.Time
 }
 
 func (q *Queries) ListEventsForSessionDesc(ctx context.Context, arg ListEventsForSessionDescParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsForSessionDesc, arg.SessionID, arg.UserID, arg.Column3)
+	rows, err := q.db.Query(ctx, listEventsForSessionDesc, arg.SessionID, arg.UserID, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
@@ -268,9 +255,6 @@ func (q *Queries) ListEventsForSessionDesc(ctx context.Context, arg ListEventsFo
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -287,14 +271,14 @@ LIMIT $4
 `
 
 type ListEventsForSessionDescLimitParams struct {
-	SessionID sql.NullString
+	SessionID *string
 	UserID    string
 	Column3   time.Time
 	Limit     int32
 }
 
 func (q *Queries) ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEventsForSessionDescLimit,
+	rows, err := q.db.Query(ctx, listEventsForSessionDescLimit,
 		arg.SessionID,
 		arg.UserID,
 		arg.Column3,
@@ -320,9 +304,6 @@ func (q *Queries) ListEventsForSessionDescLimit(ctx context.Context, arg ListEve
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -335,6 +316,6 @@ WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) SoftDeleteEvent(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, softDeleteEvent, id)
+	_, err := q.db.Exec(ctx, softDeleteEvent, id)
 	return err
 }

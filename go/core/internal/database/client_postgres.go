@@ -2,13 +2,13 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
@@ -18,14 +18,26 @@ import (
 
 type postgresClient struct {
 	q  *dbgen.Queries
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewClient(db *sql.DB) dbpkg.Client {
+func NewClient(db *pgxpool.Pool) dbpkg.Client {
 	return &postgresClient{
 		q:  dbgen.New(db),
 		db: db,
 	}
+}
+
+func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) error) error {
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := fn(c.q.WithTx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -68,11 +80,12 @@ func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Sessio
 	params := dbgen.UpsertSessionParams{
 		ID:      session.ID,
 		UserID:  session.UserID,
-		Name:    ptrToNullString(session.Name),
-		AgentID: ptrToNullString(session.AgentID),
+		Name:    session.Name,
+		AgentID: session.AgentID,
 	}
 	if session.Source != nil {
-		params.Source = sql.NullString{String: string(*session.Source), Valid: true}
+		src := string(*session.Source)
+		params.Source = &src
 	}
 	return c.q.UpsertSession(ctx, params)
 }
@@ -99,7 +112,7 @@ func (c *postgresClient) ListSessions(ctx context.Context, userID string) ([]dbp
 
 func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, userID string) ([]dbpkg.Session, error) {
 	rows, err := c.q.ListSessionsForAgent(ctx, dbgen.ListSessionsForAgentParams{
-		AgentID: ptrToNullString(&agentID),
+		AgentID: &agentID,
 		UserID:  userID,
 	})
 	if err != nil {
@@ -123,7 +136,7 @@ func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event
 		if err := c.q.InsertEvent(ctx, dbgen.InsertEventParams{
 			ID:        e.ID,
 			UserID:    e.UserID,
-			SessionID: sql.NullString{String: e.SessionID, Valid: e.SessionID != ""},
+			SessionID: strPtrIfNotEmpty(e.SessionID),
 			Data:      e.Data,
 		}); err != nil {
 			return fmt.Errorf("failed to store event %s: %w", e.ID, err)
@@ -135,24 +148,24 @@ func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event
 func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, userID string, opts dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
 	var rows []dbgen.Event
 	var err error
-	nullSessionID := sql.NullString{String: sessionID, Valid: sessionID != ""}
+	sessionIDPtr := strPtrIfNotEmpty(sessionID)
 
 	switch {
 	case opts.OrderAsc && opts.Limit > 0:
 		rows, err = c.q.ListEventsForSessionAscLimit(ctx, dbgen.ListEventsForSessionAscLimitParams{
-			SessionID: nullSessionID, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
+			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
 		})
 	case opts.OrderAsc:
 		rows, err = c.q.ListEventsForSessionAsc(ctx, dbgen.ListEventsForSessionAscParams{
-			SessionID: nullSessionID, UserID: userID, Column3: opts.After,
+			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After,
 		})
 	case opts.Limit > 0:
 		rows, err = c.q.ListEventsForSessionDescLimit(ctx, dbgen.ListEventsForSessionDescLimitParams{
-			SessionID: nullSessionID, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
+			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
 		})
 	default:
 		rows, err = c.q.ListEventsForSessionDesc(ctx, dbgen.ListEventsForSessionDescParams{
-			SessionID: nullSessionID, UserID: userID, Column3: opts.After,
+			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After,
 		})
 	}
 	if err != nil {
@@ -176,7 +189,7 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *protocol.Task) err
 	return c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:        task.ID,
 		Data:      string(data),
-		SessionID: sql.NullString{String: task.ContextID, Valid: task.ContextID != ""},
+		SessionID: strPtrIfNotEmpty(task.ContextID),
 	})
 }
 
@@ -193,7 +206,7 @@ func (c *postgresClient) GetTask(ctx context.Context, taskID string) (*protocol.
 }
 
 func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID string) ([]*protocol.Task, error) {
-	rows, err := c.q.ListTasksForSession(ctx, sql.NullString{String: sessionID, Valid: true})
+	rows, err := c.q.ListTasksForSession(ctx, &sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks for session: %w", err)
 	}
@@ -257,10 +270,11 @@ func (c *postgresClient) DeletePushNotification(ctx context.Context, taskID stri
 // ── Feedback ──────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
+	isPositive := feedback.IsPositive
 	_, err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
 		UserID:       feedback.UserID,
-		MessageID:    ptrToNullInt64(feedback.MessageID),
-		IsPositive:   sql.NullBool{Bool: feedback.IsPositive, Valid: true},
+		MessageID:    feedback.MessageID,
+		IsPositive:   &isPositive,
 		FeedbackText: feedback.FeedbackText,
 		IssueType:    feedback.IssueType,
 	})
@@ -318,32 +332,24 @@ func (c *postgresClient) DeleteToolsForServer(ctx context.Context, serverName, g
 }
 
 func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha2.MCPTool) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	q := c.q.WithTx(tx)
-
-	if err := q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{
-		ServerName: serverName, GroupKind: groupKind,
-	}); err != nil {
-		return fmt.Errorf("failed to delete existing tools: %w", err)
-	}
-
-	for _, tool := range tools {
-		if err := q.UpsertTool(ctx, dbgen.UpsertToolParams{
-			ID:          tool.Name,
-			ServerName:  serverName,
-			GroupKind:   groupKind,
-			Description: sql.NullString{String: tool.Description, Valid: true},
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		if err := q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{
+			ServerName: serverName, GroupKind: groupKind,
 		}); err != nil {
-			return fmt.Errorf("failed to upsert tool %s: %w", tool.Name, err)
+			return fmt.Errorf("failed to delete existing tools: %w", err)
 		}
-	}
-
-	return tx.Commit()
+		for _, tool := range tools {
+			if err := q.UpsertTool(ctx, dbgen.UpsertToolParams{
+				ID:          tool.Name,
+				ServerName:  serverName,
+				GroupKind:   groupKind,
+				Description: &tool.Description,
+			}); err != nil {
+				return fmt.Errorf("failed to upsert tool %s: %w", tool.Name, err)
+			}
+		}
+		return nil
+	})
 }
 
 func (c *postgresClient) GetToolServer(ctx context.Context, name string) (*dbpkg.ToolServer, error) {
@@ -370,8 +376,8 @@ func (c *postgresClient) StoreToolServer(ctx context.Context, ts *dbpkg.ToolServ
 	row, err := c.q.UpsertToolServer(ctx, dbgen.UpsertToolServerParams{
 		Name:          ts.Name,
 		GroupKind:     ts.GroupKind,
-		Description:   sql.NullString{String: ts.Description, Valid: true},
-		LastConnected: ptrToNullTime(ts.LastConnected),
+		Description:   &ts.Description,
+		LastConnected: ts.LastConnected,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to store tool server: %w", err)
@@ -386,115 +392,102 @@ func (c *postgresClient) DeleteToolServer(ctx context.Context, serverName, group
 // ── LangGraph Checkpoints ─────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreCheckpoint(ctx context.Context, cp *dbpkg.LangGraphCheckpoint) error {
+	version := cp.Version
 	return c.q.UpsertCheckpoint(ctx, dbgen.UpsertCheckpointParams{
 		UserID:             cp.UserID,
 		ThreadID:           cp.ThreadID,
 		CheckpointNs:       cp.CheckpointNS,
 		CheckpointID:       cp.CheckpointID,
-		ParentCheckpointID: ptrToNullString(cp.ParentCheckpointID),
+		ParentCheckpointID: cp.ParentCheckpointID,
 		Metadata:           cp.Metadata,
 		Checkpoint:         cp.Checkpoint,
 		CheckpointType:     cp.CheckpointType,
-		Version:            sql.NullInt32{Int32: cp.Version, Valid: true},
+		Version:            &version,
 	})
 }
 
 func (c *postgresClient) StoreCheckpointWrites(ctx context.Context, writes []*dbpkg.LangGraphCheckpointWrite) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	q := c.q.WithTx(tx)
-	for _, w := range writes {
-		if err := q.UpsertCheckpointWrite(ctx, dbgen.UpsertCheckpointWriteParams{
-			UserID:       w.UserID,
-			ThreadID:     w.ThreadID,
-			CheckpointNs: w.CheckpointNS,
-			CheckpointID: w.CheckpointID,
-			WriteIdx:     w.WriteIdx,
-			Value:        w.Value,
-			ValueType:    w.ValueType,
-			Channel:      w.Channel,
-			TaskID:       w.TaskID,
-		}); err != nil {
-			return fmt.Errorf("failed to store checkpoint write: %w", err)
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		for _, w := range writes {
+			if err := q.UpsertCheckpointWrite(ctx, dbgen.UpsertCheckpointWriteParams{
+				UserID:       w.UserID,
+				ThreadID:     w.ThreadID,
+				CheckpointNs: w.CheckpointNS,
+				CheckpointID: w.CheckpointID,
+				WriteIdx:     w.WriteIdx,
+				Value:        w.Value,
+				ValueType:    w.ValueType,
+				Channel:      w.Channel,
+				TaskID:       w.TaskID,
+			}); err != nil {
+				return fmt.Errorf("failed to store checkpoint write: %w", err)
+			}
 		}
-	}
-	return tx.Commit()
+		return nil
+	})
 }
 
 func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*dbpkg.LangGraphCheckpointTuple, error) {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
+	var tuples []*dbpkg.LangGraphCheckpointTuple
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		var checkpoints []dbgen.LgCheckpoint
+		var err error
+		if checkpointID != nil {
+			cp, err := q.GetCheckpoint(ctx, dbgen.GetCheckpointParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: *checkpointID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get checkpoint: %w", err)
+			}
+			checkpoints = []dbgen.LgCheckpoint{cp}
+		} else if limit > 0 {
+			checkpoints, err = q.ListCheckpointsLimit(ctx, dbgen.ListCheckpointsLimitParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, Limit: int32(limit),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list checkpoints: %w", err)
+			}
+		} else {
+			checkpoints, err = q.ListCheckpoints(ctx, dbgen.ListCheckpointsParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list checkpoints: %w", err)
+			}
+		}
 
-	q := c.q.WithTx(tx)
-
-	var checkpoints []dbgen.LgCheckpoint
-	if checkpointID != nil {
-		cp, err := q.GetCheckpoint(ctx, dbgen.GetCheckpointParams{
-			UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: *checkpointID,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get checkpoint: %w", err)
+		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
+		for _, cp := range checkpoints {
+			writes, err := q.ListCheckpointWrites(ctx, dbgen.ListCheckpointWritesParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: cp.CheckpointID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to get checkpoint writes: %w", err)
+			}
+			dbWrites := make([]*dbpkg.LangGraphCheckpointWrite, len(writes))
+			for i, w := range writes {
+				dbWrites[i] = toCheckpointWrite(w)
+			}
+			tuples = append(tuples, &dbpkg.LangGraphCheckpointTuple{
+				Checkpoint: toCheckpoint(cp),
+				Writes:     dbWrites,
+			})
 		}
-		checkpoints = []dbgen.LgCheckpoint{cp}
-	} else if limit > 0 {
-		checkpoints, err = q.ListCheckpointsLimit(ctx, dbgen.ListCheckpointsLimitParams{
-			UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, Limit: int32(limit),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list checkpoints: %w", err)
-		}
-	} else {
-		checkpoints, err = q.ListCheckpoints(ctx, dbgen.ListCheckpointsParams{
-			UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to list checkpoints: %w", err)
-		}
-	}
-
-	tuples := make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
-	for _, cp := range checkpoints {
-		writes, err := q.ListCheckpointWrites(ctx, dbgen.ListCheckpointWritesParams{
-			UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: cp.CheckpointID,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get checkpoint writes: %w", err)
-		}
-		dbWrites := make([]*dbpkg.LangGraphCheckpointWrite, len(writes))
-		for i, w := range writes {
-			dbWrites[i] = toCheckpointWrite(w)
-		}
-		tuples = append(tuples, &dbpkg.LangGraphCheckpointTuple{
-			Checkpoint: toCheckpoint(cp),
-			Writes:     dbWrites,
-		})
-	}
-
-	return tuples, tx.Commit()
+		return nil
+	})
+	return tuples, err
 }
 
 func (c *postgresClient) DeleteCheckpoint(ctx context.Context, userID, threadID string) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	q := c.q.WithTx(tx)
-	if err := q.SoftDeleteCheckpoints(ctx, dbgen.SoftDeleteCheckpointsParams{UserID: userID, ThreadID: threadID}); err != nil {
-		return fmt.Errorf("failed to delete checkpoints: %w", err)
-	}
-	if err := q.SoftDeleteCheckpointWrites(ctx, dbgen.SoftDeleteCheckpointWritesParams{UserID: userID, ThreadID: threadID}); err != nil {
-		return fmt.Errorf("failed to delete checkpoint writes: %w", err)
-	}
-	return tx.Commit()
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		if err := q.SoftDeleteCheckpoints(ctx, dbgen.SoftDeleteCheckpointsParams{UserID: userID, ThreadID: threadID}); err != nil {
+			return fmt.Errorf("failed to delete checkpoints: %w", err)
+		}
+		if err := q.SoftDeleteCheckpointWrites(ctx, dbgen.SoftDeleteCheckpointWritesParams{UserID: userID, ThreadID: threadID}); err != nil {
+			return fmt.Errorf("failed to delete checkpoint writes: %w", err)
+		}
+		return nil
+	})
 }
 
 // ── CrewAI ────────────────────────────────────────────────────────────────────
@@ -548,7 +541,7 @@ func (c *postgresClient) StoreCrewAIFlowState(ctx context.Context, state *dbpkg.
 func (c *postgresClient) GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*dbpkg.CrewAIFlowState, error) {
 	row, err := c.q.GetLatestCrewAIFlowState(ctx, dbgen.GetLatestCrewAIFlowStateParams{UserID: userID, ThreadID: threadID})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get CrewAI flow state: %w", err)
@@ -560,13 +553,13 @@ func (c *postgresClient) GetCrewAIFlowState(ctx context.Context, userID, threadI
 
 func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Memory) error {
 	id, err := c.q.InsertMemory(ctx, dbgen.InsertMemoryParams{
-		AgentName:   sql.NullString{String: memory.AgentName, Valid: true},
-		UserID:      sql.NullString{String: memory.UserID, Valid: true},
-		Content:     sql.NullString{String: memory.Content, Valid: true},
+		AgentName:   &memory.AgentName,
+		UserID:      &memory.UserID,
+		Content:     &memory.Content,
 		Embedding:   memory.Embedding,
-		Metadata:    sql.NullString{String: memory.Metadata, Valid: true},
-		ExpiresAt:   ptrToNullTime(memory.ExpiresAt),
-		AccessCount: sql.NullInt32{Int32: memory.AccessCount, Valid: true},
+		Metadata:    &memory.Metadata,
+		ExpiresAt:   memory.ExpiresAt,
+		AccessCount: &memory.AccessCount,
 	})
 	if err != nil {
 		return err
@@ -576,36 +569,31 @@ func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Mem
 }
 
 func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbpkg.Memory) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	q := c.q.WithTx(tx)
-	for _, m := range memories {
-		id, err := q.InsertMemory(ctx, dbgen.InsertMemoryParams{
-			AgentName:   sql.NullString{String: m.AgentName, Valid: true},
-			UserID:      sql.NullString{String: m.UserID, Valid: true},
-			Content:     sql.NullString{String: m.Content, Valid: true},
-			Embedding:   m.Embedding,
-			Metadata:    sql.NullString{String: m.Metadata, Valid: true},
-			ExpiresAt:   ptrToNullTime(m.ExpiresAt),
-			AccessCount: sql.NullInt32{Int32: m.AccessCount, Valid: true},
-		})
-		if err != nil {
-			return fmt.Errorf("failed to store memory: %w", err)
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		for _, m := range memories {
+			id, err := q.InsertMemory(ctx, dbgen.InsertMemoryParams{
+				AgentName:   &m.AgentName,
+				UserID:      &m.UserID,
+				Content:     &m.Content,
+				Embedding:   m.Embedding,
+				Metadata:    &m.Metadata,
+				ExpiresAt:   m.ExpiresAt,
+				AccessCount: &m.AccessCount,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to store memory: %w", err)
+			}
+			m.ID = id
 		}
-		m.ID = id
-	}
-	return tx.Commit()
+		return nil
+	})
 }
 
 func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
 	rows, err := c.q.SearchAgentMemory(ctx, dbgen.SearchAgentMemoryParams{
 		Embedding: embedding,
-		AgentName: sql.NullString{String: agentName, Valid: true},
-		UserID:    sql.NullString{String: userID, Valid: true},
+		AgentName: &agentName,
+		UserID:    &userID,
 		Limit:     int32(limit),
 	})
 	if err != nil {
@@ -618,14 +606,14 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 		results[i] = dbpkg.AgentMemorySearchResult{
 			Memory: dbpkg.Memory{
 				ID:          r.ID,
-				AgentName:   r.AgentName.String,
-				UserID:      r.UserID.String,
-				Content:     r.Content.String,
+				AgentName:   derefStr(r.AgentName),
+				UserID:      derefStr(r.UserID),
+				Content:     derefStr(r.Content),
 				Embedding:   r.Embedding,
-				Metadata:    r.Metadata.String,
+				Metadata:    derefStr(r.Metadata),
 				CreatedAt:   r.CreatedAt,
-				ExpiresAt:   nullTimeToPtr(r.ExpiresAt),
-				AccessCount: nullInt32ToVal(r.AccessCount),
+				ExpiresAt:   r.ExpiresAt,
+				AccessCount: derefInt32(r.AccessCount),
 			},
 			Score: score,
 		}
@@ -647,9 +635,9 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userID string) ([]dbpkg.Memory, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.ListAgentMemories(ctx, dbgen.ListAgentMemoriesParams{
-		AgentName:   sql.NullString{String: agentName, Valid: true},
-		AgentName_2: sql.NullString{String: normalized, Valid: true},
-		UserID:      sql.NullString{String: userID, Valid: true},
+		AgentName:   &agentName,
+		AgentName_2: &normalized,
+		UserID:      &userID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent memories: %w", err)
@@ -663,16 +651,16 @@ func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userI
 
 func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
 	if err := c.q.DeleteAgentMemory(ctx, dbgen.DeleteAgentMemoryParams{
-		AgentName: sql.NullString{String: agentName, Valid: true},
-		UserID:    sql.NullString{String: userID, Valid: true},
+		AgentName: &agentName,
+		UserID:    &userID,
 	}); err != nil {
 		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	if normalized != agentName {
 		if err := c.q.DeleteAgentMemory(ctx, dbgen.DeleteAgentMemoryParams{
-			AgentName: sql.NullString{String: normalized, Valid: true},
-			UserID:    sql.NullString{String: userID, Valid: true},
+			AgentName: &normalized,
+			UserID:    &userID,
 		}); err != nil {
 			return fmt.Errorf("failed to delete normalized agent memory: %w", err)
 		}
@@ -681,20 +669,15 @@ func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userI
 }
 
 func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	q := c.q.WithTx(tx)
-	if err := q.ExtendMemoryTTL(ctx); err != nil {
-		return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
-	}
-	if err := q.DeleteExpiredMemories(ctx); err != nil {
-		return fmt.Errorf("failed to delete expired memories: %w", err)
-	}
-	return tx.Commit()
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		if err := q.ExtendMemoryTTL(ctx); err != nil {
+			return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
+		}
+		if err := q.DeleteExpiredMemories(ctx); err != nil {
+			return fmt.Errorf("failed to delete expired memories: %w", err)
+		}
+		return nil
+	})
 }
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
@@ -704,7 +687,7 @@ func toAgent(r dbgen.Agent) *dbpkg.Agent {
 		ID:        r.ID,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
-		DeletedAt: nullTimeToPtr(r.DeletedAt),
+		DeletedAt: r.DeletedAt,
 		Type:      r.Type,
 		Config:    r.Config,
 	}
@@ -714,14 +697,14 @@ func toSession(r dbgen.Session) *dbpkg.Session {
 	s := &dbpkg.Session{
 		ID:        r.ID,
 		UserID:    r.UserID,
-		Name:      nullStringToPtr(r.Name),
+		Name:      r.Name,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
-		DeletedAt: nullTimeToPtr(r.DeletedAt),
-		AgentID:   nullStringToPtr(r.AgentID),
+		DeletedAt: r.DeletedAt,
+		AgentID:   r.AgentID,
 	}
-	if r.Source.Valid {
-		src := dbpkg.SessionSource(r.Source.String)
+	if r.Source != nil {
+		src := dbpkg.SessionSource(*r.Source)
 		s.Source = &src
 	}
 	return s
@@ -731,10 +714,10 @@ func toEvent(r dbgen.Event) *dbpkg.Event {
 	return &dbpkg.Event{
 		ID:        r.ID,
 		UserID:    r.UserID,
-		SessionID: r.SessionID.String,
+		SessionID: derefStr(r.SessionID),
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
-		DeletedAt: nullTimeToPtr(r.DeletedAt),
+		DeletedAt: r.DeletedAt,
 		Data:      r.Data,
 	}
 }
@@ -744,21 +727,21 @@ func toTask(r dbgen.Task) *dbpkg.Task {
 		ID:        r.ID,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
-		DeletedAt: nullTimeToPtr(r.DeletedAt),
+		DeletedAt: r.DeletedAt,
 		Data:      r.Data,
-		SessionID: r.SessionID.String,
+		SessionID: derefStr(r.SessionID),
 	}
 }
 
 func toFeedback(r dbgen.Feedback) *dbpkg.Feedback {
 	return &dbpkg.Feedback{
 		ID:           r.ID,
-		CreatedAt:    nullTimeToPtr(r.CreatedAt),
-		UpdatedAt:    nullTimeToPtr(r.UpdatedAt),
-		DeletedAt:    nullTimeToPtr(r.DeletedAt),
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		DeletedAt:    r.DeletedAt,
 		UserID:       r.UserID,
-		MessageID:    nullInt64ToPtr(r.MessageID),
-		IsPositive:   r.IsPositive.Bool,
+		MessageID:    r.MessageID,
+		IsPositive:   derefBool(r.IsPositive),
 		FeedbackText: r.FeedbackText,
 		IssueType:    r.IssueType,
 	}
@@ -771,8 +754,8 @@ func toTool(r dbgen.Tool) *dbpkg.Tool {
 		GroupKind:   r.GroupKind,
 		CreatedAt:   r.CreatedAt,
 		UpdatedAt:   r.UpdatedAt,
-		DeletedAt:   nullTimeToPtr(r.DeletedAt),
-		Description: r.Description.String,
+		DeletedAt:   r.DeletedAt,
+		Description: derefStr(r.Description),
 	}
 }
 
@@ -782,9 +765,9 @@ func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
 		GroupKind:     r.GroupKind,
 		CreatedAt:     r.CreatedAt,
 		UpdatedAt:     r.UpdatedAt,
-		DeletedAt:     nullTimeToPtr(r.DeletedAt),
-		Description:   r.Description.String,
-		LastConnected: nullTimeToPtr(r.LastConnected),
+		DeletedAt:     r.DeletedAt,
+		Description:   derefStr(r.Description),
+		LastConnected: r.LastConnected,
 	}
 }
 
@@ -794,14 +777,14 @@ func toCheckpoint(r dbgen.LgCheckpoint) *dbpkg.LangGraphCheckpoint {
 		ThreadID:           r.ThreadID,
 		CheckpointNS:       r.CheckpointNs,
 		CheckpointID:       r.CheckpointID,
-		ParentCheckpointID: nullStringToPtr(r.ParentCheckpointID),
+		ParentCheckpointID: r.ParentCheckpointID,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
-		DeletedAt:          nullTimeToPtr(r.DeletedAt),
+		DeletedAt:          r.DeletedAt,
 		Metadata:           r.Metadata,
 		Checkpoint:         r.Checkpoint,
 		CheckpointType:     r.CheckpointType,
-		Version:            r.Version.Int32,
+		Version:            derefInt32(r.Version),
 	}
 }
 
@@ -818,7 +801,7 @@ func toCheckpointWrite(r dbgen.LgCheckpointWrite) *dbpkg.LangGraphCheckpointWrit
 		TaskID:       r.TaskID,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
-		DeletedAt:    nullTimeToPtr(r.DeletedAt),
+		DeletedAt:    r.DeletedAt,
 	}
 }
 
@@ -828,7 +811,7 @@ func toCrewAIMemory(r dbgen.CrewaiAgentMemory) *dbpkg.CrewAIAgentMemory {
 		ThreadID:   r.ThreadID,
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
-		DeletedAt:  nullTimeToPtr(r.DeletedAt),
+		DeletedAt:  r.DeletedAt,
 		MemoryData: r.MemoryData,
 	}
 }
@@ -840,7 +823,7 @@ func toCrewAIFlowState(r dbgen.CrewaiFlowState) *dbpkg.CrewAIFlowState {
 		MethodName: r.MethodName,
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
-		DeletedAt:  nullTimeToPtr(r.DeletedAt),
+		DeletedAt:  r.DeletedAt,
 		StateData:  r.StateData,
 	}
 }
@@ -848,61 +831,43 @@ func toCrewAIFlowState(r dbgen.CrewaiFlowState) *dbpkg.CrewAIFlowState {
 func toMemory(r dbgen.Memory) *dbpkg.Memory {
 	return &dbpkg.Memory{
 		ID:          r.ID,
-		AgentName:   r.AgentName.String,
-		UserID:      r.UserID.String,
-		Content:     r.Content.String,
+		AgentName:   derefStr(r.AgentName),
+		UserID:      derefStr(r.UserID),
+		Content:     derefStr(r.Content),
 		Embedding:   r.Embedding,
-		Metadata:    r.Metadata.String,
+		Metadata:    derefStr(r.Metadata),
 		CreatedAt:   r.CreatedAt,
-		ExpiresAt:   nullTimeToPtr(r.ExpiresAt),
-		AccessCount: nullInt32ToVal(r.AccessCount),
+		ExpiresAt:   r.ExpiresAt,
+		AccessCount: derefInt32(r.AccessCount),
 	}
 }
 
-// ── sql.Null* helpers ─────────────────────────────────────────────────────────
+// ── Pointer helpers ───────────────────────────────────────────────────────────
 
-func nullStringToPtr(s sql.NullString) *string {
-	if s.Valid {
-		return &s.String
+func strPtrIfNotEmpty(s string) *string {
+	if s == "" {
+		return nil
 	}
-	return nil
+	return &s
 }
 
-func nullTimeToPtr(t sql.NullTime) *time.Time {
-	if t.Valid {
-		return &t.Time
-	}
-	return nil
-}
-
-func nullInt64ToPtr(n sql.NullInt64) *int64 {
-	if n.Valid {
-		return &n.Int64
-	}
-	return nil
-}
-
-func nullInt32ToVal(n sql.NullInt32) int32 {
-	return n.Int32
-}
-
-func ptrToNullString(s *string) sql.NullString {
+func derefStr(s *string) string {
 	if s != nil {
-		return sql.NullString{String: *s, Valid: true}
+		return *s
 	}
-	return sql.NullString{}
+	return ""
 }
 
-func ptrToNullTime(t *time.Time) sql.NullTime {
-	if t != nil {
-		return sql.NullTime{Time: *t, Valid: true}
-	}
-	return sql.NullTime{}
-}
-
-func ptrToNullInt64(n *int64) sql.NullInt64 {
+func derefInt32(n *int32) int32 {
 	if n != nil {
-		return sql.NullInt64{Int64: *n, Valid: true}
+		return *n
 	}
-	return sql.NullInt64{}
+	return 0
+}
+
+func derefBool(b *bool) bool {
+	if b != nil {
+		return *b
+	}
+	return false
 }

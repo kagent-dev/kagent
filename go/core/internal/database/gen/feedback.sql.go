@@ -7,7 +7,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/kagent-dev/kagent/go/api/database"
 )
@@ -20,14 +19,14 @@ RETURNING id, created_at, updated_at, deleted_at, user_id, message_id, is_positi
 
 type InsertFeedbackParams struct {
 	UserID       string
-	MessageID    sql.NullInt64
-	IsPositive   sql.NullBool
+	MessageID    *int64
+	IsPositive   *bool
 	FeedbackText string
 	IssueType    *database.FeedbackIssueType
 }
 
 func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) (Feedback, error) {
-	row := q.db.QueryRowContext(ctx, insertFeedback,
+	row := q.db.QueryRow(ctx, insertFeedback,
 		arg.UserID,
 		arg.MessageID,
 		arg.IsPositive,
@@ -56,7 +55,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListFeedback(ctx context.Context, userID string) ([]Feedback, error) {
-	rows, err := q.db.QueryContext(ctx, listFeedback, userID)
+	rows, err := q.db.Query(ctx, listFeedback, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,9 +77,6 @@ func (q *Queries) ListFeedback(ctx context.Context, userID string) ([]Feedback, 
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

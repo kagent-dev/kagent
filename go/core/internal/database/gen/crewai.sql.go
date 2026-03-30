@@ -22,7 +22,7 @@ type GetLatestCrewAIFlowStateParams struct {
 }
 
 func (q *Queries) GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error) {
-	row := q.db.QueryRowContext(ctx, getLatestCrewAIFlowState, arg.UserID, arg.ThreadID)
+	row := q.db.QueryRow(ctx, getLatestCrewAIFlowState, arg.UserID, arg.ThreadID)
 	var i CrewaiFlowState
 	err := row.Scan(
 		&i.UserID,
@@ -47,7 +47,7 @@ type HardDeleteCrewAIMemoryParams struct {
 }
 
 func (q *Queries) HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, hardDeleteCrewAIMemory, arg.UserID, arg.ThreadID)
+	_, err := q.db.Exec(ctx, hardDeleteCrewAIMemory, arg.UserID, arg.ThreadID)
 	return err
 }
 
@@ -65,7 +65,7 @@ type SearchCrewAIMemoryByTaskParams struct {
 }
 
 func (q *Queries) SearchCrewAIMemoryByTask(ctx context.Context, arg SearchCrewAIMemoryByTaskParams) ([]CrewaiAgentMemory, error) {
-	rows, err := q.db.QueryContext(ctx, searchCrewAIMemoryByTask, arg.UserID, arg.ThreadID, arg.MemoryData)
+	rows, err := q.db.Query(ctx, searchCrewAIMemoryByTask, arg.UserID, arg.ThreadID, arg.MemoryData)
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +84,6 @@ func (q *Queries) SearchCrewAIMemoryByTask(ctx context.Context, arg SearchCrewAI
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -110,7 +107,7 @@ type SearchCrewAIMemoryByTaskLimitParams struct {
 }
 
 func (q *Queries) SearchCrewAIMemoryByTaskLimit(ctx context.Context, arg SearchCrewAIMemoryByTaskLimitParams) ([]CrewaiAgentMemory, error) {
-	rows, err := q.db.QueryContext(ctx, searchCrewAIMemoryByTaskLimit,
+	rows, err := q.db.Query(ctx, searchCrewAIMemoryByTaskLimit,
 		arg.UserID,
 		arg.ThreadID,
 		arg.MemoryData,
@@ -135,9 +132,6 @@ func (q *Queries) SearchCrewAIMemoryByTaskLimit(ctx context.Context, arg SearchC
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -161,7 +155,7 @@ type UpsertCrewAIFlowStateParams struct {
 }
 
 func (q *Queries) UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error {
-	_, err := q.db.ExecContext(ctx, upsertCrewAIFlowState,
+	_, err := q.db.Exec(ctx, upsertCrewAIFlowState,
 		arg.UserID,
 		arg.ThreadID,
 		arg.MethodName,
@@ -186,6 +180,6 @@ type UpsertCrewAIMemoryParams struct {
 }
 
 func (q *Queries) UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, upsertCrewAIMemory, arg.UserID, arg.ThreadID, arg.MemoryData)
+	_, err := q.db.Exec(ctx, upsertCrewAIMemory, arg.UserID, arg.ThreadID, arg.MemoryData)
 	return err
 }

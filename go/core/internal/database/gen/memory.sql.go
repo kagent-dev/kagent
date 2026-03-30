@@ -7,10 +7,8 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
-	"github.com/lib/pq"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
@@ -19,12 +17,12 @@ DELETE FROM memory WHERE agent_name = $1 AND user_id = $2
 `
 
 type DeleteAgentMemoryParams struct {
-	AgentName sql.NullString
-	UserID    sql.NullString
+	AgentName *string
+	UserID    *string
 }
 
 func (q *Queries) DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, deleteAgentMemory, arg.AgentName, arg.UserID)
+	_, err := q.db.Exec(ctx, deleteAgentMemory, arg.AgentName, arg.UserID)
 	return err
 }
 
@@ -34,7 +32,7 @@ WHERE expires_at < NOW() AND access_count < 10
 `
 
 func (q *Queries) DeleteExpiredMemories(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredMemories)
+	_, err := q.db.Exec(ctx, deleteExpiredMemories)
 	return err
 }
 
@@ -45,7 +43,7 @@ WHERE expires_at < NOW() AND access_count >= 10
 `
 
 func (q *Queries) ExtendMemoryTTL(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, extendMemoryTTL)
+	_, err := q.db.Exec(ctx, extendMemoryTTL)
 	return err
 }
 
@@ -55,7 +53,7 @@ WHERE id = ANY($1::text[])
 `
 
 func (q *Queries) IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error {
-	_, err := q.db.ExecContext(ctx, incrementMemoryAccessCount, pq.Array(dollar_1))
+	_, err := q.db.Exec(ctx, incrementMemoryAccessCount, dollar_1)
 	return err
 }
 
@@ -66,17 +64,17 @@ RETURNING id
 `
 
 type InsertMemoryParams struct {
-	AgentName   sql.NullString
-	UserID      sql.NullString
-	Content     sql.NullString
+	AgentName   *string
+	UserID      *string
+	Content     *string
 	Embedding   pgvector_go.Vector
-	Metadata    sql.NullString
-	ExpiresAt   sql.NullTime
-	AccessCount sql.NullInt32
+	Metadata    *string
+	ExpiresAt   *time.Time
+	AccessCount *int32
 }
 
 func (q *Queries) InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, insertMemory,
+	row := q.db.QueryRow(ctx, insertMemory,
 		arg.AgentName,
 		arg.UserID,
 		arg.Content,
@@ -97,13 +95,13 @@ ORDER BY access_count DESC
 `
 
 type ListAgentMemoriesParams struct {
-	AgentName   sql.NullString
-	AgentName_2 sql.NullString
-	UserID      sql.NullString
+	AgentName   *string
+	AgentName_2 *string
+	UserID      *string
 }
 
 func (q *Queries) ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentMemories, arg.AgentName, arg.AgentName_2, arg.UserID)
+	rows, err := q.db.Query(ctx, listAgentMemories, arg.AgentName, arg.AgentName_2, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +124,6 @@ func (q *Queries) ListAgentMemories(ctx context.Context, arg ListAgentMemoriesPa
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -145,26 +140,26 @@ LIMIT $4
 
 type SearchAgentMemoryParams struct {
 	Embedding pgvector_go.Vector
-	AgentName sql.NullString
-	UserID    sql.NullString
+	AgentName *string
+	UserID    *string
 	Limit     int32
 }
 
 type SearchAgentMemoryRow struct {
 	ID          string
-	AgentName   sql.NullString
-	UserID      sql.NullString
-	Content     sql.NullString
+	AgentName   *string
+	UserID      *string
+	Content     *string
 	Embedding   pgvector_go.Vector
-	Metadata    sql.NullString
+	Metadata    *string
 	CreatedAt   time.Time
-	ExpiresAt   sql.NullTime
-	AccessCount sql.NullInt32
+	ExpiresAt   *time.Time
+	AccessCount *int32
 	Score       interface{}
 }
 
 func (q *Queries) SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error) {
-	rows, err := q.db.QueryContext(ctx, searchAgentMemory,
+	rows, err := q.db.Query(ctx, searchAgentMemory,
 		arg.Embedding,
 		arg.AgentName,
 		arg.UserID,
@@ -192,9 +187,6 @@ func (q *Queries) SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryPa
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

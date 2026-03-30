@@ -7,7 +7,6 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
 )
 
 const getCheckpoint = `-- name: GetCheckpoint :one
@@ -25,7 +24,7 @@ type GetCheckpointParams struct {
 }
 
 func (q *Queries) GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error) {
-	row := q.db.QueryRowContext(ctx, getCheckpoint,
+	row := q.db.QueryRow(ctx, getCheckpoint,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,
@@ -64,7 +63,7 @@ type ListCheckpointWritesParams struct {
 }
 
 func (q *Queries) ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error) {
-	rows, err := q.db.QueryContext(ctx, listCheckpointWrites,
+	rows, err := q.db.Query(ctx, listCheckpointWrites,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,
@@ -95,9 +94,6 @@ func (q *Queries) ListCheckpointWrites(ctx context.Context, arg ListCheckpointWr
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -118,7 +114,7 @@ type ListCheckpointsParams struct {
 }
 
 func (q *Queries) ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error) {
-	rows, err := q.db.QueryContext(ctx, listCheckpoints, arg.UserID, arg.ThreadID, arg.CheckpointNs)
+	rows, err := q.db.Query(ctx, listCheckpoints, arg.UserID, arg.ThreadID, arg.CheckpointNs)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +140,6 @@ func (q *Queries) ListCheckpoints(ctx context.Context, arg ListCheckpointsParams
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -169,7 +162,7 @@ type ListCheckpointsLimitParams struct {
 }
 
 func (q *Queries) ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error) {
-	rows, err := q.db.QueryContext(ctx, listCheckpointsLimit,
+	rows, err := q.db.Query(ctx, listCheckpointsLimit,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,
@@ -200,9 +193,6 @@ func (q *Queries) ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsL
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -220,7 +210,7 @@ type SoftDeleteCheckpointWritesParams struct {
 }
 
 func (q *Queries) SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteCheckpointWrites, arg.UserID, arg.ThreadID)
+	_, err := q.db.Exec(ctx, softDeleteCheckpointWrites, arg.UserID, arg.ThreadID)
 	return err
 }
 
@@ -235,7 +225,7 @@ type SoftDeleteCheckpointsParams struct {
 }
 
 func (q *Queries) SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteCheckpoints, arg.UserID, arg.ThreadID)
+	_, err := q.db.Exec(ctx, softDeleteCheckpoints, arg.UserID, arg.ThreadID)
 	return err
 }
 
@@ -259,15 +249,15 @@ type UpsertCheckpointParams struct {
 	ThreadID           string
 	CheckpointNs       string
 	CheckpointID       string
-	ParentCheckpointID sql.NullString
+	ParentCheckpointID *string
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            sql.NullInt32
+	Version            *int32
 }
 
 func (q *Queries) UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error {
-	_, err := q.db.ExecContext(ctx, upsertCheckpoint,
+	_, err := q.db.Exec(ctx, upsertCheckpoint,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,
@@ -307,7 +297,7 @@ type UpsertCheckpointWriteParams struct {
 }
 
 func (q *Queries) UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error {
-	_, err := q.db.ExecContext(ctx, upsertCheckpointWrite,
+	_, err := q.db.Exec(ctx, upsertCheckpointWrite,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,

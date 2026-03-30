@@ -7,7 +7,7 @@ package dbgen
 
 import (
 	"context"
-	"database/sql"
+	"time"
 )
 
 const getTool = `-- name: GetTool :one
@@ -17,7 +17,7 @@ LIMIT 1
 `
 
 func (q *Queries) GetTool(ctx context.Context, id string) (Tool, error) {
-	row := q.db.QueryRowContext(ctx, getTool, id)
+	row := q.db.QueryRow(ctx, getTool, id)
 	var i Tool
 	err := row.Scan(
 		&i.ID,
@@ -38,7 +38,7 @@ LIMIT 1
 `
 
 func (q *Queries) GetToolServer(ctx context.Context, name string) (Toolserver, error) {
-	row := q.db.QueryRowContext(ctx, getToolServer, name)
+	row := q.db.QueryRow(ctx, getToolServer, name)
 	var i Toolserver
 	err := row.Scan(
 		&i.Name,
@@ -59,7 +59,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListToolServers(ctx context.Context) ([]Toolserver, error) {
-	rows, err := q.db.QueryContext(ctx, listToolServers)
+	rows, err := q.db.Query(ctx, listToolServers)
 	if err != nil {
 		return nil, err
 	}
@@ -80,9 +80,6 @@ func (q *Queries) ListToolServers(ctx context.Context) ([]Toolserver, error) {
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -96,7 +93,7 @@ ORDER BY created_at ASC
 `
 
 func (q *Queries) ListTools(ctx context.Context) ([]Tool, error) {
-	rows, err := q.db.QueryContext(ctx, listTools)
+	rows, err := q.db.Query(ctx, listTools)
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +113,6 @@ func (q *Queries) ListTools(ctx context.Context) ([]Tool, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -138,7 +132,7 @@ type ListToolsForServerParams struct {
 }
 
 func (q *Queries) ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error) {
-	rows, err := q.db.QueryContext(ctx, listToolsForServer, arg.ServerName, arg.GroupKind)
+	rows, err := q.db.Query(ctx, listToolsForServer, arg.ServerName, arg.GroupKind)
 	if err != nil {
 		return nil, err
 	}
@@ -159,9 +153,6 @@ func (q *Queries) ListToolsForServer(ctx context.Context, arg ListToolsForServer
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -179,7 +170,7 @@ type SoftDeleteToolServerParams struct {
 }
 
 func (q *Queries) SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteToolServer, arg.Name, arg.GroupKind)
+	_, err := q.db.Exec(ctx, softDeleteToolServer, arg.Name, arg.GroupKind)
 	return err
 }
 
@@ -194,7 +185,7 @@ type SoftDeleteToolsForServerParams struct {
 }
 
 func (q *Queries) SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error {
-	_, err := q.db.ExecContext(ctx, softDeleteToolsForServer, arg.ServerName, arg.GroupKind)
+	_, err := q.db.Exec(ctx, softDeleteToolsForServer, arg.ServerName, arg.GroupKind)
 	return err
 }
 
@@ -211,11 +202,11 @@ type UpsertToolParams struct {
 	ID          string
 	ServerName  string
 	GroupKind   string
-	Description sql.NullString
+	Description *string
 }
 
 func (q *Queries) UpsertTool(ctx context.Context, arg UpsertToolParams) error {
-	_, err := q.db.ExecContext(ctx, upsertTool,
+	_, err := q.db.Exec(ctx, upsertTool,
 		arg.ID,
 		arg.ServerName,
 		arg.GroupKind,
@@ -238,12 +229,12 @@ RETURNING name, group_kind, created_at, updated_at, deleted_at, description, las
 type UpsertToolServerParams struct {
 	Name          string
 	GroupKind     string
-	Description   sql.NullString
-	LastConnected sql.NullTime
+	Description   *string
+	LastConnected *time.Time
 }
 
 func (q *Queries) UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error) {
-	row := q.db.QueryRowContext(ctx, upsertToolServer,
+	row := q.db.QueryRow(ctx, upsertToolServer,
 		arg.Name,
 		arg.GroupKind,
 		arg.Description,

@@ -2,15 +2,14 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -210,14 +209,23 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 }
 
 // setupTestDB resets the shared Postgres database's tables for test isolation.
-func setupTestDB(t *testing.T) *sql.DB {
+func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
 	}
 
-	require.NoError(t, dbtest.MigrateDown(sharedConnStr, true), "Failed to reset test database (down)")
-	require.NoError(t, dbtest.Migrate(sharedConnStr, true), "Failed to reset test database (up)")
+	// Truncate application tables instead of full down+up migrations.
+	// Full down migration drops and recreates the pgvector extension, which
+	// changes type OIDs and breaks existing pool connections.
+	_, err := sharedDB.Exec(context.Background(), `
+		TRUNCATE TABLE
+			agent, session, event, task, push_notification, feedback,
+			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
+			crewai_agent_memory, crewai_flow_state, memory
+		RESTART IDENTITY CASCADE
+	`)
+	require.NoError(t, err, "Failed to truncate test tables")
 
 	return sharedDB
 }

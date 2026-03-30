@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	_ "github.com/lib/pq"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -102,7 +102,7 @@ func MigrateDown(connStr string, vectorEnabled bool) error {
 }
 
 func runMigrationDir(connStr, dir, migrationsTable string) error {
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		return fmt.Errorf("open db for %s: %w", dir, err)
 	}
@@ -112,7 +112,7 @@ func runMigrationDir(connStr, dir, migrationsTable string) error {
 		return fmt.Errorf("load migration files from %s: %w", dir, err)
 	}
 
-	driver, err := migratepg.WithInstance(db, &migratepg.Config{
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{
 		MigrationsTable: migrationsTable,
 	})
 	if err != nil {
@@ -132,7 +132,7 @@ func runMigrationDir(connStr, dir, migrationsTable string) error {
 }
 
 func downMigrationDir(connStr, dir, migrationsTable string) error {
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		return fmt.Errorf("open db for %s: %w", dir, err)
 	}
@@ -142,7 +142,7 @@ func downMigrationDir(connStr, dir, migrationsTable string) error {
 		return fmt.Errorf("load migration files from %s: %w", dir, err)
 	}
 
-	driver, err := migratepg.WithInstance(db, &migratepg.Config{
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{
 		MigrationsTable: migrationsTable,
 	})
 	if err != nil {
