@@ -7,11 +7,11 @@ tests:
   # bundled mode (default — url and urlFile both empty, bundled.enabled true)
   # =============================================================================
 
-  - it: should render PVC, Deployment, and Service when bundled is enabled
+  - it: should render ServiceAccount, PVC, Deployment, and Service when bundled is enabled
     template: postgresql.yaml
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
 
   - it: should not render any resources when bundled is disabled
     template: postgresql.yaml
@@ -32,7 +32,7 @@ tests:
           url: "postgres://user:pass@external-host:5432/db"
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
 
   - it: should still render resources when urlFile is set and bundled is enabled
     template: postgresql.yaml
@@ -42,12 +42,12 @@ tests:
           urlFile: "/var/secrets/db-url"
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
 
 
   - it: should render PVC with correct storage size
     template: postgresql.yaml
-    documentIndex: 0
+    documentIndex: 1
     asserts:
       - isKind:
           of: PersistentVolumeClaim
@@ -57,7 +57,7 @@ tests:
 
   - it: should render PVC with custom storage size
     template: postgresql.yaml
-    documentIndex: 0
+    documentIndex: 1
     set:
       database:
         postgres:
@@ -70,7 +70,7 @@ tests:
 
   - it: should render Deployment with default pgvector image
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - isKind:
           of: Deployment
@@ -80,7 +80,7 @@ tests:
 
   - it: should render Deployment with custom image
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     set:
       database:
         postgres:
@@ -97,7 +97,7 @@ tests:
 
   - it: should read POSTGRES_PASSWORD from chart-managed secret
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -110,7 +110,7 @@ tests:
 
   - it: should set POSTGRES_DB and POSTGRES_USER to hardcoded values
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -125,7 +125,7 @@ tests:
 
   - it: should set PGDATA env var
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -135,7 +135,7 @@ tests:
 
   - it: should have liveness and readiness probes
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - isNotNull:
           path: spec.template.spec.containers[0].livenessProbe
@@ -144,7 +144,7 @@ tests:
 
   - it: should render Deployment with default resource requests and limits
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
@@ -161,7 +161,7 @@ tests:
 
   - it: should render Deployment with custom resources
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     set:
       database:
         postgres:
@@ -183,7 +183,7 @@ tests:
 
   - it: should render Deployment with Recreate strategy
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - equal:
           path: spec.strategy.type
@@ -191,7 +191,7 @@ tests:
 
   - it: should render Deployment with security context
     template: postgresql.yaml
-    documentIndex: 1
+    documentIndex: 2
     asserts:
       - equal:
           path: spec.template.spec.securityContext.runAsNonRoot
@@ -202,7 +202,7 @@ tests:
 
   - it: should render Service with hardcoded ClusterIP type and port 5432
     template: postgresql.yaml
-    documentIndex: 2
+    documentIndex: 3
     asserts:
       - isKind:
           of: Service
@@ -215,11 +215,29 @@ tests:
 
   - it: should use correct selector labels on Service
     template: postgresql.yaml
-    documentIndex: 2
+    documentIndex: 3
     asserts:
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
           value: database
+
+  - it: should set serviceAccountName on Deployment
+    template: postgresql.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-postgresql
+
+  - it: should create ServiceAccount when bundled is enabled
+    template: postgresql.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-postgresql
 
   # =============================================================================
   # postgresql-secret.yaml
@@ -274,4 +292,29 @@ tests:
     asserts:
       - hasDocuments:
           count: 1
+
+  - it: should not render imagePullSecret by default
+    template: postgresql.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Deployment
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: should render imagePullSecret when available 
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      global.imagePullSecrets:
+      - name: secret1
+      - name: secret2
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: secret1
+            - name: secret2
 

@@ -51,12 +51,19 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
-Removes duplicates
+Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
+Precedence: controller.watchNamespaces > rbac.namespaces (when clusterScoped=false) > empty (watch all).
 */}}
 {{- define "kagent.watchNamespaces" -}}
-{{- $nsSet := dict }}
-{{- .Values.controller.watchNamespaces | default list | uniq | join "," }}
+{{- if .Values.controller.watchNamespaces -}}
+  {{- .Values.controller.watchNamespaces | uniq | join "," -}}
+{{- else if and .Values.rbac (not .Values.rbac.clusterScoped) -}}
+  {{- if .Values.rbac.namespaces -}}
+    {{- .Values.rbac.namespaces | uniq | join "," -}}
+  {{- else -}}
+    {{- .Release.Namespace -}}
+  {{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -146,3 +153,16 @@ A2A Base URL - computes the default URL based on the controller service name if 
 {{- printf "http://%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+imagePullSecrets from global values (for subchart usage).
+Reads .Values.global.imagePullSecrets set by the parent chart.
+*/}}
+{{- define "kagent.imagePullSecrets" -}}
+{{- $global := ((.Values.global).imagePullSecrets) | default list -}}
+{{- if $global -}}
+imagePullSecrets:
+{{- toYaml $global | nindent 2 }}
+{{- end -}}
+{{- end -}}
+

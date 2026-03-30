@@ -13,7 +13,6 @@ from google.adk.memory.memory_entry import MemoryEntry
 from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
-from litellm import aembedding
 
 from kagent.adk.types import EmbeddingConfig
 
@@ -25,7 +24,7 @@ class KagentMemoryService(BaseMemoryService):
 
     This service:
     1. Extracts text content from Session events
-    2. Generates embeddings using LiteLLM
+    2. Generates embeddings using provider-specific SDK clients
     3. Stores/searches via Kagent API backed by pgvector
     """
 
@@ -58,7 +57,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             session: The session to add to memory
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
         asyncio.create_task(self._add_session_to_memory_background(session, model))
 
@@ -70,7 +69,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             session: The session to add to memory
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use for summarization.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
         try:
             # Extract content from session events
@@ -303,7 +302,7 @@ class KagentMemoryService(BaseMemoryService):
     async def _generate_embedding_async(
         self, input_data: Union[str, List[str]]
     ) -> Union[List[float], List[List[float]]]:
-        """Generate embedding vector(s) using LiteLLM.
+        """Generate embedding vector(s) using provider-specific SDK clients.
 
         Args:
             input_data: Single string or list of strings to embed.
@@ -324,48 +323,119 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("No embedding model specified in config")
             return []
 
-        # Build LiteLLM model identifier
-        litellm_model = model_name
-        if provider and provider != "openai" and "/" not in model_name:
-            if provider == "azure_openai":
-                litellm_model = f"azure/{model_name}"
-            elif provider == "ollama":
-                litellm_model = f"ollama/{model_name}"
-            elif provider == "vertex_ai":
-                litellm_model = f"vertex_ai/{model_name}"
-            elif provider == "gemini":
-                litellm_model = f"gemini/{model_name}"
+        is_batch = isinstance(input_data, list)
+        texts = input_data if is_batch else [input_data]
+        api_base = self.embedding_config.base_url or None
 
         try:
-            is_batch = isinstance(input_data, list)
-            texts = input_data if is_batch else [input_data]
-
-            # Most Matryoshka Representation Learning embedding models produce embeddings that still have meaning when truncated to specific sizes
-            # https://huggingface.co/blog/matryoshka
-            # We must ensure that embeddings have proper dimensions for compatibility with vector storage backend
-            api_base = self.embedding_config.base_url or None
-            response = await aembedding(model=litellm_model, input=texts, dimensions=768, api_base=api_base)
-
-            embeddings = []
-            for item in response.data:
-                embedding = item["embedding"]
-
-                # LiteLLM does not truncate embeddings by default if the model doesn't support it
-                # However, truncating embeddings is still valid (for most models, see OpenAI's docs and this research https://arxiv.org/html/2508.17744v1)
-                if len(embedding) > 768:
-                    embedding = embedding[:768]
-                    # if we change dimension manually, we need to re-normalize the embeddings
-                    embedding = self._normalize_l2(embedding)
-
-                embeddings.append(embedding)
-
-            if is_batch:
-                return embeddings
-            return embeddings[0] if embeddings else []
-
+            raw_embeddings = await self._call_embedding_provider(provider, model_name, texts, api_base)
         except Exception as e:
-            logger.error("Error generating embedding with model %s: %s", litellm_model, e)
+            logger.error("Error generating embedding with provider=%s model=%s: %s", provider, model_name, e)
             return []
+
+        # Most Matryoshka Representation Learning embedding models produce embeddings that still have
+        # meaning when truncated to specific sizes: https://huggingface.co/blog/matryoshka
+        # We must ensure embeddings have consistent dimensions for the vector storage backend.
+        embeddings = []
+        for embedding in raw_embeddings:
+            dim = len(embedding)
+            if dim > 768:
+                embedding = embedding[:768]
+                embedding = self._normalize_l2(embedding).tolist()
+            elif dim < 768:
+                logger.error(
+                    "Embedding dimension %d is smaller than required 768; rejecting embeddings batch",
+                    dim,
+                )
+                return []
+            embeddings.append(embedding)
+
+        if is_batch:
+            return embeddings
+        return embeddings[0] if embeddings else []
+
+    async def _call_embedding_provider(
+        self,
+        provider: str,
+        model_name: str,
+        texts: List[str],
+        api_base: Optional[str],
+    ) -> List[List[float]]:
+        """Dispatch to the correct provider SDK for embedding generation."""
+        if provider in ("openai", "azure_openai"):
+            return await self._embed_openai(provider, model_name, texts, api_base)
+        if provider == "ollama":
+            return await self._embed_ollama(model_name, texts, api_base)
+        if provider in ("vertex_ai", "gemini"):
+            return await self._embed_google(provider, model_name, texts)
+        # Unknown provider — try OpenAI-compatible as a fallback
+        logger.warning("Unknown embedding provider '%s'; attempting OpenAI-compatible call.", provider)
+        return await self._embed_openai("openai", model_name, texts, api_base)
+
+    async def _embed_openai(
+        self,
+        provider: str,
+        model_name: str,
+        texts: List[str],
+        api_base: Optional[str],
+    ) -> List[List[float]]:
+        """Embed using the OpenAI or Azure OpenAI SDK."""
+        import os
+
+        if provider == "azure_openai":
+            from openai import AsyncAzureOpenAI
+
+            api_version = os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
+            azure_endpoint = api_base or os.environ.get("AZURE_OPENAI_ENDPOINT")
+            if not azure_endpoint:
+                raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
+            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=azure_endpoint)
+        else:
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(base_url=api_base or None)
+
+        response = await client.embeddings.create(model=model_name, input=texts, dimensions=768)
+        return [item.embedding for item in response.data]
+
+    async def _embed_ollama(
+        self,
+        model_name: str,
+        texts: List[str],
+        api_base: Optional[str],
+    ) -> List[List[float]]:
+        """Embed using the Ollama SDK."""
+        import os
+
+        import ollama
+
+        host = api_base or os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+        client = ollama.AsyncClient(host=host)
+        result = await client.embed(model=model_name, input=texts)
+        return list(result.embeddings)
+
+    async def _embed_google(
+        self,
+        provider: str,
+        model_name: str,
+        texts: List[str],
+    ) -> List[List[float]]:
+        """Embed using google-genai (Gemini or Vertex AI)."""
+        from google import genai
+        from google.genai import types as genai_types
+
+        if provider == "vertex_ai":
+            client = genai.Client(vertexai=True)
+        else:
+            client = genai.Client()
+
+        response = await asyncio.to_thread(
+            client.models.embed_content,
+            model=model_name,
+            contents=texts,
+            config=genai_types.EmbedContentConfig(output_dimensionality=768),
+        )
+        return [list(emb.values) for emb in response.embeddings]
 
     async def _summarize_session_content_async(
         self,
@@ -379,7 +449,7 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             content: The raw session content to summarize
-            model: Optional ADK model object (e.g., LiteLlm, OpenAI) to use.
+            model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use.
                    If not provided, summarization is skipped.
 
         Returns:
