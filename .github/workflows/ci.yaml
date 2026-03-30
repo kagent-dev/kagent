@@ -47,7 +47,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
@@ -235,7 +235,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           platforms: linux/amd64,linux/arm64
