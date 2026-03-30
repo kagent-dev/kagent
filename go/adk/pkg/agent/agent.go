@@ -51,17 +51,21 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
 	subagentSessionIDs := make(map[string]string)
 
-	for _, ra := range agentConfig.RemoteAgents {
-		if ra.Url == "" {
-			log.Info("Skipping remote agent with empty URL", "name", ra.Name)
+	var remoteAgentTools []tool.Tool
+	for _, remoteAgent := range agentConfig.RemoteAgents {
+		if remoteAgent.Url == "" {
+			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		ts := tools.NewKAgentRemoteA2AToolset(ra.Name, ra.Description, ra.Url, nil, ra.Headers)
-		if id := ts.SubagentSessionID(); id != "" {
-			subagentSessionIDs[ts.Name()] = id
+		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
-		toolsets = append(toolsets, ts)
-		log.Info("Wired remote A2A agent toolset", "name", ra.Name, "url", ra.Url)
+		if sessionID != "" {
+			subagentSessionIDs[remoteAgent.Name] = sessionID
+		}
+		remoteAgentTools = append(remoteAgentTools, remoteTool)
+		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
 	// Add memory tools if memory is configured
@@ -73,10 +77,14 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			loadmemorytool.New(),
 		}
 	}
+	memoryTools = append(memoryTools, remoteAgentTools...)
 	memoryTools = append(memoryTools, extraTools...)
 
-	// Add AskUserTool unconditionally to every agent (matches Python behavior).
-	memoryTools = append(memoryTools, &tools.AskUserTool{})
+	askUserTool, err := tools.NewAskUserTool()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create ask_user tool: %w", err)
+	}
+	memoryTools = append(memoryTools, askUserTool)
 
 	if agentConfig.Model == nil {
 		return nil, nil, fmt.Errorf("model configuration is required")

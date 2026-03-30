@@ -33,7 +33,11 @@ func CreateRunnerConfig(
 ) (runner.Config, map[string]string, error) {
 	var extraTools []adktool.Tool
 	if memoryService != nil {
-		extraTools = append(extraTools, kagentmemory.NewSaveMemoryTool(memoryService))
+		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+		}
+		extraTools = append(extraTools, saveTool)
 	}
 
 	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
