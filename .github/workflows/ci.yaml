@@ -43,7 +43,7 @@ jobs:
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
@@ -231,7 +231,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
