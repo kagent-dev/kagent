@@ -23,7 +23,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jedib0t/go-pretty/v6 v6.7.8
-	github.com/kagent-dev/kmcp v0.2.7
+	github.com/kagent-dev/kmcp v0.2.8
 	github.com/kagent-dev/mockllm v0.0.5
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/muesli/reflow v0.3.0
