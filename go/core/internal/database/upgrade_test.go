@@ -31,14 +31,16 @@ import (
 // Key differences from the current migrations:
 //   - No schema_migrations / vector_schema_migrations tracking tables.
 //   - memory.id has no DEFAULT (GORM relied on the BeforeCreate hook).
-//   - Indexes may have different names (GORM derives them from the struct name).
+//   - created_at/updated_at are nullable: GORM sets them in Go code, not via a
+//     DB default or NOT NULL constraint.
+//   - version, write_idx, access_count are BIGINT: GORM maps Go `int` to bigint.
 const gormSchema = `
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS agent (
     id         TEXT        PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     type       TEXT        NOT NULL,
     config     JSON
@@ -49,8 +51,8 @@ CREATE TABLE IF NOT EXISTS session (
     id         TEXT        NOT NULL,
     user_id    TEXT        NOT NULL,
     name       TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     agent_id   TEXT,
     source     TEXT,
@@ -65,8 +67,8 @@ CREATE TABLE IF NOT EXISTS event (
     id         TEXT        NOT NULL,
     user_id    TEXT        NOT NULL,
     session_id TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     data       TEXT        NOT NULL,
     PRIMARY KEY (id, user_id)
@@ -76,8 +78,8 @@ CREATE INDEX IF NOT EXISTS idx_event_deleted_at ON event(deleted_at);
 
 CREATE TABLE IF NOT EXISTS task (
     id         TEXT        PRIMARY KEY,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     data       TEXT        NOT NULL,
     session_id TEXT
@@ -88,8 +90,8 @@ CREATE INDEX IF NOT EXISTS idx_task_deleted_at ON task(deleted_at);
 CREATE TABLE IF NOT EXISTS push_notification (
     id         TEXT        PRIMARY KEY,
     task_id    TEXT        NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     data       TEXT        NOT NULL
 );
@@ -109,13 +111,14 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_deleted_at ON feedback(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_user_id    ON feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_message_id ON feedback(message_id);
 
 CREATE TABLE IF NOT EXISTS tool (
     id          TEXT        NOT NULL,
     server_name TEXT        NOT NULL,
     group_kind  TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ,
+    updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ,
     description TEXT,
     PRIMARY KEY (id, server_name, group_kind)
@@ -125,8 +128,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_deleted_at ON tool(deleted_at);
 CREATE TABLE IF NOT EXISTS toolserver (
     name           TEXT        NOT NULL,
     group_kind     TEXT        NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at     TIMESTAMPTZ,
+    updated_at     TIMESTAMPTZ,
     deleted_at     TIMESTAMPTZ,
     description    TEXT,
     last_connected TIMESTAMPTZ,
@@ -140,13 +143,13 @@ CREATE TABLE IF NOT EXISTS lg_checkpoint (
     checkpoint_ns        TEXT        NOT NULL DEFAULT '',
     checkpoint_id        TEXT        NOT NULL,
     parent_checkpoint_id TEXT,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at           TIMESTAMPTZ,
+    updated_at           TIMESTAMPTZ,
     deleted_at           TIMESTAMPTZ,
     metadata             TEXT        NOT NULL,
     checkpoint           TEXT        NOT NULL,
     checkpoint_type      TEXT        NOT NULL,
-    version              INTEGER     DEFAULT 1,
+    version              BIGINT      DEFAULT 1,
     PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id)
 );
 CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_parent_checkpoint_id ON lg_checkpoint(parent_checkpoint_id);
@@ -154,17 +157,17 @@ CREATE INDEX IF NOT EXISTS idx_lgcp_list                          ON lg_checkpoi
 CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_deleted_at           ON lg_checkpoint(deleted_at);
 
 CREATE TABLE IF NOT EXISTS lg_checkpoint_write (
-    user_id       TEXT    NOT NULL,
-    thread_id     TEXT    NOT NULL,
-    checkpoint_ns TEXT    NOT NULL DEFAULT '',
-    checkpoint_id TEXT    NOT NULL,
-    write_idx     INTEGER NOT NULL,
-    value         TEXT    NOT NULL,
-    value_type    TEXT    NOT NULL,
-    channel       TEXT    NOT NULL,
-    task_id       TEXT    NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id       TEXT   NOT NULL,
+    thread_id     TEXT   NOT NULL,
+    checkpoint_ns TEXT   NOT NULL DEFAULT '',
+    checkpoint_id TEXT   NOT NULL,
+    write_idx     BIGINT NOT NULL,
+    value         TEXT   NOT NULL,
+    value_type    TEXT   NOT NULL,
+    channel       TEXT   NOT NULL,
+    task_id       TEXT   NOT NULL,
+    created_at    TIMESTAMPTZ,
+    updated_at    TIMESTAMPTZ,
     deleted_at    TIMESTAMPTZ,
     PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx)
 );
@@ -173,23 +176,27 @@ CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_write_deleted_at ON lg_checkpoint_w
 CREATE TABLE IF NOT EXISTS crewai_agent_memory (
     user_id     TEXT        NOT NULL,
     thread_id   TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ,
+    updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ,
     memory_data TEXT        NOT NULL,
     PRIMARY KEY (user_id, thread_id)
 );
+CREATE INDEX IF NOT EXISTS idx_crewai_memory_list             ON crewai_agent_memory(created_at);
+CREATE INDEX IF NOT EXISTS idx_crewai_agent_memory_deleted_at ON crewai_agent_memory(deleted_at);
 
 CREATE TABLE IF NOT EXISTS crewai_flow_state (
     user_id     TEXT        NOT NULL,
     thread_id   TEXT        NOT NULL,
     method_name TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ,
+    updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ,
     state_data  TEXT        NOT NULL,
     PRIMARY KEY (user_id, thread_id, method_name)
 );
+CREATE INDEX IF NOT EXISTS idx_crewai_flow_state_list       ON crewai_flow_state(created_at);
+CREATE INDEX IF NOT EXISTS idx_crewai_flow_state_deleted_at ON crewai_flow_state(deleted_at);
 
 CREATE TABLE IF NOT EXISTS memory (
     id           TEXT        PRIMARY KEY,
@@ -198,9 +205,9 @@ CREATE TABLE IF NOT EXISTS memory (
     content      TEXT,
     embedding    vector(768),
     metadata     TEXT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ,
     expires_at   TIMESTAMPTZ,
-    access_count INTEGER     DEFAULT 0
+    access_count BIGINT      DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_memory_embedding_hnsw ON memory USING hnsw (embedding vector_cosine_ops);
 `

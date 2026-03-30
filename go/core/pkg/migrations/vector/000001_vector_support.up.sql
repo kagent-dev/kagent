@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS memory (
     content      TEXT,
     embedding    vector(768),
     metadata     TEXT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ,
     expires_at   TIMESTAMPTZ,
-    access_count INTEGER     DEFAULT 0
+    access_count BIGINT      DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_memory_agent_user ON memory(agent_name, user_id);
 CREATE INDEX IF NOT EXISTS idx_memory_expires_at ON memory(expires_at);
