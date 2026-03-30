@@ -3,8 +3,7 @@ ARG DOCKER_REGISTRY=ghcr.io
 ARG TOOLS_UV_VERSION=latest
 
 ### STAGE 1: base image
-FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-bookworm-slim AS base-os
-ARG TOOLS_NODE_VERSION
+FROM $DOCKER_REGISTRY/astral-sh/uv:${TOOLS_UV_VERSION}-debian-slim AS base-os
 
 #ENVIRONMENT VARIABLES
 ENV DEBIAN_FRONTEND=noninteractive
@@ -22,6 +21,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
 FROM base-os AS base
+ARG TOOLS_NODE_VERSION
 
 # Install python
 RUN uv python install 3.12
@@ -40,24 +40,20 @@ RUN mkdir -p  $NVM_DIR \
     && nvm install $TOOLS_NODE_VERSION \
     && nvm use $TOOLS_NODE_VERSION \
     && which node && node --version \
-    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/node /usr/bin/node \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/npm /usr/bin/npm \
+    && ln -sf $NVM_DIR/versions/node/v$TOOLS_NODE_VERSION/bin/npx /usr/bin/npx
 
-### STAGE 2: build + tools
-FROM --platform=$BUILDPLATFORM base-os AS builder
+### STAGE 2: build + tools (extends base to inherit Node.js and Python)
+FROM --platform=$BUILDPLATFORM base AS builder
 
 ARG TARGETARCH
-ARG TOOLS_ISTIO_VERSION
-ARG TOOLS_ARGO_CD_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bsdmainutils              \
     build-essential           \
-    ca-certificates           \
     conntrack                 \
-    curl                      \
     gettext-base              \
-    git                       \
-    gnupg                     \
     gnupg2                    \
     htop                      \
     iperf3                    \
@@ -71,13 +67,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     lsof                      \
     net-tools                 \
     netcat-openbsd            \
-    python3                   \
     python3-dev               \
     python3-pip               \
     python3-venv              \
     sshuttle                  \
     tcpdump                   \
-    wget                      \
     zsh                       \
     && curl -fsSL https://get.docker.com -o get-docker.sh  \
     && sh get-docker.sh       \
@@ -87,30 +81,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ### STAGE 3 add golang
 FROM builder AS node-python-golang
+ARG TARGETARCH
 ARG TOOLS_GO_VERSION
-ARG TOOLS_K9S_VERSION
-ARG TOOLS_KIND_VERSION
-ARG TOOLS_ISTIO_VERSION
-ARG TOOLS_ARGO_CD_VERSION
-ARG TOOLS_KUBECTL_VERSION
 ARG ARCH=${TARGETARCH:-amd64}
 
 #ENVIRONMENT VARIABLES
-ENV DEBIAN_FRONTEND=noninteractive
 ENV GO111MODULE=on
 ENV GOTOOLCHAIN=local
-ENV GOPROXY="http://proxy.golang.org"
-ENV PATH=$PATH:/usr/local/go/bin
+ENV GOPATH=/root/go
+ENV GOBIN=$GOPATH/bin
+ENV GOPROXY="https://proxy.golang.org,direct"
+ENV PATH=$PATH:/usr/local/go/bin:$GOPATH/bin
 
 RUN --mount=type=cache,target=/cache,rw \
     wget -q --show-progress -P /cache https://golang.org/dl/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz && \
     tar     -C /usr/local -xzf /cache/go${TOOLS_GO_VERSION}.linux-${ARCH}.tar.gz
 
-### STAGE 3 add tools
+### STAGE 4 add tools
 FROM --platform=$BUILDPLATFORM node-python-golang AS tools-node-python-golang
 
+ARG TARGETARCH
+ARG ARCH=${TARGETARCH:-amd64}
+ARG TOOLS_K9S_VERSION
+ARG TOOLS_KIND_VERSION
+ARG TOOLS_ISTIO_VERSION
+ARG TOOLS_ARGO_CD_VERSION
+ARG TOOLS_KUBECTL_VERSION
+
 # Install kubectl argo plugin
-RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/${TOOLS_ARGO_CD_VERSION}/download/kubectl-argo-rollouts-linux-${ARCH} \
+RUN curl -o /usr/local/bin/kubectl-argo-rollouts -L https://github.com/argoproj/argo-rollouts/releases/download/${TOOLS_ARGO_CD_VERSION}/kubectl-argo-rollouts-linux-${ARCH} \
     && chmod +x /usr/local/bin/kubectl-argo-rollouts
 
 #Install Helm
@@ -125,7 +124,7 @@ RUN curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${TOOLS_ISTIO_VERSION
     && rm -rf istio-*
 
 # Install kind
-RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-$(uname)-${ARCH} \
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v${TOOLS_KIND_VERSION}/kind-linux-${ARCH} \
     && chmod +x ./kind \
     && mv ./kind /usr/local/bin/
 
@@ -136,14 +135,20 @@ RUN curl -LO https://github.com/derailed/k9s/releases/download/v${TOOLS_K9S_VERS
     && chmod +x /usr/local/bin/k9s \
     && rm -f k9s_Linux_${ARCH}.tar.gz
 
-# Install kubectl \
-RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
+# Install kubectl
+RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${TOOLS_KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
-RUN sh -c "$(wget https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -O -)" \
-    sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes \
+RUN sh -c "$(wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -O -)" \
+    && STARSHIP_SUFFIX=$(case ${ARCH} in amd64) echo x86_64-unknown-linux-gnu;; arm64) echo aarch64-unknown-linux-musl;; esac) \
+    && curl -Lo starship.tar.gz "https://github.com/starship/starship/releases/latest/download/starship-${STARSHIP_SUFFIX}.tar.gz" \
+    && tar -xzf starship.tar.gz -C /usr/local/bin/ \
+    && rm starship.tar.gz \
     && mkdir -p /root/.config \
     && git config --global core.excludesfile /root/.gitignore_global \
     && echo "**/.idea/" > /root/.gitignore_global
+
+# Install Claude
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 ENTRYPOINT ["zsh"]

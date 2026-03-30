@@ -52,16 +52,57 @@ nodeSelector: {}
 # ==============================================================================
 
 database:
-  type: sqlite
-  sqlite:
-    vectorEnabled: true
-    databaseName: kagent.db
   postgres:
-    vectorEnabled: true
-    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
-    # Path to a file containing the database URL.
-    # Takes precedence over url when set.
+    # -- External PostgreSQL connection string.
+    # Is always used if set regardless of the `.bundled.enabled` field.
+    url: ""
+    # -- Path to a file containing the database URL. Takes precedence over url when set.
+    # Is always used if set regardless of the `.bundled.enabled` field.
     urlFile: ""
+    # -- Enable the pgvector migration
+    # Required to use features that depend on database vector capability. (e.g. long-term memory)
+    # Set to true when using an external PostgreSQL that has the pgvector extension installed.
+    vectorEnabled: false
+    # -- Bundled PostgreSQL instance — for development and evaluation only.
+    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
+    bundled:
+      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
+      enabled: true
+      image:
+        # -- Bundled PostgreSQL image registry
+        registry: docker.io
+        # -- Bundled PostgreSQL image repository (org/namespace)
+        repository: library
+        # -- Bundled PostgreSQL image name
+        name: postgres
+        # -- Bundled PostgreSQL image tag
+        tag: "18"
+        # -- Bundled PostgreSQL image pull policy
+        pullPolicy: IfNotPresent
+      # -- PersistentVolumeClaim size for demo PostgreSQL data
+      storage: 500Mi
+      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
+      # This is intentional for a dev/eval setup. Switch to an external database for production.
+      # -- Resource requests/limits for the demo PostgreSQL container
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+# ==============================================================================
+# RBAC CONFIGURATION
+# ==============================================================================
+
+rbac:
+  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
+  # If false, creates Role and RoleBinding resources instead.
+  clusterScoped: true
+  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
+  # If empty, defaults to the release namespace.
+  namespaces: []
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -80,6 +121,14 @@ controller:
     # Precedence: agent-level serviceAccountName > this default > auto-created SA.
     # @default -- "" (auto-create per-agent ServiceAccount)
     serviceAccountName: ""
+    # -- Default labels applied to all agent pod templates.
+    # Per-agent labels in the Agent CRD take precedence over these defaults.
+    # @default -- {} (no extra labels)
+    podLabels: {}
+    # Example:
+    #   podLabels:
+    #     team: platform
+    #     environment: production
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""

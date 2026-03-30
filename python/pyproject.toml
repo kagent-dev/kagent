@@ -13,6 +13,8 @@ dev = [
 constraint-dependencies = [
     "cryptography>=46.0.5",
     "jaraco-context>=6.1.0",
+    "pyasn1>=0.6.3",
+    "pyopenssl>=26.0.0",
     "wheel>=0.46.2",
 ]
 

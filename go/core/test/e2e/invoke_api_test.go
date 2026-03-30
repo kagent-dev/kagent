@@ -670,6 +670,43 @@ func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
 	}
 }
 
+func generateLangGraphAgent(baseURL string) *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "langgraph-kebab-test",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Description: "LangGraph kebab sample for E2E testing",
+			Type:        v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "localhost:5001/langgraph-kebab:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
+									},
+								},
+							},
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
@@ -716,13 +753,12 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
 
-	// Setup specific resources
-	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := generateOpenAIAgent(baseURL)
 
 	// Create the agent on the cluster
 	err := cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for agent to be ready
 	args := []string{
@@ -744,11 +780,6 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	// Poll until the A2A endpoint is actually serving requests through the proxy
 	waitForEndpoint(t, agent.Namespace, agent.Name)
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
-
 	// Setup A2A client - use the agent's actual name
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
@@ -761,6 +792,68 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 
 	t.Run("streaming_invocation_weather", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "What is the weather in London?", "Rainy, 52°F")
+	})
+}
+
+func TestE2EInvokeLangGraphAgent(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_langgraph_agent.json")
+	defer stopServer()
+
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+
+	scheme := k8s_runtime.NewScheme()
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	cli, err := client.New(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "langgraph-kebab-test", Namespace: "kagent"}})
+
+	// Generate the LangGraph agent and inject the mock server's URL
+	agent := generateLangGraphAgent(baseURL)
+
+	// Create the agent on the cluster
+	err = cli.Create(t.Context(), agent)
+	require.NoError(t, err)
+	cleanup(t, cli, agent)
+
+	// Wait for the agent to become Ready
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	// Poll until the A2A endpoint is actually serving requests through the proxy
+	waitForEndpoint(t, agent.Namespace, agent.Name)
+
+	// Setup A2A client
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "make me a kebab", "kebab is ready")
 	})
 }
 
@@ -802,6 +895,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	// Create the agent on the cluster
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -842,8 +936,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
-
-	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {

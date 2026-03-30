@@ -22,6 +22,8 @@ from google.adk.code_executors.code_execution_utils import CodeExecutionInput, C
 from pydantic import Field
 from typing_extensions import override
 
+from kagent.skills.shell import _sanitize_env
+
 
 class SandboxedLocalCodeExecutor(BaseCodeExecutor):
     """A code executor that execute code in a sandbox in the current local context."""
@@ -58,6 +60,7 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
                 input=code_execution_input.code,
                 capture_output=True,
                 text=True,
+                env=_sanitize_env(),
             )
             output = proc.stdout or ""
             error = proc.stderr or ""

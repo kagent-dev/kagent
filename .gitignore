@@ -1,5 +1,7 @@
 ### dotenv template
 python/.env
+.env
+values.local.yaml
 
 test_results
 
@@ -192,6 +194,10 @@ cython_debug/
 
 go/bin/
 *.db
+*.db-wal
+*.db-shm
+# SQLite in-memory WAL artifacts from tests
+file::memory:*
 .vscode/
 .cursor/rules
 

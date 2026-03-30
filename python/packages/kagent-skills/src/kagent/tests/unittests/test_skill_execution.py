@@ -1,4 +1,3 @@
-import asyncio
 import json
 import shutil
 import tempfile
@@ -10,10 +9,13 @@ import pytest
 
 from kagent.skills import (
     discover_skills,
+    edit_file_content,
     execute_command,
     load_skill_content,
     read_file_content,
+    write_file_content,
 )
+from kagent.skills.shell import _sanitize_env
 
 
 @pytest.fixture
@@ -105,7 +107,7 @@ async def test_skill_core_logic(skill_test_env: Path):
     # 2. Execute the skill's core command, just as an agent would
     # We use the centralized `execute_command` function directly
     command = "python skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
-    result = await execute_command(command, working_dir=session_dir)
+    result = await execute_command(command, working_dir=session_dir, skills_dir=Path("/skills"))
 
     assert "Successfully converted" in result
 
@@ -145,7 +147,7 @@ async def test_execute_command_no_shell_injection(tmp_path):
         patch("asyncio.create_subprocess_shell") as mock_shell,
         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
     ):
-        await execute_command(injection_payload, working_dir=tmp_path)
+        await execute_command(injection_payload, working_dir=tmp_path, skills_dir=Path("/skills"))
 
     # Invariant 1: create_subprocess_shell must never be used.
     assert not mock_shell.called
@@ -157,6 +159,88 @@ async def test_execute_command_no_shell_injection(tmp_path):
     # The injection payload must appear exactly once as its own argument.
     assert injection_payload in args
     assert list(args).count(injection_payload) == 1
+
+
+# --- Path traversal tests ---
+
+
+def test_read_file_blocks_path_traversal(tmp_path):
+    """Reading a file outside the allowed root must raise PermissionError."""
+    outside_file = tmp_path.parent / "outside.txt"
+    outside_file.write_text("secret")
+
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            read_file_content(outside_file, allowed_root=tmp_path)
+    finally:
+        outside_file.unlink(missing_ok=True)
+
+
+def test_read_file_blocks_relative_traversal(tmp_path):
+    """Relative paths like ../foo that escape the root must be blocked."""
+    (tmp_path / "subdir").mkdir()
+    outside = tmp_path.parent / "secret.txt"
+    outside.write_text("secret")
+
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            read_file_content(
+                tmp_path / "subdir" / "../../secret.txt",
+                allowed_root=tmp_path,
+            )
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_read_file_allows_path_inside_root(tmp_path):
+    """Files inside the allowed root should work normally."""
+    f = tmp_path / "hello.txt"
+    f.write_text("hello world")
+    result = read_file_content(f, allowed_root=tmp_path)
+    assert "hello world" in result
+
+
+def test_read_file_allows_multiple_roots(tmp_path):
+    """Read should succeed when the file is inside any of the allowed roots."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    skill_file = skills_dir / "script.py"
+    skill_file.write_text("print('hello')")
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+
+    # File is in skills_dir, not session_dir — should still be allowed
+    result = read_file_content(skill_file, allowed_root=[session_dir, skills_dir])
+    assert "print('hello')" in result
+
+    # File outside both roots should be blocked
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    with pytest.raises(PermissionError, match="outside the allowed directories"):
+        read_file_content(outside, allowed_root=[session_dir, skills_dir])
+
+
+def test_write_file_blocks_path_traversal(tmp_path):
+    """Writing a file outside the allowed root must raise PermissionError."""
+    outside_path = tmp_path.parent / "evil.txt"
+    with pytest.raises(PermissionError, match="outside the allowed director"):
+        write_file_content(outside_path, "malicious", allowed_root=tmp_path)
+    assert not outside_path.exists()
+
+
+def test_edit_file_blocks_path_traversal(tmp_path):
+    """Editing a file outside the allowed root must raise PermissionError."""
+    outside_file = tmp_path.parent / "target.txt"
+    outside_file.write_text("original")
+
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            edit_file_content(outside_file, "original", "hacked", allowed_root=tmp_path)
+        # File must not have been modified
+        assert outside_file.read_text() == "original"
+    finally:
+        outside_file.unlink(missing_ok=True)
 
 
 def test_skill_discovery_and_loading(skill_test_env: Path):
@@ -178,3 +262,81 @@ def test_skill_discovery_and_loading(skill_test_env: Path):
     assert "name: csv-to-json" in skill_content
     assert "# CSV to JSON Conversion" in skill_content
     assert 'Example: `bash("python skills/csv-to-json/scripts/convert.py' in skill_content
+
+
+def test_sanitize_env_strips_secrets():
+    """Verify _sanitize_env removes env vars matching secret patterns."""
+    secret_vars = {
+        # Regex-matched vars
+        "OPENAI_API_KEY": "sk-secret",
+        "AZURE_OPENAI_API_KEY": "az-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_API_KEY": "goog-secret",
+        "SERPER_API_KEY": "serp-secret",
+        "LANGSMITH_API_KEY": "ls-secret",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "graf-token",
+        "DATABASE_PASSWORD": "db-pass",
+        "MY_SECRET": "shh",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+        "SSH_PRIVATE_KEY": "key-data",
+        "GIT_CREDENTIAL": "cred",
+        "GIT_CREDENTIALS": "cred-plural",
+        # Vars from providers.go that previously leaked
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "AZURE_AD_TOKEN": "az-ad-token",
+        "AWS_SESSION_TOKEN": "session-tok",
+        "AWS_BEARER_TOKEN_BEDROCK": "bearer-tok",
+    }
+    safe_vars = {
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+        "PYTHONPATH": "/some/path",
+        "LANG": "en_US.UTF-8",
+        "TOKENIZERS_PARALLELISM": "true",
+        "GOOGLE_CLOUD_PROJECT": "my-project",
+        "AWS_REGION": "us-east-1",
+    }
+
+    result = _sanitize_env({**secret_vars, **safe_vars})
+
+    for key in secret_vars:
+        assert key not in result, f"{key} should have been stripped"
+
+    for key, value in safe_vars.items():
+        assert result[key] == value, f"{key} should be preserved"
+
+
+@pytest.mark.asyncio
+async def test_execute_command_strips_secret_env_vars(tmp_path):
+    """Secret env vars must not be passed to sandboxed subprocesses."""
+    captured = {}
+
+    async def mock_exec(*args, **kwargs):
+        captured["env"] = kwargs.get("env", {})
+        mock_process = MagicMock()
+        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
+        mock_process.returncode = 0
+        return mock_process
+
+    env_overrides = {
+        "OPENAI_API_KEY": "sk-secret",
+        "ANTHROPIC_API_KEY": "ant-secret",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
+        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "PATH": "/usr/bin",
+        "HOME": "/home/user",
+    }
+
+    with (
+        patch.dict("os.environ", env_overrides, clear=True),
+        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
+    ):
+        await execute_command("echo hello", working_dir=tmp_path)
+
+    env = captured["env"]
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in env
+    assert "AWS_ACCESS_KEY_ID" not in env
+    assert env["HOME"] == "/home/user"

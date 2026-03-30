@@ -9,11 +9,11 @@ spec:
     deployment:
       image: localhost:5001/langgraph-currency:latest
       env:
-        - name: GOOGLE_API_KEY
+        - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: kagent-google
-              key: GOOGLE_API_KEY
+              name: kagent-openai
+              key: OPENAI_API_KEY
         # Enable OpenTelemetry tracing, make sure to set this according to your environment
         - name: OTEL_TRACING_ENABLED
           value: "true"

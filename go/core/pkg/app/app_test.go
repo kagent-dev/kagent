@@ -265,6 +265,112 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
+func TestMapValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name:  "single label",
+			input: "team=platform",
+			want:  map[string]string{"team": "platform"},
+		},
+		{
+			name:  "multiple labels",
+			input: "team=platform,env=prod",
+			want:  map[string]string{"team": "platform", "env": "prod"},
+		},
+		{
+			name:  "labels with spaces",
+			input: " team = platform , env = prod ",
+			want:  map[string]string{"team": "platform", "env": "prod"},
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  map[string]string{},
+		},
+		{
+			name:  "trailing comma",
+			input: "team=platform,",
+			want:  map[string]string{"team": "platform"},
+		},
+		{
+			name:  "empty value",
+			input: "team=",
+			want:  map[string]string{"team": ""},
+		},
+		{
+			name:  "value containing equals",
+			input: "annotation=key=value",
+			want:  map[string]string{"annotation": "key=value"},
+		},
+		{
+			name:    "missing equals",
+			input:   "teamplatform",
+			wantErr: true,
+		},
+		{
+			name:    "empty key",
+			input:   "=value",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var target map[string]string
+			mv := &MapValue{Target: &target}
+			err := mv.Set(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("MapValue.Set() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				assert.Equal(t, tt.want, target)
+			}
+		})
+	}
+}
+
+func TestMapValueString(t *testing.T) {
+	var target map[string]string
+	mv := &MapValue{Target: &target}
+	assert.Equal(t, "", mv.String())
+
+	target = map[string]string{"team": "platform"}
+	assert.Equal(t, "team=platform", mv.String())
+
+	target = map[string]string{"team": "platform", "env": "prod"}
+	assert.Equal(t, "env=prod,team=platform", mv.String())
+}
+
+func TestMapValueWithLoadFromEnv(t *testing.T) {
+	t.Setenv("DEFAULT_AGENT_POD_LABELS", "team=platform,env=prod")
+
+	var target map[string]string
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
+
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, target)
+}
+
+func TestMapValueWithLoadFromEnvEqualsInValue(t *testing.T) {
+	t.Setenv("DEFAULT_AGENT_POD_LABELS", "token=abc=def,team=platform")
+
+	var target map[string]string
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
+
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"token": "abc=def", "team": "platform"}, target)
+}
+
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
 		"METRICS_BIND_ADDRESS":           ":9090",
@@ -277,7 +383,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"HTTP_SERVER_ADDRESS":            ":9000",
 		"A2A_BASE_URL":                   "http://example.com:9000",
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
-		"DATABASE_TYPE":                  "postgres",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
 		"STREAMING_TIMEOUT":              "120s",
@@ -327,9 +432,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.A2ABaseUrl != "http://example.com:9000" {
 		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
-	}
-	if cfg.Database.Type != "postgres" {
-		t.Errorf("Database.Type = %v, want postgres", cfg.Database.Type)
 	}
 	if cfg.Database.Url != "postgres://localhost:5432/testdb" {
 		t.Errorf("Database.Url = %v, want postgres://localhost:5432/testdb", cfg.Database.Url)

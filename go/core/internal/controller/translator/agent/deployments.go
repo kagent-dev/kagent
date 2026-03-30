@@ -71,6 +71,9 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 		labels.AppPartOf:    labels.ManagedByKagent,
 		labels.AppName:      agentName,
 	}
+	// Global default labels (from --default-agent-pod-labels flag) override built-in defaults
+	maps.Copy(defaultLabels, DefaultAgentPodLabels)
+	// Per-agent labels override global defaults
 	maps.Copy(defaultLabels, incoming)
 	return defaultLabels
 }

@@ -3,6 +3,7 @@ templates:
   - _helpers.tpl
   - controller-configmap.yaml
   - controller-deployment.yaml
+  - postgresql-secret.yaml
   - ui-deployment.yaml
 tests:
   # =============================================================================
