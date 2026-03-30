@@ -68,6 +68,30 @@ tests:
           path: spec.resources.requests.storage
           value: "10Gi"
 
+  - it: should not set storageClassName on PVC by default
+    template: postgresql.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: spec.storageClassName
+
+  - it: should set storageClassName on PVC when specified
+    template: postgresql.yaml
+    documentIndex: 1
+    set:
+      database:
+        postgres:
+          bundled:
+            storageClassName: "my-storage-class"
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.storageClassName
+          value: "my-storage-class"
+
   - it: should render Deployment with default pgvector image
     template: postgresql.yaml
     documentIndex: 2
