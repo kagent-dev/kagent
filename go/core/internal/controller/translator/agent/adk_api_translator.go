@@ -475,6 +475,41 @@ func (a *adkApiTranslator) buildManifest(
 		volumes = append(volumes, skillsVolumes...)
 	}
 
+	// Hooks: deduplicate OCI refs and mount hook container images into /hooks
+	var hookRefs []string
+	seenHookRefs := map[string]bool{}
+	for _, hook := range agent.Spec.Hooks {
+		if !seenHookRefs[hook.Ref] {
+			seenHookRefs[hook.Ref] = true
+			hookRefs = append(hookRefs, hook.Ref)
+		}
+	}
+	hasHooks := len(hookRefs) > 0
+
+	if hasHooks {
+		volumes = append(volumes, corev1.Volume{
+			Name: "kagent-hooks",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "kagent-hooks",
+			MountPath: "/hooks",
+			ReadOnly:  true,
+		})
+		sharedEnv = append(sharedEnv, corev1.EnvVar{
+			Name:  env.KagentHooksFolder.Name(),
+			Value: "/hooks",
+		})
+
+		hooksContainer, err := buildHooksInitContainer(hookRefs, dep.SecurityContext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build hooks init container: %w", err)
+		}
+		initContainers = append(initContainers, hooksContainer)
+	}
+
 	// Token volume
 	volumes = append(volumes, corev1.Volume{
 		Name: "kagent-token",
@@ -767,6 +802,17 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
 		}
 		cfg.Instruction = resolved
+	}
+
+	// Translate hooks into AgentConfig
+	for _, hook := range agent.Spec.Hooks {
+		cfg.Hooks = append(cfg.Hooks, adk.HookConfig{
+			Event:   string(hook.Event),
+			Type:    string(hook.Type),
+			Matcher: hook.Matcher,
+			Command: hook.Command,
+			Dir:     "/hooks/" + ociHookName(hook.Ref),
+		})
 	}
 
 	return cfg, mdd, secretHashBytes, nil
@@ -1646,6 +1692,76 @@ func ociSkillName(imageRef string) string {
 		}
 	}
 	return path.Base(ref)
+}
+
+// hooksInitData holds the template data for the hooks-init shell script.
+type hooksInitData struct {
+	OCIRefs     []ociRefData // OCI images to pull; reuses ociRefData with Dest=/hooks/<name>
+	InsecureOCI bool         // --insecure flag for krane
+}
+
+//go:embed hooks-init.sh.tmpl
+var hooksInitScriptTmpl string
+
+// hooksScriptTemplate is the shell script template for fetching hook OCI images.
+var hooksScriptTemplate = template.Must(template.New("hooks-init").Parse(hooksInitScriptTmpl))
+
+// buildHooksScript renders the hooks-init shell script.
+func buildHooksScript(data hooksInitData) (string, error) {
+	var buf bytes.Buffer
+	if err := hooksScriptTemplate.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render hooks init script: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// ociHookName extracts a hook directory name from an OCI image reference.
+// Uses the same logic as ociSkillName: takes the last path component stripped of tag/digest.
+func ociHookName(imageRef string) string {
+	return ociSkillName(imageRef)
+}
+
+// buildHooksInitContainer creates the init container that fetches hook OCI images
+// into the /hooks EmptyDir volume. Deduplication of refs is handled by the caller.
+func buildHooksInitContainer(
+	hookRefs []string,
+	securityContext *corev1.SecurityContext,
+) (corev1.Container, error) {
+	data := hooksInitData{}
+	seenNames := map[string]bool{}
+	for _, imageRef := range hookRefs {
+		name := ociHookName(imageRef)
+		if seenNames[name] {
+			return corev1.Container{}, NewValidationError(
+				"hook OCI refs produce duplicate directory name %q; use distinct image names", name,
+			)
+		}
+		seenNames[name] = true
+		data.OCIRefs = append(data.OCIRefs, ociRefData{
+			Image: imageRef,
+			Dest:  "/hooks/" + name,
+		})
+	}
+
+	script, err := buildHooksScript(data)
+	if err != nil {
+		return corev1.Container{}, err
+	}
+
+	initSecCtx := securityContext
+	if initSecCtx != nil {
+		initSecCtx = initSecCtx.DeepCopy()
+	}
+
+	return corev1.Container{
+		Name:    "hooks-init",
+		Image:   DefaultSkillsInitImageConfig.Image(), // reuses skills-init image (has krane)
+		Command: []string{"/bin/sh", "-c", script},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "kagent-hooks", MountPath: "/hooks"},
+		},
+		SecurityContext: initSecCtx,
+	}, nil
 }
 
 // prepareSkillsInitData converts CRD values to the template-ready data struct.

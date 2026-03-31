@@ -1,0 +1,337 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "pushNotifications": false,
+      "stateTransitionHistory": true,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "hooks_agent",
+    "skills": null,
+    "url": "http://hooks-agent.test:8080",
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "hooks": [
+      {
+        "command": "check-tool-use.sh",
+        "dir": "/hooks/security-hooks",
+        "event": "PreToolUse",
+        "matcher": "bash|shell_exec",
+        "type": "claude-command"
+      },
+      {
+        "command": "inject-session-metadata.py",
+        "dir": "/hooks/security-hooks",
+        "event": "SessionStart",
+        "type": "claude-command"
+      },
+      {
+        "command": "audit.sh",
+        "dir": "/hooks/audit-hooks",
+        "event": "PostToolUse",
+        "type": "claude-command"
+      }
+    ],
+    "instruction": "You are a helpful assistant.",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "stream": false
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "hooks-agent",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "hooks-agent"
+        },
+        "name": "hooks-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "hooks-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"name\":\"hooks_agent\",\"description\":\"\",\"url\":\"http://hooks-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false,\"hooks\":[{\"event\":\"PreToolUse\",\"type\":\"claude-command\",\"matcher\":\"bash|shell_exec\",\"command\":\"check-tool-use.sh\",\"dir\":\"/hooks/security-hooks\"},{\"event\":\"SessionStart\",\"type\":\"claude-command\",\"command\":\"inject-session-metadata.py\",\"dir\":\"/hooks/security-hooks\"},{\"event\":\"PostToolUse\",\"type\":\"claude-command\",\"command\":\"audit.sh\",\"dir\":\"/hooks/audit-hooks\"}]}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "hooks-agent",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "hooks-agent"
+        },
+        "name": "hooks-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "hooks-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "hooks-agent",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "hooks-agent"
+        },
+        "name": "hooks-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "hooks-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "hooks-agent"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "16807592396288039943"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "hooks-agent",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "hooks-agent"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "value": "hooks-agent"
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_HOOKS_FOLDER",
+                    "value": "/hooks"
+                  }
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/.well-known/agent-card.json",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/hooks",
+                    "name": "kagent-hooks",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "initContainers": [
+              {
+                "command": [
+                  "/bin/sh",
+                  "-c",
+                  "set -e\n_image=\"$(cat \u003c\u003c'ENDVAL'\nghcr.io/org/security-hooks:v1.0\nENDVAL\n)\"\n_dest=\"$(cat \u003c\u003c'ENDVAL'\n/hooks/security-hooks\nENDVAL\n)\"\necho \"Exporting OCI hook image ${_image} into ${_dest}\"\n_uname=\"$(uname -m)\"\ncase \"$_uname\" in\n  x86_64|amd64)\n    _arch=\"amd64\"\n    ;;\n  aarch64|arm64)\n    _arch=\"arm64\"\n    ;;\n  *)\n    echo \"Unsupported architecture for OCI export: ${_uname}\" \u003e\u00262\n    exit 1\n    ;;\nesac\nkrane export --platform \"linux/${_arch}\" \"$_image\" '/tmp/oci-hook.tar'\nmkdir -p \"$_dest\"\ntar xf '/tmp/oci-hook.tar' -C \"$_dest\"\nrm -f '/tmp/oci-hook.tar'\n_image=\"$(cat \u003c\u003c'ENDVAL'\nghcr.io/org/audit-hooks:v2.0\nENDVAL\n)\"\n_dest=\"$(cat \u003c\u003c'ENDVAL'\n/hooks/audit-hooks\nENDVAL\n)\"\necho \"Exporting OCI hook image ${_image} into ${_dest}\"\n_uname=\"$(uname -m)\"\ncase \"$_uname\" in\n  x86_64|amd64)\n    _arch=\"amd64\"\n    ;;\n  aarch64|arm64)\n    _arch=\"arm64\"\n    ;;\n  *)\n    echo \"Unsupported architecture for OCI export: ${_uname}\" \u003e\u00262\n    exit 1\n    ;;\nesac\nkrane export --platform \"linux/${_arch}\" \"$_image\" '/tmp/oci-hook.tar'\nmkdir -p \"$_dest\"\ntar xf '/tmp/oci-hook.tar' -C \"$_dest\"\nrm -f '/tmp/oci-hook.tar'\n"
+                ],
+                "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
+                "name": "hooks-init",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/hooks",
+                    "name": "kagent-hooks"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "hooks-agent",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "hooks-agent"
+                }
+              },
+              {
+                "emptyDir": {},
+                "name": "kagent-hooks"
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "hooks-agent",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "hooks-agent"
+        },
+        "name": "hooks-agent",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "hooks-agent",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "hooks-agent"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}

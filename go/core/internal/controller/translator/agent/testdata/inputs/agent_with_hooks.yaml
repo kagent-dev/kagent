@@ -1,0 +1,49 @@
+operation: translateAgent
+targetObject: hooks-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: hooks-agent
+      namespace: test
+    spec:
+      hooks:
+        # Two hooks sharing the same OCI ref — should produce one hooks-init container
+        - ref: ghcr.io/org/security-hooks:v1.0
+          event: PreToolUse
+          type: claude-command
+          matcher: "bash|shell_exec"
+          command: check-tool-use.sh
+        - ref: ghcr.io/org/security-hooks:v1.0
+          event: SessionStart
+          type: claude-command
+          command: inject-session-metadata.py
+        # Second distinct OCI ref
+        - ref: ghcr.io/org/audit-hooks:v2.0
+          event: PostToolUse
+          type: claude-command
+          command: audit.sh
+      type: Declarative
+      declarative:
+        description: An agent with lifecycle hooks
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model
+        tools: []

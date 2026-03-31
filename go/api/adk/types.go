@@ -427,6 +427,18 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// HookConfig is the serialized representation of a single hook sent in config.json
+// to the Python runtime. Dir is the absolute path to the hook's mounted directory.
+// See HookSpec in go/api/v1alpha2/agent_types.go for the CRD definition and
+// _hooks.py in the Python ADK for the runtime implementation.
+type HookConfig struct {
+	Event   string `json:"event"`             // "PreToolUse", "PostToolUse", "SessionStart", "SessionEnd"
+	Type    string `json:"type"`              // "claude-command"
+	Matcher string `json:"matcher,omitempty"` // ECMAScript regex; empty means match all tools
+	Command string `json:"command"`           // executable path relative to Dir
+	Dir     string `json:"dir"`               // absolute mount path, e.g. /hooks/my-image
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -439,6 +451,7 @@ type AgentConfig struct {
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Hooks         []HookConfig          `json:"hooks,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -469,6 +482,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Hooks         []HookConfig          `json:"hooks,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +511,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.Hooks = tmp.Hooks
 	return nil
 }
 
