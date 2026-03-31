@@ -59,7 +59,8 @@
     "braces": ">=3.0.3",
     "micromatch": ">=4.0.8",
     "diff": ">=8.0.3",
-    "tar": ">=7.5.7"
+    "tar": ">=7.5.7",
+    "picomatch": ">=2.3.2"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.1.1",
