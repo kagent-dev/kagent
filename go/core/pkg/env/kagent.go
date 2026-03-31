@@ -46,6 +46,13 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentHooksFolder = RegisterStringVar(
+		"KAGENT_HOOKS_FOLDER",
+		"/hooks",
+		"Directory path where agent hooks are mounted.",
+		ComponentAgentRuntime,
+	)
+
 	KagentPropagateToken = RegisterStringVar(
 		"KAGENT_PROPAGATE_TOKEN",
 		"",

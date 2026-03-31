@@ -254,6 +254,21 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class HookConfig(BaseModel):
+    """Runtime configuration for a single agent lifecycle hook.
+
+    Mirrors HookConfig in go/api/adk/types.go.
+    The hook command reads JSON from stdin and writes JSON to stdout following
+    the "claude-command" protocol. See _hooks.py for the runtime implementation.
+    """
+
+    event: str  # "PreToolUse", "PostToolUse", "SessionStart", "SessionEnd"
+    type: str = "claude-command"
+    matcher: str | None = None  # ECMAScript regex; None means match all tools
+    command: str  # executable path, absolute or relative to dir
+    dir: str  # absolute mount path, e.g. /hooks/my-image
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -265,6 +280,7 @@ class AgentConfig(BaseModel):
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     context_config: ContextConfig | None = None
+    hooks: list[HookConfig] | None = None  # Lifecycle hooks
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -386,6 +402,28 @@ class AgentConfig(BaseModel):
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
 
+        # Build hook callbacks and compose with approval callback
+        from kagent.adk._hooks import make_post_tool_hook_callback, make_pre_tool_hook_callback
+
+        active_hooks = self.hooks or []
+        pre_hook_cb = make_pre_tool_hook_callback(active_hooks)
+        post_hook_cb = make_post_tool_hook_callback(active_hooks)
+
+        if before_tool_callback and pre_hook_cb:
+            # Approval runs first; if it short-circuits (returns non-None), skip hook
+            _approval_cb = before_tool_callback
+            _hook_cb = pre_hook_cb
+
+            def _combined_before_tool(tool, args, tool_context):
+                result = _approval_cb(tool, args, tool_context)
+                if result is not None:
+                    return result
+                return _hook_cb(tool, args, tool_context)
+
+            before_tool_callback = _combined_before_tool
+        elif pre_hook_cb:
+            before_tool_callback = pre_hook_cb
+
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
             name=name,
@@ -395,6 +433,7 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
+            after_tool_callback=post_hook_cb,
         )
 
         # Configure memory if enabled

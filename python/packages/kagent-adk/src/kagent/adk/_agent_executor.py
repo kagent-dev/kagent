@@ -528,8 +528,16 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         runner: Runner,
         run_args: dict[str, Any],
     ):
+        from ._hooks import run_session_hooks
+
         # ensure the session exists
+        is_new_session = context.current_task is None
         session = await self._prepare_session(context, run_args, runner)
+
+        # Fire SessionStart hooks when a brand-new session is created
+        session_hooks = getattr(runner.agent, "_kagent_session_hooks", [])
+        if is_new_session and session_hooks:
+            await run_session_hooks(session_hooks, "SessionStart", session.id)
 
         # HITL resume: translate A2A approval/rejection to ADK FunctionResponse
         decision = extract_decision_from_message(context.message)
@@ -626,6 +634,10 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 # Break on confirmation events that use long running tools
                 if getattr(adk_event, "long_running_tool_ids", None):
                     break
+
+        # Fire SessionEnd hooks after the agent run completes
+        if session_hooks:
+            await run_session_hooks(session_hooks, "SessionEnd", session.id)
 
         # Attach the last LLM usage to run_metadata so the A2A task_manager
         # merges it into task.metadata on the completed Task object.
