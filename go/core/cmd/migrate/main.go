@@ -11,6 +11,7 @@
 //	up       Apply all pending migrations (default when no command is given)
 //	down     Roll back N migrations on a single track
 //	version  Print the current applied version and dirty flag for each track
+//	force    Force the tracking table to a specific version (clears dirty flag)
 //
 // Required environment variable:
 //
@@ -67,8 +68,10 @@ func main() {
 		runDownCommand(url, migrations.FS, vectorEnabled, args)
 	case "version":
 		runVersionCommand(url, migrations.FS, vectorEnabled)
+	case "force":
+		runForceCommand(url, migrations.FS, vectorEnabled, args)
 	default:
-		log.Fatalf("kagent-migrate: unknown command %q (valid: up, down, version)", cmd)
+		log.Fatalf("kagent-migrate: unknown command %q (valid: up, down, version, force)", cmd)
 	}
 }
 
@@ -224,6 +227,39 @@ func runVersionCommand(url string, migrationsFS fs.FS, vectorEnabled bool) {
 		}
 		log.Printf("kagent-migrate: track=%-6s table=%-30s version=%d dirty=%v", t.dir, t.table, version, dirty)
 	}
+}
+
+func runForceCommand(url string, migrationsFS fs.FS, vectorEnabled bool, args []string) {
+	forceFlags := flag.NewFlagSet("force", flag.ExitOnError)
+	version := forceFlags.Int("version", -1, "version to force (required; use -1 to clear all migration history)")
+	track := forceFlags.String("track", "core", "migration track: core or vector")
+	if err := forceFlags.Parse(args); err != nil {
+		log.Fatalf("kagent-migrate: force: %v", err)
+	}
+
+	var dir, table string
+	switch *track {
+	case "core":
+		dir, table = "core", "schema_migrations"
+	case "vector":
+		if !vectorEnabled {
+			log.Fatalf("kagent-migrate: force: track %q requested but KAGENT_DATABASE_VECTOR_ENABLED is not true", *track)
+		}
+		dir, table = "vector", "vector_schema_migrations"
+	default:
+		log.Fatalf("kagent-migrate: force: unknown track %q (valid: core, vector)", *track)
+	}
+
+	mg, err := newMigrate(url, migrationsFS, dir, table)
+	if err != nil {
+		log.Fatalf("kagent-migrate: force: %v", err)
+	}
+	defer closeMigrate(dir, mg)
+
+	if err := mg.Force(*version); err != nil {
+		log.Fatalf("kagent-migrate: force %s to version %d: %v", *track, *version, err)
+	}
+	log.Printf("kagent-migrate: forced %s track to version %d (dirty flag cleared)", *track, *version)
 }
 
 func resolveURL() (string, error) {

@@ -349,3 +349,4 @@ Don't use Go template syntax (`{{ }}`) in doc comments — Helm will try to pars
 - `references/translator-guide.md` - Translator patterns, `deployments.go` and `adk_api_translator.go`
 - `references/e2e-debugging.md` - Comprehensive E2E debugging, local reproduction
 - `references/ci-failures.md` - CI failure patterns and fixes
+- `references/database-migrations.md` - Migration authoring rules, multi-instance safety, GORM baseline, expand/contract pattern
