@@ -22,10 +22,10 @@ interface ChatItemProps {
   agentNamespace?: string;
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
-  createdAt?: string;
+  updatedAt?: string;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, updatedAt }: ChatItemProps) => {
   const title = sessionName || "Untitled";
   
   // Format timestamp based on how recent it is
@@ -58,7 +58,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                 style={{
                   background: 'linear-gradient(to right, transparent, hsl(var(--sidebar-background)) 30%)',
                 }}
-              >{formatTime(createdAt)}</span>
+              >{formatTime(updatedAt)}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu modal={false}>

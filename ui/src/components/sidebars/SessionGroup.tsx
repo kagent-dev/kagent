@@ -29,7 +29,7 @@ const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentN
           <CollapsibleContent>
             <SidebarMenuSub className="mx-0 px-0 ml-2 pl-2">
               {sessions.map((session) => (
-                <ChatItem key={session.id} sessionId={session.id!} agentName={agentName} agentNamespace={agentNamespace} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} createdAt={session.created_at} />
+                <ChatItem key={session.id} sessionId={session.id!} agentName={agentName} agentNamespace={agentNamespace} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} updatedAt={session.updated_at || session.created_at} />
               ))}
             </SidebarMenuSub>
           </CollapsibleContent>

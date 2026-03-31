@@ -35,9 +35,9 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
       older: [],
     };
 
-    // Process each session and group by date
+    // Process each session and group by last activity date (updated_at)
     localSessions.forEach(session => {
-      const date = new Date(session.created_at);
+      const date = new Date(session.updated_at || session.created_at);
       if (isToday(date)) {
         groups.today.push(session);
       } else if (isYesterday(date)) {
@@ -50,7 +50,7 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
     const sortChats = (sessions: Session[]) =>
       sessions.sort((a, b) => {
         const getLatestTimestamp = (session: Session) => {
-          return new Date(session.created_at).getTime();
+          return new Date(session.updated_at || session.created_at).getTime();
         };
 
         return getLatestTimestamp(b) - getLatestTimestamp(a);
