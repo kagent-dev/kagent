@@ -4,7 +4,7 @@ import httpx
 from kagent.core import KAgentConfig
 from kagent.langgraph import KAgentCheckpointer
 from langchain_core.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langsmith import traceable
 
@@ -66,7 +66,7 @@ FORMAT_INSTRUCTION = (
 )
 
 graph = create_react_agent(
-    model=ChatGoogleGenerativeAI(model="gemini-2.0-flash"),
+    model=ChatOpenAI(model="gpt-4o-mini"),
     tools=[get_exchange_rate],
     checkpointer=kagent_checkpointer,
     prompt=SYSTEM_INSTRUCTION,

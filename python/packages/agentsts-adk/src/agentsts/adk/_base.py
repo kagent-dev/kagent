@@ -3,7 +3,7 @@
 import inspect
 import logging
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional, Union
+from typing import Awaitable, Callable, Dict, Optional, Union
 
 import jwt
 from google.adk.agents import BaseAgent, LlmAgent
@@ -33,8 +33,27 @@ logger = logging.getLogger(__name__)
 HEADERS_KEY = "headers"
 
 
+def _default_get_subject_token(state: dict) -> Optional[str]:
+    """Default subject token retrieval from Authorization header in session state."""
+    headers = state.get(HEADERS_KEY, None)
+    return _extract_jwt_from_headers(headers)
+
+
 class ADKSTSIntegration(STSIntegrationBase):
-    """Google ADK-specific STS integration."""
+    """Google ADK-specific STS integration.
+
+    By default, the subject token is read from the ``Authorization`` header
+    stored in the session state under the ``headers`` key.  To retrieve the
+    subject token from a custom source, pass a ``get_subject_token`` callback::
+
+        integration = ADKSTSIntegration(
+            well_known_uri="https://example.com/.well-known/sts",
+            get_subject_token=lambda state: state.get("my_custom_token_key"),
+        )
+
+    The callback receives ``session.state`` (a dict) and should return the
+    subject token string, or ``None`` if not available.
+    """
 
     def __init__(
         self,
@@ -44,7 +63,7 @@ class ADKSTSIntegration(STSIntegrationBase):
         timeout: int = 5,
         verify_ssl: bool = True,
         use_issuer_host: bool = False,
-        additional_config: Optional[Dict[str, Any]] = None,
+        get_subject_token: Optional[Callable[[dict], Optional[str]]] = None,
     ):
         """Initialize the ADK STS integration.
 
@@ -55,7 +74,9 @@ class ADKSTSIntegration(STSIntegrationBase):
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
             use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
-            additional_config: Additional configuration
+            get_subject_token: Optional callback that takes session.state (dict) and returns
+                the subject token string or None. If not set, defaults to extracting the
+                JWT from the Authorization header in session.state["headers"].
         """
         super().__init__(
             well_known_uri=well_known_uri,
@@ -64,7 +85,7 @@ class ADKSTSIntegration(STSIntegrationBase):
             timeout=timeout,
             verify_ssl=verify_ssl,
             use_issuer_host=use_issuer_host,
-            additional_config=additional_config,
+            get_subject_token=get_subject_token or _default_get_subject_token,
         )
 
 
@@ -143,10 +164,14 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return None
 
         # No valid cached token, need to get/exchange subject token
-        headers = invocation_context.session.state.get(HEADERS_KEY, None)
-        subject_token = _extract_jwt_from_headers(headers)
+        get_subject_token = (
+            self.sts_integration.get_subject_token
+            if self.sts_integration and self.sts_integration.get_subject_token
+            else _default_get_subject_token
+        )
+        subject_token = get_subject_token(invocation_context.session.state)
         if not subject_token:
-            logger.debug("No subject token found in headers for token propagation")
+            logger.debug("subject token not found in session state for token propagation")
             return None
 
         if self.sts_integration:

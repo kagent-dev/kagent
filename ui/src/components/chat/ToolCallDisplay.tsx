@@ -3,7 +3,7 @@ import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
+import { ADKMetadata, ProcessedToolCallData, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall, ToolDecision, TokenStats } from "@/types";
 
 interface ToolCallDisplayProps {
@@ -22,6 +22,7 @@ interface ToolCallState {
     is_error?: boolean;
   };
   status: ToolCallStatus;
+  subagentSessionId?: string;
 }
 
 // Helper functions to work with A2A SDK Messages
@@ -129,14 +130,23 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
         const data = part.data as unknown as ToolResponseData;
-        // Extract normalized content from the result (supports string/object/array)
+
+        // For agent tool responses we receive { result, subagent_session_id } as FunctionResponse.response.
         const textContent = normalizeToolResultToText(data);
+        let subagentSessionId: string | undefined;
+        if (isAgentToolName(data.name)) {
+          const responseObj = data.response as Record<string, unknown> | undefined;
+          if (responseObj && typeof responseObj.subagent_session_id === "string") {
+            subagentSessionId = responseObj.subagent_session_id;
+          }
+        }
 
         toolResults.push({
           call_id: data.id,
           name: data.name,
           content: textContent,
           is_error: data.response?.isError || false,
+          ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
         });
       }
     }
@@ -184,20 +194,20 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
     }
 
     const ownedIds = new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
-    
+
     // Scan backwards from our index to see if any earlier message already has these IDs.
     // This avoids a full O(N) scan per component render by aborting early.
     for (let i = currentIndex - 1; i >= 0; i--) {
       const msg = allMessages[i];
       if (!isToolCallRequestMessage(msg)) continue;
-      
+
       const prevRequests = extractToolCallRequests(msg);
       for (const pr of prevRequests) {
         if (pr.id) {
           ownedIds.delete(pr.id);
         }
       }
-      
+
       if (ownedIds.size === 0) break; // Early exit if all IDs were claimed by earlier messages
     }
     return ownedIds;
@@ -239,10 +249,28 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
                 initialStatus = "pending_approval";
               }
             }
+            // Extract subagent_session_id from ProcessedToolCallData in metadata
+            const toolCallData = msgMetadata?.toolCallData as ProcessedToolCallData[] | undefined;
+            const matchingCallData = toolCallData?.find(tc => tc.id === request.id);
+
+            // For agent tools, resolve the subagent session ID.
+            let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
+            if (!subagentSessionId && isAgentToolName(request.name)) {
+              const fcDataPart = message.parts?.find(p =>
+                p.kind === "data" && p.metadata &&
+                getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
+                (p.data as Record<string, unknown>)?.id === request.id
+              );
+              subagentSessionId = fcDataPart?.metadata
+                ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
+                : undefined;
+            }
+
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
               status: initialStatus,
+              subagentSessionId,
             });
           }
         }
@@ -263,6 +291,11 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               content: result.content,
               is_error: result.is_error
             };
+            if (result.subagent_session_id && !existingCall.subagentSessionId) {
+              // Only set from function_response if the 1st pass (function_call
+              // metadata) didn't already provide it.
+              existingCall.subagentSessionId = result.subagent_session_id;
+            }
             if (!isHitlTerminal(existingCall.status)) {
               existingCall.status = "executing";
             }
@@ -331,6 +364,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             status={effectiveStatus === "pending_approval" ? "requested" : effectiveStatus as AgentCallStatus}
             isError={toolCall.result?.is_error}
             tokenStats={tokenStats}
+            subagentSessionId={toolCall.subagentSessionId}
           />
         ) : (
           <ToolDisplay

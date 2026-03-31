@@ -1,0 +1,189 @@
+version: 2
+
+updates:
+  # GitHub Actions — keep CI workflows up to date
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "peterj"
+      - "ilackarms"
+      - "yuval-k"
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Go modules
+  - package-ecosystem: "gomod"
+    directory: "/go"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "ilackarms"
+      - "yuval-k"
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Python (uv) — workspace root and all packages
+  - package-ecosystem: "uv"
+    directories:
+      - "/python"
+      - "/python/packages/kagent-adk"
+      - "/python/packages/kagent-core"
+      - "/python/packages/kagent-skills"
+      - "/python/packages/kagent-crewai"
+      - "/python/packages/kagent-langgraph"
+      - "/python/packages/kagent-openai"
+      - "/python/packages/agentsts-core"
+      - "/python/packages/agentsts-adk"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "peterj"
+      - "yuval-k"
+    groups:
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Python (uv) — sample applications
+  - package-ecosystem: "uv"
+    directories:
+      - "/python/samples/adk/basic"
+      - "/python/samples/openai/basic_agent"
+      - "/python/samples/crewai/poem_flow"
+      - "/python/samples/crewai/research-crew"
+      - "/python/samples/langgraph/currency"
+      - "/go/core/test/e2e/agents/kebab"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "peterj"
+      - "yuval-k"
+    groups:
+      samples-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # npm — Next.js UI
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "peterj"
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker — core production images
+  - package-ecosystem: "docker"
+    directories:
+      - "/go"
+      - "/python"
+      - "/ui"
+      - "/docker/skills-init"
+      - "/.devcontainer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "peterj"
+      - "ilackarms"
+      - "yuval-k"
+    groups:
+      docker-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker — sample and test images
+  - package-ecosystem: "docker"
+    directories:
+      - "/python/samples/adk/basic"
+      - "/python/samples/openai/basic_agent"
+      - "/python/samples/crewai/poem_flow"
+      - "/python/samples/crewai/research-crew"
+      - "/python/samples/langgraph/currency"
+      - "/go/core/test/e2e/agents/kebab"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps):"
+    reviewers:
+      - "EItanya"
+      - "peterj"
+      - "yuval-k"
+    groups:
+      docker-samples-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

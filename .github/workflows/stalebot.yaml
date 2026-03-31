@@ -19,7 +19,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/stale@v9 # https://github.com/actions/stale
+      - uses: actions/stale@v10 # https://github.com/actions/stale
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           days-before-issue-stale: ${{ env.DAYS_BEFORE_ISSUE_STALE }}
@@ -42,7 +42,7 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/stale@v9 # https://github.com/actions/stale
+      - uses: actions/stale@v10 # https://github.com/actions/stale
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           days-before-pr-stale: ${{ env.DAYS_BEFORE_PR_STALE }}
