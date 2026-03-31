@@ -55,7 +55,14 @@ spec:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: "http://{{ include "kagent.fullname" . }}-controller.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}/api"
             {{- with .Values.ui.env }}
-              {{- toYaml . | nindent 12 }}
+              {{- if kindIs "map" . }}
+                {{- range $name, $value := . }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+                {{- end }}
+              {{- else }}
+                {{- toYaml . | nindent 12 }}
+              {{- end }}
             {{- end }}
           ports:
             - name: http

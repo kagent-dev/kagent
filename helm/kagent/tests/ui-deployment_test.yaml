@@ -103,3 +103,22 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should render UI env map entries as container env vars
+    template: ui-deployment.yaml
+    set:
+      ui:
+        env:
+          NEXT_PUBLIC_READONLY_MODE: "true"
+          NEXT_PUBLIC_SUPPORT_EMAIL: "ops@example.com"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXT_PUBLIC_READONLY_MODE
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXT_PUBLIC_SUPPORT_EMAIL
+            value: "ops@example.com"

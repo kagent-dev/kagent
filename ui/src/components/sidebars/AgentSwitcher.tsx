@@ -9,6 +9,7 @@ import type { AgentResponse } from "@/types";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 interface AgentSwitcherProps {
   currentAgent: AgentResponse;
@@ -18,6 +19,7 @@ interface AgentSwitcherProps {
 export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
   const router = useRouter();
   const { isMobile } = useSidebar();
+  const readOnlyModeEnabled = isReadOnlyModeEnabled();
 
   const selectedAgent = currentAgent;
   const agentResponses = allAgents;
@@ -67,13 +69,17 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 </DropdownMenuItem>
               );
             })}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 p-2" onClick={() => router.push("/agents/new")}>
-              <div className="flex size-6 items-center justify-center rounded-md border bg-background">
-                <Plus className="size-4" />
-              </div>
-              <div className="font-medium text-muted-foreground">New agent</div>
-            </DropdownMenuItem>
+            {!readOnlyModeEnabled && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 p-2" onClick={() => router.push("/agents/new")}>
+                  <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+                    <Plus className="size-4" />
+                  </div>
+                  <div className="font-medium text-muted-foreground">New agent</div>
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

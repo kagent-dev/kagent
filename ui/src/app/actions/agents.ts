@@ -7,6 +7,7 @@ import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { createReadOnlyModeResponse, isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 /**
  * Converts AgentFormData to Agent format
@@ -175,6 +176,10 @@ export async function getAgent(agentName: string, namespace: string): Promise<Ba
  * @returns A promise with the delete result
  */
 export async function deleteAgent(agentName: string, namespace: string): Promise<BaseResponse<void>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<void>("Agent changes");
+  }
+
   try {
     await fetchApi(`/agents/${namespace}/${agentName}`, {
       method: "DELETE",
@@ -197,6 +202,10 @@ export async function deleteAgent(agentName: string, namespace: string): Promise
  * @returns A promise with the created/updated agent
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<Agent>("Agent changes");
+  }
+
   try {
     // Only get the name of the model, not the full ref
     if (agentConfig.modelName) {

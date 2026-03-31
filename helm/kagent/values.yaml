@@ -218,7 +218,7 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
-  env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  env: {} # Additional environment variables for the UI. Supports key/value maps and Kubernetes env lists.
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -490,4 +490,3 @@ otel:
         endpoint: ""
         timeout: 15
         insecure: true
-

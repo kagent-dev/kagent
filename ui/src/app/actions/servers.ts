@@ -3,6 +3,7 @@ import { RemoteMCPServer, MCPServer, ToolServerCreateRequest, ToolServerResponse
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse } from "@/types";
 import { revalidatePath } from "next/cache";
+import { createReadOnlyModeResponse, isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 /**
  * Fetches all tool servers
@@ -31,6 +32,10 @@ export async function getServers(): Promise<BaseResponse<ToolServerResponse[]>> 
  * @returns Promise with delete result
  */
 export async function deleteServer(serverName: string): Promise<BaseResponse<void>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<void>("MCP server changes");
+  }
+
   try {
     await fetchApi<BaseResponse<void>>(`/toolservers/${serverName}`, {
       method: "DELETE",
@@ -51,6 +56,10 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
  * @returns Promise with create result
  */
 export async function createServer(serverData: ToolServerCreateRequest): Promise<BaseResponse<RemoteMCPServer | MCPServer>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<RemoteMCPServer | MCPServer>("MCP server changes");
+  }
+
   try {
     const response = await fetchApi<BaseResponse<RemoteMCPServer | MCPServer>>("/toolservers", {
       method: "POST",

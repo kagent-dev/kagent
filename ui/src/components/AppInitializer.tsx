@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { OnboardingWizard } from './onboarding/OnboardingWizard';
+import { isReadOnlyModeEnabled } from '@/lib/readOnlyMode';
 
 const LOCAL_STORAGE_KEY = 'kagent-onboarding';
 
@@ -13,7 +14,14 @@ const getInitialOnboardingState = (): boolean | null => {
 };
 
 export function AppInitializer({ children }: { children: React.ReactNode }) {
-  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(getInitialOnboardingState);
+  const readOnlyModeEnabled = isReadOnlyModeEnabled();
+  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(
+    readOnlyModeEnabled ? false : getInitialOnboardingState
+  );
+
+  if (readOnlyModeEnabled) {
+    return <>{children}</>;
+  }
 
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');

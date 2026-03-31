@@ -30,6 +30,8 @@ import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
+import { ReadOnlyModeNotice } from "@/components/ReadOnlyModeNotice";
 
 interface ValidationErrors {
   name?: string;
@@ -759,6 +761,17 @@ function ModelPageContent() {
 }
 
 export default function ModelPage() {
+  if (isReadOnlyModeEnabled()) {
+    return (
+      <ReadOnlyModeNotice
+        title="Read-only mode enabled"
+        description="This UI is running in read-only mode, so creating and editing model configurations is disabled."
+        href="/models"
+        hrefLabel="Back to Models"
+      />
+    );
+  }
+
   return (
     <React.Suspense fallback={<LoadingState />}>
       <ModelPageContent />

@@ -23,6 +23,8 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
+import { ReadOnlyModeNotice } from "@/components/ReadOnlyModeNotice";
 
 interface ValidationErrors {
   name?: string;
@@ -876,6 +878,16 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 export default function AgentPage() {
   // Determine if in edit mode
   const searchParams = useSearchParams();
+  if (isReadOnlyModeEnabled()) {
+    return (
+      <ReadOnlyModeNotice
+        title="Read-only mode enabled"
+        description="This UI is running in read-only mode, so creating and editing agents is disabled."
+        href="/agents"
+        hrefLabel="Back to Agents"
+      />
+    );
+  }
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");

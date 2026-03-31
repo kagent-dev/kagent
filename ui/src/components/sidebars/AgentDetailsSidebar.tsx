@@ -15,6 +15,7 @@ import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 interface AgentDetailsSidebarProps {
   selectedAgentName: string;
@@ -26,6 +27,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const readOnlyModeEnabled = isReadOnlyModeEnabled();
 
   const selectedTeam = currentAgent;
 
@@ -244,17 +246,19 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
                   {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
                 </SidebarGroupLabel>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  asChild
-                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
-                >
-                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
-                    <Edit className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
+                {!readOnlyModeEnabled && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    asChild
+                    aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
+                  >
+                    <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
+                      <Edit className="h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                )}
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>

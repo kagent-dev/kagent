@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { BaseResponse, ModelConfig, CreateModelConfigRequest, UpdateModelConfigPayload } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { createReadOnlyModeResponse, isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 /**
  * Gets all available models
@@ -56,6 +57,10 @@ export async function getModelConfig(configRef: string): Promise<BaseResponse<Mo
  * @returns A promise with the created model
  */
 export async function createModelConfig(config: CreateModelConfigRequest): Promise<BaseResponse<ModelConfig>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<ModelConfig>("Model changes");
+  }
+
   try {
     const response = await fetchApi<BaseResponse<ModelConfig>>("/modelconfigs", {
       method: "POST",
@@ -85,6 +90,10 @@ export async function updateModelConfig(
   configRef: string,
   config: UpdateModelConfigPayload
 ): Promise<BaseResponse<ModelConfig>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<ModelConfig>("Model changes");
+  }
+
   try {
     const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`, {
       method: "PUT", // Or PATCH depending on backend implementation
@@ -118,6 +127,10 @@ export async function updateModelConfig(
  * @returns A promise with the deleted model
  */
 export async function deleteModelConfig(configRef: string): Promise<BaseResponse<void>> {
+  if (isReadOnlyModeEnabled()) {
+    return createReadOnlyModeResponse<void>("Model changes");
+  }
+
   try {
     await fetchApi(`/modelconfigs/${configRef}`, {
       method: "DELETE",

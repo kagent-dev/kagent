@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
+import { isReadOnlyModeEnabled } from "@/lib/readOnlyMode";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
@@ -28,6 +29,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const readOnlyModeEnabled = isReadOnlyModeEnabled();
 
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -87,13 +89,15 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem
-                onClick={handleEditClick}
-                className="cursor-pointer"
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
+              {!readOnlyModeEnabled && (
+                <DropdownMenuItem
+                  onClick={handleEditClick}
+                  className="cursor-pointer"
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={(e) => {
                   e.preventDefault();
@@ -105,18 +109,22 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
                 <Brain className="mr-2 h-4 w-4" />
                 View Memories
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDeleteOpen(true);
-                }}
-                className="cursor-pointer text-red-500 focus:text-red-500"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              {!readOnlyModeEnabled && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDeleteOpen(true);
+                    }}
+                    className="cursor-pointer text-red-500 focus:text-red-500"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
