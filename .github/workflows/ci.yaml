@@ -182,9 +182,14 @@ jobs:
 
   ui-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -203,9 +208,30 @@ jobs:
         working-directory: ./ui
         run: npm run lint
 
-      - name: Run tests
+      - name: Run unit tests (Jest)
         working-directory: ./ui
         run: npm run test
+
+      - name: Install Playwright browser (Chromium)
+        working-directory: ./ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Storybook tests (Vitest + Playwright)
+        working-directory: ./ui
+        run: npm run test:storybook
+
+      - name: Build Storybook
+        working-directory: ./ui
+        run: npm run build-storybook
+
+      - name: Publish to Chromatic
+        # Requires repo secret CHROMATIC_PROJECT_TOKEN. Skipped when unset, or on fork PRs (no token access).
+        if: ${{ secrets.CHROMATIC_PROJECT_TOKEN != '' && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: chromaui/action@v16.0.0
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          workingDir: ui
+          storybookBuildDir: storybook-static
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
   build:
