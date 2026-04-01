@@ -312,6 +312,16 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
 
+	case *adk.SAPAICore:
+		cfg := models.SAPAICoreConfig{
+			Model:         m.Model,
+			BaseUrl:       m.BaseUrl,
+			ResourceGroup: m.ResourceGroup,
+			AuthUrl:       m.AuthUrl,
+			Headers:       extractHeaders(m.Headers),
+		}
+		return models.NewSAPAICoreModelWithLogger(cfg, log)
+
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
 	}
