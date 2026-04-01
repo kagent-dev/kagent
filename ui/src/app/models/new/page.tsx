@@ -11,15 +11,15 @@ import type {
     CreateModelConfigRequest,
     UpdateModelConfigPayload,
     Provider,
-    ModelConfigSpec,
-    OpenAIConfig,
-    AzureOpenAIConfig,
-    AnthropicConfig,
-    OllamaConfig,
-    GeminiConfig,
-    GeminiVertexAIConfig,
-    AnthropicVertexAIConfig,
+    OpenAIConfigPayload,
+    AzureOpenAIConfigPayload,
+    AnthropicConfigPayload,
+    OllamaConfigPayload,
     ProviderModelsResponse,
+    GeminiConfigPayload,
+    GeminiVertexAIConfigPayload,
+    AnthropicVertexAIConfigPayload,
+    SAPAICoreConfigPayload
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -130,8 +130,6 @@ function ModelPageContent() {
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
-  const [existingApiKeySecret, setExistingApiKeySecret] = useState("");
-  const [existingApiKeySecretKey, setExistingApiKeySecretKey] = useState("");
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -213,41 +211,34 @@ function ModelPageContent() {
           setName(modelRef.name);
           setNamespace(modelRef.namespace);
 
-          const provider = providers.find(p => p.type === modelData.spec.provider);
+          const provider = providers.find(p => p.type === modelData.providerName);
           setSelectedProvider(provider || null);
 
           setApiKey("");
 
           const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
-          let modelName = modelData.spec.model;
+          let modelName = modelData.model;
           let extractedTag;
 
-          if (modelData.spec.provider === 'Ollama' && modelName.includes(':')) {
-            const [baseName, tag] = modelName.split(':');
-            modelName = baseName;
+          if (modelData.providerName === 'Ollama' && modelName.includes(':')) {
+            const [name, tag] = modelName.split(':');
+            modelName = name;
             extractedTag = tag;
           }
 
-          if (providerFormKey && modelData.spec.model) {
+          if (providerFormKey && modelData.model) {
             setSelectedCombinedModel(`${providerFormKey}::${modelName}`);
           }
 
-          if (!modelData.spec.apiKeySecret) {
+          if (!modelData.apiKeySecretRef) {
             setIsApiKeyNeeded(false);
           } else {
             setIsApiKeyNeeded(true);
           }
 
-          setExistingApiKeySecret(modelData.spec.apiKeySecret || "");
-          setExistingApiKeySecretKey(modelData.spec.apiKeySecretKey || "");
-
-          const spec = modelData.spec;
-          const fetchedParams: Record<string, unknown> =
-            (spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? {}) as Record<string, unknown>;
-
+          const fetchedParams = modelData.modelParams || {};
           if (provider?.type === 'Ollama') {
-            setModelTag(extractedTag || 'latest');
+            setModelTag(fetchedParams.modelTag || extractedTag || 'latest');
           }
 
           const requiredKeys = provider?.requiredParams || [];
@@ -567,40 +558,43 @@ function ModelPageContent() {
       }
     }
 
-    const providerParams = processModelParams(requiredParams, optionalParams);
-
-    const spec: ModelConfigSpec = {
+    const payload: CreateModelConfigRequest = {
+      ref: k8sRefUtils.toRef(namespace, name),
+      provider: {
+        name: finalSelectedProvider.name,
+        type: finalSelectedProvider.type,
+      },
       model: finalModelName,
-      provider: finalSelectedProvider.type,
+      apiKey: finalApiKey,
     };
 
-    if (isEditMode) {
-      if (existingApiKeySecret) spec.apiKeySecret = existingApiKeySecret;
-      if (existingApiKeySecretKey) spec.apiKeySecretKey = existingApiKeySecretKey;
-    }
+    const providerParams = processModelParams(requiredParams, optionalParams);
 
     const providerType = finalSelectedProvider.type;
     switch (providerType) {
       case 'OpenAI':
-        spec.openAI = providerParams as OpenAIConfig;
+        payload.openAI = providerParams as OpenAIConfigPayload;
         break;
       case 'Anthropic':
-        spec.anthropic = providerParams as AnthropicConfig;
+        payload.anthropic = providerParams as AnthropicConfigPayload;
         break;
       case 'AzureOpenAI':
-        spec.azureOpenAI = providerParams as AzureOpenAIConfig;
+        payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
         break;
       case 'Ollama':
-        spec.ollama = providerParams as OllamaConfig;
+        payload.ollama = providerParams as OllamaConfigPayload;
         break;
       case 'Gemini':
-        spec.gemini = providerParams as GeminiConfig;
+        payload.gemini = providerParams as GeminiConfigPayload;
         break;
       case 'GeminiVertexAI':
-        spec.geminiVertexAI = providerParams as GeminiVertexAIConfig;
+        payload.geminiVertexAI = providerParams as GeminiVertexAIConfigPayload;
         break;
       case 'AnthropicVertexAI':
-        spec.anthropicVertexAI = providerParams as AnthropicVertexAIConfig;
+        payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
+        break;
+      case 'SAPAICore':
+        payload.sapAICore = providerParams as SAPAICoreConfigPayload;
         break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
@@ -613,18 +607,19 @@ function ModelPageContent() {
       let response;
       if (isEditMode && modelConfigName) {
         const updatePayload: UpdateModelConfigPayload = {
+          provider: payload.provider,
+          model: payload.model,
           apiKey: finalApiKey ? finalApiKey : null,
-          spec,
+          openAI: payload.openAI,
+          anthropic: payload.anthropic,
+          azureOpenAI: payload.azureOpenAI,
+          ollama: payload.ollama,
+          sapAICore: payload.sapAICore,
         };
         const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
         response = await updateModelConfig(modelConfigRef, updatePayload);
       } else {
-        const createPayload: CreateModelConfigRequest = {
-          ref: k8sRefUtils.toRef(namespace, name),
-          apiKey: finalApiKey || undefined,
-          spec,
-        };
-        response = await createModelConfig(createPayload);
+        response = await createModelConfig(payload);
       }
 
       if (!response.error) {
