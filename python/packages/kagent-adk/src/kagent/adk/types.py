@@ -9,6 +9,7 @@ from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
+from google.adk.models.base_llm import BaseLlm
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
@@ -459,7 +460,7 @@ class AgentConfig(BaseModel):
             logger.error("Failed to inject memory configuration: %s", e)
 
 
-def _create_llm_from_model_config(model_config: ModelUnion):
+def _create_llm_from_model_config(model_config: ModelUnion) -> BaseLlm:
     extra_headers = model_config.headers or {}
     base_url = getattr(model_config, "base_url", None)
 
@@ -513,7 +514,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             api_key_passthrough=model_config.api_key_passthrough,
         )
     if model_config.type == "gemini":
-        return model_config.model
+        return GeminiLLM(model=model_config.model)
     if model_config.type == "bedrock":
         # api key passthrough is not applicable for bedrock
         return KAgentBedrockLlm(

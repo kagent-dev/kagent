@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
@@ -16,11 +17,13 @@ import (
 
 // Session represents an agent session.
 type Session struct {
-	ID      string         `json:"id"`
-	UserID  string         `json:"user_id"`
-	AppName string         `json:"app_name"`
-	State   map[string]any `json:"state"`
-	Events  []any          `json:"events"`
+	ID        string         `json:"id"`
+	UserID    string         `json:"user_id"`
+	AppName   string         `json:"app_name"`
+	State     map[string]any `json:"state"`
+	Events    []any          `json:"events"`
+	Name      *string        `json:"name,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // SessionService is an interface for session management.
@@ -29,6 +32,7 @@ type SessionService interface {
 	GetSession(ctx context.Context, appName, userID, sessionID string) (*Session, error)
 	DeleteSession(ctx context.Context, appName, userID, sessionID string) error
 	AppendEvent(ctx context.Context, session *Session, event any) error
+	UpdateSessionName(ctx context.Context, userID, sessionID, name string) error
 }
 
 // Compile-time interface compliance check
@@ -143,8 +147,10 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 	var result struct {
 		Data struct {
 			Session struct {
-				ID     string `json:"id"`
-				UserID string `json:"user_id"`
+				ID        string    `json:"id"`
+				UserID    string    `json:"user_id"`
+				Name      *string   `json:"name"`
+				UpdatedAt time.Time `json:"updated_at"`
 			} `json:"session"`
 			Events []struct {
 				Data json.RawMessage `json:"data"`
@@ -190,12 +196,44 @@ func (s *KAgentSessionService) GetSession(ctx context.Context, appName, userID, 
 	log.V(1).Info("Parsed session events", "totalEvents", len(result.Data.Events), "outputEvents", len(events))
 
 	return &Session{
-		ID:      result.Data.Session.ID,
-		UserID:  result.Data.Session.UserID,
-		AppName: appName,
-		State:   make(map[string]any),
-		Events:  events,
+		ID:        result.Data.Session.ID,
+		UserID:    result.Data.Session.UserID,
+		AppName:   appName,
+		State:     make(map[string]any),
+		Events:    events,
+		Name:      result.Data.Session.Name,
+		UpdatedAt: result.Data.Session.UpdatedAt,
 	}, nil
+}
+
+func (s *KAgentSessionService) UpdateSessionName(ctx context.Context, userID, sessionID, name string) error {
+	log := logr.FromContextOrDiscard(ctx)
+	log.V(1).Info("Updating session name", "sessionID", sessionID, "userID", userID, "name", name)
+
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, s.BaseURL+"/api/sessions/"+sessionID, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", userID)
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute update session name request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update session name: status %d - %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	log.V(1).Info("Session name updated successfully", "sessionID", sessionID)
+	return nil
 }
 
 func (s *KAgentSessionService) DeleteSession(ctx context.Context, appName, userID, sessionID string) error {

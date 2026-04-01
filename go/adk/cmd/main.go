@@ -12,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	agentpkg "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -20,6 +21,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/adk/server/adka2a"
 )
 
@@ -150,7 +152,17 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
-	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger)
+
+	var sessionNameLLM adkmodel.LLM
+	if sessionService != nil {
+		if llm, err := agentpkg.CreateLLM(ctx, agentConfig.Model, logger); err == nil {
+			sessionNameLLM = llm
+		} else {
+			logger.Info("Could not create LLM for session name generation, names will not be set", "error", err)
+		}
+	}
+
+	execConfig := a2a.NewExecutorConfig(runnerConfig, sessionService, stream, appName, logger, sessionNameLLM)
 	executor := a2a.WrapExecutorQueue(adka2a.NewExecutor(execConfig))
 
 	// Build the agent card.

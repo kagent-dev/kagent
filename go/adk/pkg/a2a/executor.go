@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -12,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	adkagent "google.golang.org/adk/agent"
+	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a"
 	adksession "google.golang.org/adk/session"
@@ -19,9 +23,15 @@ import (
 )
 
 const (
-	defaultSkillsDirectory = "/skills"
-	envSkillsFolder        = "KAGENT_SKILLS_FOLDER"
-	sessionNameMaxLength   = 20
+	defaultSkillsDirectory       = "/skills"
+	envSkillsFolder              = "KAGENT_SKILLS_FOLDER"
+	envSessionNameUpdateInterval = "KAGENT_SESSION_NAME_UPDATE_INTERVAL"
+)
+
+const (
+	sessionNameSummarizationPrompt = `
+	Generate a short title (5-7 words max, no quotes or punctuation) for a conversation that starts with this message: %s\nRespond with only the title, nothing else.
+	`
 )
 
 // NewExecutorConfig builds an adka2a.ExecutorConfig with kagent-specific
@@ -33,10 +43,20 @@ func NewExecutorConfig(
 	stream bool,
 	appName string,
 	logger logr.Logger,
+	sessionNameLLM model.LLM,
 ) adka2a.ExecutorConfig {
 	skillsDir := os.Getenv(envSkillsFolder)
 	if skillsDir == "" {
 		skillsDir = defaultSkillsDirectory
+	}
+
+	var sessionNameUpdateInterval time.Duration
+	if intervalStr := os.Getenv(envSessionNameUpdateInterval); intervalStr != "" {
+		if d, err := time.ParseDuration(intervalStr); err == nil {
+			sessionNameUpdateInterval = d
+		} else {
+			logger.Info("Invalid KAGENT_SESSION_NAME_UPDATE_INTERVAL, ignoring", "value", intervalStr)
+		}
 	}
 
 	var runConfig adkagent.RunConfig
@@ -45,10 +65,12 @@ func NewExecutorConfig(
 	}
 
 	cb := &kagentCallbacks{
-		appName:         appName,
-		sessionService:  sessionService,
-		skillsDirectory: skillsDir,
-		log:             logger.WithName("a2a-executor"),
+		appName:                   appName,
+		sessionService:            sessionService,
+		skillsDirectory:           skillsDir,
+		log:                       logger.WithName("a2a-executor"),
+		sessionNameLLM:            sessionNameLLM,
+		sessionNameUpdateInterval: sessionNameUpdateInterval,
 	}
 
 	return adka2a.ExecutorConfig{
@@ -61,12 +83,23 @@ func NewExecutorConfig(
 	}
 }
 
+// sessionNameMeta holds per-request metadata used for session name generation.
+type sessionNameMeta struct {
+	userID      string
+	updatedAt   time.Time
+	hasName     bool
+	messageText string
+}
+
 // kagentCallbacks holds the state shared by the kagent executor callbacks.
 type kagentCallbacks struct {
-	appName         string
-	sessionService  session.SessionService
-	skillsDirectory string
-	log             logr.Logger
+	appName                   string
+	sessionService            session.SessionService
+	skillsDirectory           string
+	log                       logr.Logger
+	sessionNameLLM            model.LLM
+	sessionNameUpdateInterval time.Duration
+	sessionMeta               sync.Map // sessionID -> *sessionNameMeta
 }
 
 // beforeExecute sets up tracing, creates the session with session_name if
@@ -105,22 +138,31 @@ func (cb *kagentCallbacks) beforeExecute(ctx context.Context, reqCtx *a2asrv.Req
 			cb.log.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
 			sess = nil
 		}
-		if sess == nil {
-			sessionName := extractSessionName(reqCtx.Message)
-			state := make(map[string]any)
-			if sessionName != "" {
-				state[StateKeySessionName] = sessionName
-			}
-			if _, err = cb.sessionService.CreateSession(ctx, cb.appName, userID, state, sessionID); err != nil {
-				return ctx, fmt.Errorf("failed to create session: %w", err)
-			}
+
+		meta := &sessionNameMeta{
+			userID:      userID,
+			messageText: extractMessageText(reqCtx.Message),
 		}
+
+		if sess == nil {
+			created, createErr := cb.sessionService.CreateSession(ctx, cb.appName, userID, nil, sessionID)
+			if createErr != nil {
+				return ctx, fmt.Errorf("failed to create session: %w", createErr)
+			}
+			meta.userID = created.UserID
+		} else {
+			meta.hasName = sess.Name != nil && *sess.Name != ""
+			meta.updatedAt = sess.UpdatedAt
+			meta.userID = sess.UserID
+		}
+
+		cb.sessionMeta.Store(sessionID, meta)
 	}
 
 	return ctx, nil
 }
 
-// afterExecute handles HITL enrichment for input_required states.
+// afterExecute handles HITL enrichment for input_required states and session name generation.
 // The ADK executor already populates adk_* metadata on the final event.
 func (cb *kagentCallbacks) afterExecute(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, err error) error {
 	if finalEvent == nil {
@@ -128,7 +170,8 @@ func (cb *kagentCallbacks) afterExecute(ctx adka2a.ExecutorContext, finalEvent *
 	}
 
 	state := finalEvent.Status.State
-	cb.log.Info("AfterExecute", "sessionID", ctx.SessionID(), "state", state, "error", err)
+	sessionID := ctx.SessionID()
+	cb.log.Info("AfterExecute", "sessionID", sessionID, "state", state, "error", err)
 
 	if state == a2atype.TaskStateInputRequired && finalEvent.Status.Message != nil {
 		approvalRequests := extractApprovalRequestsFromA2AParts(finalEvent.Status.Message.Parts)
@@ -138,7 +181,61 @@ func (cb *kagentCallbacks) afterExecute(ctx adka2a.ExecutorContext, finalEvent *
 		}
 	}
 
+	// generate session name summary based on message text if necessary
+	if err == nil && cb.sessionService != nil && cb.sessionNameLLM != nil {
+		if metaAny, ok := cb.sessionMeta.LoadAndDelete(sessionID); ok {
+			meta := metaAny.(*sessionNameMeta)
+			shouldUpdate := (cb.sessionNameUpdateInterval > 0 && time.Since(meta.updatedAt) >= cb.sessionNameUpdateInterval)
+
+			if shouldUpdate && meta.messageText != "" {
+				name := cb.generateSessionName(ctx, meta.messageText)
+				if name != "" {
+					if updateErr := cb.sessionService.UpdateSessionName(ctx, meta.userID, sessionID, name); updateErr != nil {
+						cb.log.V(1).Info("Failed to update session name", "error", updateErr, "sessionID", sessionID)
+					} else {
+						cb.log.Info("Session name updated", "sessionID", sessionID, "name", name)
+						finalEvent.SetMeta(GetKAgentMetadataKey("session_name"), name)
+						finalEvent.SetMeta(GetKAgentMetadataKey("session_id"), sessionID)
+					}
+				}
+			}
+		}
+	} else {
+		cb.sessionMeta.Delete(sessionID)
+	}
+
 	return nil
+}
+
+// generateSessionName calls the LLM to produce a short title from the first user message.
+func (cb *kagentCallbacks) generateSessionName(ctx context.Context, messageText string) string {
+	if cb.sessionNameLLM == nil || messageText == "" {
+		return ""
+	}
+
+	prompt := fmt.Sprintf(sessionNameSummarizationPrompt, messageText)
+
+	req := &model.LLMRequest{
+		Contents: []*genai.Content{
+			{Role: "user", Parts: []*genai.Part{{Text: prompt}}},
+		},
+	}
+
+	var name string
+	for resp, err := range cb.sessionNameLLM.GenerateContent(ctx, req, false) {
+		if err != nil {
+			cb.log.V(1).Info("LLM error during session name generation", "error", err)
+			return ""
+		}
+		if resp != nil && resp.Content != nil {
+			for _, part := range resp.Content.Parts {
+				if part != nil && part.Text != "" {
+					name = strings.TrimSpace(part.Text)
+				}
+			}
+		}
+	}
+	return name
 }
 
 // ---------------------------------------------------------------------------
@@ -254,16 +351,13 @@ func convertDataPartToGenAI(p *a2atype.DataPart, typeKey string) (*genai.Part, e
 	return adka2a.ToGenAIPart(p)
 }
 
-// extractSessionName extracts session name from the first text part of a message.
-func extractSessionName(message *a2atype.Message) string {
+// extractMessageText returns the first text part of a message.
+func extractMessageText(message *a2atype.Message) string {
 	if message == nil {
 		return ""
 	}
 	for _, part := range message.Parts {
 		if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-			if len(tp.Text) > sessionNameMaxLength {
-				return tp.Text[:sessionNameMaxLength] + "..."
-			}
 			return tp.Text
 		}
 	}

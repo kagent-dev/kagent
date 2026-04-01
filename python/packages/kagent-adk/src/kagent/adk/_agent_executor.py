@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import os
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
@@ -59,6 +60,22 @@ from .converters.part_converter import convert_a2a_part_to_genai_part, convert_g
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+session_name_summarization_prompt = """
+Generate a short title (5-7 words max, no quotes or punctuation) for a conversation that starts with this message: {message_text}\nRespond with only the title, nothing else.
+"""
+
+
+def _parse_duration_seconds(duration_str: str) -> float:
+    """Parse a Go-style duration string (e.g. '5m', '1h', '30s', '300') into seconds."""
+    s = duration_str.strip()
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600
+    if s.endswith("m"):
+        return float(s[:-1]) * 60
+    if s.endswith("s"):
+        return float(s[:-1])
+    return float(s)
 
 
 class A2aAgentExecutorConfig(BaseModel):
@@ -124,6 +141,15 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         super().__init__(runner=runner, config=upstream_config)
         self._kagent_config = config
         self._task_store = task_store
+
+        # Parse session name update interval from env var (0 = only set on first message).
+        self._session_name_update_interval: float = 0.0
+        interval_str = os.environ.get("KAGENT_SESSION_NAME_UPDATE_INTERVAL", "")
+        if interval_str:
+            try:
+                self._session_name_update_interval = _parse_duration_seconds(interval_str)
+            except ValueError:
+                logger.warning("Invalid KAGENT_SESSION_NAME_UPDATE_INTERVAL value: %s", interval_str)
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -316,6 +342,80 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 )
                 continue
             raise result
+
+    async def _generate_session_name(self, message_text: str, model: Any) -> Optional[str]:
+        """Call the agent's LLM to produce a short title from the user message."""
+        if not model or not message_text:
+            return None
+        try:
+            from google.adk.models.llm_request import LlmRequest
+            from google.genai.types import Content, Part as GenaiPart
+
+            prompt = session_name_summarization_prompt.format(message_text=message_text)
+            llm_request = LlmRequest(
+                model=model.model,
+                contents=[Content(role="user", parts=[GenaiPart(text=prompt)])]
+            )
+            name = ""
+            async for chunk in model.generate_content_async(llm_request, stream=False):
+                if chunk.content and chunk.content.parts:
+                    name += "".join(
+                        p.text for p in chunk.content.parts if hasattr(p, "text") and p.text
+                    )
+            return name.strip() or None
+        except Exception as e:
+            logger.warning("Failed to generate session name via LLM: %s", e, exc_info=True)
+            return None
+
+    def _should_update_session_name(self, session: Any) -> bool:
+        """Return True if the session name should be generated"""
+        session_name = session.state.get("_kagent_session_name")
+        if not session_name:
+            return True
+        if self._session_name_update_interval > 0:
+            updated_at_str = session.state.get("_kagent_session_updated_at")
+            if updated_at_str:
+                try:
+                    updated_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                    elapsed = (datetime.now(timezone.utc) - updated_at).total_seconds()
+                    return elapsed >= self._session_name_update_interval
+                except (ValueError, TypeError):
+                    pass
+        return False
+
+    async def _update_session_name(
+        self,
+        session: Any,
+        runner: Runner,
+        message: Any,
+    ) -> Optional[str]:
+        """Generate and persist a session name from the user message."""
+        try:
+            # Extract first text part from the user message.
+            message_text = ""
+            if message and message.parts:
+                for part in message.parts:
+                    if isinstance(part, Part):
+                        root_part = part.root
+                        if isinstance(root_part, TextPart) and root_part.text:
+                            message_text = root_part.text.strip()
+                            break
+
+            if not message_text:
+                return None
+
+            model = getattr(runner.agent, "model", None)
+            name = await self._generate_session_name(message_text, model)
+            if not name:
+                return None
+
+            if hasattr(runner.session_service, "update_session_name"):
+                await runner.session_service.update_session_name(session.id, session.user_id, name)
+                logger.info("Session name updated: session_id=%s name=%s", session.id, name)
+            return name
+        except Exception as e:
+            logger.warning("Failed to update session name: %s", e)
+        return None
 
     async def _publish_failed_status_event(
         self,
@@ -632,6 +732,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         if last_usage_metadata is not None:
             run_metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(last_usage_metadata)
 
+        # Update session name if needed (skip for HITL continuation turns).
+        if not decision and self._should_update_session_name(session):
+            new_name = await self._update_session_name(session, runner, context.message)
+            if new_name:
+                run_metadata[get_kagent_metadata_key("session_name")] = new_name
+
         # publish the task result event - this is final
         if (
             task_result_aggregator.task_state == TaskState.working
@@ -690,20 +796,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         )
 
         if session is None:
-            # Extract session name from the first TextPart (like the UI does)
-            session_name = None
-            if context.message and context.message.parts:
-                for part in context.message.parts:
-                    # A2A parts have a .root property that contains the actual part (TextPart, FilePart, etc.)
-                    if isinstance(part, Part):
-                        root_part = part.root
-                        if isinstance(root_part, TextPart) and root_part.text:
-                            # Take first 20 chars + "..." if longer (matching UI behavior)
-                            text = root_part.text.strip()
-                            session_name = text[:20] + ("..." if len(text) > 20 else "")
-                            break
-
-            state: dict[str, Any] = {"session_name": session_name}
+            state: dict[str, Any] = {}
             # Propagate source (e.g. "agent") so the session is tagged in the DB.
             source = None
             if context.call_context and context.call_context.state:
