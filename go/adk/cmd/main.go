@@ -18,11 +18,9 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	adktelemetry "google.golang.org/adk/telemetry"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -96,38 +94,27 @@ func main() {
 		"sseTools", len(agentConfig.SseTools),
 		"remoteAgents", len(agentConfig.RemoteAgents))
 
-	// Derive app name from env or agent card.
-	appName := deriveAppName(agentCard, logger)
+	kagentName := os.Getenv("KAGENT_NAME")
+	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
 
-	// Initialize ADK OpenTelemetry providers only when telemetry is explicitly enabled,
-	// matching python ADK behavior gated by OTEL_TRACING_ENABLED / OTEL_LOGGING_ENABLED.
-	if isTelemetryEnabled() {
-		serviceNamespace := os.Getenv("KAGENT_NAMESPACE")
-		if serviceNamespace == "" {
-			serviceNamespace = "kagent"
-		}
-		telemetryResource, err := resource.New(context.Background(), resource.WithAttributes(
-			semconv.ServiceNameKey.String(appName),
-			semconv.ServiceNamespaceKey.String(serviceNamespace),
-		))
-		if err != nil {
-			logger.Error(err, "Failed to create telemetry resource; continuing without telemetry resource attributes")
-		} else {
-			telemetryProviders, telErr := adktelemetry.New(context.Background(), adktelemetry.WithResource(telemetryResource))
-			if telErr != nil {
-				logger.Error(telErr, "Failed to initialize ADK telemetry providers; continuing without telemetry export")
-			} else {
-				telemetryProviders.SetGlobalOtelProviders()
-				defer func() {
-					shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					defer cancel()
-					if err := telemetryProviders.Shutdown(shutdownCtx); err != nil {
-						logger.Error(err, "Failed to shutdown telemetry providers cleanly")
-					}
-				}()
-				logger.Info("ADK telemetry initialized")
+	// Derive app name from env or agent card.
+	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
+
+	// Telemetry uses the sanitized agent name/namespace (not the composite app_name).
+	serviceName := strings.ReplaceAll(kagentName, "-", "_")
+	serviceNamespace := strings.ReplaceAll(kagentNamespace, "-", "_")
+	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), serviceName, serviceNamespace)
+	if telErr != nil {
+		logger.Error(telErr, "Failed to initialize ADK telemetry providers; continuing without telemetry export")
+	} else if telemetryEnabled {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := shutdownTelemetry(shutdownCtx); err != nil {
+				logger.Error(err, "Failed to shutdown telemetry providers cleanly")
 			}
-		}
+		}()
+		logger.Info("ADK telemetry initialized")
 	} else {
 		logger.Info("ADK telemetry disabled (set OTEL_TRACING_ENABLED or OTEL_LOGGING_ENABLED to true)")
 	}
@@ -231,10 +218,7 @@ func main() {
 	}
 }
 
-func deriveAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
-
+func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger logr.Logger) string {
 	if kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
@@ -253,9 +237,4 @@ func deriveAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
 
 	logger.Info("Using default app_name", "app_name", "go-adk-agent")
 	return "go-adk-agent"
-}
-
-func isTelemetryEnabled() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true") ||
-		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
 }
