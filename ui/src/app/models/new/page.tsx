@@ -18,7 +18,8 @@ import type {
     ProviderModelsResponse,
     GeminiConfigPayload,
     GeminiVertexAIConfigPayload,
-    AnthropicVertexAIConfigPayload
+    AnthropicVertexAIConfigPayload,
+    SAPAICoreConfigPayload
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -592,6 +593,9 @@ function ModelPageContent() {
       case 'AnthropicVertexAI':
         payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
         break;
+      case 'SAPAICore':
+        payload.sapAICore = providerParams as SAPAICoreConfigPayload;
+        break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
         toast.error("Internal error: Unsupported provider type.");
@@ -610,6 +614,7 @@ function ModelPageContent() {
           anthropic: payload.anthropic,
           azureOpenAI: payload.azureOpenAI,
           ollama: payload.ollama,
+          sapAICore: payload.sapAICore,
         };
         const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
         response = await updateModelConfig(modelConfigRef, updatePayload);
