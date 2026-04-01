@@ -353,16 +353,11 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             from google.genai.types import Part as GenaiPart
 
             prompt = session_name_summarization_prompt.format(message_text=message_text)
-            llm_request = LlmRequest(
-                model=model.model,
-                contents=[Content(role="user", parts=[GenaiPart(text=prompt)])]
-            )
+            llm_request = LlmRequest(model=model.model, contents=[Content(role="user", parts=[GenaiPart(text=prompt)])])
             name = ""
             async for chunk in model.generate_content_async(llm_request, stream=False):
                 if chunk.content and chunk.content.parts:
-                    name += "".join(
-                        p.text for p in chunk.content.parts if hasattr(p, "text") and p.text
-                    )
+                    name += "".join(p.text for p in chunk.content.parts if hasattr(p, "text") and p.text)
             return name.strip() or None
         except Exception as e:
             logger.warning("Failed to generate session name via LLM: %s", e, exc_info=True)
