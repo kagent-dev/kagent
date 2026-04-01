@@ -349,7 +349,8 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             return None
         try:
             from google.adk.models.llm_request import LlmRequest
-            from google.genai.types import Content, Part as GenaiPart
+            from google.genai.types import Content
+            from google.genai.types import Part as GenaiPart
 
             prompt = session_name_summarization_prompt.format(message_text=message_text)
             llm_request = LlmRequest(
