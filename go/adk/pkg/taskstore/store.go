@@ -91,7 +91,7 @@ func cleanPartialArtifacts(artifacts []*a2atype.Artifact) []*a2atype.Artifact {
 }
 
 // Save implements a2asrv.TaskStore.
-func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task, _ a2atype.Event, _ a2atype.TaskVersion) (a2atype.TaskVersion, error) {
+func (s *KAgentTaskStore) Save(ctx context.Context, task *a2atype.Task, _ a2atype.Event, _ *a2atype.Task, _ a2atype.TaskVersion) (a2atype.TaskVersion, error) {
 	if task == nil {
 		return a2atype.TaskVersionMissing, fmt.Errorf("task cannot be nil")
 	}
