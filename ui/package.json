@@ -8,11 +8,13 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "jest",
+    "test:vitest": "vitest run",
     "test:watch": "jest --watch",
     "test:e2e:cypress": "cypress run --e2e",
     "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "chromatic": "chromatic --exit-zero-on-changes"
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.13",
@@ -83,6 +85,7 @@
     "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.4.23",
     "babel-plugin-react-compiler": "^1.0.0",
+    "chromatic": "^16.0.0",
     "cypress": "^15.13.0",
     "eslint": "^9.39.2",
     "eslint-config-next": "16.2.1",
