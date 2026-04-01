@@ -234,6 +234,7 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
+      nodePort: null
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
