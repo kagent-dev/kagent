@@ -1,5 +1,5 @@
 # Configuration for GitHub's auto-generated release notes.
-# See: https://docs.github.com/en/repositories/releasing-on-github/automatically-generated-release-notes
+# See: https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
 
 changelog:
   exclude:
