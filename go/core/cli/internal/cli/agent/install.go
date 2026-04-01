@@ -20,8 +20,24 @@ import (
 )
 
 type InstallCfg struct {
-	Config  *config.Config
-	Profile string
+	Config          *config.Config
+	Profile         string
+	NoDefaultAgents bool
+}
+
+// defaultAgents is the list of agent names installed by the kagent helm chart.
+// Used by --no-default-agents to disable all of them via helm --set flags.
+var defaultAgents = []string{
+	"k8s-agent",
+	"kgateway-agent",
+	"istio-agent",
+	"promql-agent",
+	"observability-agent",
+	"argo-rollouts-agent",
+	"helm-agent",
+	"cilium-policy-agent",
+	"cilium-manager-agent",
+	"cilium-debug-agent",
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -99,6 +115,14 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 		}
 
 		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
+	}
+
+	// --no-default-agents: disable every default agent via --set flags.
+	// Using --set ensures this takes precedence over any inline profile values.
+	if cfg.NoDefaultAgents {
+		for _, agent := range defaultAgents {
+			helmConfig.values = append(helmConfig.values, fmt.Sprintf("agents.%s.enabled=false", agent))
+		}
 	}
 
 	return install(ctx, cfg.Config, helmConfig, modelProvider)
