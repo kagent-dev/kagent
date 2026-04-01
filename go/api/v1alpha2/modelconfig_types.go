@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore
 type ModelProvider string
 
 const (
@@ -37,6 +37,7 @@ const (
 	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 	ModelProviderBedrock           ModelProvider = "Bedrock"
+	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 )
 
 type BaseVertexAIConfig struct {
@@ -218,6 +219,22 @@ type BedrockConfig struct {
 	Region string `json:"region"`
 }
 
+// SAPAICoreConfig contains SAP AI Core-specific configuration options.
+type SAPAICoreConfig struct {
+	// Base URL for the SAP AI Core API (e.g., https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com)
+	// +required
+	BaseURL string `json:"baseUrl"`
+
+	// Resource group in SAP AI Core
+	// +kubebuilder:default="default"
+	// +optional
+	ResourceGroup string `json:"resourceGroup,omitempty"`
+
+	// OAuth2 token endpoint URL (e.g., https://tenant.authentication.eu10.hana.ondemand.com)
+	// +optional
+	AuthURL string `json:"authUrl,omitempty"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for model provider connections.
 // This enables agents to connect to internal LiteLLM gateways or other providers
 // that use self-signed certificates or custom certificate authorities.
@@ -264,8 +281,9 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
+// +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
-// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock provider)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock')"
+// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
@@ -327,6 +345,10 @@ type ModelConfigSpec struct {
 	// AWS Bedrock-specific configuration
 	// +optional
 	Bedrock *BedrockConfig `json:"bedrock,omitempty"`
+
+	// SAP AI Core-specific configuration
+	// +optional
+	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers
