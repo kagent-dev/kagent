@@ -3,13 +3,14 @@ package a2a
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
@@ -18,7 +19,6 @@ import (
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a"
-	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
 
@@ -34,18 +34,46 @@ const (
 	`
 )
 
-// NewExecutorConfig builds an adka2a.ExecutorConfig with kagent-specific
-// callbacks wired in. The returned config can be passed directly to
-// adka2a.NewExecutor.
-func NewExecutorConfig(
-	runnerConfig runner.Config,
-	sessionService session.SessionService,
-	stream bool,
-	appName string,
-	logger logr.Logger,
-	sessionNameLLM model.LLM,
-) adka2a.ExecutorConfig {
-	skillsDir := os.Getenv(envSkillsFolder)
+// KAgentExecutorConfig holds the configuration for KAgentExecutor
+type KAgentExecutorConfig struct {
+	RunnerConfig       runner.Config
+	SubagentSessionIDs map[string]string
+	SessionService     *session.KAgentSessionService
+	Stream             bool
+	AppName            string
+	SkillsDirectory    string
+	Logger             logr.Logger
+	SessionNameLLM     model.LLM
+}
+
+// sessionNameMeta holds per-request metadata used for session name generation.
+type sessionNameMeta struct {
+	userID      string
+	updatedAt   time.Time
+	messageText string
+}
+
+// KAgentExecutor implements a2asrv.AgentExecutor
+type KAgentExecutor struct {
+	runnerConfig              runner.Config
+	subagentSessionIDs        map[string]string
+	sessionService            *session.KAgentSessionService
+	stream                    bool
+	appName                   string
+	skillsDirectory           string
+	logger                    logr.Logger
+	sessionNameLLM            model.LLM
+	sessionNameUpdateInterval time.Duration
+}
+
+var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
+
+// NewKAgentExecutor creates a KAgentExecutor from config
+func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
+	skillsDir := cfg.SkillsDirectory
+	if skillsDir == "" {
+		skillsDir = os.Getenv(envSkillsFolder)
+	}
 	if skillsDir == "" {
 		skillsDir = defaultSkillsDirectory
 	}
@@ -54,162 +82,413 @@ func NewExecutorConfig(
 	if intervalStr := os.Getenv(envSessionNameUpdateInterval); intervalStr != "" {
 		if d, err := time.ParseDuration(intervalStr); err == nil {
 			sessionNameUpdateInterval = d
-		} else {
-			logger.Info("Invalid KAGENT_SESSION_NAME_UPDATE_INTERVAL, ignoring", "value", intervalStr)
 		}
 	}
 
-	var runConfig adkagent.RunConfig
-	if stream {
-		runConfig.StreamingMode = adkagent.StreamingModeSSE
-	}
-
-	cb := &kagentCallbacks{
-		appName:                   appName,
-		sessionService:            sessionService,
+	return &KAgentExecutor{
+		runnerConfig:              cfg.RunnerConfig,
+		subagentSessionIDs:        cfg.SubagentSessionIDs,
+		sessionService:            cfg.SessionService,
+		stream:                    cfg.Stream,
+		appName:                   cfg.AppName,
 		skillsDirectory:           skillsDir,
-		log:                       logger.WithName("a2a-executor"),
-		sessionNameLLM:            sessionNameLLM,
+		logger:                    cfg.Logger.WithName("kagent-executor"),
+		sessionNameLLM:            cfg.SessionNameLLM,
 		sessionNameUpdateInterval: sessionNameUpdateInterval,
 	}
+}
 
-	return adka2a.ExecutorConfig{
-		RunnerConfig:          runnerConfig,
-		RunConfig:             runConfig,
-		BeforeExecuteCallback: cb.beforeExecute,
-		AfterExecuteCallback:  cb.afterExecute,
-		GenAIPartConverter:    genAIPartConverter,
-		A2APartConverter:      a2aPartConverter,
+// UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
+// x-user-id HTTP header from the incoming request metadata and sets it as the
+// authenticated user on the CallContext.
+func UserIDCallInterceptor() a2asrv.CallInterceptor {
+	return &userIDInterceptor{}
+}
+
+type userIDInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+}
+
+func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, error) {
+	if callCtx == nil {
+		return ctx, nil
 	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ctx, nil
+	}
+	vals, ok := meta.Get("x-user-id")
+	if !ok || len(vals) == 0 || vals[0] == "" {
+		return ctx, nil
+	}
+	// Set the authenticated user so downstream code picks up the real identity.
+	callCtx.User = &a2asrv.AuthenticatedUser{UserName: vals[0]}
+	return ctx, nil
 }
 
-// sessionNameMeta holds per-request metadata used for session name generation.
-type sessionNameMeta struct {
-	userID      string
-	updatedAt   time.Time
-	hasName     bool
-	messageText string
-}
+// Execute implements a2asrv.AgentExecutor.
+// It follows the Python _handle_request pattern: set up session, handle HITL,
+// convert inbound message, run the agent loop, and emit A2A events.
+func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+	if reqCtx.Message == nil {
+		return fmt.Errorf("A2A request message cannot be nil")
+	}
 
-// kagentCallbacks holds the state shared by the kagent executor callbacks.
-type kagentCallbacks struct {
-	appName                   string
-	sessionService            session.SessionService
-	skillsDirectory           string
-	log                       logr.Logger
-	sessionNameLLM            model.LLM
-	sessionNameUpdateInterval time.Duration
-	sessionMeta               sync.Map // sessionID -> *sessionNameMeta
-}
-
-// beforeExecute sets up tracing, creates the session with session_name if
-// needed, initializes skills, and appends the system header event.
-func (cb *kagentCallbacks) beforeExecute(ctx context.Context, reqCtx *a2asrv.RequestContext) (context.Context, error) {
+	// 1. Derive userID / sessionID.
 	userID := "A2A_USER_" + reqCtx.ContextID
+	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+		if callCtx.User != nil && callCtx.User.Name() != "" {
+			userID = callCtx.User.Name()
+		}
+	}
 	sessionID := reqCtx.ContextID
 
-	cb.log.Info("BeforeExecute",
+	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
 		"contextID", reqCtx.ContextID,
-		"appName", cb.appName,
+		"appName", e.appName,
 		"userID", userID,
 	)
 
+	// 2. Set up telemetry span attributes.
 	spanAttributes := map[string]string{
 		"kagent.user_id":         userID,
 		"gen_ai.task.id":         string(reqCtx.TaskID),
 		"gen_ai.conversation.id": sessionID,
 	}
-	if cb.appName != "" {
-		spanAttributes["kagent.app_name"] = cb.appName
+	if e.appName != "" {
+		spanAttributes["kagent.app_name"] = e.appName
 	}
 	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 
-	if cb.skillsDirectory != "" && sessionID != "" {
-		if _, err := skills.InitializeSessionPath(sessionID, cb.skillsDirectory); err != nil {
-			cb.log.V(1).Info("Skills session path init failed (continuing)",
+	// 3. Initialize skills session path.
+	if e.skillsDirectory != "" && sessionID != "" {
+		if _, err := skills.InitializeSessionPath(sessionID, e.skillsDirectory); err != nil {
+			e.logger.V(1).Info("Skills session path init failed (continuing)",
 				"error", err, "sessionID", sessionID)
 		}
 	}
 
-	if cb.sessionService != nil {
-		sess, err := cb.sessionService.GetSession(ctx, cb.appName, userID, sessionID)
+	// 4. Create / lookup session via sessionService.
+	var meta *sessionNameMeta
+	if e.sessionService != nil {
+		sess, err := e.sessionService.GetSession(ctx, e.appName, userID, sessionID)
 		if err != nil {
-			cb.log.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
+			e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
 			sess = nil
 		}
 
-		meta := &sessionNameMeta{
-			userID:      userID,
-			messageText: extractMessageText(reqCtx.Message),
+		// Track the session's last update time for post-execution name generation.
+		// For new sessions, updatedAt stays zero which always exceeds any interval.
+		var updatedAt time.Time
+		if sess != nil {
+			type timeProvider interface {
+				LastUpdateTime() time.Time
+			}
+			if tp, ok := sess.(timeProvider); ok {
+				updatedAt = tp.LastUpdateTime()
+			}
 		}
 
 		if sess == nil {
-			created, createErr := cb.sessionService.CreateSession(ctx, cb.appName, userID, nil, sessionID)
-			if createErr != nil {
-				return ctx, fmt.Errorf("failed to create session: %w", createErr)
+			sessionName := extractMessageText(reqCtx.Message)
+			state := make(map[string]any)
+			if sessionName != "" {
+				state[StateKeySessionName] = sessionName
 			}
-			meta.userID = created.UserID
-		} else {
-			meta.hasName = sess.Name != nil && *sess.Name != ""
-			meta.updatedAt = sess.UpdatedAt
-			meta.userID = sess.UserID
-		}
-
-		cb.sessionMeta.Store(sessionID, meta)
-	}
-
-	return ctx, nil
-}
-
-// afterExecute handles HITL enrichment for input_required states and session name generation.
-// The ADK executor already populates adk_* metadata on the final event.
-func (cb *kagentCallbacks) afterExecute(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, err error) error {
-	if finalEvent == nil {
-		return nil
-	}
-
-	state := finalEvent.Status.State
-	sessionID := ctx.SessionID()
-	cb.log.Info("AfterExecute", "sessionID", sessionID, "state", state, "error", err)
-
-	if state == a2atype.TaskStateInputRequired && finalEvent.Status.Message != nil {
-		approvalRequests := extractApprovalRequestsFromA2AParts(finalEvent.Status.Message.Parts)
-		if len(approvalRequests) > 0 {
-			cb.log.Info("Enriching HITL message", "approvalCount", len(approvalRequests))
-			finalEvent.Status.Message = BuildToolApprovalMessage(approvalRequests)
-		}
-	}
-
-	// generate session name summary based on message text if necessary
-	if err == nil && cb.sessionService != nil && cb.sessionNameLLM != nil {
-		if metaAny, ok := cb.sessionMeta.LoadAndDelete(sessionID); ok {
-			meta := metaAny.(*sessionNameMeta)
-			shouldUpdate := (cb.sessionNameUpdateInterval > 0 && time.Since(meta.updatedAt) >= cb.sessionNameUpdateInterval)
-
-			if shouldUpdate && meta.messageText != "" {
-				name := cb.generateSessionName(ctx, meta.messageText)
-				if name != "" {
-					if updateErr := cb.sessionService.UpdateSessionName(ctx, meta.userID, sessionID, name); updateErr != nil {
-						cb.log.V(1).Info("Failed to update session name", "error", updateErr, "sessionID", sessionID)
-					} else {
-						cb.log.Info("Session name updated", "sessionID", sessionID, "name", name)
-						finalEvent.SetMeta(GetKAgentMetadataKey("session_name"), name)
-						finalEvent.SetMeta(GetKAgentMetadataKey("session_id"), sessionID)
+			// Propagate x-kagent-source so the session is tagged in the DB.
+			if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+				if callMeta := callCtx.RequestMeta(); callMeta != nil {
+					if vals, ok := callMeta.Get("x-kagent-source"); ok && len(vals) > 0 && vals[0] != "" {
+						state[StateKeySource] = vals[0]
 					}
 				}
 			}
+			if err = e.sessionService.CreateSession(ctx, e.appName, userID, state, sessionID); err != nil {
+				return fmt.Errorf("failed to create session: %w", err)
+			}
 		}
-	} else {
-		cb.sessionMeta.Delete(sessionID)
+
+		if e.sessionNameLLM != nil {
+			meta = &sessionNameMeta{
+				userID:      userID,
+				updatedAt:   updatedAt,
+				messageText: extractMessageText(reqCtx.Message),
+			}
+		}
 	}
 
-	return nil
+	// 5. Detect HITL decision and build the resume message if needed.
+	inboundMessage := reqCtx.Message
+	if resumeMessage := BuildResumeHITLMessage(reqCtx.StoredTask, inboundMessage); resumeMessage != nil {
+		inboundMessage = resumeMessage
+	}
+
+	// 6. Convert inbound message to *genai.Content using kagent a2aPartConverter.
+	content, err := messageToGenAIContent(ctx, inboundMessage)
+	if err != nil {
+		return fmt.Errorf("inbound message conversion failed: %w", err)
+	}
+
+	// 7. Use pre-built subagent session ID map (built by runner bundle).
+	subagentSessionIDs := e.subagentSessionIDs
+
+	// 8. Create runner.
+	r, err := runner.New(e.runnerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create runner: %w", err)
+	}
+
+	// 9. Emit initial events.
+	if reqCtx.StoredTask == nil {
+		// New task — emit submitted.
+		submitted := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateSubmitted, nil)
+		if err := queue.Write(ctx, submitted); err != nil {
+			return fmt.Errorf("failed to write submitted event: %w", err)
+		}
+	}
+
+	// Base metadata carried on every event (app_name, user_id, session_id).
+	baseMeta := map[string]any{
+		adka2a.ToA2AMetaKey("app_name"):   e.appName,
+		adka2a.ToA2AMetaKey("user_id"):    userID,
+		adka2a.ToA2AMetaKey("session_id"): sessionID,
+	}
+
+	working := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil)
+	working.Metadata = maps.Clone(baseMeta)
+	if err := queue.Write(ctx, working); err != nil {
+		return fmt.Errorf("failed to write working event: %w", err)
+	}
+
+	// 10. Run the agent event loop.
+	var runConfig adkagent.RunConfig
+	if e.stream {
+		runConfig.StreamingMode = adkagent.StreamingModeSSE
+	}
+
+	// State tracked across the event loop.
+	var (
+		invocationID      string
+		artifactID        a2atype.ArtifactID
+		partialArtifactID a2atype.ArtifactID
+		lastTextParts     a2atype.ContentParts
+		lastTextMeta      map[string]any
+		hitlParts         a2atype.ContentParts
+		runErr            error
+	)
+
+	for adkEvent, adkErr := range r.Run(ctx, userID, sessionID, content, runConfig) {
+		if adkErr != nil {
+			runErr = adkErr
+			break
+		}
+		if adkEvent == nil {
+			continue
+		}
+
+		// Track invocation ID from the first event that has one.
+		if adkEvent.InvocationID != "" && invocationID == "" {
+			invocationID = adkEvent.InvocationID
+		}
+
+		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
+		eventMeta := buildEventMeta(baseMeta, adkEvent)
+
+		// Convert GenAI parts → A2A parts (with kagent stamping).
+		if adkEvent.Content == nil || len(adkEvent.Content.Parts) == 0 {
+			// Events with no content carry metadata only; still track invocationID/usage.
+			// Check for LLM error.
+			if adkEvent.ErrorCode != "" {
+				errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent,
+					a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
+				failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
+				failed.Final = true
+				failed.Metadata = eventMeta
+				return queue.Write(ctx, failed)
+			}
+			continue
+		}
+
+		// Check for LLM error (even with content present).
+		if adkEvent.ErrorCode != "" {
+			errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent,
+				a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
+			failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
+			failed.Final = true
+			failed.Metadata = eventMeta
+			return queue.Write(ctx, failed)
+		}
+
+		// Convert parts.
+		var a2aParts a2atype.ContentParts
+		for _, genaiPart := range adkEvent.Content.Parts {
+			if genaiPart == nil {
+				continue
+			}
+			a2aPart, err := adka2a.ToA2APart(genaiPart, adkEvent.LongRunningToolIDs)
+			if err != nil {
+				continue
+			}
+			if isEmptyDataPart(a2aPart) {
+				continue
+			}
+			// Stamp kagent_subagent_session_id onto function_call DataParts.
+			if len(subagentSessionIDs) > 0 {
+				a2aPart = stampSubagentSessionID(a2aPart, subagentSessionIDs)
+			}
+			a2aParts = append(a2aParts, a2aPart)
+		}
+
+		// Collect HITL (input_required) parts from LongRunningToolIDs.
+		isHITLEvent := len(adkEvent.LongRunningToolIDs) > 0
+		if isHITLEvent {
+			hitlParts = append(hitlParts, a2aParts...)
+		}
+
+		if len(a2aParts) == 0 {
+			continue
+		}
+
+		if adkEvent.Partial {
+			// Partial event: emit as working status (text-only) for UI streaming,
+			// and as partial artifact update.
+			textOnly := filterTextParts(a2aParts)
+			if len(textOnly) > 0 {
+				mirrorMeta := maps.Clone(eventMeta)
+				mirrorMeta[adka2a.ToA2AMetaKey("partial")] = true
+				msg := a2atype.NewMessage(a2atype.MessageRoleAgent, textOnly...)
+				msg.Metadata = mirrorMeta
+				statusEv := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
+				statusEv.Metadata = mirrorMeta
+				if err := queue.Write(ctx, statusEv); err != nil {
+					return fmt.Errorf("failed to write partial status event: %w", err)
+				}
+			}
+
+			// Emit partial artifact update.
+			var partialEv *a2atype.TaskArtifactUpdateEvent
+			if partialArtifactID == "" {
+				partialEv = a2atype.NewArtifactEvent(reqCtx, a2aParts...)
+				partialArtifactID = partialEv.Artifact.ID
+			} else {
+				partialEv = a2atype.NewArtifactUpdateEvent(reqCtx, partialArtifactID, a2aParts...)
+			}
+			if partialEv.Artifact.Metadata == nil {
+				partialEv.Artifact.Metadata = map[string]any{}
+			}
+			partialEv.Artifact.Metadata[adka2a.ToA2AMetaKey("partial")] = true
+			partialEv.Metadata = maps.Clone(eventMeta)
+			partialEv.Metadata[adka2a.ToA2AMetaKey("partial")] = true
+			partialEv.Append = false // discard partial events
+			if err := queue.Write(ctx, partialEv); err != nil {
+				return fmt.Errorf("failed to write partial artifact event: %w", err)
+			}
+		} else {
+			// Non-partial event: emit as artifact + mirror as working status.
+			// Mirror: emit working status with non-empty parts.
+			mirrorParts := a2aParts
+			if len(hitlParts) == 0 {
+				// Only mirror when not accumulating HITL parts (those go into input_required).
+				msg := a2atype.NewMessage(a2atype.MessageRoleAgent, mirrorParts...)
+				msg.Metadata = maps.Clone(eventMeta)
+				statusEv := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
+				statusEv.Metadata = maps.Clone(eventMeta)
+				if err := queue.Write(ctx, statusEv); err != nil {
+					return fmt.Errorf("failed to write mirror status event: %w", err)
+				}
+			}
+
+			// Track last text parts for final status injection.
+			if tp := filterTextParts(a2aParts); len(tp) > 0 {
+				lastTextParts = tp
+				lastTextMeta = eventMeta
+			}
+
+			// Emit artifact.
+			var artifactEv *a2atype.TaskArtifactUpdateEvent
+			if artifactID == "" {
+				artifactEv = a2atype.NewArtifactEvent(reqCtx, a2aParts...)
+				artifactID = artifactEv.Artifact.ID
+			} else {
+				artifactEv = a2atype.NewArtifactUpdateEvent(reqCtx, artifactID, a2aParts...)
+			}
+			// Mark as non-partial so downstream consumers skip their own aggregation.
+			artifactEv.Metadata = maps.Clone(eventMeta)
+			artifactEv.Metadata[adka2a.ToA2AMetaKey("partial")] = false
+			if err := queue.Write(ctx, artifactEv); err != nil {
+				return fmt.Errorf("failed to write artifact event: %w", err)
+			}
+		}
+
+		// Break on confirmation events that have long-running tool IDs.
+		if isHITLEvent {
+			break
+		}
+	}
+
+	// 11. Emit final event.
+	finalMeta := maps.Clone(baseMeta)
+	if invocationID != "" {
+		finalMeta[adka2a.ToA2AMetaKey("invocation_id")] = invocationID
+	}
+
+	if runErr != nil {
+		errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: runErr.Error()})
+		failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
+		failed.Final = true
+		failed.Metadata = finalMeta
+		return queue.Write(ctx, failed)
+	}
+
+	if len(hitlParts) > 0 {
+		// input_required: the agent is waiting for HITL decisions.
+		hitlMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, hitlParts...)
+		inputRequired := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, hitlMsg)
+		inputRequired.Final = true
+		inputRequired.Metadata = finalMeta
+		return queue.Write(ctx, inputRequired)
+	}
+
+	// Generate session name via LLM if the update interval has elapsed.
+	if meta != nil && e.sessionNameLLM != nil && e.sessionNameUpdateInterval > 0 {
+		if time.Since(meta.updatedAt) >= e.sessionNameUpdateInterval && meta.messageText != "" {
+			if name := e.generateSessionName(ctx, meta.messageText); name != "" {
+				if updateErr := e.sessionService.UpdateSessionName(ctx, meta.userID, sessionID, name); updateErr != nil {
+					e.logger.V(1).Info("Failed to update session name", "error", updateErr, "sessionID", sessionID)
+				} else {
+					e.logger.Info("Session name updated", "sessionID", sessionID, "name", name)
+					finalMeta[GetKAgentMetadataKey("session_name")] = name
+					finalMeta[GetKAgentMetadataKey("session_id")] = sessionID
+				}
+			}
+		}
+	}
+
+	// completed: inject last text into final status if no message present.
+	var finalMsg *a2atype.Message
+	if len(lastTextParts) > 0 {
+		finalMsg = a2atype.NewMessage(a2atype.MessageRoleAgent, lastTextParts...)
+		if len(lastTextMeta) > 0 {
+			finalMsg.Metadata = maps.Clone(lastTextMeta)
+		}
+	}
+	completed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, finalMsg)
+	completed.Final = true
+	completed.Metadata = finalMeta
+	return queue.Write(ctx, completed)
+}
+
+// Cancel implements a2asrv.AgentExecutor.
+func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+	event := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil)
+	event.Final = true
+	return queue.Write(ctx, event)
 }
 
 // generateSessionName calls the LLM to produce a short title from the first user message.
-func (cb *kagentCallbacks) generateSessionName(ctx context.Context, messageText string) string {
-	if cb.sessionNameLLM == nil || messageText == "" {
+func (e *KAgentExecutor) generateSessionName(ctx context.Context, messageText string) string {
+	if e.sessionNameLLM == nil || messageText == "" {
 		return ""
 	}
 
@@ -222,9 +501,9 @@ func (cb *kagentCallbacks) generateSessionName(ctx context.Context, messageText 
 	}
 
 	var name string
-	for resp, err := range cb.sessionNameLLM.GenerateContent(ctx, req, false) {
+	for resp, err := range e.sessionNameLLM.GenerateContent(ctx, req, false) {
 		if err != nil {
-			cb.log.V(1).Info("LLM error during session name generation", "error", err)
+			e.logger.V(1).Info("LLM error during session name generation", "error", err)
 			return ""
 		}
 		if resp != nil && resp.Content != nil {
@@ -236,119 +515,6 @@ func (cb *kagentCallbacks) generateSessionName(ctx context.Context, messageText 
 		}
 	}
 	return name
-}
-
-// ---------------------------------------------------------------------------
-// Part converters
-// ---------------------------------------------------------------------------
-// genAIPartConverter converts GenAI parts to A2A parts, filtering out
-// empty DataParts produced by the ADK for streaming cleanup signals.
-func genAIPartConverter(ctx context.Context, adkEvent *adksession.Event, part *genai.Part) (a2atype.Part, error) {
-	var longRunningToolIDs []string
-	if adkEvent != nil {
-		longRunningToolIDs = adkEvent.LongRunningToolIDs
-	}
-
-	a2aPart, err := adka2a.ToA2APart(part, longRunningToolIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	if isEmptyDataPart(a2aPart) {
-		return nil, nil
-	}
-
-	return a2aPart, nil
-}
-
-// a2aPartConverter converts A2A parts to GenAI parts. DataParts with
-// kagent_type metadata (from older sessions) are handled explicitly;
-// all other parts (including adk_type) fall through to the ADK default.
-func a2aPartConverter(ctx context.Context, a2aEvent a2atype.Event, part a2atype.Part) (*genai.Part, error) {
-	if dp, ok := part.(a2atype.DataPart); ok && dp.Metadata != nil {
-		if _, has := dp.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)]; has {
-			return convertDataPartToGenAI(&dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
-		}
-	}
-	return adka2a.ToGenAIPart(part)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// extractApprovalRequestsFromA2AParts extracts tool approval requests from
-// A2A data parts that represent long-running function calls.
-func extractApprovalRequestsFromA2AParts(parts a2atype.ContentParts) []ToolApprovalRequest {
-	var requests []ToolApprovalRequest
-	for _, part := range parts {
-		dp, ok := part.(a2atype.DataPart)
-		if !ok {
-			continue
-		}
-		if !isLongRunningDataPart(dp) {
-			continue
-		}
-		name, _ := dp.Data["name"].(string)
-		if name == "" || name == requestEucFunctionCallName {
-			continue
-		}
-		args, _ := dp.Data["args"].(map[string]any)
-		id, _ := dp.Data["id"].(string)
-		requests = append(requests, ToolApprovalRequest{
-			Name: name,
-			Args: args,
-			ID:   id,
-		})
-	}
-	return requests
-}
-
-// isLongRunningDataPart checks both kagent_is_long_running and adk_is_long_running
-// metadata keys for backward compatibility.
-func isLongRunningDataPart(dp a2atype.DataPart) bool {
-	if dp.Metadata == nil {
-		return false
-	}
-	if lr, ok := dp.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataIsLongRunningKey)].(bool); ok && lr {
-		return true
-	}
-	if lr, ok := dp.Metadata[adka2a.ToA2AMetaKey("is_long_running")].(bool); ok && lr {
-		return true
-	}
-	return false
-}
-
-// convertDataPartToGenAI converts a DataPart with a type metadata key
-// (either adk_type or kagent_type) back to GenAI for inbound message processing.
-func convertDataPartToGenAI(p *a2atype.DataPart, typeKey string) (*genai.Part, error) {
-	if p == nil {
-		return nil, nil
-	}
-	partType, _ := p.Metadata[typeKey].(string)
-	switch partType {
-	case A2ADataPartMetadataTypeFunctionCall:
-		name, _ := p.Data[PartKeyName].(string)
-		funcArgs, _ := p.Data[PartKeyArgs].(map[string]any)
-		if name != "" {
-			genaiPart := genai.NewPartFromFunctionCall(name, funcArgs)
-			if id, ok := p.Data[PartKeyID].(string); ok && id != "" {
-				genaiPart.FunctionCall.ID = id
-			}
-			return genaiPart, nil
-		}
-	case A2ADataPartMetadataTypeFunctionResponse:
-		name, _ := p.Data[PartKeyName].(string)
-		response, _ := p.Data[PartKeyResponse].(map[string]any)
-		if name != "" {
-			genaiPart := genai.NewPartFromFunctionResponse(name, response)
-			if id, ok := p.Data[PartKeyID].(string); ok && id != "" {
-				genaiPart.FunctionResponse.ID = id
-			}
-			return genaiPart, nil
-		}
-	}
-	return adka2a.ToGenAIPart(p)
 }
 
 // extractMessageText returns the first text part of a message.
