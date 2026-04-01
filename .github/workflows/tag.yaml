@@ -18,7 +18,6 @@ jobs:
       matrix:
         image:
           - controller
-          - migrate
           - ui
           - app
           - golang-adk

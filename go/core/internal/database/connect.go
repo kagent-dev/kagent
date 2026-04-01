@@ -84,6 +84,16 @@ func retryDBConnection(ctx context.Context, url string, vectorEnabled bool) (*pg
 	}
 }
 
+// ResolveURL returns url, unless urlFile is non-empty in which case the URL is
+// read from that file. Used by callers (e.g. the migration runner) that need
+// the resolved connection string before a pool is created.
+func ResolveURL(url, urlFile string) (string, error) {
+	if urlFile != "" {
+		return resolveURLFile(urlFile)
+	}
+	return url, nil
+}
+
 // resolveURLFile reads a database connection URL from a file and returns the
 // trimmed contents. Returns an error if the file cannot be read or is empty.
 func resolveURLFile(path string) (string, error) {

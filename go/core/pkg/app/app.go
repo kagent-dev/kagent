@@ -55,6 +55,7 @@ import (
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -262,7 +263,15 @@ type ExtensionConfig struct {
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-func Start(getExtensionConfig GetExtensionConfig) {
+// MigrationRunner applies database migrations given the resolved connection URL.
+// vectorEnabled mirrors the --database-vector-enabled flag.
+// Returning a non-nil error causes the app to exit.
+//
+// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
+// An optional migration runner can be provided to take over the migration process.
+type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
+
+func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -410,10 +419,32 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
+	// Resolve the database URL once so both the migration runner and the pool
+	// connection use exactly the same value.
+	dbURL, err := database.ResolveURL(cfg.Database.Url, cfg.Database.UrlFile)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve database URL")
+		os.Exit(1)
+	}
+
+	// Use the built-in migration runner when none is provided.
+	if migrationRunner == nil {
+		migrationRunner = func(ctx context.Context, url string, vectorEnabled bool) error {
+			return migrations.RunUp(ctx, url, migrations.FS, vectorEnabled)
+		}
+	}
+
+	// Run migrations before connecting; schema must exist before queries.
+	setupLog.Info("running database migrations")
+	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
+		setupLog.Error(err, "database migration failed")
+		os.Exit(1)
+	}
+	setupLog.Info("database migrations complete")
+
 	// Connect to database
 	db, err := database.Connect(ctx, &database.PostgresConfig{
-		URL:           cfg.Database.Url,
-		URLFile:       cfg.Database.UrlFile,
+		URL:           dbURL,
 		VectorEnabled: cfg.Database.VectorEnabled,
 	})
 	if err != nil {

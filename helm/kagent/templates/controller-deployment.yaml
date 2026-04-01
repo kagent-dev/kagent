@@ -44,36 +44,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      initContainers:
-        - name: migrate
-          image: "{{ .Values.controller.migrate.image.registry | default .Values.registry }}/{{ .Values.controller.migrate.image.repository }}:{{ coalesce .Values.tag .Values.controller.migrate.image.tag .Chart.Version }}"
-          imagePullPolicy: {{ .Values.controller.migrate.image.pullPolicy | default .Values.imagePullPolicy }}
-          env:
-            {{- if .Values.database.postgres.urlFile }}
-            - name: POSTGRES_DATABASE_URL_FILE
-              value: {{ .Values.database.postgres.urlFile | quote }}
-            {{- else if .Values.database.postgres.url }}
-            - name: POSTGRES_DATABASE_URL
-              value: {{ .Values.database.postgres.url | quote }}
-            {{- else if .Values.database.postgres.bundled.enabled }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "kagent.passwordSecretName" . }}
-                  key: POSTGRES_PASSWORD
-            - name: POSTGRES_DATABASE_URL
-              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
-            {{- else }}
-            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
-            {{- end }}
-            - name: KAGENT_DATABASE_VECTOR_ENABLED
-              value: {{ .Values.database.postgres.vectorEnabled | default false | quote }}
-          {{- if gt (len .Values.controller.volumeMounts) 0 }}
-          volumeMounts:
-            {{- with .Values.controller.volumeMounts }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
-          {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"

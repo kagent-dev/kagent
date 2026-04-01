@@ -1,4 +1,4 @@
-package main
+package migrations
 
 import (
 	"context"
@@ -7,9 +7,12 @@ import (
 	"maps"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	testcontainers "github.com/testcontainers/testcontainers-go"
+	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // --- migration fixtures ---
@@ -75,10 +78,41 @@ func trackVersion(t *testing.T, connStr, table string) uint {
 	return v
 }
 
+// startTestDB spins up a pgvector Postgres container and returns its connection
+// string, registering cleanup with t. It does not run any migrations.
+func startTestDB(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	pgContainer, err := tcpostgres.Run(ctx,
+		"pgvector/pgvector:pg18-trixie",
+		tcpostgres.WithDatabase("kagent_test"),
+		tcpostgres.WithUsername("postgres"),
+		tcpostgres.WithPassword("kagent"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		t.Fatalf("startTestDB: start container: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := pgContainer.Terminate(ctx); err != nil {
+			t.Logf("warning: failed to terminate postgres container: %v", err)
+		}
+	})
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("startTestDB: connection string: %v", err)
+	}
+	return connStr
+}
+
 // --- applyDir tests ---
 
 func TestApplyDir_HappyPath(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations")
 	if err != nil {
@@ -93,7 +127,7 @@ func TestApplyDir_HappyPath(t *testing.T) {
 }
 
 func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
 		t.Fatalf("first apply: %v", err)
@@ -111,7 +145,7 @@ func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
 }
 
 func TestApplyDir_RollsBackWhenFirstMigrationFails(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	if _, err := applyDir(connStr, failOnFirstCoreFS, "core", "schema_migrations"); err == nil {
 		t.Fatal("expected error, got nil")
@@ -122,7 +156,7 @@ func TestApplyDir_RollsBackWhenFirstMigrationFails(t *testing.T) {
 }
 
 func TestApplyDir_RollsBackWhenLaterMigrationFails(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
 		t.Fatal("expected error, got nil")
@@ -134,7 +168,7 @@ func TestApplyDir_RollsBackWhenLaterMigrationFails(t *testing.T) {
 }
 
 func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	// Establish a baseline at version 1.
 	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
@@ -153,7 +187,7 @@ func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
 // --- rollbackDir tests ---
 
 func TestRollbackDir_RollsBackToTarget(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -167,7 +201,7 @@ func TestRollbackDir_RollsBackToTarget(t *testing.T) {
 }
 
 func TestRollbackDir_PartialRollback(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -187,7 +221,7 @@ func TestRollbackDir_PartialRollback(t *testing.T) {
 // core has no new migrations (ErrNoChange) and vector fails. Core should not
 // be downgraded by the cross-track rollback.
 func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
@@ -218,7 +252,7 @@ func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
 }
 
 func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
-	connStr := dbtest.StartT(context.Background(), t)
+	connStr := startTestDB(t)
 
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
