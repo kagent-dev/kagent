@@ -214,6 +214,10 @@ jobs:
         working-directory: ./ui
         run: npm run test
 
+      - name: Install Playwright browser (Chromium)
+        working-directory: ./ui
+        run: npx playwright install --with-deps chromium
+
       - name: Run Storybook tests (Vitest + Playwright)
         working-directory: ./ui
         run: npm run test:vitest
