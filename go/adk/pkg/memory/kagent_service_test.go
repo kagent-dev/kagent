@@ -146,7 +146,7 @@ func TestKagentMemoryService_AddSession(t *testing.T) {
 				model:           nil, // No summarization
 			}
 
-			err := svc.AddSession(context.Background(), tt.session)
+			err := svc.AddSessionToMemory(context.Background(), tt.session)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -251,7 +251,7 @@ func TestKagentMemoryService_Search(t *testing.T) {
 				model:           nil,
 			}
 
-			resp, err := svc.Search(context.Background(), &memory.SearchRequest{
+			resp, err := svc.SearchMemory(context.Background(), &memory.SearchRequest{
 				Query:  tt.query,
 				UserID: tt.userID,
 			})

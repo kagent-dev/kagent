@@ -573,8 +573,8 @@ gomodules.xyz/jsonpatch/v2 v2.4.0 h1:Ci3iUJyx9UeRx7CeFN8ARgGbkESwJK+KB9lLcWxY/Zw
 gomodules.xyz/jsonpatch/v2 v2.4.0/go.mod h1:AH3dM2RI6uoBZxn3LVrfvJ3E0/9dG4cSrbuBJT4moAY=
 gonum.org/v1/gonum v0.16.0 h1:5+ul4Swaf3ESvrOnidPp4GZbzf0mxVQpDCYUQE7OJfk=
 gonum.org/v1/gonum v0.16.0/go.mod h1:fef3am4MQ93R2HHpKnLk4/Tbh/s0+wqD5nfa6Pnwy4E=
-google.golang.org/adk v0.6.0 h1:hQl+K1qcvJ+B6rGBI+9T/Y6t21XsBQ8pRJqZYaOwK5M=
-google.golang.org/adk v0.6.0/go.mod h1:nSTAyo0DQnua9dfuiDpMWq2crE9jE24ZaFJO4hwueUI=
+google.golang.org/adk v1.0.0 h1:DcJGKH9YweOdsAvE5Hu9UhhLoVYcNEVKzvOPS+B49lQ=
+google.golang.org/adk v1.0.0/go.mod h1:wLmpRAp0zXcrdUN2V6mNoh+mj/4O16k0YzGJMNF7Mjk=
 google.golang.org/api v0.252.0 h1:xfKJeAJaMwb8OC9fesr369rjciQ704AjU/psjkKURSI=
 google.golang.org/api v0.252.0/go.mod h1:dnHOv81x5RAmumZ7BWLShB/u7JZNeyalImxHmtTHxqw=
 google.golang.org/genai v1.40.0 h1:kYxyQSH+vsib8dvsgyLJzsVEIv5k3ZmHJyVqdvGncmc=

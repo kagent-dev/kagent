@@ -44,7 +44,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/text v0.34.0
-	google.golang.org/adk v0.6.0
+	google.golang.org/adk v1.0.0
 	google.golang.org/genai v1.40.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
