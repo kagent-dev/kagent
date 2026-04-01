@@ -166,7 +166,7 @@ type LangGraphCheckpoint struct {
 	Metadata           string     `json:"metadata"`
 	Checkpoint         string     `json:"checkpoint"`
 	CheckpointType     string     `json:"checkpoint_type"`
-	Version            int32      `json:"version"`
+	Version            int64      `json:"version"`
 }
 
 type LangGraphCheckpointWrite struct {
@@ -174,7 +174,7 @@ type LangGraphCheckpointWrite struct {
 	ThreadID     string     `json:"thread_id"`
 	CheckpointNS string     `json:"checkpoint_ns"`
 	CheckpointID string     `json:"checkpoint_id"`
-	WriteIdx     int32      `json:"write_idx"`
+	WriteIdx     int64      `json:"write_idx"`
 	Value        string     `json:"value"`
 	ValueType    string     `json:"value_type"`
 	Channel      string     `json:"channel"`
@@ -212,7 +212,7 @@ type Memory struct {
 	Metadata    string          `json:"metadata"`
 	CreatedAt   time.Time       `json:"created_at"`
 	ExpiresAt   *time.Time      `json:"expires_at,omitempty"`
-	AccessCount int32           `json:"access_count"`
+	AccessCount int64           `json:"access_count"`
 }
 
 // AgentMemorySearchResult is the result of a vector similarity search over Memory.

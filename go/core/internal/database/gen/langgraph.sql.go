@@ -253,7 +253,7 @@ type UpsertCheckpointParams struct {
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            *int32
+	Version            *int64
 }
 
 func (q *Queries) UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error {
@@ -289,7 +289,7 @@ type UpsertCheckpointWriteParams struct {
 	ThreadID     string
 	CheckpointNs string
 	CheckpointID string
-	WriteIdx     int32
+	WriteIdx     int64
 	Value        string
 	ValueType    string
 	Channel      string

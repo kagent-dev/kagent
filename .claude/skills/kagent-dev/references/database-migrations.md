@@ -1,12 +1,13 @@
 # Database Migrations Guide
 
-kagent uses [golang-migrate](https://github.com/golang-migrate/migrate) with embedded SQL files. Migrations run as a Kubernetes **init container** (`kagent-migrate`) before the controller starts.
+kagent uses [golang-migrate](https://github.com/golang-migrate/migrate) with embedded SQL files and [sqlc](https://sqlc.dev/) for type-safe query generation. Migrations run **in-app at startup** — the controller applies them before accepting traffic.
 
 ## Structure
 
 ```
 go/core/pkg/migrations/
-├── migrations.go          # Embeds the FS (go:embed)
+├── migrations.go          # Embeds the FS (go:embed); exports FS for downstream consumers
+├── runner.go              # RunUp / RunDown / RunDownAll / RunVersion / RunForce
 ├── core/                  # Core schema (tracked in schema_migrations table)
 │   ├── 000001_initial.up.sql / .down.sql
 │   ├── 000002_add_session_source.up.sql / .down.sql
@@ -14,9 +15,38 @@ go/core/pkg/migrations/
 └── vector/                # pgvector schema (tracked in vector_schema_migrations table)
     ├── 000001_vector_support.up.sql / .down.sql
     └── ...
+
+go/core/internal/database/
+├── queries/               # Hand-written SQL queries (source of truth)
+│   ├── sessions.sql
+│   ├── memory.sql
+│   └── ...
+├── gen/                   # sqlc-generated Go code — DO NOT edit manually
+│   ├── db.go
+│   ├── models.go
+│   └── *.sql.go
+└── sqlc.yaml              # sqlc configuration
 ```
 
-The `kagent-migrate` binary (in `go/core/cmd/migrate/`) runs `up` by default. It manages two independent tracks — `core` and `vector` — and rolls back both if either fails.
+Migrations manage two independent tracks — `core` and `vector` — and roll back both if either fails. The `--database-vector-enabled` flag (default `true`) controls whether the vector track runs.
+
+## sqlc Workflow
+
+When you add or change a SQL query:
+
+1. Edit (or add) a `.sql` file under `go/core/internal/database/queries/`
+2. Regenerate:
+   ```bash
+   cd go/core/internal/database && sqlc generate
+   ```
+3. Commit both the query file and the updated `gen/` files together.
+
+A CI check (`.github/workflows/sqlc-generate-check.yaml`) fails the PR if `gen/` is out of sync with the queries. Never edit `gen/` by hand.
+
+**sqlc annotations used:**
+- `:one` — returns a single row
+- `:many` — returns a slice
+- `:exec` — returns only error (use for INSERT/UPDATE/DELETE that don't need the result)
 
 ## Writing Migrations
 
@@ -56,68 +86,38 @@ Files must follow `NNNNNN_description.up.sql` / `NNNNNN_description.down.sql` wi
 
 ### Down migrations
 
-Every `.up.sql` must have a corresponding `.down.sql` that exactly reverses it. Down migrations are used by the `kagent-migrate down --steps N --track core` command for rollbacks, and by automatic rollback on migration failure. They must be **idempotent** — the two-track rollback logic (roll back core if vector fails) may call them more than once in failure scenarios.
+Every `.up.sql` must have a corresponding `.down.sql` that exactly reverses it. Down migrations are used for rollbacks and by automatic rollback on migration failure. They must be **idempotent** — the two-track rollback logic (roll back core if vector fails) may call them more than once in failure scenarios.
 
 ## Multi-Instance Safety
 
 ### How the advisory lock works
 
-golang-migrate acquires a PostgreSQL **session-level** advisory lock (`pg_advisory_lock`) before running.
+The migration runner acquires a PostgreSQL **session-level** advisory lock (`pg_advisory_lock`) before running.
 
-### Init container concurrency
+### Rolling deploy concurrency
 
 If multiple pods start simultaneously (e.g., rolling deploy with replicas > 1):
-1. One init container acquires the advisory lock and runs migrations.
+1. One controller acquires the advisory lock and runs migrations.
 2. Others block on `pg_advisory_lock`.
 3. When the winner finishes and its connection closes, the next waiter acquires the lock, calls `Up()`, gets `ErrNoChange`, and exits immediately.
 
-This is safe. The only risk is if the winning init container crashes mid-migration (see Dirty State below).
+This is safe. The only risk is if the winning controller crashes mid-migration (see Dirty State below).
 
 ### Dirty state recovery
 
-If `kagent-migrate` crashes mid-migration (OOMKill, pod eviction), golang-migrate records the version as `dirty = true` in the tracking table. The next run (after the advisory lock releases) will detect dirty state and call `rollbackToVersion`, which:
+If the controller crashes mid-migration, the migration runner records the version as `dirty = true` in the tracking table. The next startup detects dirty state and calls `rollbackToVersion`, which:
 1. Calls `mg.Force(version - 1)` to clear the dirty flag.
 2. Runs the down migration to restore the previous clean state.
 3. Re-runs the failed up migration.
 
-**Requirement**: down migrations must be idempotent and correctly reverse their up migration. A missing or broken down migration requires manual recovery — see the `force` subcommand below.
-
+**Requirement**: down migrations must be idempotent and correctly reverse their up migration. A missing or broken down migration requires manual recovery using `RunForce`.
 
 ### Rollout strategy
 
 For additive, backward-compatible migrations a rolling update is safe:
 
-1. New pod starts → `kagent-migrate up` runs (advisory lock serializes concurrent runs)
+1. New pod starts → migration runner applies pending migrations (advisory lock serializes concurrent runs)
 2. New pod passes readiness probe → old pod terminates
 3. Backward-compatible schema means old pods continue operating during the window
 
 For a migration that is **not** backward-compatible, restructure it using expand/contract.
-
-## Running Migrations Locally
-
-```bash
-# Apply all pending migrations
-POSTGRES_DATABASE_URL="postgres://..." kagent-migrate up
-
-# Check current version on each track
-POSTGRES_DATABASE_URL="..." kagent-migrate version
-
-# Roll back 1 step on core track
-POSTGRES_DATABASE_URL="..." kagent-migrate down --steps 1 --track core
-
-# With vector support
-KAGENT_DATABASE_VECTOR_ENABLED=true POSTGRES_DATABASE_URL="..." kagent-migrate up
-```
-
-### Manual dirty-state recovery
-
-If a migration was partially applied (dirty state), use `force` to reset to the last clean version before running `down`:
-
-```bash
-# Force the tracking table to a specific version (clears dirty flag)
-POSTGRES_DATABASE_URL="..." kagent-migrate force <version> --track core
-# Then re-run up, or roll back:
-POSTGRES_DATABASE_URL="..." kagent-migrate down --steps 1 --track core
-```
-
-In a Kubernetes deployment, the init container runs automatically on every pod start.

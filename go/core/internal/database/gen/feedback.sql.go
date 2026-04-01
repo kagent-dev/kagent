@@ -11,10 +11,9 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 )
 
-const insertFeedback = `-- name: InsertFeedback :one
+const insertFeedback = `-- name: InsertFeedback :exec
 INSERT INTO feedback (user_id, message_id, is_positive, feedback_text, issue_type, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-RETURNING id, created_at, updated_at, deleted_at, user_id, message_id, is_positive, feedback_text, issue_type
 `
 
 type InsertFeedbackParams struct {
@@ -25,27 +24,15 @@ type InsertFeedbackParams struct {
 	IssueType    *database.FeedbackIssueType
 }
 
-func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) (Feedback, error) {
-	row := q.db.QueryRow(ctx, insertFeedback,
+func (q *Queries) InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error {
+	_, err := q.db.Exec(ctx, insertFeedback,
 		arg.UserID,
 		arg.MessageID,
 		arg.IsPositive,
 		arg.FeedbackText,
 		arg.IssueType,
 	)
-	var i Feedback
-	err := row.Scan(
-		&i.ID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-		&i.UserID,
-		&i.MessageID,
-		&i.IsPositive,
-		&i.FeedbackText,
-		&i.IssueType,
-	)
-	return i, err
+	return err
 }
 
 const listFeedback = `-- name: ListFeedback :many

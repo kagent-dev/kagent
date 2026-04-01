@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -271,7 +272,7 @@ func (c *postgresClient) DeletePushNotification(ctx context.Context, taskID stri
 
 func (c *postgresClient) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
 	isPositive := feedback.IsPositive
-	_, err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
+	err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
 		UserID:       feedback.UserID,
 		MessageID:    feedback.MessageID,
 		IsPositive:   &isPositive,
@@ -611,9 +612,9 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 				Content:     derefStr(r.Content),
 				Embedding:   r.Embedding,
 				Metadata:    derefStr(r.Metadata),
-				CreatedAt:   r.CreatedAt,
+				CreatedAt:   derefTime(r.CreatedAt),
 				ExpiresAt:   r.ExpiresAt,
-				AccessCount: derefInt32(r.AccessCount),
+				AccessCount: derefInt64(r.AccessCount),
 			},
 			Score: score,
 		}
@@ -685,8 +686,8 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 func toAgent(r dbgen.Agent) *dbpkg.Agent {
 	return &dbpkg.Agent{
 		ID:        r.ID,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		CreatedAt: derefTime(r.CreatedAt),
+		UpdatedAt: derefTime(r.UpdatedAt),
 		DeletedAt: r.DeletedAt,
 		Type:      r.Type,
 		Config:    r.Config,
@@ -698,8 +699,8 @@ func toSession(r dbgen.Session) *dbpkg.Session {
 		ID:        r.ID,
 		UserID:    r.UserID,
 		Name:      r.Name,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		CreatedAt: derefTime(r.CreatedAt),
+		UpdatedAt: derefTime(r.UpdatedAt),
 		DeletedAt: r.DeletedAt,
 		AgentID:   r.AgentID,
 	}
@@ -715,8 +716,8 @@ func toEvent(r dbgen.Event) *dbpkg.Event {
 		ID:        r.ID,
 		UserID:    r.UserID,
 		SessionID: derefStr(r.SessionID),
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		CreatedAt: derefTime(r.CreatedAt),
+		UpdatedAt: derefTime(r.UpdatedAt),
 		DeletedAt: r.DeletedAt,
 		Data:      r.Data,
 	}
@@ -725,8 +726,8 @@ func toEvent(r dbgen.Event) *dbpkg.Event {
 func toTask(r dbgen.Task) *dbpkg.Task {
 	return &dbpkg.Task{
 		ID:        r.ID,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+		CreatedAt: derefTime(r.CreatedAt),
+		UpdatedAt: derefTime(r.UpdatedAt),
 		DeletedAt: r.DeletedAt,
 		Data:      r.Data,
 		SessionID: derefStr(r.SessionID),
@@ -752,8 +753,8 @@ func toTool(r dbgen.Tool) *dbpkg.Tool {
 		ID:          r.ID,
 		ServerName:  r.ServerName,
 		GroupKind:   r.GroupKind,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
+		CreatedAt:   derefTime(r.CreatedAt),
+		UpdatedAt:   derefTime(r.UpdatedAt),
 		DeletedAt:   r.DeletedAt,
 		Description: derefStr(r.Description),
 	}
@@ -763,8 +764,8 @@ func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
 	return &dbpkg.ToolServer{
 		Name:          r.Name,
 		GroupKind:     r.GroupKind,
-		CreatedAt:     r.CreatedAt,
-		UpdatedAt:     r.UpdatedAt,
+		CreatedAt:     derefTime(r.CreatedAt),
+		UpdatedAt:     derefTime(r.UpdatedAt),
 		DeletedAt:     r.DeletedAt,
 		Description:   derefStr(r.Description),
 		LastConnected: r.LastConnected,
@@ -778,13 +779,13 @@ func toCheckpoint(r dbgen.LgCheckpoint) *dbpkg.LangGraphCheckpoint {
 		CheckpointNS:       r.CheckpointNs,
 		CheckpointID:       r.CheckpointID,
 		ParentCheckpointID: r.ParentCheckpointID,
-		CreatedAt:          r.CreatedAt,
-		UpdatedAt:          r.UpdatedAt,
+		CreatedAt:          derefTime(r.CreatedAt),
+		UpdatedAt:          derefTime(r.UpdatedAt),
 		DeletedAt:          r.DeletedAt,
 		Metadata:           r.Metadata,
 		Checkpoint:         r.Checkpoint,
 		CheckpointType:     r.CheckpointType,
-		Version:            derefInt32(r.Version),
+		Version:            derefInt64(r.Version),
 	}
 }
 
@@ -799,8 +800,8 @@ func toCheckpointWrite(r dbgen.LgCheckpointWrite) *dbpkg.LangGraphCheckpointWrit
 		ValueType:    r.ValueType,
 		Channel:      r.Channel,
 		TaskID:       r.TaskID,
-		CreatedAt:    r.CreatedAt,
-		UpdatedAt:    r.UpdatedAt,
+		CreatedAt:    derefTime(r.CreatedAt),
+		UpdatedAt:    derefTime(r.UpdatedAt),
 		DeletedAt:    r.DeletedAt,
 	}
 }
@@ -809,8 +810,8 @@ func toCrewAIMemory(r dbgen.CrewaiAgentMemory) *dbpkg.CrewAIAgentMemory {
 	return &dbpkg.CrewAIAgentMemory{
 		UserID:     r.UserID,
 		ThreadID:   r.ThreadID,
-		CreatedAt:  r.CreatedAt,
-		UpdatedAt:  r.UpdatedAt,
+		CreatedAt:  derefTime(r.CreatedAt),
+		UpdatedAt:  derefTime(r.UpdatedAt),
 		DeletedAt:  r.DeletedAt,
 		MemoryData: r.MemoryData,
 	}
@@ -821,8 +822,8 @@ func toCrewAIFlowState(r dbgen.CrewaiFlowState) *dbpkg.CrewAIFlowState {
 		UserID:     r.UserID,
 		ThreadID:   r.ThreadID,
 		MethodName: r.MethodName,
-		CreatedAt:  r.CreatedAt,
-		UpdatedAt:  r.UpdatedAt,
+		CreatedAt:  derefTime(r.CreatedAt),
+		UpdatedAt:  derefTime(r.UpdatedAt),
 		DeletedAt:  r.DeletedAt,
 		StateData:  r.StateData,
 	}
@@ -836,9 +837,9 @@ func toMemory(r dbgen.Memory) *dbpkg.Memory {
 		Content:     derefStr(r.Content),
 		Embedding:   r.Embedding,
 		Metadata:    derefStr(r.Metadata),
-		CreatedAt:   r.CreatedAt,
+		CreatedAt:   derefTime(r.CreatedAt),
 		ExpiresAt:   r.ExpiresAt,
-		AccessCount: derefInt32(r.AccessCount),
+		AccessCount: derefInt64(r.AccessCount),
 	}
 }
 
@@ -858,11 +859,18 @@ func derefStr(s *string) string {
 	return ""
 }
 
-func derefInt32(n *int32) int32 {
+func derefInt64(n *int64) int64 {
 	if n != nil {
 		return *n
 	}
 	return 0
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t != nil {
+		return *t
+	}
+	return time.Time{}
 }
 
 func derefBool(b *bool) bool {

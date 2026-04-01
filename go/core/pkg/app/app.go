@@ -264,11 +264,14 @@ type ExtensionConfig struct {
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
 // MigrationRunner applies database migrations given the resolved connection URL.
-// vectorEnabled mirrors the --database-vector-enabled flag.
+// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
+// to conditionally apply vector-specific migrations.
 // Returning a non-nil error causes the app to exit.
 //
 // Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// An optional migration runner can be provided to take over the migration process.
+// Provide a custom runner to take over the migration process entirely — for example,
+// to run additional enterprise migrations alongside or instead of the built-in ones.
+// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
 type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
 
 func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
@@ -429,8 +432,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	// Use the built-in migration runner when none is provided.
 	if migrationRunner == nil {
-		migrationRunner = func(ctx context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(ctx, url, migrations.FS, vectorEnabled)
+		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
+			return migrations.RunUp(url, migrations.FS, vectorEnabled)
 		}
 	}
 

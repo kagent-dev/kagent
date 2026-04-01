@@ -4,6 +4,7 @@ VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
 RETURNING id;
 
 -- name: SearchAgentMemory :many
+-- COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 SELECT *, COALESCE(1 - (embedding <=> $1), 0) AS score
 FROM memory
 WHERE agent_name = $2 AND user_id = $3

@@ -18,6 +18,9 @@ make helm-install  # Builds images and deploys to Kind
 make controller-manifests  # generate + copy CRDs to helm (recommended)
 make -C go generate         # DeepCopy methods only
 
+# sqlc (after editing go/core/internal/database/queries/*.sql)
+cd go/core/internal/database && sqlc generate  # regenerate gen/ — commit both
+
 # Build & test
 make -C go test               # Unit tests (includes golden file checks)
 make -C go e2e                # E2E tests (needs KAGENT_URL)
@@ -43,7 +46,7 @@ kagent/
 │   ├── api/                 # Shared types module
 │   │   ├── v1alpha2/        # Current CRD types (agent_types.go, etc.)
 │   │   ├── adk/             # ADK config types (types.go) — flows to Python runtime
-│   │   ├── database/        # GORM models
+│   │   ├── database/        # database models
 │   │   ├── httpapi/         # HTTP API types
 │   │   └── config/crd/bases/ # Generated CRD YAML
 │   ├── core/                # Infrastructure module
@@ -231,7 +234,7 @@ curl -v $KAGENT_URL/healthz                                   # Controller reach
 
 **Reproducing locally (without cluster):** Follow `go/core/test/e2e/README.md` — extract agent config, start mock LLM server, run agent with `kagent-adk test`. Much faster iteration than full cluster.
 
-**CI-specific:** E2E runs in matrix (`sqlite` + `postgres`). If only one database variant fails, it's likely database-related. If both fail, it's infrastructure. Most common CI-only failure: mock LLM unreachability because `KAGENT_LOCAL_HOST` detection fails on Linux.
+**CI-specific:** Most common CI-only failure: mock LLM unreachability because `KAGENT_LOCAL_HOST` detection fails on Linux.
 
 See `references/e2e-debugging.md` for comprehensive debugging techniques.
 
@@ -349,4 +352,4 @@ Don't use Go template syntax (`{{ }}`) in doc comments — Helm will try to pars
 - `references/translator-guide.md` - Translator patterns, `deployments.go` and `adk_api_translator.go`
 - `references/e2e-debugging.md` - Comprehensive E2E debugging, local reproduction
 - `references/ci-failures.md` - CI failure patterns and fixes
-- `references/database-migrations.md` - Migration authoring rules, multi-instance safety, GORM baseline, expand/contract pattern
+- `references/database-migrations.md` - Migration authoring rules, sqlc workflow, multi-instance safety, expand/contract pattern

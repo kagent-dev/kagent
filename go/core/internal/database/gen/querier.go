@@ -24,7 +24,7 @@ type Querier interface {
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
-	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) (Feedback, error)
+	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -45,6 +45,7 @@ type Querier interface {
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
+	// COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)
 	SearchCrewAIMemoryByTask(ctx context.Context, arg SearchCrewAIMemoryByTaskParams) ([]CrewaiAgentMemory, error)
 	SearchCrewAIMemoryByTaskLimit(ctx context.Context, arg SearchCrewAIMemoryByTaskLimitParams) ([]CrewaiAgentMemory, error)

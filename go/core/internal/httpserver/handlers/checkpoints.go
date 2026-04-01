@@ -110,7 +110,7 @@ func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.
 		ParentCheckpointID: req.ParentCheckpointID,
 		Metadata:           req.Metadata,
 		Checkpoint:         req.Checkpoint,
-		Version:            int32(req.Version),
+		Version:            int64(req.Version),
 		CheckpointType:     req.Type,
 	}
 	// Store checkpoint and writes atomically
@@ -232,7 +232,7 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 			ThreadID:     req.ThreadID,
 			CheckpointNS: req.CheckpointNS,
 			CheckpointID: req.CheckpointID,
-			WriteIdx:     int32(writeReq.Idx),
+			WriteIdx:     int64(writeReq.Idx),
 			Value:        writeReq.Value,
 			ValueType:    writeReq.Type,
 			Channel:      writeReq.Channel,

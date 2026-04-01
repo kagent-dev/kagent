@@ -1,7 +1,6 @@
 package migrations
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 // RunUp applies all pending migrations for the given FS.
 // vectorEnabled controls whether the vector track is also applied.
 // Returns an error if any track fails (and attempts rollback of previously applied tracks).
-func RunUp(_ context.Context, url string, migrationsFS fs.FS, vectorEnabled bool) error {
+func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 	corePrev, err := applyDir(url, migrationsFS, "core", "schema_migrations")
 	if err != nil {
 		return fmt.Errorf("core migrations: %w", err)

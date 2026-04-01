@@ -14,8 +14,8 @@ import (
 
 type Agent struct {
 	ID        string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
 	DeletedAt *time.Time
 	Type      string
 	Config    *adk.AgentConfig
@@ -24,8 +24,8 @@ type Agent struct {
 type CrewaiAgentMemory struct {
 	UserID     string
 	ThreadID   string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	CreatedAt  *time.Time
+	UpdatedAt  *time.Time
 	DeletedAt  *time.Time
 	MemoryData string
 }
@@ -34,8 +34,8 @@ type CrewaiFlowState struct {
 	UserID     string
 	ThreadID   string
 	MethodName string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	CreatedAt  *time.Time
+	UpdatedAt  *time.Time
 	DeletedAt  *time.Time
 	StateData  string
 }
@@ -44,8 +44,8 @@ type Event struct {
 	ID        string
 	UserID    string
 	SessionID *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
 	DeletedAt *time.Time
 	Data      string
 }
@@ -68,13 +68,13 @@ type LgCheckpoint struct {
 	CheckpointNs       string
 	CheckpointID       string
 	ParentCheckpointID *string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	CreatedAt          *time.Time
+	UpdatedAt          *time.Time
 	DeletedAt          *time.Time
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            *int32
+	Version            *int64
 }
 
 type LgCheckpointWrite struct {
@@ -82,13 +82,13 @@ type LgCheckpointWrite struct {
 	ThreadID     string
 	CheckpointNs string
 	CheckpointID string
-	WriteIdx     int32
+	WriteIdx     int64
 	Value        string
 	ValueType    string
 	Channel      string
 	TaskID       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedAt    *time.Time
+	UpdatedAt    *time.Time
 	DeletedAt    *time.Time
 }
 
@@ -99,16 +99,16 @@ type Memory struct {
 	Content     *string
 	Embedding   pgvector_go.Vector
 	Metadata    *string
-	CreatedAt   time.Time
+	CreatedAt   *time.Time
 	ExpiresAt   *time.Time
-	AccessCount *int32
+	AccessCount *int64
 }
 
 type PushNotification struct {
 	ID        string
 	TaskID    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
 	DeletedAt *time.Time
 	Data      string
 }
@@ -117,8 +117,8 @@ type Session struct {
 	ID        string
 	UserID    string
 	Name      *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
 	DeletedAt *time.Time
 	AgentID   *string
 	Source    *string
@@ -126,8 +126,8 @@ type Session struct {
 
 type Task struct {
 	ID        string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
 	DeletedAt *time.Time
 	Data      string
 	SessionID *string
@@ -137,8 +137,8 @@ type Tool struct {
 	ID          string
 	ServerName  string
 	GroupKind   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	CreatedAt   *time.Time
+	UpdatedAt   *time.Time
 	DeletedAt   *time.Time
 	Description *string
 }
@@ -146,8 +146,8 @@ type Tool struct {
 type Toolserver struct {
 	Name          string
 	GroupKind     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	CreatedAt     *time.Time
+	UpdatedAt     *time.Time
 	DeletedAt     *time.Time
 	Description   *string
 	LastConnected *time.Time
