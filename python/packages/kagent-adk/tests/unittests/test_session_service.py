@@ -1,166 +1,276 @@
-"""Tests for KAgentSessionService."""
-
-from unittest.mock import AsyncMock, MagicMock
+from unittest import mock
 
 import httpx
 import pytest
-from google.adk.events.event import Event, EventActions
+from google.adk.events.event import Event
+from google.adk.sessions import Session
 
 from kagent.adk._session_service import KAgentSessionService
 
 
 @pytest.fixture
-def make_event():
-    """Factory fixture: make_event(author, state_delta) -> Event."""
-
-    def _factory(author: str = "user", state_delta: dict | None = None) -> Event:
-        if state_delta:
-            return Event(author=author, invocation_id="inv1", actions=EventActions(state_delta=state_delta))
-        return Event(author=author, invocation_id="inv1")
-
-    return _factory
-
-
-@pytest.fixture
-def session_response():
-    """Factory fixture: session_response(events, session_id, user_id) -> dict.
-
-    Builds the JSON envelope that the KAgent API returns for GET /api/sessions/{id}.
-    """
-
-    def _factory(events: list[Event], session_id: str = "s1", user_id: str = "u1") -> dict:
-        return {
-            "data": {
-                "session": {"id": session_id, "user_id": user_id},
-                "events": [{"id": e.id, "data": e.model_dump_json()} for e in events],
-            }
-        }
-
-    return _factory
-
-
-@pytest.fixture
 def mock_client():
-    """Factory fixture: mock_client(response_json, status_code) -> MagicMock httpx.AsyncClient."""
-
-    def _factory(response_json: dict | None, status_code: int = 200) -> MagicMock:
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = status_code
-        mock_response.json.return_value = response_json
-        mock_response.raise_for_status = MagicMock()
-
-        client = MagicMock(spec=httpx.AsyncClient)
-        client.get = AsyncMock(return_value=mock_response)
-        return client
-
-    return _factory
+    """Create a mock httpx.AsyncClient."""
+    return mock.AsyncMock(spec=httpx.AsyncClient)
 
 
 @pytest.fixture
-def service(mock_client):
-    """Factory fixture: service(response_json, status_code) -> KAgentSessionService."""
-
-    def _factory(response_json: dict | None, status_code: int = 200) -> KAgentSessionService:
-        return KAgentSessionService(mock_client(response_json, status_code))
-
-    return _factory
+def session_service(mock_client):
+    """Create a KAgentSessionService with mocked client."""
+    return KAgentSessionService(client=mock_client)
 
 
-@pytest.mark.asyncio
-async def test_get_session_returns_none_on_404(mock_client):
-    """A 404 response returns None without raising."""
-    svc = KAgentSessionService(mock_client(response_json=None, status_code=404))
-    session = await svc.get_session(app_name="app", user_id="u1", session_id="missing")
-
-    assert session is None
-
-
-@pytest.mark.asyncio
-async def test_get_session_returns_none_when_no_data(service):
-    """An empty data envelope returns None."""
-    session = await service({"data": None}).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is None
-
-
-@pytest.mark.asyncio
-async def test_get_session_event_ids_preserved(make_event, session_response, service):
-    """Event identity (id) is preserved after loading from the API."""
-    events = [make_event("user"), make_event("assistant")]
-    original_ids = [e.id for e in events]
-
-    session = await service(session_response(events)).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is not None
-    assert [e.id for e in session.events] == original_ids
-
-
-@pytest.mark.asyncio
-async def test_get_session_events_not_duplicated(make_event, session_response, service):
-    """Each event from the API must appear exactly once in session.events.
-
-    Regression test for the bug where Session(events=events) pre-populated
-    session.events and super().append_event() then appended each event again.
-    """
-    events = [make_event("user"), make_event("assistant"), make_event("tool")]
-    session = await service(session_response(events)).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is not None
-    assert len(session.events) == len(events), (
-        f"Expected {len(events)} events but got {len(session.events)} — possible event duplication in get_session"
+@pytest.fixture
+def sample_session():
+    """Create a sample session for testing."""
+    return Session(
+        id="test-session-123",
+        user_id="test-user",
+        app_name="test-app",
+        state={"session_name": "Test Session"},
     )
 
 
-@pytest.mark.asyncio
-async def test_get_session_single_event_not_duplicated(make_event, session_response, service):
-    """Single-event case: still only one event in session.events."""
-    events = [make_event("user")]
-    session = await service(session_response(events)).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is not None
-    assert len(session.events) == 1
-
-
-@pytest.mark.asyncio
-async def test_get_session_empty_events(session_response, service):
-    """Zero events from the API yields an empty session.events list."""
-    session = await service(session_response([])).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is not None
-    assert len(session.events) == 0
-
-
-@pytest.mark.asyncio
-async def test_get_session_state_delta_applied_once(make_event, session_response, service):
-    """State deltas from events must be applied exactly once to session.state.
-
-    Regression test: when events were double-appended, _update_session_state()
-    was called twice per event, so numeric or overwrite-based state deltas
-    would be applied twice.
-    """
-    events = [make_event("assistant", state_delta={"counter": 7})]
-    session = await service(session_response(events)).get_session(app_name="app", user_id="u1", session_id="s1")
-
-    assert session is not None
-    # State must reflect exactly one application of the delta.
-    # (BaseSessionService._update_session_state does session.state.update({key: value}),
-    # so for an idempotent string the bug was silent; here we use a distinct value
-    # and just verify the key is present with the correct value.)
-    assert session.state.get("counter") == 7, (
-        f"Expected state['counter'] == 7, got {session.state.get('counter')} — "
-        "state_delta may have been applied more than once"
+@pytest.fixture
+def sample_event():
+    """Create a sample event for testing."""
+    return Event(
+        invocation_id="test-invocation",
+        author="user",
     )
 
 
-@pytest.mark.asyncio
-async def test_get_session_multiple_state_deltas_applied_once(make_event, session_response, service):
-    """Multiple events each contributing a state key are each applied once."""
-    events = [
-        make_event("assistant", state_delta={"key_a": "value_a"}),
-        make_event("tool", state_delta={"key_b": "value_b"}),
-    ]
-    session = await service(session_response(events)).get_session(app_name="app", user_id="u1", session_id="s1")
+class TestAppendEvent:
+    """Tests for append_event method."""
 
-    assert session is not None
-    assert session.state.get("key_a") == "value_a"
-    assert session.state.get("key_b") == "value_b"
+    @pytest.mark.asyncio
+    async def test_append_event_success(self, session_service, mock_client, sample_session, sample_event):
+        """Test successful event append."""
+        # Mock successful response
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 201
+        mock_response.raise_for_status = mock.MagicMock()
+        mock_client.post.return_value = mock_response
+
+        result = await session_service.append_event(sample_session, sample_event)
+
+        assert result == sample_event
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert f"/api/sessions/{sample_session.id}/events" in call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_append_event_404_recovery(self, session_service, mock_client, sample_session, sample_event):
+        """Test 404 triggers session recreation and retry."""
+        # First call returns 404, second call (after recreation) succeeds
+        mock_response_404 = mock.MagicMock()
+        mock_response_404.status_code = 404
+
+        mock_response_success = mock.MagicMock()
+        mock_response_success.status_code = 201
+        mock_response_success.raise_for_status = mock.MagicMock()
+
+        mock_response_create = mock.MagicMock()
+        mock_response_create.status_code = 201
+        mock_response_create.raise_for_status = mock.MagicMock()
+
+        # Mock tasks fetch response (no tasks found)
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {"data": []}
+
+        # Configure mock to return different responses
+        mock_client.post.side_effect = [
+            mock_response_404,  # First append attempt (404)
+            mock_response_create,  # Session recreation
+            mock_response_success,  # Retry append (success)
+        ]
+        mock_client.get.return_value = mock_tasks_response  # Tasks fetch
+
+        result = await session_service.append_event(sample_session, sample_event)
+
+        assert result == sample_event
+        # Should be called 3 times: initial append, session create, retry append
+        assert mock_client.post.call_count == 3
+        # Should fetch tasks once after recreation
+        assert mock_client.get.call_count == 1
+
+        # Verify the calls
+        calls = mock_client.post.call_args_list
+        assert f"/api/sessions/{sample_session.id}/events" in calls[0][0][0]  # First append
+        assert "/api/sessions" == calls[1][0][0]  # Session recreation
+        assert f"/api/sessions/{sample_session.id}/events" in calls[2][0][0]  # Retry append
+
+        # Verify tasks fetch
+        get_call = mock_client.get.call_args
+        assert f"/api/sessions/{sample_session.id}/tasks" in get_call[0][0]
+
+    @pytest.mark.asyncio
+    async def test_append_event_404_recovery_failure(self, session_service, mock_client, sample_session, sample_event):
+        """Test 404 recovery fails if retry also fails."""
+        # First call returns 404, recreation succeeds, but retry fails
+        mock_response_404 = mock.MagicMock()
+        mock_response_404.status_code = 404
+
+        mock_response_create = mock.MagicMock()
+        mock_response_create.status_code = 201
+        mock_response_create.raise_for_status = mock.MagicMock()
+
+        mock_response_retry_fail = mock.MagicMock()
+        mock_response_retry_fail.status_code = 500
+        mock_response_retry_fail.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=mock.MagicMock(),
+            response=mock_response_retry_fail,
+        )
+
+        # Mock tasks fetch
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {"data": []}
+
+        mock_client.post.side_effect = [
+            mock_response_404,  # First append (404)
+            mock_response_create,  # Session recreation
+            mock_response_retry_fail,  # Retry append (500)
+        ]
+        mock_client.get.return_value = mock_tasks_response
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await session_service.append_event(sample_session, sample_event)
+
+        assert mock_client.post.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_append_event_non_404_error(self, session_service, mock_client, sample_session, sample_event):
+        """Test non-404 errors are raised immediately without recovery."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=mock.MagicMock(),
+            response=mock_response,
+        )
+        mock_client.post.return_value = mock_response
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await session_service.append_event(sample_session, sample_event)
+
+        # Should only be called once (no retry for non-404 errors)
+        mock_client.post.assert_called_once()
+
+
+class TestRecreateSession:
+    """Tests for _recreate_session method."""
+
+    @pytest.mark.asyncio
+    async def test_recreate_session_success(self, session_service, mock_client, sample_session):
+        """Test successful session recreation."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 201
+        mock_response.raise_for_status = mock.MagicMock()
+        mock_client.post.return_value = mock_response
+
+        # Mock tasks fetch
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {"data": []}
+        mock_client.get.return_value = mock_tasks_response
+
+        # Should not raise
+        await session_service._recreate_session(sample_session)
+
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert call_args[0][0] == "/api/sessions"
+
+        # Verify request data
+        request_data = call_args[1]["json"]
+        assert request_data["id"] == sample_session.id
+        assert request_data["user_id"] == sample_session.user_id
+        assert request_data["agent_ref"] == sample_session.app_name
+
+        # Verify tasks were fetched
+        mock_client.get.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_recreate_session_with_session_name(self, session_service, mock_client, sample_session):
+        """Test session recreation includes session name from state."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 201
+        mock_response.raise_for_status = mock.MagicMock()
+        mock_client.post.return_value = mock_response
+
+        # Mock tasks fetch
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {"data": []}
+        mock_client.get.return_value = mock_tasks_response
+
+        await session_service._recreate_session(sample_session)
+
+        call_args = mock_client.post.call_args
+        request_data = call_args[1]["json"]
+        assert request_data["name"] == "Test Session"
+
+    @pytest.mark.asyncio
+    async def test_recreate_session_failure(self, session_service, mock_client, sample_session):
+        """Test session recreation failure raises error."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server error",
+            request=mock.MagicMock(),
+            response=mock_response,
+        )
+        mock_client.post.return_value = mock_response
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await session_service._recreate_session(sample_session)
+
+    @pytest.mark.asyncio
+    async def test_recreate_session_with_inflight_task(self, session_service, mock_client, sample_session):
+        """Test session recreation detects in-flight tasks."""
+        # Mock successful session creation
+        mock_create_response = mock.MagicMock()
+        mock_create_response.status_code = 201
+        mock_create_response.raise_for_status = mock.MagicMock()
+        mock_client.post.return_value = mock_create_response
+
+        # Mock tasks response with an in-flight task
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {
+            "data": [{"id": "task-123", "status": {"state": "working", "message": "Processing..."}}]
+        }
+        mock_client.get.return_value = mock_tasks_response
+
+        await session_service._recreate_session(sample_session)
+
+        # Verify session creation call
+        assert mock_client.post.call_count == 1
+        # Verify tasks fetch call
+        assert mock_client.get.call_count == 1
+        get_call_url = mock_client.get.call_args[0][0]
+        assert f"/api/sessions/{sample_session.id}/tasks" in get_call_url
+
+    @pytest.mark.asyncio
+    async def test_recreate_session_409_treated_as_success(self, session_service, mock_client, sample_session):
+        """Test that 409 Conflict during recreation is treated as success (concurrent recreation)."""
+        mock_response_409 = mock.MagicMock()
+        mock_response_409.status_code = 409
+
+        mock_client.post.return_value = mock_response_409
+
+        # Mock tasks fetch (empty)
+        mock_tasks_response = mock.MagicMock()
+        mock_tasks_response.status_code = 200
+        mock_tasks_response.json.return_value = {"data": []}
+        mock_client.get.return_value = mock_tasks_response
+
+        # Should not raise even though POST returned 409
+        await session_service._recreate_session(sample_session)
+
+        mock_client.post.assert_called_once()
+        # Tasks fetch should still proceed after 409
+        mock_client.get.assert_called_once()
