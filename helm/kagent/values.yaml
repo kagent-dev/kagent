@@ -93,6 +93,22 @@ database:
         limits:
           cpu: 500m
           memory: 512Mi
+      # -- Pod-level security context for the bundled PostgreSQL deployment.
+      podSecurityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # -- Container-level security context for the bundled PostgreSQL container.
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
 
 # ==============================================================================
 # RBAC CONFIGURATION
@@ -490,4 +506,3 @@ otel:
         endpoint: ""
         timeout: 15
         insecure: true
-
