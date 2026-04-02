@@ -51,6 +51,23 @@ var failVectorFS = fstest.MapFS{
 	"vector/000001_bad.down.sql": {Data: []byte(`SELECT 1;`)},
 }
 
+// expandCoreFS creates shared_data with two columns. Used to test cross-track
+// rollback scenarios where the vector track depends on this table.
+var expandCoreFS = fstest.MapFS{
+	"core/000001_create_shared.up.sql":   {Data: []byte(`CREATE TABLE IF NOT EXISTS shared_data (id SERIAL PRIMARY KEY, col_a TEXT);`)},
+	"core/000001_create_shared.down.sql": {Data: []byte(`DROP TABLE IF EXISTS shared_data;`)},
+	"core/000002_add_col_b.up.sql":       {Data: []byte(`ALTER TABLE shared_data ADD COLUMN IF NOT EXISTS col_b TEXT;`)},
+	"core/000002_add_col_b.down.sql":     {Data: []byte(`ALTER TABLE shared_data DROP COLUMN IF EXISTS col_b;`)},
+}
+
+// failVectorWithDependencyFS is a vector migration that partially succeeds
+// (adds a column to shared_data) then fails. Its down migration uses IF EXISTS
+// so rollback is safe even if the column was never added.
+var failVectorWithDependencyFS = fstest.MapFS{
+	"vector/000001_bad_depends_on_core.up.sql":   {Data: []byte(`ALTER TABLE shared_data ADD COLUMN IF NOT EXISTS vec_col VECTOR(3); ALTER TABLE no_such_table ADD COLUMN x TEXT;`)},
+	"vector/000001_bad_depends_on_core.down.sql": {Data: []byte(`ALTER TABLE shared_data DROP COLUMN IF EXISTS vec_col;`)},
+}
+
 // mergeFS combines multiple MapFS values into one.
 func mergeFS(fsMaps ...fstest.MapFS) fstest.MapFS {
 	out := fstest.MapFS{}
@@ -274,6 +291,41 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	}
 
 	// Cross-track rollback: core should be rolled back to its pre-run version.
+	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
+	if got := trackVersion(t, connStr, "schema_migrations"); got != corePrev {
+		t.Errorf("core version after cross-track rollback = %d, want %d", got, corePrev)
+	}
+}
+
+// TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure verifies that when a
+// vector migration fails and triggers a core cross-track rollback, the IF EXISTS
+// guards in both down migrations prevent errors even though the vector migration
+// only partially applied and shared_data is being dropped by core's rollback.
+func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
+	connStr := startTestDB(t)
+
+	combined := mergeFS(expandCoreFS, failVectorWithDependencyFS)
+
+	// Core succeeds (shared_data created with col_a and col_b).
+	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations")
+	if err != nil {
+		t.Fatalf("core apply: %v", err)
+	}
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Fatalf("core version = %d, want 2", got)
+	}
+
+	// Vector fails; its down migration (DROP COLUMN IF EXISTS vec_col) must not
+	// error even though the column was never added.
+	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
+		t.Fatal("expected vector error, got nil")
+	}
+	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 0 {
+		t.Errorf("vector version after self-rollback = %d, want 0", got)
+	}
+
+	// Cross-track rollback: core rolls back to its pre-run version.
+	// Core's down migration (DROP TABLE IF EXISTS shared_data) must succeed.
 	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
 	if got := trackVersion(t, connStr, "schema_migrations"); got != corePrev {
 		t.Errorf("core version after cross-track rollback = %d, want %d", got, corePrev)

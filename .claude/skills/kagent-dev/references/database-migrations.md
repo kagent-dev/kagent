@@ -50,18 +50,27 @@ A CI check (`.github/workflows/sqlc-generate-check.yaml`) fails the PR if `gen/`
 
 ## Writing Migrations
 
-### Version compatibility policy
+### Additive-only policy
 
-kagent supports **n-1 minor version** compatibility. Users must not skip minor versions when upgrading. This gives us a defined window for schema cleanup:
+The schema is **additive-only**. Columns and tables are deprecated in application code but never removed from the database. This is not just a kagent convention — it is the only reliable guarantee that can be made to downstream consumers who deploy on their own schedule and may have FK constraints pointing at kagent-owned tables.
 
-- **Version N**: stop using the old column/table in application code; the schema still contains it (backward compatible with N-1)
-- **Version N+1**: drop the old column/table (or N+2 for additional safety if rollback risk is high)
+This mirrors how mature projects handle the same problem: Salesforce platform-enforces additive-only for managed packages after GA; Stripe never removes fields from a versioned API response; GitLab requires multi-phase explicit FK teardown before any column can be contracted.
 
-Never migrate data and remove the old structure in the same migration — if the migration fails mid-way, rollback is much harder. Always separate the two steps across versions.
+**Why contraction is unsafe with multiple tracks and downstream consumers:**
 
-### Backward-compatible schema changes (expand/contract)
+The two-track design (core → vector) and downstream consumers (who may add their own migration track on top of core/vector) create a class of failure that has no clean runtime fix:
 
-During a rolling deploy, old pods (running the previous code version) will be reading and writing a schema that has already been upgraded by the new pod's init container. **Every migration must be backward-compatible with the n-1 minor version's code.** Locking serializes concurrent migration runs but does nothing to protect old pods still running against the new schema.
+1. **Fresh install**: all core migrations run to completion — including any contraction — before vector or downstream migrations run. A later track's migration referencing a contracted column fails because it no longer exists.
+2. **Existing database**: Postgres CASCADE silently drops dependent indexes or constraints created by a later track when core contracts the column. Migration tracking shows the later track at its old version, but the actual schema no longer matches.
+3. **Downstream at unknown version**: downstream consumers may have deployed weeks behind. A core contraction breaks their upgrade path with no warning.
+
+No migration tool (Flyway, Liquibase, Atlas, golang-migrate) automatically detects or prevents this. It must be enforced by policy.
+
+**Contracting is not allowed.** If a column or table is no longer needed, stop using it in application code and leave it in the database.
+
+### Backward-compatible schema changes
+
+During a rolling deploy, old pods will be reading and writing a schema that has already been upgraded. **Every migration must be backward-compatible with the previous version's code.**
 
 | Change | Old code behavior | Safe? |
 |--------|------------------|-------|
@@ -73,12 +82,26 @@ During a rolling deploy, old pods (running the previous code version) will be re
 | Drop/rename column old code references | Old SELECT/INSERT errors | ❌ |
 | Change compatible type (e.g. `int` → `bigint`) | Usually fine | ⚠️ |
 
-**Expand/contract pattern for destructive changes:**
+**Expand pattern for schema changes:**
 1. **Version N (Expand)**: add the new column/table (nullable or with default); old code still works
-2. **Version N (Deploy)**: ship new code that reads from the new structure, writes to both
-3. **Version N+1 (Contract)**: drop the old column/table in a follow-on migration
+2. **Version N (Deploy)**: ship new code that uses the new structure
+3. Old column/table stays in the database indefinitely — stop using it in code, do not drop it
 
-Never drop a column or rename a column in the same release as the code change that stops using it.
+### Idempotency and cross-track safety
+
+All DDL statements must use `IF EXISTS` / `IF NOT EXISTS` guards:
+
+```sql
+-- Up
+CREATE TABLE IF NOT EXISTS foo (...);
+ALTER TABLE foo ADD COLUMN IF NOT EXISTS bar TEXT;
+
+-- Down
+DROP TABLE IF EXISTS foo;
+ALTER TABLE foo DROP COLUMN IF EXISTS bar;
+```
+
+This is especially important because the `core` and `vector` tracks are applied sequentially and rolled back independently. If a `core` migration that a `vector` migration depends on is rolled back (e.g., vector fails and triggers a core rollback), the vector track may later attempt to reference a table or column that no longer exists. Guards prevent those cross-track dependencies from causing hard errors during rollback.
 
 ### Naming
 
@@ -120,4 +143,18 @@ For additive, backward-compatible migrations a rolling update is safe:
 2. New pod passes readiness probe → old pod terminates
 3. Backward-compatible schema means old pods continue operating during the window
 
-For a migration that is **not** backward-compatible, restructure it using expand/contract.
+For a migration that is **not** backward-compatible, restructure it using the expand pattern (add new column/table, migrate code, leave old column in place indefinitely).
+
+## Static Analysis Enforcement
+
+The policies above are enforced by static analysis tests in `go/core/pkg/migrations/cross_track_test.go`. These run against the embedded SQL files — no database required.
+
+| Test | What it enforces |
+|------|-----------------|
+| `TestNoContractingDDL` | Up migrations must not contain `DROP TABLE`, `DROP COLUMN`, `RENAME TABLE`, or `RENAME COLUMN` |
+| `TestNoCrossTrackDDL` | No track may `ALTER TABLE` or `CREATE INDEX ON` a table owned by another track |
+| `TestMigrationGuards` | Up migrations must use `IF NOT EXISTS` on all `CREATE`/`ADD COLUMN`; down migrations must use `IF EXISTS` on all `DROP` statements |
+
+**Adding a new track**: add the track directory name to the `tracks` slice in each test so the new track is covered by the same checks.
+
+These tests catch policy violations at PR time without needing a running database. They complement the integration tests in `runner_test.go`, which verify the runner's rollback and concurrency behavior against a real Postgres instance.
