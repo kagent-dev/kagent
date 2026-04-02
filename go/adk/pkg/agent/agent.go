@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
@@ -57,7 +59,11 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers)
+		var httpClient *http.Client
+		if remoteAgent.Timeout != nil {
+			httpClient = &http.Client{Timeout: time.Duration(*remoteAgent.Timeout * float64(time.Second))}
+		}
+		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, httpClient, remoteAgent.Headers)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
