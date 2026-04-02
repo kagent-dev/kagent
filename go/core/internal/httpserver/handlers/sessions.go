@@ -177,7 +177,16 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Getting session from database")
-	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	// Agent callers (the ADK runtime) need to find sessions regardless of which
+	// user created them, since the A2A user ID is synthetic and won't match the
+	// session's real user_id. Users are restricted to their own sessions.
+	var session *database.Session
+	principal, _ := GetPrincipal(r)
+	if principal.Agent.ID != "" {
+		session, err = h.DatabaseService.GetSessionByID(r.Context(), sessionID)
+	} else {
+		session, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	}
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -208,7 +217,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		}
 	}
 
-	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
+	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, session.UserID, queryOptions)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get events for session", err))
 		return
@@ -271,6 +280,53 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 
 	log.Info("Successfully updated session")
 	data := api.NewResponse(session, "Successfully updated session", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandlePatchSession handles PATCH /api/sessions/{session_id} to update the session name.
+func (h *SessionsHandler) HandlePatchSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "patch-db")
+
+	sessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("session_id", sessionID)
+
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	var patchReq struct {
+		Name string `json:"name"`
+	}
+	if err := DecodeJSONBody(r, &patchReq); err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+	if patchReq.Name == "" {
+		w.RespondWithError(errors.NewBadRequestError("name is required", nil))
+		return
+	}
+
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		return
+	}
+
+	session.Name = &patchReq.Name
+	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to update session name", err))
+		return
+	}
+
+	log.Info("Successfully updated session name", "name", patchReq.Name)
+	data := api.NewResponse(session, "Session name updated successfully", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 

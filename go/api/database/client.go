@@ -39,6 +39,7 @@ type Client interface {
 
 	// Get methods
 	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
+	GetSessionByID(ctx context.Context, sessionID string) (*Session, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTask(ctx context.Context, id string) (*protocol.Task, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)

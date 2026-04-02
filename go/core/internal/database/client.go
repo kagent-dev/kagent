@@ -114,6 +114,13 @@ func (c *clientImpl) GetSession(ctx context.Context, sessionID string, userID st
 		Clause{Key: "user_id", Value: userID})
 }
 
+// GetSessionByID retrieves a session by id only, without filtering by user ID.
+// Use this for internal/agent callers that need cross-user session visibility.
+func (c *clientImpl) GetSessionByID(ctx context.Context, sessionID string) (*dbpkg.Session, error) {
+	return get[dbpkg.Session](c.db.WithContext(ctx),
+		Clause{Key: "id", Value: sessionID})
+}
+
 // GetAgent retrieves an agent by name and user ID
 func (c *clientImpl) GetAgent(ctx context.Context, agentID string) (*dbpkg.Agent, error) {
 	return get[dbpkg.Agent](c.db.WithContext(ctx), Clause{Key: "id", Value: agentID})

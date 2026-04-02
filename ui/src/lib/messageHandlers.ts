@@ -612,6 +612,7 @@ export type MessageHandlers = {
     namespace: string;
     agentName: string;
   };
+  onSessionNameUpdate?: (sessionId: string, name: string) => void;
 };
 
 export const createMessageHandlers = (handlers: MessageHandlers) => {
@@ -929,6 +930,11 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }
 
       if (statusUpdate.final) {
+        const sessionName = getMetadataValue<string>(adkMetadata as Record<string, unknown>, "session_name");
+        const sessionId = getMetadataValue<string>(adkMetadata as Record<string, unknown>, "session_id");
+        if (sessionName && sessionId && handlers.onSessionNameUpdate) {
+          handlers.onSessionNameUpdate(sessionId, sessionName);
+        }
         finalizeStreaming();
       }
     } catch (error) {

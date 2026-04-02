@@ -91,6 +91,18 @@ export default function ChatLayoutUI({
     };
   }, [agentName, namespace]);
 
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleSessionNameUpdate = (event: any) => {
+      const { sessionId, name } = event.detail;
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, name } : s));
+    };
+    window.addEventListener('session-name-updated', handleSessionNameUpdate);
+    return () => {
+      window.removeEventListener('session-name-updated', handleSessionNameUpdate);
+    };
+  }, []);
+
   return (
     <>
       <SessionsSidebar

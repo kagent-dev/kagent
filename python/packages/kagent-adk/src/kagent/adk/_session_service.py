@@ -122,6 +122,12 @@ class KAgentSessionService(BaseSessionService):
             for event in events:
                 await super().append_event(session, event)
 
+            # Store DB session metadata in state for session name tracking.
+            # Use underscore-prefixed keys to avoid conflicts with agent state.
+            if session_data.get("name"):
+                session.state["_kagent_session_name"] = session_data["name"]
+            session.state["_kagent_session_updated_at"] = session_data.get("updated_at", "")
+
             return session
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -153,6 +159,15 @@ class KAgentSessionService(BaseSessionService):
         # Make API call to delete session
         response = await self.client.delete(
             f"/api/sessions/{session_id}?user_id={user_id}",
+            headers={"X-User-ID": user_id},
+        )
+        response.raise_for_status()
+
+    async def update_session_name(self, session_id: str, user_id: str, name: str) -> None:
+        """Update the session name via the kagent PATCH endpoint."""
+        response = await self.client.patch(
+            f"/api/sessions/{session_id}",
+            json={"name": name},
             headers={"X-User-ID": user_id},
         )
         response.raise_for_status()

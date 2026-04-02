@@ -93,7 +93,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     agentContext: {
       namespace: selectedNamespace,
       agentName: selectedAgentName
-    }
+    },
+    onSessionNameUpdate: (sessionId, name) => {
+      window.dispatchEvent(new CustomEvent('session-name-updated', { detail: { sessionId, name } }));
+    },
   }), [selectedNamespace, selectedAgentName]);
 
   useEffect(() => {

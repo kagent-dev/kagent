@@ -138,8 +138,10 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	var result struct {
 		Data struct {
 			Session struct {
-				ID     string `json:"id"`
-				UserID string `json:"user_id"`
+				ID        string    `json:"id"`
+				UserID    string    `json:"user_id"`
+				Name      *string   `json:"name"`
+				UpdatedAt time.Time `json:"updated_at"`
 			} `json:"session"`
 			Events []struct {
 				Data json.RawMessage `json:"data"`
@@ -172,6 +174,8 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 		adkEvents = append(adkEvents, e)
 	}
 
+	log.V(1).Info("Parsed session events", "totalEvents", len(result.Data.Events), "outputEvents", len(adkEvents))
+
 	return &adksession.GetResponse{
 		Session: &localSession{
 			appName:   req.AppName,
@@ -179,6 +183,7 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 			sessionID: result.Data.Session.ID,
 			events:    adkEvents,
 			state:     make(map[string]any),
+			updatedAt: result.Data.Session.UpdatedAt,
 		},
 	}, nil
 }
@@ -308,6 +313,37 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 		SessionID: sessionID,
 	})
 	return err
+}
+
+// UpdateSessionName updates the display name of a session via the KAgent API.
+func (s *KAgentSessionService) UpdateSessionName(ctx context.Context, userID, sessionID, name string) error {
+	log := logr.FromContextOrDiscard(ctx)
+	log.V(1).Info("Updating session name", "sessionID", sessionID, "userID", userID, "name", name)
+
+	body, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, s.BaseURL+"/api/sessions/"+sessionID, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", userID)
+
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute update session name request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to update session name: status %d - %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	log.V(1).Info("Session name updated successfully", "sessionID", sessionID)
+	return nil
 }
 
 // normalizeConfirmationEventRole fixes the role on adk_request_confirmation
