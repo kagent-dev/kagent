@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"strings"
 
@@ -94,7 +95,13 @@ func newGRPCTracerProvider(ctx context.Context, res *resource.Resource) (*sdktra
 
 	var opts []otlptracegrpc.Option
 	if traceEndpoint != "" {
-		opts = append(opts, otlptracegrpc.WithEndpointURL(traceEndpoint))
+		// If the endpoint has a valid scheme, host, port, path ("scheme://host:port/path"), set endpoint url.
+		if u, err := url.Parse(traceEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			opts = append(opts, otlptracegrpc.WithEndpointURL(u.String()))
+		} else {
+			// Else, treat it as a regular endpoint ("example.com:4317", no scheme or path)
+			opts = append(opts, otlptracegrpc.WithEndpoint(traceEndpoint))
+		}
 	}
 
 	exporter, err := otlptracegrpc.New(ctx, opts...)
@@ -119,7 +126,11 @@ func newGRPCLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog
 
 	var opts []otlploggrpc.Option
 	if logEndpoint != "" {
-		opts = append(opts, otlploggrpc.WithEndpointURL(logEndpoint))
+		if u, err := url.Parse(logEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			opts = append(opts, otlploggrpc.WithEndpointURL(u.String()))
+		} else {
+			opts = append(opts, otlploggrpc.WithEndpoint(logEndpoint))
+		}
 	}
 
 	exporter, err := otlploggrpc.New(ctx, opts...)
