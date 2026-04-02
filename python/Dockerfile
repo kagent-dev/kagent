@@ -62,7 +62,7 @@ RUN addgroup -g 1001 pythongroup                           && \
 # Install anthropic sandbox runtime and dependencies
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add \
-    nodejs npm bubblewrap socat ripgrep
+    nodejs npm node-gyp bubblewrap socat ripgrep
 
 # Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
 # This avoids scope-related rename issues in global node_modules
