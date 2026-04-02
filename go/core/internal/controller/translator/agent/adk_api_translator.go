@@ -1582,8 +1582,11 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 
 var (
 	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
-	// validHostPattern rejects shell metacharacters in hostnames and ports to prevent
-	// command injection when values are interpolated into ssh-keyscan shell commands.
+
+	// validHostPattern and validPortPattern are the security boundary that prevents
+	// shell injection when host/port values are interpolated into the ssh-keyscan
+	// commands in skills-init.sh.tmpl. Do NOT relax these patterns without auditing
+	// every template site that references .Host or .Port.
 	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
 	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
 )
@@ -1722,7 +1725,7 @@ func prepareSkillsInitData(
 	}
 
 	seen := make(map[string]bool)
-	seenSSHHosts := make(map[sshHostData]bool)
+	seenSSHHosts := make(map[string]bool)
 
 	for _, ref := range gitRefs {
 		subPath := strings.TrimSuffix(ref.Path, "/")
@@ -1742,10 +1745,15 @@ func prepareSkillsInitData(
 		}
 		seen[name] = true
 
+		// SSH host collection is separate from the AuthMountPath block above
+		// because it runs per-ref inside the loop, not once at the top level.
 		if authSecretRef != nil {
-			if sshHost, ok := gitSSHHost(ref.URL); ok && !seenSSHHosts[sshHost] {
-				seenSSHHosts[sshHost] = true
-				data.SSHHosts = append(data.SSHHosts, sshHost)
+			if sshHost, ok := gitSSHHost(ref.URL); ok {
+				key := sshHost.Host + ":" + sshHost.Port
+				if !seenSSHHosts[key] {
+					seenSSHHosts[key] = true
+					data.SSHHosts = append(data.SSHHosts, sshHost)
+				}
 			}
 		}
 
