@@ -445,6 +445,10 @@ type TypedReference struct {
 	Name     string `json:"name"`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+	// Timeout specifies the A2A client read timeout in seconds for calls to this agent.
+	// Defaults to 600s if unset.
+	// +optional
+	Timeout *float64 `json:"timeout,omitempty"`
 }
 
 func (t *TypedReference) GroupKind() schema.GroupKind {
