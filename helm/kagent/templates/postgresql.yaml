@@ -22,6 +22,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  {{- if $pg.storageClassName }}
+  storageClassName: {{ $pg.storageClassName | quote }}
+  {{- end }}
   resources:
     requests:
       storage: {{ $pg.storage | quote }}
@@ -50,17 +53,18 @@ spec:
     spec:
       {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
       serviceAccountName: {{ $fullname }}
+      {{- with $pg.podSecurityContext }}
       securityContext:
-        fsGroup: 999
-        runAsUser: 999
-        runAsGroup: 999
-        runAsNonRoot: true
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
           imagePullPolicy: {{ $pg.image.pullPolicy }}
+          {{- with $pg.securityContext }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: postgresql
               containerPort: 5432

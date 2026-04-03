@@ -81,6 +81,8 @@ database:
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
       storage: 500Mi
+      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
+      storageClassName: ""
       # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
       # This is intentional for a dev/eval setup. Switch to an external database for production.
       # -- Resource requests/limits for the demo PostgreSQL container
@@ -91,6 +93,22 @@ database:
         limits:
           cpu: 500m
           memory: 512Mi
+      # -- Pod-level security context for the bundled PostgreSQL deployment.
+      podSecurityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # -- Container-level security context for the bundled PostgreSQL container.
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
 
 # ==============================================================================
 # RBAC CONFIGURATION

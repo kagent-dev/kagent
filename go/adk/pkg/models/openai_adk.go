@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/shared"
@@ -57,6 +58,7 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		if m.IsAzure && m.Config.Model != "" {
 			modelName = m.Config.Model
 		}
+		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		params := openai.ChatCompletionNewParams{
 			Model:    shared.ChatModel(modelName),
@@ -247,6 +249,13 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 				if m, ok := fd.ParametersJsonSchema.(map[string]any); ok {
 					maps.Copy(paramsMap, m)
 				}
+			} else if fd.Parameters != nil {
+				// Tools that use Declaration() with genai.Schema set fd.Parameters,
+				// not fd.ParametersJsonSchema. Without this conversion,
+				// OpenAI sees an empty parameter schema and omits required arguments.
+				if m := genaiSchemaToMap(fd.Parameters); m != nil {
+					maps.Copy(paramsMap, m)
+				}
 			}
 			// OpenAI requires object schemas to have a "properties" field.
 			if _, ok := paramsMap["type"]; !ok {
@@ -266,6 +275,50 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 		}
 	}
 	return out
+}
+
+// Converts a genai.Schema to a map[string]any suitable for OpenAI's function parameters.
+func genaiSchemaToMap(s *genai.Schema) map[string]any {
+	if s == nil {
+		return nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	lowercaseSchemaTypes(m)
+	return m
+}
+
+// Gemini schema uses uppercase ("STRING") while OpenAI uses lower case
+func lowercaseSchemaTypes(m map[string]any) {
+	if t, ok := m["type"].(string); ok {
+		m["type"] = strings.ToLower(t)
+	}
+	// Recurse into "properties"
+	if props, ok := m["properties"].(map[string]any); ok {
+		for _, v := range props {
+			if sub, ok := v.(map[string]any); ok {
+				lowercaseSchemaTypes(sub)
+			}
+		}
+	}
+	// Recurse into "items" (for arrays)
+	if items, ok := m["items"].(map[string]any); ok {
+		lowercaseSchemaTypes(items)
+	}
+	// Recurse into "anyOf"
+	if anyOf, ok := m["anyOf"].([]any); ok {
+		for _, v := range anyOf {
+			if sub, ok := v.(map[string]any); ok {
+				lowercaseSchemaTypes(sub)
+			}
+		}
+	}
 }
 
 func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -364,13 +417,15 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			CandidatesTokenCount: int32(completionTokens),
 		}
 	}
-	_ = yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(finishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	_ = yield(resp, nil)
 }
 
 func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -412,11 +467,13 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
 		}
 	}
-	yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(choice.FinishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	yield(resp, nil)
 }

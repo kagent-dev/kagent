@@ -68,6 +68,30 @@ tests:
           path: spec.resources.requests.storage
           value: "10Gi"
 
+  - it: should not set storageClassName on PVC by default
+    template: postgresql.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - notExists:
+          path: spec.storageClassName
+
+  - it: should set storageClassName on PVC when specified
+    template: postgresql.yaml
+    documentIndex: 1
+    set:
+      database:
+        postgres:
+          bundled:
+            storageClassName: "my-storage-class"
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.storageClassName
+          value: "my-storage-class"
+
   - it: should render Deployment with default pgvector image
     template: postgresql.yaml
     documentIndex: 2
@@ -194,11 +218,94 @@ tests:
     documentIndex: 2
     asserts:
       - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 999
+      - equal:
           path: spec.template.spec.securityContext.runAsNonRoot
           value: true
       - equal:
           path: spec.template.spec.securityContext.runAsUser
           value: 999
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 999
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should allow bundled postgres pod security context override
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            podSecurityContext:
+              fsGroup: 1001
+              runAsUser: 1001
+              runAsGroup: 1001
+              runAsNonRoot: true
+              seccompProfile:
+                type: Localhost
+                localhostProfile: profiles/postgres.json
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: Localhost
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.localhostProfile
+          value: profiles/postgres.json
+
+  - it: should allow bundled postgres container security context override
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                  - ALL
+              seccompProfile:
+                type: Localhost
+                localhostProfile: profiles/postgres-container.json
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: Localhost
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.localhostProfile
+          value: profiles/postgres-container.json
 
   - it: should render Service with hardcoded ClusterIP type and port 5432
     template: postgresql.yaml
@@ -317,4 +424,3 @@ tests:
           value:
             - name: secret1
             - name: secret2
-
