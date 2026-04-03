@@ -60,6 +60,9 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		if config.Spec.Ollama != nil {
 			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
+		if config.Spec.SAPAICore != nil {
+			FlattenStructToMap(config.Spec.SAPAICore, modelParams)
+		}
 
 		responseItem := api.ModelConfigResponse{
 			Ref:             common.GetObjectRef(&config),
@@ -142,6 +145,9 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 	if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
+	}
+	if modelConfig.Spec.SAPAICore != nil {
+		FlattenStructToMap(modelConfig.Spec.SAPAICore, modelParams)
 	}
 
 	responseItem := api.ModelConfigResponse{
@@ -311,6 +317,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in create.")
 		}
+	case v1alpha2.ModelProviderSAPAICore:
+		if req.SAPAICoreParams != nil {
+			modelConfig.Spec.SAPAICore = req.SAPAICoreParams
+			log.V(1).Info("Assigned SAPAICore params to spec")
+		} else {
+			log.V(1).Info("No SAPAICore params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -431,6 +444,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Gemini:            nil,
 		GeminiVertexAI:    nil,
 		AnthropicVertexAI: nil,
+		SAPAICore:         nil,
 	}
 
 	// --- Update Secret if API Key is provided (and not Ollama) ---
@@ -510,6 +524,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in update.")
 		}
+	case v1alpha2.ModelProviderSAPAICore:
+		if req.SAPAICoreParams != nil {
+			modelConfig.Spec.SAPAICore = req.SAPAICoreParams
+			log.V(1).Info("Assigned updated SAPAICore params to spec")
+		} else {
+			log.V(1).Info("No SAPAICore params provided in update.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -535,6 +556,8 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
 	} else if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+	} else if modelConfig.Spec.SAPAICore != nil {
+		FlattenStructToMap(modelConfig.Spec.SAPAICore, updatedParams)
 	}
 
 	responseItem := api.ModelConfigResponse{
