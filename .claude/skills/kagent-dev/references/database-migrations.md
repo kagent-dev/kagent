@@ -153,4 +153,3 @@ The migration layer is designed for downstream consumers to extend with their ow
 ### What this means for OSS development
 
 - **Migration immutability is cross-repo.** Once a migration file is merged and tagged, downstream consumers may have synced it. Modifying it breaks their tracking table state.
-- **The `MigrationRunner` DI signature is stable.** Changes to this type are breaking for downstream consumers.
