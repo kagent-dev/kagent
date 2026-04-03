@@ -1,0 +1,38 @@
+name: sqlc Generate Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "go/core/internal/database/queries/**"
+      - "go/core/internal/database/sqlc.yaml"
+      - "go/core/pkg/migrations/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+
+      - name: Run sqlc generate
+        working-directory: go/core/internal/database
+        run: sqlc generate
+
+      - name: Fail if generated files differ
+        run: |
+          if ! git diff --quiet go/core/internal/database/gen/; then
+            echo "ERROR: sqlc generate produced changes. Run sqlc generate locally and commit the result."
+            echo ""
+            git diff go/core/internal/database/gen/
+            exit 1
+          fi
+          echo "OK: generated files are up to date."

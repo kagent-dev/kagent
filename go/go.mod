@@ -18,6 +18,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
+	github.com/golang-migrate/migrate/v4 v4.19.1
 	// api dependencies
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
@@ -25,6 +26,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/kagent-dev/kmcp v0.2.8
 	github.com/kagent-dev/mockllm v0.0.5
+	github.com/lib/pq v1.11.2 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/muesli/reflow v0.3.0
 	github.com/openai/openai-go/v3 v3.26.0
@@ -48,8 +50,6 @@ require (
 	google.golang.org/genai v1.40.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
-	gorm.io/driver/postgres v1.6.0
-	gorm.io/gorm v1.31.1
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
 	k8s.io/client-go v0.35.1
@@ -59,6 +59,7 @@ require (
 )
 
 require (
+	github.com/jackc/pgx/v5 v5.9.1
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.42.0
@@ -145,12 +146,10 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.7.2 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/jinzhu/inflection v1.0.0 // indirect
-	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
