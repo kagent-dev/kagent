@@ -10166,6 +10166,59 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              hooks:
+                description: |-
+                  Hooks defines lifecycle hooks for this agent.
+                  Hook commands are loaded from OCI images into the /hooks directory,
+                  similar to how skills are loaded. If the same container ref is used
+                  by multiple hooks it is mounted only once.
+                items:
+                  description: |-
+                    HookSpec defines a single hook to fire on an agent lifecycle event.
+                    Hook commands are loaded from OCI container images, similar to Skills.
+                    If the same ref is used by multiple hooks it is only mounted once.
+                  properties:
+                    command:
+                      description: |-
+                        Command is the executable (and optional arguments) to run inside the hook
+                        container directory, e.g. "check-tool-use.sh" or "python3 audit.py".
+                      minLength: 1
+                      type: string
+                    event:
+                      description: Event is the lifecycle event that triggers this
+                        hook.
+                      enum:
+                      - PreToolUse
+                      - PostToolUse
+                      - SessionStart
+                      - SessionEnd
+                      type: string
+                    matcher:
+                      description: |-
+                        Matcher is an optional ECMAScript-compatible regex matched against the tool name.
+                        Only applicable for PreToolUse and PostToolUse events.
+                        When absent, the hook fires for all tool invocations.
+                      type: string
+                    ref:
+                      description: Ref is the OCI container image that contains the
+                        hook command.
+                      minLength: 1
+                      type: string
+                    type:
+                      default: claude-command
+                      description: |-
+                        Type is the hook protocol used for stdin/stdout communication.
+                        Currently only "claude-command" is supported.
+                      enum:
+                      - claude-command
+                      type: string
+                  required:
+                  - command
+                  - event
+                  - ref
+                  type: object
+                maxItems: 20
+                type: array
               skills:
                 description: |-
                   Skills to load into the agent. They will be pulled from the specified container images.

@@ -77,6 +77,9 @@ def static(
 
         maybe_add_skills(root_agent)
 
+        if agent_config.hooks:
+            root_agent._kagent_session_hooks = agent_config.hooks
+
         return root_agent
 
     kagent_app = KAgentApp(
