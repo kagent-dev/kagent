@@ -350,25 +350,30 @@ type ServiceAccountConfig struct {
 }
 
 // ToolProviderType represents the tool provider type
-// +kubebuilder:validation:Enum=McpServer;Agent
+// +kubebuilder:validation:Enum=McpServer;Agent;Builtin
 type ToolProviderType string
 
 const (
 	ToolProviderType_McpServer ToolProviderType = "McpServer"
 	ToolProviderType_Agent     ToolProviderType = "Agent"
+	ToolProviderType_Builtin   ToolProviderType = "Builtin"
 )
 
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be nil if the type is not McpServer",rule="!(has(self.mcpServer) && self.type != 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be nil if the type is not Builtin",rule="!(has(self.builtin) && self.type != 'Builtin')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be specified for Builtin filter.type",rule="!(!has(self.builtin) && self.type == 'Builtin')"
 type Tool struct {
-	// +kubebuilder:validation:Enum=McpServer;Agent
+	// +kubebuilder:validation:Enum=McpServer;Agent;Builtin
 	Type ToolProviderType `json:"type,omitempty"`
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
+	// +optional
+	Builtin *BuiltinTool `json:"builtin,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
@@ -377,6 +382,15 @@ type Tool struct {
 	// headers of the same name/key specified on the tool.
 	// +optional
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+}
+
+// BuiltinTool specifies which built-in tools to enable for the agent.
+type BuiltinTool struct {
+	// The names of the built-in tools to enable.
+	// +kubebuilder:validation:items:Enum=ask_user
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=10
+	ToolNames []string `json:"toolNames"`
 }
 
 func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespace string) (map[string]string, error) {

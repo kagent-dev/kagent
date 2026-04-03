@@ -1,5 +1,5 @@
 import { k8sRefUtils } from "@/lib/k8sUtils";
-import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
+import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse, BuiltinTool } from "@/types";
 
 
 // Constants for MCP server types and defaults
@@ -43,6 +43,12 @@ export const isAgentResponse = (value: unknown): value is AgentResponse => {
   return !!obj.agent && typeof obj.agent === "object" && !!obj.agent.metadata && typeof obj.agent.metadata?.name === "string";
 };
 
+export const isBuiltinTool = (tool: unknown): tool is { type: "Builtin"; builtin: BuiltinTool } => {
+  if (!tool || typeof tool !== "object") return false;
+  const obj = tool as Partial<Tool>;
+  return obj.type === "Builtin" && !!obj.builtin && Array.isArray(obj.builtin.toolNames);
+};
+
 export const isMcpTool = (tool: unknown): tool is { type: "McpServer"; mcpServer: McpServerTool } => {
   if (!tool || typeof tool !== "object") return false;
 
@@ -80,6 +86,8 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
       toolNames.forEach(name => existingNames.add(name));
       mcpToolsByServer.set(serverNameRef, existingNames);
     } else if (isAgentTool(tool)) {
+      nonMcpTools.push(tool);
+    } else if (isBuiltinTool(tool)) {
       nonMcpTools.push(tool);
     } else {
       const toolType = tool?.type || (tool ? 'malformed' : 'null/undefined');
@@ -120,6 +128,8 @@ export const getToolIdentifier = (tool: Tool): string => {
   } else if (isMcpTool(tool)) {
     const mcpTool = tool as Tool;
     return `mcp-${mcpTool.mcpServer?.name || "No name"}`;
+  } else if (isBuiltinTool(tool)) {
+    return `builtin`;
   }
   return `unknown-tool-${Math.random().toString(36).substring(7)}`;
 };
@@ -161,6 +171,8 @@ export const getToolDisplayName = (tool: Tool, defaultNamespace: string): string
       return "Unknown Tool";
     }
     return k8sRefUtils.toRef(mcpTool.mcpServer?.namespace || defaultNamespace, name);
+  } else if (isBuiltinTool(tool)) {
+    return "Built-in Tools";
   }
   return "Unknown Tool";
 };
@@ -176,6 +188,8 @@ export const getToolDescription = (tool: Tool, availableTools: ToolsResponse[]):
       return foundServer.description;
     }
     return "MCP tool description not available";
+  } else if (isBuiltinTool(tool)) {
+    return "Built-in agent capabilities";
   }
   return "No description available";
 };

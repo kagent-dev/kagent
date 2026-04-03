@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName, serverNamesMatch } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, isBuiltinTool, getToolDescription, getToolIdentifier, getToolDisplayName, serverNamesMatch } from "@/lib/toolUtils";
 import { SelectToolsDialog } from "./SelectToolsDialog";
 import type { Tool, AgentResponse, ToolsResponse } from "@/types";
 import { getAgents } from "@/app/actions/agents";
@@ -82,6 +82,10 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
               toolNames: newToolNames,
             },
           };
+        } else if (getToolIdentifier(tool) === parentToolIdentifier && isBuiltinTool(tool) && tool.builtin) {
+          const newToolNames = tool.builtin.toolNames.filter(name => name !== mcpToolNameToRemove);
+          if (newToolNames.length === 0) return null;
+          return { ...tool, builtin: { ...tool.builtin, toolNames: newToolNames } };
         }
         return tool;
       }).filter(Boolean) as Tool[];
@@ -140,6 +144,33 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
                     </div>
                     <div className="flex items-center gap-2">
                       <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)} disabled={isSubmitting}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          });
+        } else if (isBuiltinTool(agentTool) && agentTool.builtin) {
+          return agentTool.builtin.toolNames.map((toolName: string) => {
+            const Icon = FunctionSquare;
+            const iconColor = "text-purple-400";
+            return (
+              <Card key={`builtin-${toolName}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center text-xs">
+                      <div className="inline-flex space-x-2 items-center">
+                        <Icon className={`h-4 w-4 ${iconColor}`} />
+                        <div className="inline-flex flex-col space-y-1">
+                          <span>{toolName} (Built-in)</span>
+                          <span className="text-muted-foreground max-w-2xl">Built-in agent capability</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(getToolIdentifier(agentTool), toolName)} disabled={isSubmitting}>
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
