@@ -7,7 +7,7 @@ require (
 	dario.cat/mergo v1.0.2
 
 	// adk dependencies
-	github.com/a2aproject/a2a-go v0.3.6
+	github.com/a2aproject/a2a-go v0.3.13
 	github.com/abiosoft/ishell/v2 v2.0.2
 	github.com/anthropics/anthropic-sdk-go v1.26.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.10

@@ -53,17 +53,18 @@ spec:
     spec:
       {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
       serviceAccountName: {{ $fullname }}
+      {{- with $pg.podSecurityContext }}
       securityContext:
-        fsGroup: 999
-        runAsUser: 999
-        runAsGroup: 999
-        runAsNonRoot: true
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
           imagePullPolicy: {{ $pg.image.pullPolicy }}
+          {{- with $pg.securityContext }}
           securityContext:
-            allowPrivilegeEscalation: false
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: postgresql
               containerPort: 5432
@@ -137,4 +138,3 @@ spec:
     {{- include "kagent.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: database
 {{- end }}
-
