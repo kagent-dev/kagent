@@ -271,11 +271,10 @@ func (c *postgresClient) DeletePushNotification(ctx context.Context, taskID stri
 // ── Feedback ──────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
-	isPositive := feedback.IsPositive
 	err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
 		UserID:       feedback.UserID,
 		MessageID:    feedback.MessageID,
-		IsPositive:   &isPositive,
+		IsPositive:   feedback.IsPositive,
 		FeedbackText: feedback.FeedbackText,
 		IssueType:    feedback.IssueType,
 	})
@@ -393,7 +392,6 @@ func (c *postgresClient) DeleteToolServer(ctx context.Context, serverName, group
 // ── LangGraph Checkpoints ─────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreCheckpoint(ctx context.Context, cp *dbpkg.LangGraphCheckpoint) error {
-	version := cp.Version
 	return c.q.UpsertCheckpoint(ctx, dbgen.UpsertCheckpointParams{
 		UserID:             cp.UserID,
 		ThreadID:           cp.ThreadID,
@@ -403,7 +401,7 @@ func (c *postgresClient) StoreCheckpoint(ctx context.Context, cp *dbpkg.LangGrap
 		Metadata:           cp.Metadata,
 		Checkpoint:         cp.Checkpoint,
 		CheckpointType:     cp.CheckpointType,
-		Version:            &version,
+		Version:            cp.Version,
 	})
 }
 
@@ -742,7 +740,7 @@ func toFeedback(r dbgen.Feedback) *dbpkg.Feedback {
 		DeletedAt:    r.DeletedAt,
 		UserID:       r.UserID,
 		MessageID:    r.MessageID,
-		IsPositive:   derefBool(r.IsPositive),
+		IsPositive:   r.IsPositive,
 		FeedbackText: r.FeedbackText,
 		IssueType:    r.IssueType,
 	}
@@ -785,7 +783,7 @@ func toCheckpoint(r dbgen.LgCheckpoint) *dbpkg.LangGraphCheckpoint {
 		Metadata:           r.Metadata,
 		Checkpoint:         r.Checkpoint,
 		CheckpointType:     r.CheckpointType,
-		Version:            derefInt64(r.Version),
+		Version:            r.Version,
 	}
 }
 
@@ -871,11 +869,4 @@ func derefTime(t *time.Time) time.Time {
 		return *t
 	}
 	return time.Time{}
-}
-
-func derefBool(b *bool) bool {
-	if b != nil {
-		return *b
-	}
-	return false
 }

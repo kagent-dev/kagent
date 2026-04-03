@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+var log = ctrl.Log.WithName("migrations")
 
 // RunUp applies all pending migrations for the given FS.
 // vectorEnabled controls whether the vector track is also applied.
@@ -24,7 +26,7 @@ func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 
 	if vectorEnabled {
 		if _, err := applyDir(url, migrationsFS, "vector", "vector_schema_migrations"); err != nil {
-			log.Printf("migrations: rolling back core to version %d", corePrev)
+			log.Info("rolling back core after vector failure", "targetVersion", corePrev)
 			rollbackDir(url, migrationsFS, "core", "schema_migrations", corePrev)
 			return fmt.Errorf("vector migrations: %w", err)
 		}
@@ -52,11 +54,11 @@ func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prev
 		if errors.Is(upErr, migrate.ErrNoChange) {
 			return prevVersion, nil
 		}
-		log.Printf("migrations: migration failed for %s, attempting rollback to version %d", dir, prevVersion)
+		log.Info("migration failed, attempting rollback", "track", dir, "targetVersion", prevVersion)
 		if rbErr := rollbackToVersion(mg, dir, prevVersion); rbErr != nil {
-			log.Printf("migrations: rollback failed for %s: %v", dir, rbErr)
+			log.Error(rbErr, "rollback failed", "track", dir)
 		} else {
-			log.Printf("migrations: rolled back %s to version %d", dir, prevVersion)
+			log.Info("rollback complete", "track", dir, "version", prevVersion)
 		}
 		return prevVersion, fmt.Errorf("run migrations for %s: %w", dir, upErr)
 	}
@@ -68,14 +70,14 @@ func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prev
 func rollbackDir(url string, migrationsFS fs.FS, dir, migrationsTable string, targetVersion uint) {
 	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
 	if err != nil {
-		log.Printf("migrations: rollback of %s failed (open): %v", dir, err)
+		log.Error(err, "rollback failed (open)", "track", dir)
 		return
 	}
 	defer closeMigrate(dir, mg)
 	if err := rollbackToVersion(mg, dir, targetVersion); err != nil {
-		log.Printf("migrations: rollback of %s failed: %v", dir, err)
+		log.Error(err, "rollback failed", "track", dir)
 	} else {
-		log.Printf("migrations: rolled back %s to version %d", dir, targetVersion)
+		log.Info("rollback complete", "track", dir, "version", targetVersion)
 	}
 }
 
@@ -151,9 +153,9 @@ func newMigrate(url string, migrationsFS fs.FS, dir, migrationsTable string) (*m
 func closeMigrate(dir string, mg *migrate.Migrate) {
 	srcErr, dbErr := mg.Close()
 	if srcErr != nil {
-		log.Printf("warning: closing migration source for %s: %v", dir, srcErr)
+		log.Error(srcErr, "closing migration source", "track", dir)
 	}
 	if dbErr != nil {
-		log.Printf("warning: closing migration database for %s: %v", dir, dbErr)
+		log.Error(dbErr, "closing migration database", "track", dir)
 	}
 }

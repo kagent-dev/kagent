@@ -19,7 +19,7 @@ VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 type InsertFeedbackParams struct {
 	UserID       string
 	MessageID    *int64
-	IsPositive   *bool
+	IsPositive   bool
 	FeedbackText string
 	IssueType    *database.FeedbackIssueType
 }

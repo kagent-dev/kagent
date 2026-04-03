@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     deleted_at    TIMESTAMPTZ,
     user_id       TEXT        NOT NULL,
     message_id    BIGINT,
-    is_positive   BOOLEAN     DEFAULT false,
+    is_positive   BOOLEAN     NOT NULL DEFAULT false,
     feedback_text TEXT        NOT NULL,
     issue_type    TEXT
 );
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS lg_checkpoint (
     metadata             TEXT        NOT NULL,
     checkpoint           TEXT        NOT NULL,
     checkpoint_type      TEXT        NOT NULL,
-    version              BIGINT      DEFAULT 1,
+    version              BIGINT      NOT NULL DEFAULT 1,
     PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id)
 );
 CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_parent_checkpoint_id ON lg_checkpoint(parent_checkpoint_id);

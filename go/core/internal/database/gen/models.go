@@ -57,7 +57,7 @@ type Feedback struct {
 	DeletedAt    *time.Time
 	UserID       string
 	MessageID    *int64
-	IsPositive   *bool
+	IsPositive   bool
 	FeedbackText string
 	IssueType    *database.FeedbackIssueType
 }
@@ -74,7 +74,7 @@ type LgCheckpoint struct {
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            *int64
+	Version            int64
 }
 
 type LgCheckpointWrite struct {

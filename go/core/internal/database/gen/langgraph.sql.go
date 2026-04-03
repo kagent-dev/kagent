@@ -253,7 +253,7 @@ type UpsertCheckpointParams struct {
 	Metadata           string
 	Checkpoint         string
 	CheckpointType     string
-	Version            *int64
+	Version            int64
 }
 
 func (q *Queries) UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error {

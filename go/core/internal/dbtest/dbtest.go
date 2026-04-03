@@ -75,4 +75,3 @@ func MigrateT(t *testing.T, connStr string, vectorEnabled bool) {
 		t.Fatalf("dbtest.MigrateT: %v", err)
 	}
 }
-
