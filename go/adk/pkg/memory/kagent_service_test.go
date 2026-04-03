@@ -6,6 +6,7 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,7 +408,7 @@ func TestKagentMemoryService_ExtractSessionContent(t *testing.T) {
 				t.Error("Expected non-empty content, got empty")
 			}
 
-			if tt.wantContain != "" && !contains(content, tt.wantContain) {
+			if tt.wantContain != "" && !strings.Contains(content, tt.wantContain) {
 				t.Errorf("Expected content to contain %q, got: %s", tt.wantContain, content)
 			}
 		})
@@ -565,17 +566,4 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 		},
 	}
 	return evt
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
