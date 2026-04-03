@@ -25,8 +25,8 @@ import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
-import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message, DataPart } from "@a2a-js/sdk";
+import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
+import { Message, DataPart, TaskState } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -139,7 +139,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setSessionStats({ total: 0, prompt: 0, completion: 0 });
         }
         else {
-          const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
+          const { messages: extractedMessages, pendingTask } = extractMessagesFromTasks(messagesResponse.data);
           setSessionStats(extractTokenStatsFromTasks(messagesResponse.data));
 
           // Resolved approvals are already inline in extractedMessages (with
@@ -155,6 +155,45 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           if (hasPendingApproval) {
             setChatStatus("input_required");
           }
+
+          // If there's a pending task (and no pending approval taking priority), reconnect to its stream
+          if (pendingTask && !hasPendingApproval) {
+            setIsLoading(false);
+            setChatStatus(mapA2AStateToStatus(pendingTask.state as TaskState));
+
+            try {
+              abortControllerRef.current = new AbortController();
+
+              const stream = await kagentA2AClient.resubscribeTask(
+                selectedNamespace,
+                selectedAgentName,
+                pendingTask.taskId,
+                abortControllerRef.current.signal
+              );
+
+              for await (const event of stream) {
+                handleMessageEvent(event);
+                if (abortControllerRef.current?.signal.aborted) break;
+              }
+            } catch (error: unknown) {
+              if (error instanceof Error && error.name !== 'AbortError') {
+                toast.error(`Reconnection failed: ${error.message}`);
+                try {
+                  const refreshedTasks = await getSessionTasks(sessionId);
+                  if (refreshedTasks.data) {
+                    const { messages } = extractMessagesFromTasks(refreshedTasks.data);
+                    setStoredMessages(messages);
+                  }
+                } catch (refreshError) {
+                  console.error('Failed to refresh tasks after reconnection failure:', refreshError);
+                }
+              }
+            } finally {
+              setChatStatus('ready');
+              abortControllerRef.current = null;
+            }
+            return;
+          }
         }
       } catch (error) {
         console.error("Error loading messages:", error);
@@ -165,7 +204,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     initializeChat();
-  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage, handleMessageEvent]);
 
   useEffect(() => {
     if (containerRef.current) {

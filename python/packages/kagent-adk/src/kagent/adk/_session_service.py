@@ -114,7 +114,7 @@ class KAgentSessionService(BaseSessionService):
             session = Session(
                 id=session_data["id"],
                 user_id=session_data["user_id"],
-                events=[],
+                events=events,
                 app_name=app_name,
                 state={},
             )
@@ -157,6 +157,94 @@ class KAgentSessionService(BaseSessionService):
         )
         response.raise_for_status()
 
+    async def _recreate_session(self, session: Session) -> None:
+        """Recreate a session that was not found (404).
+
+        This handles the case where a session expires or is cleaned up
+        during a long-running operation.
+
+        Session State Preservation:
+        - session_id: Preserved (same ID used for recreation)
+        - user_id: Preserved
+        - agent_ref: Preserved
+        - session_name: Preserved (from session.state["session_name"])
+        - Other session.state fields: NOT preserved (lost on recreation)
+
+        Note: Only session_name is currently used by the application.
+        If additional state fields are added in the future, they must be
+        explicitly preserved here.
+
+        Args:
+            session: The session object to recreate
+
+        Raises:
+            httpx.HTTPStatusError: If recreation fails
+        """
+        request_data = {
+            "id": session.id,
+            "user_id": session.user_id,
+            "agent_ref": session.app_name,
+        }
+        if session.state and session.state.get("session_name"):
+            request_data["name"] = session.state["session_name"]
+
+        # Warn if session has additional state fields that won't be preserved
+        if session.state and len(session.state) > 1:
+            extra_fields = [k for k in session.state.keys() if k != "session_name"]
+            logger.warning(
+                "Session %s has additional state fields that will not be preserved during recreation: %s. "
+                "Update _recreate_session() if these fields are critical.",
+                session.id,
+                extra_fields,
+            )
+
+        response = await self.client.post(
+            "/api/sessions",
+            json=request_data,
+            headers={"X-User-ID": session.user_id},
+        )
+        if response.status_code == 409:
+            # Session was already recreated by a concurrent call — treat as success.
+            logger.info(
+                "Session %s already exists (409 Conflict) during recreation, "
+                "likely recreated by a concurrent request. Proceeding with retry.",
+                session.id,
+            )
+        else:
+            response.raise_for_status()
+        logger.info("Successfully recreated session %s", session.id)
+
+        # Fetch existing tasks for this session to check for in-flight work
+        tasks_response = await self.client.get(
+            f"/api/sessions/{session.id}/tasks?user_id={session.user_id}",
+            headers={"X-User-ID": session.user_id},
+        )
+        if tasks_response.status_code == 200:
+            tasks_data = tasks_response.json()
+            if tasks_data.get("data"):
+                logger.info(
+                    "Session %s has %d existing task(s) after recreation",
+                    session.id,
+                    len(tasks_data["data"]),
+                )
+                # Log info about in-flight tasks
+                for task in tasks_data["data"]:
+                    task_status = task.get("status", {})
+                    task_state = task_status.get("state", "unknown")
+                    if task_state in ("working", "submitted"):
+                        logger.info(
+                            "Found in-flight task %s in state '%s' - UI should resubscribe to continue receiving updates",
+                            task.get("id"),
+                            task_state,
+                        )
+        else:
+            logger.warning(
+                "Failed to fetch tasks for recreated session %s (HTTP %d). "
+                "In-flight task detection unavailable - UI may not auto-reconnect to active tasks.",
+                session.id,
+                tasks_response.status_code,
+            )
+
     @override
     async def append_event(self, session: Session, event: Event) -> Event:
         if event.partial:
@@ -174,6 +262,24 @@ class KAgentSessionService(BaseSessionService):
             json=event_data,
             headers={"X-User-ID": session.user_id},
         )
+
+        # Handle 404 by recreating session and retrying once
+        if response.status_code == 404:
+            logger.warning(
+                "Session %s not found (404), attempting to recreate before retry",
+                session.id,
+            )
+            await self._recreate_session(session)
+
+            # Retry the append ONCE. If this retry also fails (including another 404),
+            # raise_for_status() below will propagate the error without further attempts.
+            # This prevents infinite recursion while allowing recovery from transient deletion.
+            response = await self.client.post(
+                f"/api/sessions/{session.id}/events?user_id={session.user_id}",
+                json=event_data,
+                headers={"X-User-ID": session.user_id},
+            )
+
         response.raise_for_status()
 
         # TODO: potentially pull and update the session from the server

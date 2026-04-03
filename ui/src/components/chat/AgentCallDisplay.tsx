@@ -57,7 +57,7 @@ function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelP
           }
         } else {
           const tasks: Task[] = resp.data.tasks;
-          const extracted = extractMessagesFromTasks(tasks);
+          const { messages: extracted } = extractMessagesFromTasks(tasks);
           setMessages(extracted);
           setWaiting(extracted.length === 0 && !isComplete);
           setError(null);
