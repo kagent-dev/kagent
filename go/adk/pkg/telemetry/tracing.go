@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
@@ -21,15 +20,18 @@ import (
 
 // SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
 func SetKAgentSpanAttributes(ctx context.Context, attributes map[string]string) context.Context {
-	span := trace.SpanFromContext(ctx)
-	if span.IsRecording() {
-		for key, value := range attributes {
-			if value != "" {
-				span.SetAttributes(attribute.String(key, value))
-			}
-		}
+	merged := mergeAttributes(contextAttributes(ctx), attributes)
+	setSpanAttributes(ctx, stringAttributes(merged)...)
+	if len(merged) == 0 {
+		return ctx
 	}
-	return ctx
+	return context.WithValue(ctx, kagentSpanAttributesKey{}, merged)
+}
+
+// StartInvocationSpan creates a lightweight root span around one executor run.
+// Descendant spans inherit request-scoped attributes via the span processor.
+func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
+	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and
@@ -110,6 +112,7 @@ func newGRPCTracerProvider(ctx context.Context, res *resource.Resource) (*sdktra
 	}
 
 	return sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 	), nil

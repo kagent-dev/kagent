@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a"
@@ -130,6 +131,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		spanAttributes["kagent.app_name"] = e.appName
 	}
 	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
+	ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
+	defer invocationSpan.End()
 
 	// 3. Initialize skills session path.
 	if e.skillsDirectory != "" && sessionID != "" {
@@ -244,6 +247,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		// Track invocation ID from the first event that has one.
 		if adkEvent.InvocationID != "" && invocationID == "" {
 			invocationID = adkEvent.InvocationID
+			invocationSpan.SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", invocationID))
 		}
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
