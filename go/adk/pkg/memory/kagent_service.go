@@ -80,10 +80,10 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}, nil
 }
 
-// AddSession implements memory.Service.AddSession.
+// AddSessionToMemory implements memory.Service.AddSessionToMemory.
 // It extracts content from the session, optionally summarizes it, generates embeddings,
 // and stores it via the Kagent API.
-func (s *KagentMemoryService) AddSession(ctx context.Context, session adksession.Session) error {
+func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session adksession.Session) error {
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(1).Info("Adding session to memory", "sessionID", session.ID(), "userID", session.UserID())
 
@@ -162,9 +162,9 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 	return nil
 }
 
-// Search implements memory.Service.Search.
+// SearchMemory implements memory.Service.SearchMemory.
 // It searches for relevant memories using vector similarity.
-func (s *KagentMemoryService) Search(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
+func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(1).Info("Searching memory", "query", req.Query, "userID", req.UserID)
 
