@@ -40,7 +40,7 @@ The primary use case is enabling AI-powered automation and intelligent operation
 
 - Multi-agent coordination for complex operational workflows (via A2A protocol)
 - Integration with service mesh (Istio), observability (Prometheus/Grafana), and deployment tools (Helm, Argo Rollouts)
-- Custom agent development using multiple frameworks (ADK, CrewAI, LangGraph)
+- Custom agent development using multiple frameworks (ADK, AG2, CrewAI, LangGraph)
 
 **Unsupported Use Cases:**
 
