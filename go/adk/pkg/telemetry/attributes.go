@@ -96,7 +96,7 @@ func setSpanAttributes(ctx context.Context, attrs ...attribute.KeyValue) {
 }
 
 func marshalSpanPayload(value any) string {
-	if !strings.EqualFold(strings.TrimSpace(os.Getenv(captureMessageContentEnvVar)), "true") {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(captureMessageContentEnvVar)), "false") {
 		return "{}"
 	}
 	if value == nil {
