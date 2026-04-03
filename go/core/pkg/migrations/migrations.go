@@ -1,6 +1,5 @@
-// Package migrations exports the embedded SQL migration files for the kagent OSS
-// database schema. Enterprise builds import this FS to bundle OSS migrations
-// alongside enterprise-specific ones at build time.
+// Package migrations embeds the SQL migration files for the kagent database schema
+// and provides the runner that applies them at startup.
 package migrations
 
 import "embed"

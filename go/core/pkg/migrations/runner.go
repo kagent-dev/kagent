@@ -33,64 +33,6 @@ func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 	return nil
 }
 
-// RunDown rolls back steps migrations on a single track.
-func RunDown(url string, migrationsFS fs.FS, dir, migrationsTable string, steps int) error {
-	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
-	if err != nil {
-		return err
-	}
-	defer closeMigrate(dir, mg)
-
-	if err := mg.Steps(-steps); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("roll back %d migration(s) for %s: %w", steps, dir, err)
-	}
-	return nil
-}
-
-// RunDownAll rolls back all applied migrations on a single track.
-func RunDownAll(url string, migrationsFS fs.FS, dir, migrationsTable string) error {
-	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
-	if err != nil {
-		return err
-	}
-	defer closeMigrate(dir, mg)
-
-	if err := mg.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("down migrations for %s: %w", dir, err)
-	}
-	return nil
-}
-
-// RunVersion returns the current applied version and dirty flag for a single track.
-func RunVersion(url string, migrationsFS fs.FS, dir, migrationsTable string) (version uint, dirty bool, err error) {
-	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
-	if err != nil {
-		return 0, false, err
-	}
-	defer closeMigrate(dir, mg)
-
-	version, dirty, err = mg.Version()
-	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
-		return 0, false, fmt.Errorf("get version for %s: %w", dir, err)
-	}
-	return version, dirty, nil
-}
-
-// RunForce forces the tracking table for a single track to version (clears the dirty flag).
-// Pass version=-1 to remove the version record entirely.
-func RunForce(url string, migrationsFS fs.FS, dir, migrationsTable string, version int) error {
-	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
-	if err != nil {
-		return err
-	}
-	defer closeMigrate(dir, mg)
-
-	if err := mg.Force(version); err != nil {
-		return fmt.Errorf("force %s to version %d: %w", dir, version, err)
-	}
-	return nil
-}
-
 // applyDir runs Up for dir and rolls back on failure. It returns the pre-run
 // version so the caller can roll back this track if a later track fails.
 func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prevVersion uint, err error) {

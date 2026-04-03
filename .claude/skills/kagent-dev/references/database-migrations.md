@@ -7,7 +7,7 @@ kagent uses [golang-migrate](https://github.com/golang-migrate/migrate) with emb
 ```
 go/core/pkg/migrations/
 ├── migrations.go          # Embeds the FS (go:embed); exports FS for downstream consumers
-├── runner.go              # RunUp / RunDown / RunDownAll / RunVersion / RunForce
+├── runner.go              # RunUp (applies pending migrations at startup)
 ├── core/                  # Core schema (tracked in schema_migrations table)
 │   ├── 000001_initial.up.sql / .down.sql
 │   ├── 000002_add_session_source.up.sql / .down.sql
@@ -115,7 +115,7 @@ If the controller crashes mid-migration, the migration runner records the versio
 2. Runs the down migration to restore the previous clean state.
 3. Re-runs the failed up migration.
 
-**Requirement**: down migrations must be idempotent and correctly reverse their up migration. A missing or broken down migration requires manual recovery using `RunForce`.
+**Requirement**: down migrations must be idempotent and correctly reverse their up migration. A missing or broken down migration requires manual recovery.
 
 ### Rollout strategy
 

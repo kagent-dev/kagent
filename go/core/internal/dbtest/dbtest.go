@@ -76,13 +76,3 @@ func MigrateT(t *testing.T, connStr string, vectorEnabled bool) {
 	}
 }
 
-// MigrateDown rolls back all OSS migrations against connStr and returns any error.
-// If vectorEnabled is true the vector pass is also rolled back first.
-func MigrateDown(connStr string, vectorEnabled bool) error {
-	if vectorEnabled {
-		if err := migrations.RunDownAll(connStr, migrations.FS, "vector", "vector_schema_migrations"); err != nil {
-			return fmt.Errorf("vector down migrations: %w", err)
-		}
-	}
-	return migrations.RunDownAll(connStr, migrations.FS, "core", "schema_migrations")
-}
