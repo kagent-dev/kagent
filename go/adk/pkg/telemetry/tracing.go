@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
@@ -95,7 +96,15 @@ func newGRPCTracerProvider(ctx context.Context, res *resource.Resource) (*sdktra
 		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	}
 
-	var opts []otlptracegrpc.Option
+	opts := []otlptracegrpc.Option{
+		// Retry on transient failures
+		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
+			Enabled:         true,
+			InitialInterval: 1 * time.Second,
+			MaxInterval:     5 * time.Second,
+			MaxElapsedTime:  30 * time.Second,
+		}),
+	}
 	if traceEndpoint != "" {
 		// If the endpoint has a valid scheme, host, port, path ("scheme://host:port/path"), set endpoint url.
 		if u, err := url.Parse(traceEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
