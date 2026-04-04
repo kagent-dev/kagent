@@ -21,7 +21,29 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// MCPHandler handles MCP requests and bridges them to A2A endpoints
+// contextKey is an unexported type for context keys used within this package.
+// Using a dedicated type prevents collisions with keys from other packages.
+type contextKey int
+
+const (
+	// allowedAgentsKey is the context key that carries the set of agent refs
+	// permitted for the current MCP session. A nil value means all agents
+	// are allowed (no filtering applied).
+	allowedAgentsKey contextKey = iota
+)
+
+// MCPHandler handles MCP requests and bridges them to A2A endpoints.
+//
+// Agent filtering:
+// Callers may restrict which agents are visible in a session by appending an
+// "agents" query parameter to the MCP endpoint URL, e.g.:
+//
+//	http://kagent-controller:8083/mcp?agents=kagent/k8s-agent,kagent/helm-agent
+//
+// When the parameter is present, list_agents returns only the matching agents
+// and invoke_agent rejects calls targeting any agent not in the list.
+// Omitting the parameter preserves the original behaviour: all agents are
+// accessible.
 type MCPHandler struct {
 	kubeClient    client.Client
 	a2aBaseURL    string
@@ -55,8 +77,8 @@ type InvokeAgentOutput struct {
 	ContextID string `json:"context_id,omitempty"`
 }
 
-// NewMCPHandler creates a new MCP handler
-// Wraps the StreamableHTTPHandler and adds A2A bridging and context management.
+// NewMCPHandler creates a new MCP handler.
+// It wraps the StreamableHTTPHandler and adds A2A bridging and context management.
 func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider) (*MCPHandler, error) {
 	handler := &MCPHandler{
 		kubeClient:    kubeClient,
@@ -92,7 +114,10 @@ func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator au
 		handler.handleInvokeAgent,
 	)
 
-	// Create HTTP handler
+	// Create HTTP handler. The getServer factory receives the original *http.Request,
+	// whose context carries any values stored by ServeHTTP (e.g. the agent allow-list).
+	// The MCP SDK propagates the request context to tool handlers, preserving those
+	// values even after detaching the cancellation signal for long-running streams.
 	handler.httpHandler = mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server {
 			return server
@@ -103,7 +128,49 @@ func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator au
 	return handler, nil
 }
 
-// handleListAgents handles the list_agents MCP tool
+// parseAllowedAgents reads the "agents" query parameter from the request and
+// returns a set of permitted agent refs (e.g. "kagent/k8s-agent").
+//
+// The parameter is a comma-separated list of "namespace/name" values:
+//
+//	?agents=kagent/k8s-agent,kagent/helm-agent
+//
+// Returns nil when the parameter is absent or empty, which means no filtering
+// is applied and all agents are accessible.
+func parseAllowedAgents(r *http.Request) map[string]struct{} {
+	raw := r.URL.Query().Get("agents")
+	if raw == "" {
+		return nil
+	}
+
+	set := make(map[string]struct{})
+	for ref := range strings.SplitSeq(raw, ",") {
+		ref = strings.TrimSpace(ref)
+		if ref != "" {
+			set[ref] = struct{}{}
+		}
+	}
+
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+// allowedAgentsFromContext returns the agent allow-list stored in ctx, or nil
+// if no filtering is active for the current session.
+func allowedAgentsFromContext(ctx context.Context) map[string]struct{} {
+	v := ctx.Value(allowedAgentsKey)
+	if v == nil {
+		return nil
+	}
+	allowed, _ := v.(map[string]struct{})
+	return allowed
+}
+
+// handleListAgents handles the list_agents MCP tool.
+// When an agent allow-list is active for the session, only agents whose ref
+// appears in the list are returned.
 func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "list_agents")
 
@@ -117,9 +184,12 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 		}, ListAgentsOutput{}, nil
 	}
 
+	// Retrieve the optional allow-list for this MCP session.
+	allowed := allowedAgentsFromContext(ctx)
+
 	agents := make([]AgentSummary, 0)
 	for _, agent := range agentList.Items {
-		// Check if agent is accepted and deployment ready
+		// Only include agents that are both accepted and deployment-ready.
 		deploymentReady := false
 		accepted := false
 		for _, condition := range agent.Status.Conditions {
@@ -136,14 +206,21 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 		}
 
 		ref := agent.Namespace + "/" + agent.Name
-		description := agent.Spec.Description
+
+		// When an allow-list is active, skip agents that are not in it.
+		if allowed != nil {
+			if _, ok := allowed[ref]; !ok {
+				continue
+			}
+		}
+
 		agents = append(agents, AgentSummary{
 			Ref:         ref,
-			Description: description,
+			Description: agent.Spec.Description,
 		})
 	}
 
-	log.Info("Listed agents", "count", len(agents))
+	log.Info("Listed agents", "count", len(agents), "filtered", allowed != nil)
 
 	output := ListAgentsOutput{Agents: agents}
 
@@ -170,7 +247,9 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 	}, output, nil
 }
 
-// handleInvokeAgent handles the invoke_agent MCP tool
+// handleInvokeAgent handles the invoke_agent MCP tool.
+// When an agent allow-list is active for the session, requests targeting an
+// agent not in the list are rejected before any A2A call is made.
 func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "invoke_agent")
 
@@ -187,27 +266,43 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	agentRef := agentNS + "/" + agentName
 	agentNns := types.NamespacedName{Namespace: agentNS, Name: agentName}
 
-	// Get context ID from client request (stateless mode)
-	// If not provided, contextIDPtr will be nil and a new conversation will start
+	// Enforce the allow-list before touching any downstream service.
+	// This is the hard access-control boundary: if the caller's MCP session was
+	// scoped to a subset of agents (via the "agents" query parameter), any attempt
+	// to invoke an agent outside that subset is rejected here.
+	if allowed := allowedAgentsFromContext(ctx); allowed != nil {
+		if _, ok := allowed[agentRef]; !ok {
+			log.Info("Rejected invoke_agent: agent not in allow-list", "agent", agentRef)
+			return &mcpsdk.CallToolResult{
+				Content: []mcpsdk.Content{
+					&mcpsdk.TextContent{Text: fmt.Sprintf("agent %q is not available in this session", agentRef)},
+				},
+				IsError: true,
+			}, InvokeAgentOutput{}, nil
+		}
+	}
+
+	// Get context ID from client request (stateless mode).
+	// If not provided, contextIDPtr will be nil and a new conversation will start.
 	var contextIDPtr *string
 	if input.ContextID != "" {
 		contextIDPtr = &input.ContextID
 		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
 	}
 
-	// Get or create cached A2A client for this agent
+	// Get or create cached A2A client for this agent.
 	a2aURL := fmt.Sprintf("%s/%s/", h.a2aBaseURL, agentRef)
 	var a2aClient *a2aclient.A2AClient
 
 	if cached, ok := h.a2aClients.Load(agentRef); ok {
-		if client, ok := cached.(*a2aclient.A2AClient); ok {
-			a2aClient = client
+		if c, ok := cached.(*a2aclient.A2AClient); ok {
+			a2aClient = c
 		}
 	}
 
-	// Create new client if not cached
+	// Create new client if not cached.
 	if a2aClient == nil {
-		// Build A2A client options with authentication propagation
+		// Build A2A client options with authentication propagation.
 		a2aOpts := []a2aclient.Option{
 			a2aclient.WithTimeout(30 * time.Second),
 			a2aclient.WithHTTPReqHandler(
@@ -229,12 +324,12 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 			}, InvokeAgentOutput{}, nil
 		}
 
-		// Cache the client
+		// Cache the client.
 		h.a2aClients.Store(agentRef, newClient)
 		a2aClient = newClient
 	}
 
-	// Send message via A2A
+	// Send message via A2A.
 	result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
 		Message: protocol.Message{
 			Kind:      protocol.KindMessage,
@@ -253,7 +348,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		}, InvokeAgentOutput{}, nil
 	}
 
-	// Extract response text and context ID
+	// Extract response text and context ID.
 	var responseText, newContextID string
 	switch a2aResult := result.Result.(type) {
 	case *protocol.Message:
@@ -261,7 +356,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		if a2aResult.ContextID != nil {
 			newContextID = *a2aResult.ContextID
 		}
-	// Kagent A2A only returns Task type for now
+	// Kagent A2A only returns Task type for now.
 	case *protocol.Task:
 		newContextID = a2aResult.ContextID
 		if a2aResult.Status.Message != nil {
@@ -287,7 +382,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 
 	log.Info("Invoked agent", "agent", agentRef, "hasContextID", newContextID != "")
 
-	// Return context_id in response so client can store it for stateless operation
+	// Return context_id in response so the client can store it for stateless operation.
 	output := InvokeAgentOutput{
 		Agent: agentRef,
 		Text:  responseText,
@@ -303,15 +398,23 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	}, output, nil
 }
 
-// ServeHTTP implements http.Handler interface
+// ServeHTTP implements http.Handler.
+//
+// If the request URL contains an "agents" query parameter, ServeHTTP parses it
+// into an allow-list and stores it in the request context before delegating to
+// the underlying MCP handler. The MCP SDK propagates this context to all tool
+// handlers for the session, enabling per-session agent filtering.
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// The MCP HTTP handler handles all the routing internally
+	if allowed := parseAllowedAgents(r); allowed != nil {
+		ctx := context.WithValue(r.Context(), allowedAgentsKey, allowed)
+		r = r.WithContext(ctx)
+	}
 	h.httpHandler.ServeHTTP(w, r)
 }
 
-// Shutdown gracefully shuts down the MCP handler
+// Shutdown gracefully shuts down the MCP handler.
 func (h *MCPHandler) Shutdown(ctx context.Context) error {
-	// The new SDK doesn't have an explicit Shutdown method on StreamableHTTPHandler
-	// The server will be shut down when the context is cancelled
+	// The new SDK doesn't have an explicit Shutdown method on StreamableHTTPHandler.
+	// The server will be shut down when the context is cancelled.
 	return nil
 }
