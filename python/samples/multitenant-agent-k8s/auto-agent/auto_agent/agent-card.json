@@ -1,0 +1,21 @@
+{
+  "name": "auto-agent",
+  "description": "Autonomous AI assistant with dynamic tool discovery. Can list and call any registered tool, ask for human confirmation before destructive actions, and delegate to other agents.",
+  "url": "http://localhost:8080",
+  "version": "0.9.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "autonomous-assistant",
+      "name": "Autonomous Assistant",
+      "description": "General-purpose autonomous assistant. Discovers and uses available tools dynamically. Asks for confirmation before destructive actions.",
+      "tags": ["autonomous", "dynamic-tools", "hitl"]
+    }
+  ]
+}
