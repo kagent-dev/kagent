@@ -193,6 +193,94 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 	}
 }
 
+// Test_AdkApiTranslator_AgentToolTimeout tests that the timeout field on a
+// TypedReference is correctly propagated into the RemoteAgentConfig produced
+// by the translator.
+func Test_AdkApiTranslator_AgentToolTimeout(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	timeout1800 := float64(1800)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "default"},
+		Spec:       v1alpha2.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha2.ModelProviderOpenAI},
+	}
+	toolAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "slow-agent", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Description: "Slow agent",
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "You are slow",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	tests := []struct {
+		name            string
+		timeout         *float64
+		wantTimeout     *float64
+	}{
+		{
+			name:        "timeout set - propagated into RemoteAgentConfig",
+			timeout:     &timeout1800,
+			wantTimeout: &timeout1800,
+		},
+		{
+			name:        "timeout nil - RemoteAgentConfig has no timeout",
+			timeout:     nil,
+			wantTimeout: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sourceAgent := &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "source-agent", Namespace: "default"},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Source agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "You are the source",
+						ModelConfig:   "test-model",
+						Tools: []*v1alpha2.Tool{
+							{
+								Type: v1alpha2.ToolProviderType_Agent,
+								Agent: &v1alpha2.TypedReference{
+									Name:      "slow-agent",
+									Namespace: "default",
+									Timeout:   tt.timeout,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig, toolAgent, sourceAgent).
+				Build()
+
+			trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "default", Name: "test-model"}, nil, "")
+			outputs, err := trans.TranslateAgent(context.Background(), sourceAgent)
+			require.NoError(t, err)
+			require.NotNil(t, outputs.Config)
+			require.Len(t, outputs.Config.RemoteAgents, 1)
+
+			got := outputs.Config.RemoteAgents[0].Timeout
+			if tt.wantTimeout == nil {
+				assert.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				assert.Equal(t, *tt.wantTimeout, *got)
+			}
+		})
+	}
+}
+
 // Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer tests that the translator
 // can handle cross-namespace RemoteMCPServer references. Note that cross-namespace
 // validation (AllowedNamespaces checks) is now done in the reconciler,

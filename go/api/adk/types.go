@@ -316,6 +316,7 @@ type RemoteAgentConfig struct {
 	Name        string            `json:"name"`
 	Url         string            `json:"url"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	Timeout     *float64          `json:"timeout,omitempty"`
 	Description string            `json:"description,omitempty"`
 }
 
