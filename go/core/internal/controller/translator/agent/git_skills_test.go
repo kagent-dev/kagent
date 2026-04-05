@@ -530,18 +530,16 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 		Name:      modelName,
 	}
 
-	boolFalse := false
-
 	tests := []struct {
 		name                 string
 		agent                *v1alpha2.Agent
 		wantResources        corev1.ResourceRequirements
-		wantSecurityContext  *corev1.SecurityContext
 		wantEnvContains      []string // env var names expected on the init container
+		wantEnvNotContains   []string // env var names that must NOT be on the init container
 		wantDefaultResources bool     // expect the default resource values
 	}{
 		{
-			name: "no initContainer - gets default resources and no securityContext",
+			name: "no initContainer - gets default resources and default securityContext",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-defaults", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -596,9 +594,9 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 			},
 		},
 		{
-			name: "custom securityContext on initContainer",
+			name: "custom env on initContainer",
 			agent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "agent-custom-secctx", Namespace: namespace},
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-custom-env", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
 					Type: v1alpha2.AgentType_Declarative,
 					Declarative: &v1alpha2.DeclarativeAgentSpec{
@@ -608,20 +606,18 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 					Skills: &v1alpha2.SkillForAgent{
 						Refs: []string{"ghcr.io/org/skill:v1"},
 						InitContainer: &v1alpha2.SkillsInitContainer{
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: &boolFalse,
+							Env: []corev1.EnvVar{
+								{Name: "INIT_CUSTOM", Value: "init-value"},
 							},
 						},
 					},
 				},
 			},
 			wantDefaultResources: true,
-			wantSecurityContext: &corev1.SecurityContext{
-				AllowPrivilegeEscalation: &boolFalse,
-			},
+			wantEnvContains:      []string{"INIT_CUSTOM"},
 		},
 		{
-			name: "both resources and securityContext on initContainer",
+			name: "both resources and env on initContainer",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-both-overrides", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -638,8 +634,8 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 									corev1.ResourceCPU: resource.MustParse("100m"),
 								},
 							},
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: &boolFalse,
+							Env: []corev1.EnvVar{
+								{Name: "INIT_CUSTOM", Value: "init-value"},
 							},
 						},
 					},
@@ -650,12 +646,10 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 					corev1.ResourceCPU: resource.MustParse("100m"),
 				},
 			},
-			wantSecurityContext: &corev1.SecurityContext{
-				AllowPrivilegeEscalation: &boolFalse,
-			},
+			wantEnvContains: []string{"INIT_CUSTOM"},
 		},
 		{
-			name: "init container receives dep env vars",
+			name: "init container does not inherit dep env vars",
 			agent: &v1alpha2.Agent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent-env", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
@@ -677,7 +671,7 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 				},
 			},
 			wantDefaultResources: true,
-			wantEnvContains:      []string{"CUSTOM_VAR", "KAGENT_SKILLS_FOLDER"},
+			wantEnvNotContains:   []string{"CUSTOM_VAR"},
 		},
 	}
 
@@ -717,22 +711,16 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantResources, initContainer.Resources)
 			}
-
-			// Check securityContext
-			if tt.wantSecurityContext != nil {
-				require.NotNil(t, initContainer.SecurityContext)
-				assert.Equal(t, tt.wantSecurityContext, initContainer.SecurityContext)
-			}
-
 			// Check env vars
-			if len(tt.wantEnvContains) > 0 {
-				envNames := make(map[string]bool)
-				for _, e := range initContainer.Env {
-					envNames[e.Name] = true
-				}
-				for _, name := range tt.wantEnvContains {
-					assert.True(t, envNames[name], "init container should have env var %s", name)
-				}
+			envNames := make(map[string]bool)
+			for _, e := range initContainer.Env {
+				envNames[e.Name] = true
+			}
+			for _, name := range tt.wantEnvContains {
+				assert.True(t, envNames[name], "init container should have env var %s", name)
+			}
+			for _, name := range tt.wantEnvNotContains {
+				assert.False(t, envNames[name], "init container should not have env var %s", name)
 			}
 		})
 	}

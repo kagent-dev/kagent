@@ -471,18 +471,17 @@ func (a *adkApiTranslator) buildManifest(
 		sharedEnv = append(sharedEnv, skillsEnv)
 
 		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
-		initEnv := append(dep.Env, sharedEnv...)
 
 		var initResources *corev1.ResourceRequirements
-		initSecCtx := dep.SecurityContext.DeepCopy()
+		var initEnv []corev1.EnvVar
 		if agent.Spec.Skills.InitContainer != nil {
-			initResources = agent.Spec.Skills.InitContainer.Resources.DeepCopy()
-			if agent.Spec.Skills.InitContainer.SecurityContext != nil {
-				initSecCtx = agent.Spec.Skills.InitContainer.SecurityContext.DeepCopy()
+			if agent.Spec.Skills.InitContainer.Resources != nil {
+				initResources = agent.Spec.Skills.InitContainer.Resources.DeepCopy()
 			}
+			initEnv = append(initEnv, agent.Spec.Skills.InitContainer.Env...)
 		}
 
-		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, initSecCtx, initEnv, getDefaultResources(initResources))
+		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext, initEnv, getDefaultResources(initResources))
 		if err != nil {
 			return nil, fmt.Errorf("failed to build skills init container: %w", err)
 		}
@@ -1774,6 +1773,11 @@ func buildSkillsInitContainer(
 	if err != nil {
 		return corev1.Container{}, nil, err
 	}
+	
+	initSecCtx := securityContext
+	if initSecCtx != nil {
+		initSecCtx = initSecCtx.DeepCopy()
+	}
 
 	volumeMounts := []corev1.VolumeMount{
 		{Name: "kagent-skills", MountPath: "/skills"},
@@ -1801,7 +1805,7 @@ func buildSkillsInitContainer(
 		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
 		VolumeMounts:    volumeMounts,
-		SecurityContext: securityContext,
+		SecurityContext: initSecCtx,
 		Env:             env,
 		Resources:       resources,
 	}

@@ -115,9 +115,9 @@ type SkillsInitContainer struct {
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// Security context for the skills-init init container.
+	// Additional environment variables for the skills-init init container.
 	// +optional
-	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // GitRepo specifies a single Git repository to fetch skills from.
