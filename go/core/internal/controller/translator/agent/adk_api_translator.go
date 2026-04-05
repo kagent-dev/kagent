@@ -1773,7 +1773,6 @@ func buildSkillsInitContainer(
 	if err != nil {
 		return corev1.Container{}, nil, err
 	}
-	
 	initSecCtx := securityContext
 	if initSecCtx != nil {
 		initSecCtx = initSecCtx.DeepCopy()
