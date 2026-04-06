@@ -18,6 +18,7 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -93,8 +94,38 @@ func main() {
 		"sseTools", len(agentConfig.SseTools),
 		"remoteAgents", len(agentConfig.RemoteAgents))
 
+	kagentName := os.Getenv("KAGENT_NAME")
+	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+
 	// Derive app name from env or agent card.
-	appName := deriveAppName(agentCard, logger)
+	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
+
+	// Fall back to appName / "default" so traces always have a non-empty service identity.
+	serviceNameSource := kagentName
+	if serviceNameSource == "" {
+		serviceNameSource = appName
+	}
+	serviceNamespaceSource := kagentNamespace
+	if serviceNamespaceSource == "" {
+		serviceNamespaceSource = "default"
+	}
+	serviceName := strings.ReplaceAll(serviceNameSource, "-", "_")
+	serviceNamespace := strings.ReplaceAll(serviceNamespaceSource, "-", "_")
+	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), serviceName, serviceNamespace)
+	if telErr != nil {
+		logger.Error(telErr, "Failed to initialize ADK telemetry providers; continuing without telemetry export")
+	} else if telemetryEnabled {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := shutdownTelemetry(shutdownCtx); err != nil {
+				logger.Error(err, "Failed to shutdown telemetry providers cleanly")
+			}
+		}()
+		logger.Info("ADK telemetry initialized")
+	} else {
+		logger.Info("ADK telemetry disabled (set OTEL_TRACING_ENABLED or OTEL_LOGGING_ENABLED to true)")
+	}
 
 	// Create authenticated HTTP client when kagent persistence is enabled.
 	// This client is shared between the executor's session service and
@@ -195,10 +226,7 @@ func main() {
 	}
 }
 
-func deriveAppName(agentCard *a2atype.AgentCard, logger logr.Logger) string {
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
-
+func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger logr.Logger) string {
 	if kagentNamespace != "" && kagentName != "" {
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
