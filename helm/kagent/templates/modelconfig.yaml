@@ -1,3 +1,4 @@
+{{- if ne .Values.providers.createDefaultModelConfig false }}
 {{- $dot := . }}
 {{- $defaultProfider := .Values.providers.default | default "openAI" }}
 {{- $model := index .Values.providers $defaultProfider }}
@@ -31,3 +32,4 @@ spec:
   {{- toYaml $model.config | nindent 4 }}
   {{- end }}
   {{- end }}
+{{- end }}
