@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/shared"
@@ -57,6 +58,7 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		if m.IsAzure && m.Config.Model != "" {
 			modelName = m.Config.Model
 		}
+		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		params := openai.ChatCompletionNewParams{
 			Model:    shared.ChatModel(modelName),
@@ -415,13 +417,15 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			CandidatesTokenCount: int32(completionTokens),
 		}
 	}
-	_ = yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(finishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	_ = yield(resp, nil)
 }
 
 func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -463,11 +467,13 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
 		}
 	}
-	yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(choice.FinishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	yield(resp, nil)
 }

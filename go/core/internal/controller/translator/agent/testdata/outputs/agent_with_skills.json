@@ -239,7 +239,16 @@
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
-                "resources": {},
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/skills",
