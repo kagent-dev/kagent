@@ -889,15 +889,11 @@ class TestConvertContentToOpenaiMessages:
 
         assistant_messages = [m for m in messages if m["role"] == "assistant"]
         assert len(assistant_messages) == 1
-        assert assistant_messages[0]["tool_calls"][0]["extra_content"] == {
-            "google": {"thought_signature": "YWJj"}
-        }
+        assert assistant_messages[0]["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
 
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
-        assert tool_messages[0]["extra_content"] == {
-            "google": {"thought_signature": "YWJj"}
-        }
+        assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
 
 
 class TestConvertOpenAIResponseToLlmResponse:
@@ -994,12 +990,8 @@ class TestConvertOpenAIResponseToLlmResponse:
 
         assistant_messages = [m for m in messages if m["role"] == "assistant"]
         assert len(assistant_messages) == 1
-        assert assistant_messages[0]["tool_calls"][0]["extra_content"] == {
-            "google": {"thought_signature": "YWJj"}
-        }
+        assert assistant_messages[0]["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
 
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
-        assert tool_messages[0]["extra_content"] == {
-            "google": {"thought_signature": "YWJj"}
-        }
+        assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}

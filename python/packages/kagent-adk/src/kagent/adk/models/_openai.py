@@ -201,7 +201,9 @@ def _convert_content_to_openai_messages(
                         tool_call_id=tool_call_id,
                         content=content,
                     )
-                    if extra_content := _openai_extra_content_for_thought_signature(thought_signatures.get(tool_call_id)):
+                    if extra_content := _openai_extra_content_for_thought_signature(
+                        thought_signatures.get(tool_call_id)
+                    ):
                         tool_message["extra_content"] = extra_content
                     tool_response_messages.append(tool_message)
                 else:
