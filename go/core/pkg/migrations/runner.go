@@ -19,15 +19,32 @@ var log = ctrl.Log.WithName("migrations")
 // vectorEnabled controls whether the vector track is also applied.
 // Returns an error if any track fails (and attempts rollback of previously applied tracks).
 func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
-	corePrev, err := applyDir(url, migrationsFS, "core", "schema_migrations")
+	// If the tracking table doesn't exist yet, this is either a fresh install or
+	// an upgrade from GORM (pre-golang-migrate). In the GORM case, rolling back
+	// would run DROP TABLE on pre-existing tables, destroying data. Disable
+	// rollback for the first migration run to be safe in both cases.
+	firstRun, err := isFirstRun(url, "schema_migrations")
+	if err != nil {
+		return fmt.Errorf("check migration state: %w", err)
+	}
+	if firstRun {
+		log.Info("first migration run detected, rollback disabled to protect existing data")
+	}
+
+	corePrev, err := applyDir(url, migrationsFS, "core", "schema_migrations", !firstRun)
 	if err != nil {
 		return fmt.Errorf("core migrations: %w", err)
 	}
 
 	if vectorEnabled {
-		if _, err := applyDir(url, migrationsFS, "vector", "vector_schema_migrations"); err != nil {
-			log.Info("rolling back core after vector failure", "targetVersion", corePrev)
-			rollbackDir(url, migrationsFS, "core", "schema_migrations", corePrev)
+		if err := checkPgvector(url); err != nil {
+			return fmt.Errorf("vector migrations require pgvector: %w", err)
+		}
+		if _, err := applyDir(url, migrationsFS, "vector", "vector_schema_migrations", !firstRun); err != nil {
+			if !firstRun {
+				log.Info("rolling back core after vector failure", "targetVersion", corePrev)
+				rollbackDir(url, migrationsFS, "core", "schema_migrations", corePrev)
+			}
 			return fmt.Errorf("vector migrations: %w", err)
 		}
 	}
@@ -35,9 +52,9 @@ func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 	return nil
 }
 
-// applyDir runs Up for dir and rolls back on failure. It returns the pre-run
-// version so the caller can roll back this track if a later track fails.
-func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prevVersion uint, err error) {
+// applyDir runs Up for dir and rolls back on failure (if rollbackEnabled is true).
+// It returns the pre-run version so the caller can roll back this track if a later track fails.
+func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string, rollbackEnabled bool) (prevVersion uint, err error) {
 	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
 	if err != nil {
 		return 0, err
@@ -54,11 +71,15 @@ func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prev
 		if errors.Is(upErr, migrate.ErrNoChange) {
 			return prevVersion, nil
 		}
-		log.Info("migration failed, attempting rollback", "track", dir, "targetVersion", prevVersion)
-		if rbErr := rollbackToVersion(mg, dir, prevVersion); rbErr != nil {
-			log.Error(rbErr, "rollback failed", "track", dir)
+		if rollbackEnabled {
+			log.Info("migration failed, attempting rollback", "track", dir, "targetVersion", prevVersion)
+			if rbErr := rollbackToVersion(mg, dir, prevVersion); rbErr != nil {
+				log.Error(rbErr, "rollback failed", "track", dir)
+			} else {
+				log.Info("rollback complete", "track", dir, "version", prevVersion)
+			}
 		} else {
-			log.Info("rollback complete", "track", dir, "version", prevVersion)
+			log.Info("migration failed, rollback disabled for first run", "track", dir)
 		}
 		return prevVersion, fmt.Errorf("run migrations for %s: %w", dir, upErr)
 	}
@@ -116,6 +137,49 @@ func rollbackToVersion(mg *migrate.Migrate, dir string, targetVersion uint) erro
 	}
 	if err := mg.Steps(-steps); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("roll back %d step(s) for %s: %w", steps, dir, err)
+	}
+	return nil
+}
+
+// isFirstRun checks whether the migration tracking table exists. If it does not,
+// this is the first time golang-migrate is running — either a fresh install or an
+// upgrade from GORM. The caller uses this to disable rollback, since rolling back
+// on a GORM upgrade would DROP pre-existing tables and destroy data.
+func isFirstRun(url, migrationsTable string) (bool, error) {
+	db, err := sql.Open("pgx", url)
+	if err != nil {
+		return false, fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	var exists bool
+	err = db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
+		migrationsTable,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check tracking table: %w", err)
+	}
+	return !exists, nil
+}
+
+// checkPgvector verifies that the pgvector extension is available on the database.
+// This is called before running vector migrations to fail fast with a clear error
+// rather than failing mid-migration and triggering a rollback.
+func checkPgvector(url string) error {
+	db, err := sql.Open("pgx", url)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	var available bool
+	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'vector')").Scan(&available)
+	if err != nil {
+		return fmt.Errorf("check pgvector availability: %w", err)
+	}
+	if !available {
+		return fmt.Errorf("the pgvector extension is not installed on this PostgreSQL instance; either install pgvector or set --database-vector-enabled=false")
 	}
 	return nil
 }
