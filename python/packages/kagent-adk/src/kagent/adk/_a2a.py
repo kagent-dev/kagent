@@ -138,9 +138,18 @@ class KAgentApp:
         if not local and http_client is not None:
             task_store = KAgentTaskStore(http_client)
 
+        sng_enabled = self.agent_config is not None and self.agent_config.session_name_generation is not None
+        sng_interval = 0
+        if sng_enabled and self.agent_config.session_name_generation.update_interval_seconds:
+            sng_interval = self.agent_config.session_name_generation.update_interval_seconds
+
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
-            config=A2aAgentExecutorConfig(stream=self.stream),
+            config=A2aAgentExecutorConfig(
+                stream=self.stream,
+                session_name_generation_enabled=sng_enabled,
+                session_name_update_interval_seconds=sng_interval,
+            ),
             task_store=task_store,
         )
 

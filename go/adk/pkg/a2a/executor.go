@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	adk "github.com/kagent-dev/kagent/go/api/adk"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/runner"
@@ -23,9 +24,8 @@ import (
 )
 
 const (
-	defaultSkillsDirectory       = "/skills"
-	envSkillsFolder              = "KAGENT_SKILLS_FOLDER"
-	envSessionNameUpdateInterval = "KAGENT_SESSION_NAME_UPDATE_INTERVAL"
+	defaultSkillsDirectory = "/skills"
+	envSkillsFolder        = "KAGENT_SKILLS_FOLDER"
 )
 
 const (
@@ -36,14 +36,15 @@ const (
 
 // KAgentExecutorConfig holds the configuration for KAgentExecutor
 type KAgentExecutorConfig struct {
-	RunnerConfig       runner.Config
-	SubagentSessionIDs map[string]string
-	SessionService     *session.KAgentSessionService
-	Stream             bool
-	AppName            string
-	SkillsDirectory    string
-	Logger             logr.Logger
-	SessionNameLLM     model.LLM
+	RunnerConfig          runner.Config
+	SubagentSessionIDs    map[string]string
+	SessionService        *session.KAgentSessionService
+	Stream                bool
+	AppName               string
+	SkillsDirectory       string
+	Logger                logr.Logger
+	SessionNameLLM        model.LLM
+	SessionNameGeneration *adk.SessionNameGenerationConfig
 }
 
 // sessionNameMeta holds per-request metadata used for session name generation.
@@ -79,10 +80,8 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	}
 
 	var sessionNameUpdateInterval time.Duration
-	if intervalStr := os.Getenv(envSessionNameUpdateInterval); intervalStr != "" {
-		if d, err := time.ParseDuration(intervalStr); err == nil {
-			sessionNameUpdateInterval = d
-		}
+	if cfg.SessionNameGeneration != nil && cfg.SessionNameGeneration.UpdateIntervalSeconds != nil {
+		sessionNameUpdateInterval = time.Duration(*cfg.SessionNameGeneration.UpdateIntervalSeconds) * time.Second
 	}
 
 	return &KAgentExecutor{
@@ -192,6 +191,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 		if sess == nil {
 			sessionName := extractMessageText(reqCtx.Message)
+			if len(sessionName) > 60 {
+				sessionName = sessionName[:60] + "..."
+			}
 			state := make(map[string]any)
 			if sessionName != "" {
 				state[StateKeySessionName] = sessionName
@@ -450,9 +452,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		return queue.Write(ctx, inputRequired)
 	}
 
-	// Generate session name via LLM if the update interval has elapsed.
-	if meta != nil && e.sessionNameLLM != nil && e.sessionNameUpdateInterval > 0 {
-		if time.Since(meta.updatedAt) >= e.sessionNameUpdateInterval && meta.messageText != "" {
+	// Generate session name via LLM if this is a new session (updatedAt is zero)
+	// or if the update interval has elapsed since the last generation.
+	if meta != nil && e.sessionNameLLM != nil && meta.messageText != "" {
+		isNewSession := meta.updatedAt.IsZero()
+		intervalElapsed := e.sessionNameUpdateInterval > 0 && time.Since(meta.updatedAt) >= e.sessionNameUpdateInterval
+		if isNewSession || intervalElapsed {
 			if name := e.generateSessionName(ctx, meta.messageText); name != "" {
 				if updateErr := e.sessionService.UpdateSessionName(ctx, meta.userID, sessionID, name); updateErr != nil {
 					e.logger.V(1).Info("Failed to update session name", "error", updateErr, "sessionID", sessionID)
@@ -500,7 +505,7 @@ func (e *KAgentExecutor) generateSessionName(ctx context.Context, messageText st
 		},
 	}
 
-	var name string
+	var name strings.Builder
 	for resp, err := range e.sessionNameLLM.GenerateContent(ctx, req, false) {
 		if err != nil {
 			e.logger.V(1).Info("LLM error during session name generation", "error", err)
@@ -509,12 +514,12 @@ func (e *KAgentExecutor) generateSessionName(ctx context.Context, messageText st
 		if resp != nil && resp.Content != nil {
 			for _, part := range resp.Content.Parts {
 				if part != nil && part.Text != "" {
-					name = strings.TrimSpace(part.Text)
+					name.WriteString(part.Text)
 				}
 			}
 		}
 	}
-	return name
+	return strings.TrimSpace(name.String())
 }
 
 // extractMessageText returns the first text part of a message.

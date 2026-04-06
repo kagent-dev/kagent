@@ -9993,6 +9993,18 @@ spec:
                       - "go": Uses the Go ADK (faster startup, most features supported)
                       The runtime determines both the container image and readiness probe configuration.
                     type: string
+                  sessionNameGeneration:
+                    description: |-
+                      SessionNameGeneration enables automatic LLM-based session name generation.
+                      When set, the agent uses its configured model to generate descriptive session names
+                      from user messages. If omitted, session names use truncated message text.
+                    properties:
+                      updateInterval:
+                        description: |-
+                          UpdateInterval is the minimum duration between session name regenerations.
+                          If omitted or zero, the name is only generated once on the first message.
+                        type: string
+                    type: object
                   stream:
                     description: |-
                       Whether to stream the response from the model.

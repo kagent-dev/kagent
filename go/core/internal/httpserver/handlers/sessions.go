@@ -184,12 +184,20 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	principal, _ := GetPrincipal(r)
 	if principal.Agent.ID != "" {
 		session, err = h.DatabaseService.GetSessionByID(r.Context(), sessionID)
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
+		if session.AgentID != nil && *session.AgentID != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
+			w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
+			return
+		}
 	} else {
 		session, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-	}
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
 	}
 
 	queryOptions := database.QueryOptions{
@@ -313,10 +321,25 @@ func (h *SessionsHandler) HandlePatchSession(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
+	// Agent callers use a synthetic user ID that won't match the session's real user_id.
+	var session *database.Session
+	principal, _ := GetPrincipal(r)
+	if principal.Agent.ID != "" {
+		session, err = h.DatabaseService.GetSessionByID(r.Context(), sessionID)
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
+		if session.AgentID != nil && *session.AgentID != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
+			w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
+			return
+		}
+	} else {
+		session, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
 	}
 
 	session.Name = &patchReq.Name

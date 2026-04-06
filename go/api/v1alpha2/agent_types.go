@@ -188,6 +188,12 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// SessionNameGeneration enables automatic LLM-based session name generation.
+	// When set, the agent uses its configured model to generate descriptive session names
+	// from user messages. If omitted, session names use truncated message text.
+	// +optional
+	SessionNameGeneration *SessionNameGenerationConfig `json:"sessionNameGeneration,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.
@@ -236,6 +242,14 @@ type ContextSummarizerConfig struct {
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
 	PromptTemplate *string `json:"promptTemplate,omitempty"`
+}
+
+// SessionNameGenerationConfig configures automatic LLM-based session name generation.
+type SessionNameGenerationConfig struct {
+	// UpdateInterval is the minimum duration between session name regenerations.
+	// If omitted or zero, the name is only generated once on the first message.
+	// +optional
+	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
 }
 
 // PromptTemplateSpec configures prompt template processing for an agent's system message.

@@ -427,18 +427,24 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// SessionNameGenerationConfig configures LLM-based session name generation.
+type SessionNameGenerationConfig struct {
+	UpdateIntervalSeconds *int `json:"update_interval_seconds,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-	ExecuteCode   *bool                 `json:"execute_code,omitempty"`
-	Stream        *bool                 `json:"stream,omitempty"`
-	Memory        *MemoryConfig         `json:"memory,omitempty"`
-	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Model                 Model                        `json:"model"`
+	Description           string                       `json:"description"`
+	Instruction           string                       `json:"instruction"`
+	HttpTools             []HttpMcpServerConfig        `json:"http_tools,omitempty"`
+	SseTools              []SseMcpServerConfig         `json:"sse_tools,omitempty"`
+	RemoteAgents          []RemoteAgentConfig          `json:"remote_agents,omitempty"`
+	ExecuteCode           *bool                        `json:"execute_code,omitempty"`
+	Stream                *bool                        `json:"stream,omitempty"`
+	Memory                *MemoryConfig                `json:"memory,omitempty"`
+	ContextConfig         *AgentContextConfig          `json:"context_config,omitempty"`
+	SessionNameGeneration *SessionNameGenerationConfig `json:"session_name_generation,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -459,16 +465,17 @@ func (a *AgentConfig) GetExecuteCode() bool {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage       `json:"model"`
-		Description   string                `json:"description"`
-		Instruction   string                `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-		SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-		ExecuteCode   *bool                 `json:"execute_code,omitempty"`
-		Stream        *bool                 `json:"stream,omitempty"`
-		Memory        json.RawMessage       `json:"memory"`
-		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Model                 json.RawMessage              `json:"model"`
+		Description           string                       `json:"description"`
+		Instruction           string                       `json:"instruction"`
+		HttpTools             []HttpMcpServerConfig        `json:"http_tools,omitempty"`
+		SseTools              []SseMcpServerConfig         `json:"sse_tools,omitempty"`
+		RemoteAgents          []RemoteAgentConfig          `json:"remote_agents,omitempty"`
+		ExecuteCode           *bool                        `json:"execute_code,omitempty"`
+		Stream                *bool                        `json:"stream,omitempty"`
+		Memory                json.RawMessage              `json:"memory"`
+		ContextConfig         *AgentContextConfig          `json:"context_config,omitempty"`
+		SessionNameGeneration *SessionNameGenerationConfig `json:"session_name_generation,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +504,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.SessionNameGeneration = tmp.SessionNameGeneration
 	return nil
 }
 

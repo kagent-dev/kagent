@@ -255,6 +255,12 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class SessionNameGenerationConfig(BaseModel):
+    """Config for LLM-based session name generation. Presence enables the feature."""
+
+    update_interval_seconds: int | None = None  # 0 or None = first message only
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -266,6 +272,7 @@ class AgentConfig(BaseModel):
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     context_config: ContextConfig | None = None
+    session_name_generation: SessionNameGenerationConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

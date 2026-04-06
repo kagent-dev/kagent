@@ -705,6 +705,16 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		}
 	}
 
+	// Handle session name generation configuration.
+	if agent.Spec.Declarative.SessionNameGeneration != nil {
+		snCfg := &adk.SessionNameGenerationConfig{}
+		if agent.Spec.Declarative.SessionNameGeneration.UpdateInterval != nil {
+			seconds := int(agent.Spec.Declarative.SessionNameGeneration.UpdateInterval.Seconds())
+			snCfg.UpdateIntervalSeconds = &seconds
+		}
+		cfg.SessionNameGeneration = snCfg
+	}
+
 	for _, tool := range agent.Spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 		if err != nil {

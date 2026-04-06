@@ -153,7 +153,7 @@ func main() {
 	stream := agentConfig.GetStream()
 
 	var sessionNameLLM adkmodel.LLM
-	if sessionService != nil {
+	if agentConfig.SessionNameGeneration != nil && sessionService != nil {
 		if llm, err := agentpkg.CreateLLM(ctx, agentConfig.Model, logger); err == nil {
 			sessionNameLLM = llm
 		} else {
@@ -162,13 +162,14 @@ func main() {
 	}
 
 	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
-		RunnerConfig:       runnerConfig,
-		SubagentSessionIDs: subagentSessionIDs,
-		SessionService:     sessionService,
-		Stream:             stream,
-		AppName:            appName,
-		Logger:             logger,
-		SessionNameLLM:     sessionNameLLM,
+		RunnerConfig:          runnerConfig,
+		SubagentSessionIDs:    subagentSessionIDs,
+		SessionService:        sessionService,
+		Stream:                stream,
+		AppName:               appName,
+		Logger:                logger,
+		SessionNameLLM:        sessionNameLLM,
+		SessionNameGeneration: agentConfig.SessionNameGeneration,
 	})
 
 	// Build the agent card.

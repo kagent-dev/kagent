@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import os
 import uuid
 from contextlib import suppress
 from datetime import datetime, timezone
@@ -66,22 +65,13 @@ Generate a short title (5-7 words max, no quotes or punctuation) for a conversat
 """
 
 
-def _parse_duration_seconds(duration_str: str) -> float:
-    """Parse a Go-style duration string (e.g. '5m', '1h', '30s', '300') into seconds."""
-    s = duration_str.strip()
-    if s.endswith("h"):
-        return float(s[:-1]) * 3600
-    if s.endswith("m"):
-        return float(s[:-1]) * 60
-    if s.endswith("s"):
-        return float(s[:-1])
-    return float(s)
-
 
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the KAgent A2aAgentExecutor."""
 
     stream: bool = False
+    session_name_generation_enabled: bool = False
+    session_name_update_interval_seconds: int = 0
 
 
 def _kagent_request_converter(request, _part_converter=None):
@@ -142,14 +132,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         self._kagent_config = config
         self._task_store = task_store
 
-        # Parse session name update interval from env var (0 = only set on first message).
-        self._session_name_update_interval: float = 0.0
-        interval_str = os.environ.get("KAGENT_SESSION_NAME_UPDATE_INTERVAL", "")
-        if interval_str:
-            try:
-                self._session_name_update_interval = _parse_duration_seconds(interval_str)
-            except ValueError:
-                logger.warning("Invalid KAGENT_SESSION_NAME_UPDATE_INTERVAL value: %s", interval_str)
+        # Session name generation is enabled via agent config (CRD field).
+        self._session_name_enabled: bool = config.session_name_generation_enabled if config else False
+        self._session_name_update_interval: float = float(config.session_name_update_interval_seconds) if config else 0.0
 
     @override
     async def _resolve_runner(self) -> Runner:
@@ -364,7 +349,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             return None
 
     def _should_update_session_name(self, session: Any) -> bool:
-        """Return True if the session name should be generated"""
+        """Return True if the session name should be generated."""
+        if not self._session_name_enabled:
+            return False
         session_name = session.state.get("_kagent_session_name")
         if not session_name:
             return True
