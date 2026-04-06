@@ -63,6 +63,10 @@ database:
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
     vectorEnabled: false
+    # -- Allow migration rollback on first run.
+    # By default, rollback is disabled when upgrading from GORM to protect pre-existing data.
+    # Set to true only after backing up your database.
+    allowInitialMigrationRollback: false
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:

@@ -131,7 +131,7 @@ func startTestDB(t *testing.T) string {
 func TestApplyDir_HappyPath(t *testing.T) {
 	connStr := startTestDB(t)
 
-	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", true)
+	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", false)
 	if err != nil {
 		t.Fatalf("applyDir: %v", err)
 	}
@@ -146,10 +146,10 @@ func TestApplyDir_HappyPath(t *testing.T) {
 func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", true); err != nil {
+	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", false); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
-	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", true)
+	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", false)
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
@@ -161,26 +161,28 @@ func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
 	}
 }
 
-func TestApplyDir_RollsBackWhenFirstMigrationFails(t *testing.T) {
+func TestApplyDir_NoRollbackWhenFirstMigrationFails(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, failOnFirstCoreFS, "core", "schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, failOnFirstCoreFS, "core", "schema_migrations", false); err == nil {
 		t.Fatal("expected error, got nil")
 	}
+	// prevVersion was 0 so rollback is skipped to protect pre-existing data.
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 0 {
-		t.Errorf("version after rollback = %d, want 0", got)
+		t.Errorf("version after failure = %d, want 0", got)
 	}
 }
 
-func TestApplyDir_RollsBackWhenLaterMigrationFails(t *testing.T) {
+func TestApplyDir_NoRollbackWhenLaterMigrationFails(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations", false); err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	// Migration 1 succeeded then was rolled back along with the failed migration 2.
-	if got := trackVersion(t, connStr, "schema_migrations"); got != 0 {
-		t.Errorf("version after rollback = %d, want 0", got)
+	// Migration 1 succeeded but rollback is skipped because prevVersion was 0.
+	// The version stays at 1 (the last successfully applied migration).
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
+		t.Errorf("version after failure = %d, want 1", got)
 	}
 }
 
@@ -188,16 +190,44 @@ func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// Establish a baseline at version 1.
-	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations", true); err != nil {
+	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations", false); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	// Advance to version 2 — should fail and roll back to version 1, not 0.
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations", false); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
 		t.Errorf("version after rollback = %d, want 1 (pre-run baseline)", got)
+	}
+}
+
+// TestApplyDir_RollsBackWithExistingVersionRegardlessOfFlag verifies that when
+// migrations have previously been applied (prevVersion > 0), rollback always
+// happens on failure — even when allowInitialMigrationRollback is false.
+// This ensures the rollback protection only affects the initial migration run,
+// not subsequent upgrades.
+func TestApplyDir_RollsBackWithExistingVersionRegardlessOfFlag(t *testing.T) {
+	connStr := startTestDB(t)
+
+	// Establish a baseline at version 1.
+	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations", false); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// Verify data exists at version 1.
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
+		t.Fatalf("setup: version = %d, want 1", got)
+	}
+
+	// Advance to version 2 with allowInitialMigrationRollback=false — should
+	// still roll back because prevVersion > 0.
+	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations", false); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
+		t.Errorf("version after rollback = %d, want 1 (rollback should happen when prevVersion > 0)", got)
 	}
 }
 
@@ -206,7 +236,7 @@ func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
 func TestRollbackDir_RollsBackToTarget(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", true); err != nil {
+	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", false); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -220,7 +250,7 @@ func TestRollbackDir_RollsBackToTarget(t *testing.T) {
 func TestRollbackDir_PartialRollback(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", true); err != nil {
+	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations", false); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -243,12 +273,12 @@ func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
 	// Establish core at its latest version before the run.
-	if _, err := applyDir(connStr, combined, "core", "schema_migrations", true); err != nil {
+	if _, err := applyDir(connStr, combined, "core", "schema_migrations", false); err != nil {
 		t.Fatalf("setup core: %v", err)
 	}
 
 	// Core has no new migrations — applyDir returns ErrNoChange.
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", true)
+	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", false)
 	if err != nil {
 		t.Fatalf("core apply (no-op): %v", err)
 	}
@@ -257,7 +287,7 @@ func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
 	}
 
 	// Vector fails and self-rolls-back.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", false); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 
@@ -274,7 +304,7 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
 	// Core succeeds.
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", true)
+	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", false)
 	if err != nil {
 		t.Fatalf("core apply: %v", err)
 	}
@@ -283,7 +313,7 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	}
 
 	// Vector fails and rolls itself back.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", false); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 0 {
@@ -307,7 +337,7 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 	combined := mergeFS(expandCoreFS, failVectorWithDependencyFS)
 
 	// Core succeeds (shared_data created with col_a and col_b).
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", true)
+	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations", false)
 	if err != nil {
 		t.Fatalf("core apply: %v", err)
 	}
@@ -317,7 +347,7 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 
 	// Vector fails; its down migration (DROP COLUMN IF EXISTS vec_col) must not
 	// error even though the column was never added.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", true); err == nil {
+	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations", false); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 0 {
