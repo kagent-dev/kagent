@@ -126,6 +126,61 @@ func startTestDB(t *testing.T) string {
 	return connStr
 }
 
+// goodVectorFS has a valid vector migration.
+var goodVectorFS = fstest.MapFS{
+	"vector/000001_create.up.sql":   {Data: []byte(`CREATE EXTENSION IF NOT EXISTS vector; CREATE TABLE IF NOT EXISTS vec_test (id SERIAL PRIMARY KEY, embedding vector(3));`)},
+	"vector/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS vec_test; DROP EXTENSION IF EXISTS vector;`)},
+}
+
+// startTestDBWithoutPgvector spins up a plain Postgres container (no pgvector)
+// and returns its connection string, registering cleanup with t.
+func startTestDBWithoutPgvector(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	pgContainer, err := tcpostgres.Run(ctx,
+		"postgres:18",
+		tcpostgres.WithDatabase("kagent_test"),
+		tcpostgres.WithUsername("postgres"),
+		tcpostgres.WithPassword("kagent"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(60*time.Second),
+		),
+	)
+	if err != nil {
+		t.Fatalf("startTestDBWithoutPgvector: start container: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := pgContainer.Terminate(ctx); err != nil {
+			t.Logf("warning: failed to terminate postgres container: %v", err)
+		}
+	})
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("startTestDBWithoutPgvector: connection string: %v", err)
+	}
+	return connStr
+}
+
+// tableExists checks whether a table exists in the public schema.
+func tableExists(t *testing.T, connStr, table string) bool {
+	t.Helper()
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		t.Fatalf("tableExists: open db: %v", err)
+	}
+	defer db.Close()
+	var exists bool
+	err = db.QueryRowContext(context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
+		table).Scan(&exists)
+	if err != nil {
+		t.Fatalf("tableExists: query: %v", err)
+	}
+	return exists
+}
+
 // --- applyDir tests ---
 
 func TestApplyDir_HappyPath(t *testing.T) {
@@ -168,8 +223,9 @@ func TestApplyDir_NoRollbackWhenFirstMigrationFails(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	// prevVersion was 0 so rollback is skipped to protect pre-existing data.
-	if got := trackVersion(t, connStr, "schema_migrations"); got != 0 {
-		t.Errorf("version after failure = %d, want 0", got)
+	// golang-migrate marks version 1 as dirty (the failed migration).
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
+		t.Errorf("version after failure = %d, want 1 (dirty, rollback skipped)", got)
 	}
 }
 
@@ -179,10 +235,10 @@ func TestApplyDir_NoRollbackWhenLaterMigrationFails(t *testing.T) {
 	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	// Migration 1 succeeded but rollback is skipped because prevVersion was 0.
-	// The version stays at 1 (the last successfully applied migration).
-	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
-		t.Errorf("version after failure = %d, want 1", got)
+	// Migration 1 succeeded, migration 2 failed. Rollback is skipped because
+	// prevVersion was 0. golang-migrate marks version 2 as dirty.
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Errorf("version after failure = %d, want 2 (dirty, rollback skipped)", got)
 	}
 }
 
@@ -310,12 +366,12 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 		t.Fatalf("core version = %d, want 2", got)
 	}
 
-	// Vector fails and rolls itself back.
+	// Vector fails. Self-rollback is skipped because vector prevVersion is 0.
 	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
-	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 0 {
-		t.Errorf("vector version after self-rollback = %d, want 0", got)
+	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 1 {
+		t.Errorf("vector version after failure = %d, want 1 (dirty, rollback skipped)", got)
 	}
 
 	// Cross-track rollback: core should be rolled back to its pre-run version.
@@ -343,19 +399,127 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 		t.Fatalf("core version = %d, want 2", got)
 	}
 
-	// Vector fails; its down migration (DROP COLUMN IF EXISTS vec_col) must not
-	// error even though the column was never added.
+	// Vector fails. Self-rollback is skipped because vector prevVersion is 0.
 	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
-	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 0 {
-		t.Errorf("vector version after self-rollback = %d, want 0", got)
+	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 1 {
+		t.Errorf("vector version after failure = %d, want 1 (dirty, rollback skipped)", got)
 	}
 
 	// Cross-track rollback: core rolls back to its pre-run version.
-	// Core's down migration (DROP TABLE IF EXISTS shared_data) must succeed.
 	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
 	if got := trackVersion(t, connStr, "schema_migrations"); got != corePrev {
 		t.Errorf("core version after cross-track rollback = %d, want %d", got, corePrev)
+	}
+}
+
+// --- checkPgvector tests ---
+
+func TestCheckPgvector_SucceedsOnPgvectorDB(t *testing.T) {
+	connStr := startTestDB(t) // pgvector image
+	if err := checkPgvector(connStr); err != nil {
+		t.Errorf("checkPgvector on pgvector db: %v", err)
+	}
+}
+
+func TestCheckPgvector_FailsOnPlainPostgres(t *testing.T) {
+	connStr := startTestDBWithoutPgvector(t) // plain postgres image
+	if err := checkPgvector(connStr); err == nil {
+		t.Error("checkPgvector on plain postgres: expected error, got nil")
+	}
+}
+
+// --- RunUp end-to-end tests ---
+
+func TestRunUp_CoreAndVector(t *testing.T) {
+	connStr := startTestDB(t)
+	combined := mergeFS(goodCoreFS, goodVectorFS)
+
+	if err := RunUp(connStr, combined, true); err != nil {
+		t.Fatalf("RunUp: %v", err)
+	}
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Errorf("core version = %d, want 2", got)
+	}
+	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 1 {
+		t.Errorf("vector version = %d, want 1", got)
+	}
+}
+
+func TestRunUp_CoreOnlyWhenVectorDisabled(t *testing.T) {
+	connStr := startTestDB(t)
+	combined := mergeFS(goodCoreFS, goodVectorFS)
+
+	if err := RunUp(connStr, combined, false); err != nil {
+		t.Fatalf("RunUp: %v", err)
+	}
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Errorf("core version = %d, want 2", got)
+	}
+	// Vector tracking table should not exist.
+	if tableExists(t, connStr, "vector_schema_migrations") {
+		t.Error("vector_schema_migrations should not exist when vectorEnabled=false")
+	}
+}
+
+func TestRunUp_FailsBeforeMigrationsWhenPgvectorMissing(t *testing.T) {
+	connStr := startTestDBWithoutPgvector(t)
+
+	err := RunUp(connStr, goodCoreFS, true)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// Core migrations should NOT have run — no tracking table created.
+	if tableExists(t, connStr, "schema_migrations") {
+		t.Error("schema_migrations should not exist — pgvector check should fail before any migrations")
+	}
+}
+
+// TestRunUp_SkipsCoreRollbackWhenVectorFailsOnFirstRun verifies the cross-track
+// rollback protection in RunUp: when vector fails and corePrev is 0 (initial run),
+// core is not rolled back to protect pre-existing data.
+func TestRunUp_SkipsCoreRollbackWhenVectorFailsOnFirstRun(t *testing.T) {
+	connStr := startTestDB(t) // pgvector available so checkPgvector passes
+	combined := mergeFS(goodCoreFS, failVectorFS)
+
+	err := RunUp(connStr, combined, true)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	// Core should still be at version 2 — not rolled back to 0.
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Errorf("core version = %d, want 2 (should not be rolled back when corePrev == 0)", got)
+	}
+}
+
+// --- dirty state recovery tests ---
+
+// TestApplyDir_DirtyStateRecoveryOnRestart simulates a restart after a failed
+// migration left the database in a dirty state. On the second call, prevVersion
+// is > 0 (the dirty version), so rollback is enabled. The runner should clear
+// the dirty state and roll back to the last clean version.
+func TestApplyDir_DirtyStateRecoveryOnRestart(t *testing.T) {
+	connStr := startTestDB(t)
+
+	// First run: apply version 1, then version 2 fails. prevVersion is 0, so
+	// rollback is skipped. Database left at version 2 dirty.
+	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Fatalf("after first run: version = %d, want 2 (dirty)", got)
+	}
+
+	// Second run (simulating restart): prevVersion is now 2 (dirty). The runner
+	// should detect dirty state and attempt to clear it. mg.Up() will fail because
+	// the database is dirty, then rollbackToVersion clears dirty to version 1.
+	_, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations")
+	if err == nil {
+		t.Fatal("expected error on second run, got nil")
+	}
+	// After rollback clears dirty state, version should be at 1 (last clean).
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
+		t.Errorf("after restart: version = %d, want 1 (dirty cleared, rolled back)", got)
 	}
 }
