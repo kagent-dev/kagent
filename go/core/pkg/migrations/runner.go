@@ -45,9 +45,9 @@ func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 	return nil
 }
 
-// applyDir runs Up for dir and rolls back on failure. Rollback to version 0
-// (which drops all tables) is only allowed when allowInitialMigrationRollback
-// is true, to protect pre-existing data on a GORM-to-golang-migrate upgrade.
+// applyDir runs Up for dir and rolls back on failure. If prevVersion is 0
+// (no migrations have ever been applied), rollback is skipped to avoid dropping
+// pre-existing tables on a GORM-to-golang-migrate upgrade.
 // It returns the pre-run version so the caller can roll back this track if a later track fails.
 func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prevVersion uint, err error) {
 	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
