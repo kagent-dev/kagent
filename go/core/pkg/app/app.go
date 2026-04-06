@@ -126,10 +126,9 @@ type Config struct {
 	WatchNamespaces    string
 	A2ABaseUrl         string
 	Database           struct {
-		Url                           string
-		UrlFile                       string
-		VectorEnabled                 bool
-		AllowInitialMigrationRollback bool
+		Url           string
+		UrlFile       string
+		VectorEnabled bool
 	}
 }
 
@@ -160,7 +159,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
-	commandLine.BoolVar(&cfg.Database.AllowInitialMigrationRollback, "database-allow-initial-migration-rollback", false, "Allow migration rollback on first run. By default, rollback is disabled when no prior migration version exists to protect pre-existing data. Set this flag after backing up your database.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -435,7 +433,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	// Use the built-in migration runner when none is provided.
 	if migrationRunner == nil {
 		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(url, migrations.FS, vectorEnabled, cfg.Database.AllowInitialMigrationRollback)
+			return migrations.RunUp(url, migrations.FS, vectorEnabled)
 		}
 	}
 

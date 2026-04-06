@@ -52,7 +52,6 @@ data:
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
-  DATABASE_ALLOW_INITIAL_MIGRATION_ROLLBACK: {{ .Values.database.postgres.allowInitialMigrationRollback | quote }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}

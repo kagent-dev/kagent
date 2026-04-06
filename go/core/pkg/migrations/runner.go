@@ -18,25 +18,25 @@ var log = ctrl.Log.WithName("migrations")
 // RunUp applies all pending migrations for the given FS.
 // vectorEnabled controls whether the vector track is also applied.
 // Returns an error if any track fails (and attempts rollback of previously applied tracks).
-func RunUp(url string, migrationsFS fs.FS, vectorEnabled, allowInitialMigrationRollback bool) error {
+func RunUp(url string, migrationsFS fs.FS, vectorEnabled bool) error {
 	if vectorEnabled {
 		if err := checkPgvector(url); err != nil {
 			return fmt.Errorf("vector migrations require pgvector: %w", err)
 		}
 	}
 
-	corePrev, err := applyDir(url, migrationsFS, "core", "schema_migrations", allowInitialMigrationRollback)
+	corePrev, err := applyDir(url, migrationsFS, "core", "schema_migrations")
 	if err != nil {
 		return fmt.Errorf("core migrations: %w", err)
 	}
 
 	if vectorEnabled {
-		if _, err := applyDir(url, migrationsFS, "vector", "vector_schema_migrations", allowInitialMigrationRollback); err != nil {
-			if corePrev > 0 || allowInitialMigrationRollback {
+		if _, err := applyDir(url, migrationsFS, "vector", "vector_schema_migrations"); err != nil {
+			if corePrev == 0 {
+				log.Info("vector migration failed; skipping core rollback to version 0 to protect pre-existing data")
+			} else {
 				log.Info("rolling back core after vector failure", "targetVersion", corePrev)
 				rollbackDir(url, migrationsFS, "core", "schema_migrations", corePrev)
-			} else {
-				log.Info("vector migration failed; skipping core rollback because no prior core version exists (set --database-allow-initial-migration-rollback to override)", "corePrev", corePrev)
 			}
 			return fmt.Errorf("vector migrations: %w", err)
 		}
@@ -45,11 +45,11 @@ func RunUp(url string, migrationsFS fs.FS, vectorEnabled, allowInitialMigrationR
 	return nil
 }
 
-// applyDir runs Up for dir and rolls back on failure. If no migrations have
-// ever completed successfully (prevVersion == 0), rollback is skipped to avoid
-// dropping pre-existing tables on a GORM-to-golang-migrate upgrade.
+// applyDir runs Up for dir and rolls back on failure. Rollback to version 0
+// (which drops all tables) is only allowed when allowInitialMigrationRollback
+// is true, to protect pre-existing data on a GORM-to-golang-migrate upgrade.
 // It returns the pre-run version so the caller can roll back this track if a later track fails.
-func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string, allowInitialMigrationRollback bool) (prevVersion uint, err error) {
+func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string) (prevVersion uint, err error) {
 	mg, err := newMigrate(url, migrationsFS, dir, migrationsTable)
 	if err != nil {
 		return 0, err
@@ -66,15 +66,15 @@ func applyDir(url string, migrationsFS fs.FS, dir, migrationsTable string, allow
 		if errors.Is(upErr, migrate.ErrNoChange) {
 			return prevVersion, nil
 		}
-		if prevVersion > 0 || allowInitialMigrationRollback {
-			log.Info("migration failed, attempting rollback", "track", dir, "targetVersion", prevVersion, "allowInitialMigrationRollback", allowInitialMigrationRollback)
+		if prevVersion == 0 {
+			log.Info("migration failed; skipping rollback to version 0 to protect pre-existing data", "track", dir)
+		} else {
+			log.Info("migration failed, attempting rollback", "track", dir, "targetVersion", prevVersion)
 			if rbErr := rollbackToVersion(mg, dir, prevVersion); rbErr != nil {
 				log.Error(rbErr, "rollback failed", "track", dir)
 			} else {
 				log.Info("rollback complete", "track", dir, "version", prevVersion)
 			}
-		} else {
-			log.Info("migration failed; skipping rollback because no prior version exists (set --database-allow-initial-migration-rollback to override)", "track", dir)
 		}
 		return prevVersion, fmt.Errorf("run migrations for %s: %w", dir, upErr)
 	}
