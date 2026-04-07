@@ -59,6 +59,9 @@ type InvokeAgentOutput struct {
 // NewMCPHandler creates a new MCP handler
 // Wraps the StreamableHTTPHandler and adds A2A bridging and context management.
 func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider, a2aTimeout time.Duration) (*MCPHandler, error) {
+	if a2aTimeout <= 0 {
+		return nil, fmt.Errorf("a2aTimeout must be greater than 0 and no more than %s", 30*time.Minute)
+	}
 	if a2aTimeout > 30*time.Minute {
 		a2aTimeout = 30 * time.Minute
 	}
