@@ -96,9 +96,7 @@ async def test_httpx_connect_timeout_returns_error_dict():
 @pytest.mark.asyncio
 async def test_transport_mcp_error_returns_error_dict():
     """McpError with a transport-level message (e.g., session read timeout) should be caught."""
-    tool = _make_connection_safe_tool(
-        McpError(ErrorData(code=-1, message="session read timeout"))
-    )
+    tool = _make_connection_safe_tool(McpError(ErrorData(code=-1, message="session read timeout")))
 
     result = await tool.run_async(args={}, tool_context=MagicMock())
 
@@ -110,9 +108,7 @@ async def test_transport_mcp_error_returns_error_dict():
 @pytest.mark.asyncio
 async def test_protocol_mcp_error_still_raises():
     """McpError with a protocol-level message (e.g., invalid arguments) should propagate."""
-    tool = _make_connection_safe_tool(
-        McpError(ErrorData(code=-32602, message="Invalid params: unknown tool"))
-    )
+    tool = _make_connection_safe_tool(McpError(ErrorData(code=-32602, message="Invalid params: unknown tool")))
 
     with pytest.raises(McpError, match="Invalid params"):
         await tool.run_async(args={}, tool_context=MagicMock())

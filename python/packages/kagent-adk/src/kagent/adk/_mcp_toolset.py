@@ -37,8 +37,15 @@ _CONNECTION_ERROR_TYPES = (
 # Keywords in McpError messages that indicate transport-level failures
 # (as opposed to protocol-level errors like invalid arguments).
 _TRANSPORT_MCP_ERROR_KEYWORDS = (
-    "timeout", "timed out", "connection", "eof", "reset",
-    "closed", "transport", "stream", "unreachable",
+    "timeout",
+    "timed out",
+    "connection",
+    "eof",
+    "reset",
+    "closed",
+    "transport",
+    "stream",
+    "unreachable",
 )
 
 
