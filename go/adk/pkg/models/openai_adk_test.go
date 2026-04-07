@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -245,4 +247,164 @@ func TestApplyOpenAIConfig(t *testing.T) {
 			t.Errorf("MaxTokens: Valid=%v, Value=%v, want (true, 100)", params.MaxTokens.Valid(), params.MaxTokens.Value)
 		}
 	})
+}
+
+func TestGenaiContentsToOpenAIMessages_PreservesThoughtSignatureOnToolCallAndToolResult(t *testing.T) {
+	thoughtSignature := []byte("abc")
+
+	functionCall := genai.NewPartFromFunctionCall("add", map[string]any{"a": 2, "b": 2})
+	functionCall.FunctionCall.ID = "call_1"
+	functionCall.ThoughtSignature = thoughtSignature
+
+	functionResponse := genai.NewPartFromFunctionResponse("add", map[string]any{"result": "4"})
+	functionResponse.FunctionResponse.ID = "call_1"
+
+	messages, _ := genaiContentsToOpenAIMessages([]*genai.Content{
+		{
+			Role:  string(genai.RoleModel),
+			Parts: []*genai.Part{functionCall},
+		},
+		{
+			Role:  string(genai.RoleUser),
+			Parts: []*genai.Part{functionResponse},
+		},
+	}, nil)
+
+	if len(messages) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(messages))
+	}
+
+	assistantJSON, err := json.Marshal(messages[0].OfAssistant)
+	if err != nil {
+		t.Fatalf("json.Marshal(assistant) error = %v", err)
+	}
+	toolJSON, err := json.Marshal(messages[1].OfTool)
+	if err != nil {
+		t.Fatalf("json.Marshal(tool) error = %v", err)
+	}
+
+	want := base64.StdEncoding.EncodeToString(thoughtSignature)
+	assertThoughtSignature := func(name string, payload []byte) {
+		t.Helper()
+		var obj map[string]any
+		if err := json.Unmarshal(payload, &obj); err != nil {
+			t.Fatalf("%s json.Unmarshal error = %v", name, err)
+		}
+		extra, ok := obj["extra_content"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing extra_content: %s", name, string(payload))
+		}
+		googleExtra, ok := extra["google"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing google extra content: %s", name, string(payload))
+		}
+		if got, _ := googleExtra["thought_signature"].(string); got != want {
+			t.Fatalf("%s thought_signature = %q, want %q", name, got, want)
+		}
+	}
+
+	var assistantObj map[string]any
+	if err := json.Unmarshal(assistantJSON, &assistantObj); err != nil {
+		t.Fatalf("assistant json.Unmarshal error = %v", err)
+	}
+	toolCalls, ok := assistantObj["tool_calls"].([]any)
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("assistant tool_calls = %#v, want 1 tool call", assistantObj["tool_calls"])
+	}
+	firstToolCall, ok := toolCalls[0].(map[string]any)
+	if !ok {
+		t.Fatalf("assistant tool call = %#v, want object", toolCalls[0])
+	}
+	firstToolCallJSON, err := json.Marshal(firstToolCall)
+	if err != nil {
+		t.Fatalf("json.Marshal(firstToolCall) error = %v", err)
+	}
+
+	assertThoughtSignature("assistant tool_call", firstToolCallJSON)
+	assertThoughtSignature("tool message", toolJSON)
+}
+
+func TestChatCompletionToLLMResponse_PreservesThoughtSignature(t *testing.T) {
+	raw := []byte(`{
+		"id":"chatcmpl-1",
+		"object":"chat.completion",
+		"created":123,
+		"model":"gemini-2.5-flash",
+		"choices":[{
+			"index":0,
+			"finish_reason":"tool_calls",
+			"message":{
+				"role":"assistant",
+				"tool_calls":[{
+					"id":"call_1",
+					"type":"function",
+					"function":{
+						"name":"add",
+						"arguments":"{\"a\":2,\"b\":2}"
+					},
+					"extra_content":{
+						"google":{
+							"thought_signature":"YWJj"
+						}
+					}
+				}]
+			}
+		}],
+		"usage":{
+			"prompt_tokens":3,
+			"completion_tokens":4,
+			"total_tokens":7
+		}
+	}`)
+
+	var completion openai.ChatCompletion
+	if err := json.Unmarshal(raw, &completion); err != nil {
+		t.Fatalf("json.Unmarshal(ChatCompletion) error = %v", err)
+	}
+
+	resp := chatCompletionToLLMResponse(&completion)
+	if resp.Content == nil || len(resp.Content.Parts) != 1 {
+		t.Fatalf("response parts = %#v, want 1 function-call part", resp.Content)
+	}
+
+	part := resp.Content.Parts[0]
+	if part.FunctionCall == nil {
+		t.Fatalf("part.FunctionCall = nil, want function call")
+	}
+	if part.FunctionCall.Name != "add" {
+		t.Fatalf("part.FunctionCall.Name = %q, want %q", part.FunctionCall.Name, "add")
+	}
+	if string(part.ThoughtSignature) != "abc" {
+		t.Fatalf("part.ThoughtSignature = %q, want %q", string(part.ThoughtSignature), "abc")
+	}
+	if resp.UsageMetadata == nil || resp.UsageMetadata.PromptTokenCount != 3 || resp.UsageMetadata.CandidatesTokenCount != 4 {
+		t.Fatalf("usage metadata = %#v, want prompt=3 completion=4", resp.UsageMetadata)
+	}
+}
+
+func TestExtractThoughtSignatureFromStreamingToolCallChunk(t *testing.T) {
+	raw := []byte(`{
+		"index":0,
+		"id":"call_1",
+		"type":"function",
+		"function":{
+			"name":"add",
+			"arguments":"{\"a\":2"
+		},
+		"extra_content":{
+			"google":{
+				"thought_signature":"YWJj"
+			}
+		}
+	}`)
+
+	var toolCall openai.ChatCompletionChunkChoiceDeltaToolCall
+	if err := json.Unmarshal(raw, &toolCall); err != nil {
+		t.Fatalf("json.Unmarshal(ChatCompletionChunkChoiceDeltaToolCall) error = %v", err)
+	}
+
+	thoughtSignature := extractThoughtSignatureFromExtraFields(toolCall.JSON.ExtraFields)
+	if string(thoughtSignature) != "abc" {
+		t.Fatalf("thoughtSignature = %q, want %q", string(thoughtSignature), "abc")
+	}
 }

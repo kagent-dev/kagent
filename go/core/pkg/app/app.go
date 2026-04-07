@@ -559,6 +559,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		mgr.GetClient(),
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		extensionCfg.Authenticator,
+		cfg.Streaming.Timeout,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create MCP handler")
