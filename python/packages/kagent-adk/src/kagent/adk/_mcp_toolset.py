@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import httpx
 from google.adk.tools import BaseTool
@@ -23,15 +23,36 @@ logger = logging.getLogger("kagent_adk." + __name__)
 # - httpx.TransportError: covers httpx.NetworkError (ConnectError, ReadError,
 #   WriteError, CloseError), httpx.TimeoutException, httpx.ProtocolError, etc.
 #   These do NOT inherit from stdlib ConnectionError/OSError.
-# - McpError: raised by mcp.shared.session.send_request() when the underlying
-#   SSE/HTTP stream drops or a tool call hits the session read timeout. The MCP
-#   client wraps the transport-level error into McpError before it reaches us.
+#
+# McpError is handled separately in ConnectionSafeMcpTool.run_async() because
+# it is the general MCP protocol error class. Only transport-level McpErrors
+# (e.g., session read timeouts) should be caught; protocol-level McpErrors
+# (e.g., invalid tool arguments) must propagate so the LLM can correct itself.
 _CONNECTION_ERROR_TYPES = (
     ConnectionError,
     TimeoutError,
     httpx.TransportError,
-    McpError,
 )
+
+# Keywords in McpError messages that indicate transport-level failures
+# (as opposed to protocol-level errors like invalid arguments).
+_TRANSPORT_MCP_ERROR_KEYWORDS = (
+    "timeout", "timed out", "connection", "eof", "reset",
+    "closed", "transport", "stream", "unreachable",
+)
+
+
+def _is_transport_mcp_error(error: McpError) -> bool:
+    """Check if an McpError represents a transport-level failure.
+
+    McpError wraps all MCP protocol errors, but only transport-level failures
+    (e.g., session read timeouts, stream closures) should be caught and
+    returned to the LLM as non-retryable errors. Protocol-level errors
+    (e.g., invalid tool arguments, server validation failures) should
+    propagate so the LLM can correct its behavior.
+    """
+    message = error.error.message.lower()
+    return any(keyword in message for keyword in _TRANSPORT_MCP_ERROR_KEYWORDS)
 
 
 def _enrich_cancelled_error(error: BaseException) -> asyncio.CancelledError:
@@ -49,26 +70,47 @@ class ConnectionSafeMcpTool(McpTool):
     peer") causes the LLM to retry the tool call in a tight loop, burning
     100% CPU for up to max_llm_calls iterations.
 
+    Uses composition: delegates to an inner McpTool instance via __getattr__,
+    avoiding the fragile __new__ + __dict__ copy pattern that would break if
+    upstream McpTool adds __slots__, properties, or post-init hooks.
+
     See: https://github.com/kagent-dev/kagent/issues/1530
     """
+
+    _inner_tool: McpTool
+
+    def __init__(self, inner_tool: McpTool):
+        # Store the inner tool without calling McpTool.__init__
+        # (which requires connection params we don't have).
+        object.__setattr__(self, "_inner_tool", inner_tool)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner_tool, name)
+
+    def _connection_error_response(self, error: Exception) -> dict[str, Any]:
+        error_message = (
+            f"MCP tool '{self.name}' failed due to a connection error: "
+            f"{type(error).__name__}: {error}. "
+            "The MCP server may be unreachable. "
+            "Do not retry this tool — inform the user about the failure."
+        )
+        logger.error(error_message, exc_info=error)
+        return {"error": error_message}
 
     async def run_async(
         self,
         *,
-        args: Dict[str, Any],
+        args: dict[str, Any],
         tool_context: ToolContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         try:
-            return await super().run_async(args=args, tool_context=tool_context)
+            return await self._inner_tool.run_async(args=args, tool_context=tool_context)
         except _CONNECTION_ERROR_TYPES as error:
-            error_message = (
-                f"MCP tool '{self.name}' failed due to a connection error: "
-                f"{type(error).__name__}: {error}. "
-                "The MCP server may be unreachable. "
-                "Do not retry this tool — inform the user about the failure."
-            )
-            logger.error(error_message)
-            return {"error": error_message}
+            return self._connection_error_response(error)
+        except McpError as error:
+            if not _is_transport_mcp_error(error):
+                raise
+            return self._connection_error_response(error)
 
 
 class KAgentMcpToolset(McpToolset):
@@ -87,16 +129,10 @@ class KAgentMcpToolset(McpToolset):
 
         # Wrap each McpTool with ConnectionSafeMcpTool so that connection
         # errors are returned as error text instead of raised.
-        # Uses __new__ + __dict__ copy to re-type the instance without calling
-        # McpTool.__init__ (which requires connection params we don't have).
-        # This is safe because McpTool uses plain instance attributes, not
-        # __slots__ or descriptors.
         wrapped_tools: list[BaseTool] = []
         for tool in tools:
             if isinstance(tool, McpTool) and not isinstance(tool, ConnectionSafeMcpTool):
-                safe_tool = ConnectionSafeMcpTool.__new__(ConnectionSafeMcpTool)
-                safe_tool.__dict__.update(tool.__dict__)
-                wrapped_tools.append(safe_tool)
+                wrapped_tools.append(ConnectionSafeMcpTool(tool))
             else:
                 wrapped_tools.append(tool)
         return wrapped_tools
