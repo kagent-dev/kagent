@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	adktelemetry "google.golang.org/adk/telemetry"
 )
+
+const defaultOTLPExportTimeout = 15 * time.Second
 
 // SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
 func SetKAgentSpanAttributes(ctx context.Context, attributes map[string]string) context.Context {
@@ -104,6 +107,10 @@ func newGRPCTracerProvider(ctx context.Context, res *resource.Resource) (*sdktra
 			MaxInterval:     5 * time.Second,
 			MaxElapsedTime:  30 * time.Second,
 		}),
+		otlptracegrpc.WithTimeout(timeoutFromEnv(
+			"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+			"OTEL_EXPORTER_OTLP_TIMEOUT",
+		)),
 	}
 	if traceEndpoint != "" {
 		// If the endpoint has a valid scheme, host, port, path ("scheme://host:port/path"), set endpoint url.
@@ -136,7 +143,12 @@ func newGRPCLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog
 		logEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	}
 
-	var opts []otlploggrpc.Option
+	opts := []otlploggrpc.Option{
+		otlploggrpc.WithTimeout(timeoutFromEnv(
+			"OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+			"OTEL_EXPORTER_OTLP_TIMEOUT",
+		)),
+	}
 	if logEndpoint != "" {
 		if u, err := url.Parse(logEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
 			opts = append(opts, otlploggrpc.WithEndpointURL(u.String()))
@@ -154,4 +166,32 @@ func newGRPCLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
 		sdklog.WithResource(res),
 	), nil
+}
+
+// timeoutFromEnv reads OTLP timeout env vars and returns a duration.
+// Supported formats:
+//   - duration strings (e.g. "15s", "15000ms")
+//   - plain integers:
+//   - <1000 treated as seconds (backward-compatible with chart values like 15)
+//   - >=1000 treated as milliseconds (OTEL default convention)
+func timeoutFromEnv(keys ...string) time.Duration {
+	for _, key := range keys {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+
+		if d, err := time.ParseDuration(raw); err == nil {
+			return d
+		}
+
+		if n, err := strconv.Atoi(raw); err == nil {
+			if n < 1000 {
+				return time.Duration(n) * time.Second
+			}
+			return time.Duration(n) * time.Millisecond
+		}
+	}
+
+	return defaultOTLPExportTimeout
 }
