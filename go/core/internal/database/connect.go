@@ -14,9 +14,10 @@ import (
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
+// URL must be a resolved connection string — use ResolveURL to resolve from
+// a file path before constructing this config.
 type PostgresConfig struct {
 	URL           string
-	URLFile       string
 	VectorEnabled bool
 }
 
@@ -26,19 +27,10 @@ const (
 	defaultMaxDelay     = 5 * time.Second
 )
 
-// Connect opens a Postgres connection using cfg, resolving the URL from a file
-// if URLFile is set, and retries Ping with exponential backoff until the
-// connection succeeds or defaultMaxTimeout elapses.
+// Connect opens a Postgres connection pool using cfg and retries Ping with
+// exponential backoff until the connection succeeds or defaultMaxTimeout elapses.
 func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
-	url := cfg.URL
-	if cfg.URLFile != "" {
-		resolved, err := resolveURLFile(cfg.URLFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve postgres URL from file: %w", err)
-		}
-		url = resolved
-	}
-	return retryDBConnection(ctx, url, cfg.VectorEnabled)
+	return retryDBConnection(ctx, cfg.URL, cfg.VectorEnabled)
 }
 
 // retryDBConnection opens a pgxpool connection, registering pgvector types when
