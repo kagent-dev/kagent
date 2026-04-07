@@ -29,6 +29,7 @@ type MCPHandler struct {
 	httpHandler   *mcpsdk.StreamableHTTPHandler
 	server        *mcpsdk.Server
 	a2aClients    sync.Map
+	a2aTimeout    time.Duration
 }
 
 // Input types for MCP tools
@@ -57,11 +58,15 @@ type InvokeAgentOutput struct {
 
 // NewMCPHandler creates a new MCP handler
 // Wraps the StreamableHTTPHandler and adds A2A bridging and context management.
-func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider) (*MCPHandler, error) {
+func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider, a2aTimeout time.Duration) (*MCPHandler, error) {
+	if a2aTimeout > 30*time.Minute {
+		a2aTimeout = 30 * time.Minute
+	}
 	handler := &MCPHandler{
 		kubeClient:    kubeClient,
 		a2aBaseURL:    a2aBaseURL,
 		authenticator: authenticator,
+		a2aTimeout:    a2aTimeout,
 	}
 
 	// Create MCP server
@@ -209,7 +214,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	if a2aClient == nil {
 		// Build A2A client options with authentication propagation
 		a2aOpts := []a2aclient.Option{
-			a2aclient.WithTimeout(30 * time.Second),
+			a2aclient.WithTimeout(h.a2aTimeout),
 			a2aclient.WithHTTPReqHandler(
 				authimpl.A2ARequestHandler(
 					h.authenticator,

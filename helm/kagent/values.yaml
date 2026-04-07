@@ -150,6 +150,9 @@ controller:
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""
+  # -- Timeout for A2A internal protocol connection with MCP.
+  # @default -- 30s
+  a2aMcpTimeout: "30s"
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app

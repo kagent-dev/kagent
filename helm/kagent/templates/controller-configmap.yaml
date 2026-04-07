@@ -7,6 +7,7 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
+  A2A_MCP_TIMEOUT: {{ .Values.controller.a2aMcpTimeout | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}

@@ -124,6 +124,7 @@ type Config struct {
 	HttpServerAddr     string
 	WatchNamespaces    string
 	A2ABaseUrl         string
+	A2AMCPTimeout      time.Duration
 	Database           struct {
 		Url           string
 		UrlFile       string
@@ -155,6 +156,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
 	commandLine.StringVar(&cfg.HttpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
 	commandLine.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
+	commandLine.DurationVar(&cfg.A2AMCPTimeout, "a2a-mcp-timeout", 30*time.Second, "The timeout for the A2A protocol connection with MCP.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
@@ -533,6 +535,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		extensionCfg.Authenticator,
+		cfg.A2AMCPTimeout,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create MCP handler")
