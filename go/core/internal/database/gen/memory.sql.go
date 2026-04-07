@@ -158,6 +158,7 @@ type SearchAgentMemoryRow struct {
 	Score       interface{}
 }
 
+// Memory uses hard DELETE (not soft deletes), so no deleted_at filter is needed.
 // COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 func (q *Queries) SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error) {
 	rows, err := q.db.Query(ctx, searchAgentMemory,

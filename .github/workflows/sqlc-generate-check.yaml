@@ -20,12 +20,9 @@ jobs:
           cache: true
           cache-dependency-path: go/go.sum
 
-      - name: Install sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
-
       - name: Run sqlc generate
-        working-directory: go/core/internal/database
-        run: sqlc generate
+        working-directory: go
+        run: make sqlc-generate
 
       - name: Fail if generated files differ
         run: |
