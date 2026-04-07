@@ -5,6 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,4 +61,22 @@ func TestShouldRequireProviderCredentials(t *testing.T) {
 			assert.Equal(t, tt.want, shouldRequireProviderCredentials(tt.profile, tt.modelProvider))
 		})
 	}
+}
+
+func TestSetupHelmConfig(t *testing.T) {
+	t.Setenv(env.KagentHelmRepo.Name(), "")
+	t.Setenv(env.KagentHelmVersion.Name(), "")
+	t.Setenv(env.KagentHelmExtraArgs.Name(), "")
+
+	t.Run("includes provider values when default modelconfig is installed", func(t *testing.T) {
+		cfg := setupHelmConfig(v1alpha2.ModelProviderOpenAI, "test-key", true)
+		assert.Contains(t, cfg.values, "providers.default=openAI")
+		assert.Contains(t, cfg.values, "providers.openAI.apiKey=test-key")
+	})
+
+	t.Run("omits provider values when default modelconfig is disabled", func(t *testing.T) {
+		cfg := setupHelmConfig(v1alpha2.ModelProviderOpenAI, "test-key", false)
+		assert.NotContains(t, cfg.values, "providers.default=openAI")
+		assert.NotContains(t, cfg.values, "providers.openAI.apiKey=test-key")
+	})
 }
