@@ -185,7 +185,7 @@ npm run test
 #### End-to-End (E2E) Tests
 
 These tests are done in a `kind` cluster with real agents, using real or mock LLM providers.  
-See: [go/test/e2e](https://github.com/kagent-dev/kagent/tree/main/go/test/e2e)
+See: [go/core/test/e2e](https://github.com/kagent-dev/kagent/tree/main/go/core/test/e2e)
 
 Features that introduce behavior changes should be covered by E2E tests (exceptions can be made for minor changes). Testing with real Kubernetes resources and agent invocations is crucial because it:
 

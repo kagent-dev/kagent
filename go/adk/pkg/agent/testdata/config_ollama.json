@@ -1,0 +1,8 @@
+{
+  "model": {
+    "type": "ollama",
+    "model": "llama3.2"
+  },
+  "description": "test",
+  "instruction": "Answer concisely."
+}

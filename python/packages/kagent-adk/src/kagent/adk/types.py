@@ -7,16 +7,20 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT, RemoteA2aAgent
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import BaseModel, Field
 
+from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
-from kagent.adk.models._litellm import KAgentLiteLlm
+from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
+from kagent.adk.models._anthropic import KAgentAnthropicLlm
+from kagent.adk.models._bedrock import KAgentBedrockLlm
+from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
+from kagent.adk.tools.ask_user_tool import AskUserTool
 
 from .models import AzureOpenAI as OpenAIAzure
 from .models import OpenAI as OpenAINative
@@ -141,12 +145,14 @@ class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
+    require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
 class RemoteAgentConfig(BaseModel):
@@ -264,6 +270,7 @@ class AgentConfig(BaseModel):
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
+        tools_requiring_approval: set[str] = set()
         sts_header_provider = None
         if sts_integration:
             sts_header_provider = sts_integration.header_provider
@@ -281,6 +288,8 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if http_tool.require_approval:
+                    tools_requiring_approval.update(http_tool.require_approval)
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
                 # Create header provider combining STS and allowed headers for this tool
@@ -295,6 +304,8 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if sse_tool.require_approval:
+                    tools_requiring_approval.update(sse_tool.require_approval)
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
                 # Prepare httpx client parameters
@@ -357,24 +368,25 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
-                remote_a2a_agent = RemoteA2aAgent(
-                    name=remote_agent.name,
-                    agent_card=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
-                    description=remote_agent.description,
-                    httpx_client=client,
+                tools.append(
+                    KAgentRemoteA2AToolset(
+                        name=remote_agent.name,
+                        description=remote_agent.description,
+                        agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
+                        httpx_client=client,
+                    )
                 )
-
-                tools.append(AgentTool(agent=remote_a2a_agent))
 
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
-        # Use static_instruction to bypass ADK's session state injection
-        # (inject_session_state). ADK treats curly braces like {repo} as
-        # context variable references and raises KeyError when they aren't
-        # found in session state. static_instruction is sent directly to
-        # the model without any placeholder processing.
-        # See: https://github.com/kagent-dev/kagent/issues/1382
+        # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
+        tools.append(AskUserTool())
+
+        # Build before_tool_callback if any tools require approval
+        before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+
+        # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
             name=name,
             model=model,
@@ -382,6 +394,7 @@ class AgentConfig(BaseModel):
             static_instruction=self.instruction,
             tools=tools,
             code_executor=code_executor,
+            before_tool_callback=before_tool_callback,
         )
 
         # Configure memory if enabled
@@ -409,10 +422,6 @@ class AgentConfig(BaseModel):
                 "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
                 "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
             )
-            # Append memory instructions to static_instruction so they stay
-            # in the system prompt (same as the main instruction) instead of
-            # being injected as a separate user message, which would confuse
-            # the LLM conversation flow and break mock-based e2e tests.
             if agent.static_instruction:
                 agent.static_instruction += memory_suffix
             else:
@@ -475,8 +484,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             api_key_passthrough=model_config.api_key_passthrough,
         )
     if model_config.type == "anthropic":
-        return KAgentLiteLlm(
-            model=f"anthropic/{model_config.model}",
+        return KAgentAnthropicLlm(
+            model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
             api_key_passthrough=model_config.api_key_passthrough,
@@ -487,11 +496,11 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
         ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
-        return KAgentLiteLlm(
-            model=f"ollama_chat/{model_config.model}",
+        # api key passthrough is not applicable for ollama
+        return create_ollama_llm(
+            model=model_config.model,
+            options=ollama_options,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
-            **ollama_options,
         )
     if model_config.type == "azure_openai":
         return OpenAIAzure(
@@ -506,10 +515,10 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     if model_config.type == "gemini":
         return model_config.model
     if model_config.type == "bedrock":
-        return KAgentLiteLlm(
-            model=f"bedrock/{model_config.model}",
+        # api key passthrough is not applicable for bedrock
+        return KAgentBedrockLlm(
+            model=model_config.model,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
         )
     raise ValueError(f"Invalid model type: {model_config.type}")
 

@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import { Message, TextPart } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
-import AgentCallDisplay from "@/components/chat/AgentCallDisplay";
+import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
-import { FunctionCall } from "@/types";
+import { ADKMetadata, ProcessedToolCallData, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
+import { FunctionCall, ToolDecision, TokenStats } from "@/types";
 
 interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
+  onApprove?: (toolCallId: string) => void;
+  onReject?: (toolCallId: string, reason?: string) => void;
+  pendingDecisions?: Record<string, ToolDecision>;
 }
 
 interface ToolCallState {
@@ -19,10 +22,8 @@ interface ToolCallState {
     is_error?: boolean;
   };
   status: ToolCallStatus;
+  subagentSessionId?: string;
 }
-
-// Create a global cache to track tool calls across components
-const toolCallCache = new Map<string, boolean>();
 
 // Helper functions to work with A2A SDK Messages
 const isToolCallRequestMessage = (message: Message): boolean => {
@@ -33,13 +34,13 @@ const isToolCallRequestMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
-    return metadata?.originalType === "ToolCallRequestEvent";
+    return metadata?.originalType === "ToolCallRequestEvent" || metadata?.originalType === "ToolApprovalRequest";
   }
-  
+
   return hasDataParts;
 };
 
@@ -50,13 +51,13 @@ const isToolCallExecutionMessage = (message: Message): boolean => {
     }
     return false;
   }) || false;
-  
+
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
     return metadata?.originalType === "ToolCallExecutionEvent";
   }
-  
+
   return hasDataParts;
 };
 
@@ -67,15 +68,23 @@ const isToolCallSummaryMessage = (message: Message): boolean => {
 
 const extractToolCallRequests = (message: Message): FunctionCall[] => {
   if (!isToolCallRequestMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const functionCalls: FunctionCall[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
         const data = part.data as unknown as FunctionCall;
+        // Skip ADK internal function calls (confirmation/auth) and ask_user (has its own display)
+        if (
+          data.name === "adk_request_confirmation" ||
+          data.name === "adk_request_credential" ||
+          data.name === "ask_user"
+        ) {
+          continue;
+        }
         functionCalls.push({
           id: data.id,
           name: data.name,
@@ -84,21 +93,27 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
       }
     }
   }
-  
+
   // If we found function calls in data parts, return them
   if (functionCalls.length > 0) {
     return functionCalls;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
-  
+
   try {
     // Tool call data might be stored as JSON in content or metadata
     const metadata = message.metadata as ADKMetadata;
     const toolCallData = metadata?.toolCallData || JSON.parse(content || "[]");
-    return Array.isArray(toolCallData) ? toolCallData : [];
+    return Array.isArray(toolCallData)
+      ? toolCallData.filter(tc =>
+          tc.name !== "adk_request_confirmation" &&
+          tc.name !== "adk_request_credential" &&
+          tc.name !== "ask_user"
+        )
+      : [];
   } catch {
     return [];
   }
@@ -106,38 +121,47 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
 
 const extractToolCallResults = (message: Message): ProcessedToolResultData[] => {
   if (!isToolCallExecutionMessage(message)) return [];
-  
+
   // Check for stored task format first (data parts)
   const dataParts = message.parts?.filter(part => part.kind === "data") || [];
   const toolResults: ProcessedToolResultData[] = [];
-  
+
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
         const data = part.data as unknown as ToolResponseData;
-        // Extract normalized content from the result (supports string/object/array)
+
+        // For agent tool responses we receive { result, subagent_session_id } as FunctionResponse.response.
         const textContent = normalizeToolResultToText(data);
+        let subagentSessionId: string | undefined;
+        if (isAgentToolName(data.name)) {
+          const responseObj = data.response as Record<string, unknown> | undefined;
+          if (responseObj && typeof responseObj.subagent_session_id === "string") {
+            subagentSessionId = responseObj.subagent_session_id;
+          }
+        }
 
         toolResults.push({
           call_id: data.id,
           name: data.name,
           content: textContent,
-          is_error: data.response?.isError || false
+          is_error: data.response?.isError || false,
+          ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
         });
       }
     }
   }
-  
+
   // If we found tool results in data parts, return them
   if (toolResults.length > 0) {
     return toolResults;
   }
-  
+
   // Try streaming format (metadata or text content)
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const content = textParts.map(part => (part as any).text).join("");
-  
+
   try {
     const metadata = message.metadata as ADKMetadata;
     const resultData = metadata?.toolResultData || JSON.parse(content || "[]");
@@ -147,36 +171,47 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   }
 };
 
-const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) => {
-  // Track which call IDs this component instance registered in the cache
-  const registeredIdsRef = useRef<Set<string>>(new Set());
 
-  // Compute owned call IDs based on current message (memoized)
+const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions }: ToolCallDisplayProps) => {
+  // Determine which tool call IDs this component instance "owns" by finding,
+  // for each ID introduced by currentMessage, whether currentMessage is the
+  // FIRST message in allMessages that introduces that ID.
   const ownedCallIds = useMemo(() => {
-    const currentOwnedIds = new Set<string>();
-    if (isToolCallRequestMessage(currentMessage)) {
-      const requests = extractToolCallRequests(currentMessage);
-      for (const request of requests) {
-        if (request.id && !toolCallCache.has(request.id)) {
-          currentOwnedIds.add(request.id);
-          toolCallCache.set(request.id, true);
+    if (!isToolCallRequestMessage(currentMessage)) {
+      return new Set<string>();
+    }
+
+    const currentRequests = extractToolCallRequests(currentMessage);
+    if (currentRequests.length === 0) {
+      return new Set<string>();
+    }
+
+    // Find the index of currentMessage in allMessages
+    const currentIndex = allMessages.indexOf(currentMessage);
+    if (currentIndex <= 0) {
+      // If it's the first message (or not found), it owns all its requests
+      return new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
+    }
+
+    const ownedIds = new Set(currentRequests.map(r => r.id).filter(id => id !== undefined) as string[]);
+
+    // Scan backwards from our index to see if any earlier message already has these IDs.
+    // This avoids a full O(N) scan per component render by aborting early.
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      const msg = allMessages[i];
+      if (!isToolCallRequestMessage(msg)) continue;
+
+      const prevRequests = extractToolCallRequests(msg);
+      for (const pr of prevRequests) {
+        if (pr.id) {
+          ownedIds.delete(pr.id);
         }
       }
+
+      if (ownedIds.size === 0) break; // Early exit if all IDs were claimed by earlier messages
     }
-    return currentOwnedIds;
-  }, [currentMessage]);
-
-  // Update ref and handle cleanup
-  useEffect(() => {
-    // Store current owned IDs for cleanup
-    registeredIdsRef.current = ownedCallIds;
-
-    return () => {
-      registeredIdsRef.current.forEach(id => {
-        toolCallCache.delete(id);
-      });
-    };
-  }, [ownedCallIds]);
+    return ownedIds;
+  }, [currentMessage, allMessages]);
 
   // Compute tool calls based on all messages and owned IDs (memoized)
   const toolCalls = useMemo(() => {
@@ -192,17 +227,60 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
         const requests = extractToolCallRequests(message);
         for (const request of requests) {
           if (request.id && ownedCallIds.has(request.id)) {
+            // For approval requests, set status based on whether a decision
+            // was already made (resolved on reload) or is still pending.
+            const msgMetadata = message.metadata as ADKMetadata;
+            let initialStatus: ToolCallStatus = "requested";
+            if (msgMetadata?.originalType === "ToolApprovalRequest") {
+              const rawDecision = msgMetadata?.approvalDecision;
+              // approvalDecision is either a uniform ToolDecision string
+              // or a per-tool map (Record<string, ToolDecision>) for batch.
+              let decision: ToolDecision | undefined;
+              if (typeof rawDecision === "object" && rawDecision !== null) {
+                decision = (rawDecision as Record<string, ToolDecision>)[request.id];
+              } else {
+                decision = rawDecision as ToolDecision | undefined;
+              }
+              if (decision === "approve") {
+                initialStatus = "approved";
+              } else if (decision === "reject") {
+                initialStatus = "rejected";
+              } else {
+                initialStatus = "pending_approval";
+              }
+            }
+            // Extract subagent_session_id from ProcessedToolCallData in metadata
+            const toolCallData = msgMetadata?.toolCallData as ProcessedToolCallData[] | undefined;
+            const matchingCallData = toolCallData?.find(tc => tc.id === request.id);
+
+            // For agent tools, resolve the subagent session ID.
+            let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
+            if (!subagentSessionId && isAgentToolName(request.name)) {
+              const fcDataPart = message.parts?.find(p =>
+                p.kind === "data" && p.metadata &&
+                getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
+                (p.data as Record<string, unknown>)?.id === request.id
+              );
+              subagentSessionId = fcDataPart?.metadata
+                ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
+                : undefined;
+            }
+
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
-              status: "requested"
+              status: initialStatus,
+              subagentSessionId,
             });
           }
         }
       }
     }
 
-    // Second pass: update with execution results
+    // Second pass: update with execution results.
+    // "approved" / "rejected" are terminal HITL states — don't override them.
+    const isHitlTerminal = (s: ToolCallStatus) => s === "approved" || s === "rejected";
+
     for (const message of allMessages) {
       if (isToolCallExecutionMessage(message)) {
         const results = extractToolCallResults(message);
@@ -213,7 +291,14 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
               content: result.content,
               is_error: result.is_error
             };
-            existingCall.status = "executing";
+            if (result.subagent_session_id && !existingCall.subagentSessionId) {
+              // Only set from function_response if the 1st pass (function_call
+              // metadata) didn't already provide it.
+              existingCall.subagentSessionId = result.subagent_session_id;
+            }
+            if (!isHitlTerminal(existingCall.status)) {
+              existingCall.status = "executing";
+            }
           }
         }
       }
@@ -224,13 +309,12 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
     for (const message of allMessages) {
       if (isToolCallSummaryMessage(message)) {
         summaryMessageEncountered = true;
-        break; 
+        break;
       }
     }
 
     if (summaryMessageEncountered) {
       newToolCalls.forEach((call, id) => {
-        // Only update owned calls that are in 'executing' state and have a result
         if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
           call.status = "completed";
         }
@@ -251,27 +335,52 @@ const ToolCallDisplay = ({ currentMessage, allMessages }: ToolCallDisplayProps) 
   const currentDisplayableCalls = Array.from(toolCalls.values()).filter(call => ownedCallIds.has(call.id));
   if (currentDisplayableCalls.length === 0) return null;
 
+  const tokenStats = (currentMessage.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
+
   return (
     <div className="space-y-2">
-      {currentDisplayableCalls.map(toolCall => (
-        isAgentToolName(toolCall.call.name) ? (
+      {currentDisplayableCalls.map(toolCall => {
+        // Determine effective status: use local pending decision for optimistic UI
+        const localDecision = pendingDecisions?.[toolCall.id];
+        const effectiveStatus: ToolCallStatus = localDecision
+          ? (localDecision === "approve" ? "approved" : "rejected")
+          : toolCall.status;
+        // Hide approve/reject buttons if a local decision was already made
+        const showButtons = toolCall.status === "pending_approval" && !localDecision;
+        // Tool has been decided locally but batch may not be submitted yet
+        const isDecided = !!localDecision;
+
+        // For approval requests, always use ToolDisplay (which has approve/reject buttons),
+        // even when the tool name contains __NS__ (agent name pattern).
+        // AgentCallDisplay has no concept of pending_approval and won't show buttons.
+        const msgMeta = currentMessage.metadata as ADKMetadata;
+        const isApprovalRequest = msgMeta?.originalType === "ToolApprovalRequest";
+        const subagentName = isApprovalRequest ? (msgMeta?.subagentName as string | undefined) : undefined;
+        return (!isApprovalRequest && isAgentToolName(toolCall.call.name)) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}
             result={toolCall.result}
-            status={toolCall.status}
+            status={effectiveStatus === "pending_approval" ? "requested" : effectiveStatus as AgentCallStatus}
             isError={toolCall.result?.is_error}
+            tokenStats={tokenStats}
+            subagentSessionId={toolCall.subagentSessionId}
           />
         ) : (
           <ToolDisplay
             key={toolCall.id}
             call={toolCall.call}
             result={toolCall.result}
-            status={toolCall.status}
+            status={effectiveStatus}
             isError={toolCall.result?.is_error}
+            isDecided={isDecided}
+            subagentName={subagentName}
+            onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
+            onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
+            tokenStats={tokenStats}
           />
-        )
-      ))}
+        );
+      })}
     </div>
   );
 };

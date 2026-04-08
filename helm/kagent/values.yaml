@@ -24,16 +24,18 @@ labels: {}
   # environment: production
   # team: platform
 
-podSecurityContext: {}
-  # fsGroup: 2000
+# -- Security context for all pods
+podSecurityContext:
+  runAsNonRoot: true
+# fsGroup: 2000
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# -- Security context for all containers
+securityContext:
+  readOnlyRootFilesystem: true
+# capabilities:
+#   drop:
+#   - ALL
+# runAsUser: 1000
 
 # ==============================================================================
 # CORE KAGENT COMPONENTS
@@ -50,16 +52,75 @@ nodeSelector: {}
 # ==============================================================================
 
 database:
-  type: sqlite
-  sqlite:
-    vectorEnabled: true
-    databaseName: kagent.db
   postgres:
-    vectorEnabled: true
-    url: postgres://postgres:kagent@pgsql-postgresql.kagent.svc.cluster.local:5432/postgres
-    # Path to a file containing the database URL.
-    # Takes precedence over url when set.
+    # -- External PostgreSQL connection string.
+    # Is always used if set regardless of the `.bundled.enabled` field.
+    url: ""
+    # -- Path to a file containing the database URL. Takes precedence over url when set.
+    # Is always used if set regardless of the `.bundled.enabled` field.
     urlFile: ""
+    # -- Enable the pgvector migration
+    # Required to use features that depend on database vector capability. (e.g. long-term memory)
+    # Set to true when using an external PostgreSQL that has the pgvector extension installed.
+    vectorEnabled: false
+    # -- Bundled PostgreSQL instance — for development and evaluation only.
+    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
+    bundled:
+      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
+      enabled: true
+      image:
+        # -- Bundled PostgreSQL image registry
+        registry: docker.io
+        # -- Bundled PostgreSQL image repository (org/namespace)
+        repository: library
+        # -- Bundled PostgreSQL image name
+        name: postgres
+        # -- Bundled PostgreSQL image tag
+        tag: "18"
+        # -- Bundled PostgreSQL image pull policy
+        pullPolicy: IfNotPresent
+      # -- PersistentVolumeClaim size for demo PostgreSQL data
+      storage: 500Mi
+      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
+      storageClassName: ""
+      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
+      # This is intentional for a dev/eval setup. Switch to an external database for production.
+      # -- Resource requests/limits for the demo PostgreSQL container
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      # -- Pod-level security context for the bundled PostgreSQL deployment.
+      podSecurityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # -- Container-level security context for the bundled PostgreSQL container.
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+
+# ==============================================================================
+# RBAC CONFIGURATION
+# ==============================================================================
+
+rbac:
+  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
+  # If false, creates Role and RoleBinding resources instead.
+  clusterScoped: true
+  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
+  # If empty, defaults to the release namespace.
+  namespaces: []
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION
@@ -76,6 +137,24 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
+  # -- Global deployment defaults applied to all agent pods.
+  # Per-agent settings in the Agent CRD take precedence over these defaults.
+  agentDeployment:
+    # -- Default ServiceAccount name for agent pods.
+    # When set, agent pods that don't specify an explicit serviceAccountName
+    # will use this ServiceAccount instead of creating a per-agent one.
+    # Useful for Workload Identity (GCP, AWS IRSA, Azure Workload Identity).
+    # Precedence: agent-level serviceAccountName > this default > auto-created SA.
+    # @default -- "" (auto-create per-agent ServiceAccount)
+    serviceAccountName: ""
+    # -- Default labels applied to all agent pod templates.
+    # Per-agent labels in the Agent CRD take precedence over these defaults.
+    # @default -- {} (no extra labels)
+    podLabels: {}
+    # Example:
+    #   podLabels:
+    #     team: platform
+    #     environment: production
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""
@@ -170,7 +249,25 @@ ui:
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
-
+  # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
+  # @default -- (uses global podSecurityContext)
+  podSecurityContext: {}
+  # fsGroup: 2000
+  # -- Container-level security context for the UI container. Overrides the global securityContext.
+  # @default -- (uses global securityContext)
+  securityContext: {}
+  #   readOnlyRootFilesystem: true
+  # -- EmptyDir volume sizes for Next.js UI workload (typically used when enabling readOnlyRootFilesystem)
+  volumes:
+    # -- Size limit for Next.js build cache (.next/cache). Default 100Mi is sufficient for typical Next.js apps with moderate caching needs.
+    nextjsCache: 100Mi
+    # -- Size limit for temporary files (/tmp). Default 50Mi provides ample space for Next.js runtime temporary data.
+    tmp: 50Mi
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # runAsNonRoot: true
+  # runAsUser: 1000
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -237,8 +334,8 @@ kmcp:
 # ==============================================================================
 
 kagent-tools:
-  fullnameOverride: kagent-tools
   enabled: true
+  nameOverride: tools
   replicaCount: 1
   resources:
     requests:
@@ -249,6 +346,8 @@ kagent-tools:
       memory: 1Gi
   tools:
     loglevel: "debug"
+    metrics:
+      port: 8085  # Use a different port than the main service port (8084) to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION
@@ -504,12 +603,13 @@ otel:
     exporter:
       otlp:
         endpoint: ""
-        timeout: 15
+        protocol: "grpc"
+        timeout: 15000 # milliseconds
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
         endpoint: ""
-        timeout: 15
+        timeout: 15000 # milliseconds
         insecure: true

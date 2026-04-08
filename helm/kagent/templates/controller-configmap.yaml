@@ -7,7 +7,6 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
-  DATABASE_TYPE: {{ .Values.database.type | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
@@ -34,11 +33,13 @@ data:
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
+  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
   {{- else }}
   # Using separate endpoints for traces and logs
   {{- if $tracesEndpoint }}
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: {{ $tracesEndpoint | quote }}
   OTEL_EXPORTER_OTLP_TRACES_INSECURE: {{ .Values.otel.tracing.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: {{ .Values.otel.tracing.exporter.otlp.protocol | quote }}
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
   {{- end }}
   {{- if $logsEndpoint }}
@@ -50,19 +51,21 @@ data:
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
-  {{- if eq .Values.database.type "sqlite" }}
-  SQLITE_DATABASE_PATH: /sqlite-volume/{{ .Values.database.sqlite.databaseName }}
-  DATABASE_VECTOR_ENABLED: {{ .Values.database.sqlite.vectorEnabled | default true | quote }}
-  {{- else if eq .Values.database.type "postgres" }}
-  {{- if not (eq .Values.database.postgres.urlFile "") }}
-  POSTGRES_DATABASE_URL_FILE: {{ .Values.database.postgres.urlFile | quote }}
-  {{- else if not (eq .Values.database.postgres.url "") }}
-  POSTGRES_DATABASE_URL: {{ .Values.database.postgres.url | quote }}
-  {{- end }}
-  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | default true | quote }}
-  {{- end }}
+  DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   STREAMING_INITIAL_BUF_SIZE: {{ .Values.controller.streaming.initialBufSize | quote }}
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
+  DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
+  {{- end }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.podLabels }}
+  {{- $pairs := list }}
+  {{- range $k := keys .Values.controller.agentDeployment.podLabels | sortAlpha }}
+  {{- $pairs = append $pairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.podLabels $k | toString)) }}
+  {{- end }}
+  {{- if $pairs }}
+  DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
+  {{- end }}
+  {{- end }}

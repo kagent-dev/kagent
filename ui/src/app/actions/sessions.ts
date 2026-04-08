@@ -91,6 +91,34 @@ export async function getSessionTasks(sessionId: string): Promise<BaseResponse<T
 }
 
 /**
+ * Gets a session together with its tasks (events) in a single call.
+ * @param sessionId The subagent session ID
+ * @returns A promise with { session, tasks }
+ */
+export async function getSubagentSessionWithEvents(
+  sessionId: string
+): Promise<BaseResponse<{ session: Session; tasks: Task[] }>> {
+  try {
+    // fetchApi appends user_id=admin@kagent.dev automatically.
+    const [sessionResp, tasksResp] = await Promise.all([
+      fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`),
+      fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`),
+    ]);
+
+    const session = sessionResp.data?.session;
+    if (!session) {
+      return { message: "Subagent session not found", error: "Subagent session not found" };
+    }
+    return {
+      message: "Session with events fetched successfully",
+      data: { session, tasks: tasksResp.data ?? [] },
+    };
+  } catch (error) {
+    return createErrorResponse<{ session: Session; tasks: Task[] }>(error, "Error fetching session with events");
+  }
+}
+
+/**
  * Check if a session exists
  * @param sessionId The session ID to check
  * @returns A promise with boolean indicating if session exists
@@ -106,33 +134,5 @@ export async function checkSessionExists(sessionId: string): Promise<BaseRespons
       return { message: "Session does not exist", data: false };
     }
     return createErrorResponse<boolean>(error, "Error checking session");
-  }
-}
-
-/**
- * Updates a session
- * @param session The session to update
- * @returns A promise with the updated session
- */
-export async function updateSession(session: Session): Promise<BaseResponse<Session>> {
-  try {
-    const sessionToUpdate = {
-      ...session,
-      agent_id: Number(session.agent_id)
-    };
-
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${session.id}`, {
-      method: "PUT",
-      body: JSON.stringify(sessionToUpdate),
-    });
-
-    if (!response) {
-      throw new Error("Failed to update session");
-    }
-
-    revalidatePath("/");
-    return { message: "Session updated successfully", data: response.data };
-  } catch (error) {
-    return createErrorResponse<Session>(error, "Error updating session");
   }
 }

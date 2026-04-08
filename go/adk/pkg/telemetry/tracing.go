@@ -1,0 +1,157 @@
+package telemetry
+
+import (
+	"context"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
+	"go.opentelemetry.io/otel/trace"
+	adktelemetry "google.golang.org/adk/telemetry"
+)
+
+// SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
+func SetKAgentSpanAttributes(ctx context.Context, attributes map[string]string) context.Context {
+	merged := mergeAttributes(contextAttributes(ctx), attributes)
+	setSpanAttributes(ctx, stringAttributes(merged)...)
+	if len(merged) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, kagentSpanAttributesKey{}, merged)
+}
+
+// StartInvocationSpan creates a lightweight root span around one executor run.
+// Descendant spans inherit request-scoped attributes via the span processor.
+func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
+	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
+}
+
+// Init initializes OpenTelemetry providers for Go ADK, sets global providers and
+// propagators, and returns a shutdown function.
+func Init(ctx context.Context, serviceName string, serviceNamespace string) (shutdown func(context.Context) error, enabled bool, err error) {
+	if !isTelemetryEnabled() {
+		return func(context.Context) error { return nil }, false, nil
+	}
+
+	telemetryResource, err := resource.New(ctx, resource.WithAttributes(
+		semconv.ServiceNameKey.String(serviceName),
+		semconv.ServiceNamespaceKey.String(serviceNamespace),
+	))
+	if err != nil {
+		return nil, true, err
+	}
+
+	tracingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true")
+	loggingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
+	otelOpts := []adktelemetry.Option{adktelemetry.WithResource(telemetryResource)}
+	if tracingEnabled {
+		tracerProvider, tpErr := newGRPCTracerProvider(ctx, telemetryResource)
+		if tpErr != nil {
+			return nil, true, tpErr
+		}
+		otelOpts = append(otelOpts, adktelemetry.WithTracerProvider(tracerProvider))
+	}
+	if loggingEnabled {
+		loggerProvider, lpErr := newGRPCLoggerProvider(ctx, telemetryResource)
+		if lpErr != nil {
+			return nil, true, lpErr
+		}
+		otelOpts = append(otelOpts, adktelemetry.WithLoggerProvider(loggerProvider))
+	}
+
+	telemetryProviders, telErr := adktelemetry.New(ctx, otelOpts...)
+	if telErr != nil {
+		return nil, true, telErr
+	}
+
+	telemetryProviders.SetGlobalOtelProviders()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return telemetryProviders.Shutdown, true, nil
+}
+
+func isTelemetryEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
+}
+
+func newGRPCTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+	traceEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
+	if traceEndpoint == "" {
+		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT"))
+	}
+	if traceEndpoint == "" {
+		traceEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
+
+	opts := []otlptracegrpc.Option{
+		// Retry on transient failures
+		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
+			Enabled:         true,
+			InitialInterval: 1 * time.Second,
+			MaxInterval:     5 * time.Second,
+			MaxElapsedTime:  30 * time.Second,
+		}),
+	}
+	if traceEndpoint != "" {
+		// If the endpoint has a valid scheme, host, port, path ("scheme://host:port/path"), set endpoint url.
+		if u, err := url.Parse(traceEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			opts = append(opts, otlptracegrpc.WithEndpointURL(u.String()))
+		} else {
+			// Else, treat it as a regular endpoint ("example.com:4317", no scheme or path)
+			opts = append(opts, otlptracegrpc.WithEndpoint(traceEndpoint))
+		}
+	}
+
+	exporter, err := otlptracegrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	), nil
+}
+
+func newGRPCLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {
+	logEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"))
+	if logEndpoint == "" {
+		logEndpoint = strings.TrimSpace(os.Getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT"))
+	}
+	if logEndpoint == "" {
+		logEndpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
+
+	var opts []otlploggrpc.Option
+	if logEndpoint != "" {
+		if u, err := url.Parse(logEndpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			opts = append(opts, otlploggrpc.WithEndpointURL(u.String()))
+		} else {
+			opts = append(opts, otlploggrpc.WithEndpoint(logEndpoint))
+		}
+	}
+
+	exporter, err := otlploggrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+		sdklog.WithResource(res),
+	), nil
+}

@@ -24,8 +24,8 @@ export interface BaseResponse<T> {
 
 export interface TokenStats {
   total: number;
-  input: number;
-  output: number;
+  prompt: number;
+  completion: number;
 }
 
 export interface Provider {
@@ -186,7 +186,7 @@ export interface FunctionCall {
 export interface Session {
   id: string;
   name: string;
-  agent_id: number;
+  agent_id: string;
   user_id: string;
   created_at: string;
   updated_at: string;
@@ -226,6 +226,7 @@ export interface TypedLocalReference {
 
 export interface McpServerTool extends TypedLocalReference {
   toolNames: string[];
+  requireApproval?: string[];
 }
 
 export type AgentType = "Declarative" | "BYO";
@@ -244,6 +245,10 @@ export interface AgentSpec {
   memory?: MemorySpec;
 }
 
+export interface DeclarativeDeploymentSpec {
+  serviceAccountName?: string;
+}
+
 export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
@@ -252,6 +257,7 @@ export interface DeclarativeAgentSpec {
   stream?: boolean;
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
+  deployment?: DeclarativeDeploymentSpec;
 }
 
 export interface ContextConfig {
@@ -294,6 +300,7 @@ export interface BYODeploymentSpec {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
+  serviceAccountName?: string;
 }
 
 export interface A2AConfig {
@@ -439,4 +446,75 @@ export interface AgentMemory {
   access_count: number;
   created_at: string;
   expires_at?: string;
+}
+
+// ---------------------------------------------------------------------------
+// HITL (Human-in-the-Loop) types
+//
+// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the 
+// A2A - UI wire format for request and decision paths in HITL flow.
+// ---------------------------------------------------------------------------
+
+/** A single tool approval decision value. */
+export type ToolDecision = "approve" | "reject";
+
+/**
+ * The resolved approval decision stored on a ToolApprovalRequest message.
+ * - A single ToolDecision string for uniform decisions (all approve or all reject).
+ * - A per-tool map (keyed by tool call ID) for batch/mixed decisions.
+ */
+export type ApprovalDecision = ToolDecision | Record<string, ToolDecision>;
+
+// The original tool function call that requires human approval.
+export interface HitlOriginalFunctionCall {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
+}
+
+// Payload stored inside the toolConfirmation field of an adk_request_confirmation DataPart.
+export interface HitlToolConfirmationPayload {
+  /**
+   * For subagent HITL: serialized HitlPartInfo[] from the subagent's own
+   * input_required DataParts (see KAgentRemoteA2ATool._handle_input_required).
+   * Each entry has the same shape as AdkRequestConfirmationData (without
+   * toolConfirmation, since those are leaf-level tool calls).
+   */
+  hitl_parts?: HitlPartInfo[];
+  // The subagent name, set by KAgentRemoteA2ATool.
+  subagent_name?: string;
+  // Subagent task_id stored for the resume path.
+  task_id?: string;
+  // Subagent context_id stored for the resume path.
+  context_id?: string;
+}
+
+// The toolConfirmation field of an adk_request_confirmation DataPart.
+export interface HitlToolConfirmation {
+  hint?: string;
+  confirmed?: boolean;
+  payload?: HitlToolConfirmationPayload;
+}
+
+// Args of the adk_request_confirmation FunctionCall.
+export interface HitlRequestConfirmationArgs {
+  originalFunctionCall: HitlOriginalFunctionCall;
+  toolConfirmation?: HitlToolConfirmation;
+}
+
+// A single serialized HitlPartInfo — the data dict of an adk_request_confirmation DataPart.
+export interface HitlPartInfo {
+  // Always "adk_request_confirmation".
+  name: string;
+  // The confirmation function-call ID (distinct from the original FC ID).
+  id?: string;
+  // The original tool call that requires approval.
+  originalFunctionCall: HitlOriginalFunctionCall;
+}
+
+// The full data payload of an adk_request_confirmation DataPart, as produced by the ADK event converter and read by the UI.
+export interface AdkRequestConfirmationData {
+  name: string;
+  id: string;
+  args: HitlRequestConfirmationArgs;
 }

@@ -129,6 +129,14 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
     if (agentFormData.context) {
       base.spec!.declarative!.context = agentFormData.context;
     }
+
+    const trimmedSA = agentFormData.serviceAccountName?.trim();
+    if (trimmedSA) {
+      base.spec!.declarative!.deployment = {
+        ...base.spec!.declarative!.deployment,
+        serviceAccountName: trimmedSA,
+      };
+    }
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {
@@ -143,6 +151,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         annotations: agentFormData.annotations,
         env: agentFormData.env,
         imagePullPolicy: agentFormData.imagePullPolicy,
+        serviceAccountName: agentFormData.serviceAccountName,
       },
     };
   }

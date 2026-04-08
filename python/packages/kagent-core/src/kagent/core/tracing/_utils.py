@@ -18,6 +18,39 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from ._span_processor import KagentAttributesSpanProcessor
 
 
+def _resolve_otlp_timeout_seconds(signal: str) -> float:
+    """
+    Resolve OTLP timeout env vars (milliseconds) into seconds for exporters.
+    By default, Python OTLP exporter reads timeout env var as seconds.
+    However, OTEL spec defines timeout as milliseconds.
+    """
+    signal_timeout_env = f"OTEL_EXPORTER_OTLP_{signal}_TIMEOUT"
+    raw_timeout = os.getenv(signal_timeout_env) or os.getenv("OTEL_EXPORTER_OTLP_TIMEOUT")
+    if raw_timeout is None:
+        # OTEL spec default is 10000ms
+        return 10.0
+
+    try:
+        timeout_millis = float(raw_timeout)
+    except ValueError:
+        logging.warning(
+            "Invalid OTEL timeout value %r from %s; falling back to 10000ms",
+            raw_timeout,
+            signal_timeout_env,
+        )
+        return 10.0
+
+    if timeout_millis < 0:
+        logging.warning(
+            "Negative OTEL timeout value %r from %s; falling back to 10000ms",
+            raw_timeout,
+            signal_timeout_env,
+        )
+        return 10.0
+
+    return timeout_millis / 1000.0
+
+
 def _instrument_anthropic(event_logger_provider=None):
     """Instrument Anthropic SDK if available."""
     try:
@@ -69,11 +102,12 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             or os.getenv("OTEL_TRACING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
             or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
         )
+        trace_timeout_seconds = _resolve_otlp_timeout_seconds("TRACES")
         logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
-            processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint))
+            processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds))
         else:
-            processor = BatchSpanProcessor(OTLPSpanExporter())
+            processor = BatchSpanProcessor(OTLPSpanExporter(timeout=trace_timeout_seconds))
 
         # Check if a TracerProvider already exists (e.g., set by CrewAI)
         current_provider = trace.get_tracer_provider()
@@ -90,9 +124,13 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")
 
-        HTTPXClientInstrumentor().instrument()
+        # Exclude agent-card endpoint from traces — this is used as a health
+        # check endpoint (high-frequency polling requests) and has little
+        # diagnostic value.
+        _excluded_urls = ".*/\\.well-known/agent-card\\.json"
+        HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
         if fastapi_app:
-            FastAPIInstrumentor().instrument_app(fastapi_app)
+            FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")
@@ -103,13 +141,14 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
             or os.getenv("OTEL_LOGGING_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
             or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
         )
+        log_timeout_seconds = _resolve_otlp_timeout_seconds("LOGS")
         logging.info("Log endpoint: %s", log_endpoint or "<default>")
 
         # Add OTLP exporter
         if log_endpoint:
-            log_processor = BatchLogRecordProcessor(OTLPLogExporter(endpoint=log_endpoint))
+            log_processor = BatchLogRecordProcessor(OTLPLogExporter(endpoint=log_endpoint, timeout=log_timeout_seconds))
         else:
-            log_processor = BatchLogRecordProcessor(OTLPLogExporter())
+            log_processor = BatchLogRecordProcessor(OTLPLogExporter(timeout=log_timeout_seconds))
         logger_provider.add_log_record_processor(log_processor)
 
         _logs.set_logger_provider(logger_provider)

@@ -1,0 +1,191 @@
+suite: test security context configuration
+templates:
+  - _helpers.tpl
+  - controller-configmap.yaml
+  - controller-deployment.yaml
+  - postgresql-secret.yaml
+  - ui-deployment.yaml
+tests:
+  # =============================================================================
+  # Controller Security Context Tests
+  # =============================================================================
+  - it: should apply default pod security context to controller
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: should apply default container security context to controller
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should allow controller pod security context override
+    template: controller-deployment.yaml
+    set:
+      controller:
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 2000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 2000
+
+  - it: should allow controller container security context override
+    template: controller-deployment.yaml
+    set:
+      controller:
+        securityContext:
+          readOnlyRootFilesystem: false
+          runAsUser: 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 1000
+
+  - it: should fallback to global pod security context for controller
+    template: controller-deployment.yaml
+    set:
+      podSecurityContext:
+        runAsNonRoot: true
+        fsGroup: 3000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 3000
+
+  - it: should fallback to global container security context for controller
+    template: controller-deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  # =============================================================================
+  # UI Security Context Tests
+  # =============================================================================
+  - it: should apply UI-specific container security context override
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should have nextjs-cache volume for UI
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nextjs-cache
+            emptyDir:
+              sizeLimit: 100Mi
+
+  - it: should have tmp volume for UI
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir:
+              sizeLimit: 50Mi
+
+  - it: should have nextjs-cache volume mount for UI
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nextjs-cache
+            mountPath: /app/ui/.next/cache
+
+  - it: should have tmp volume mount for UI
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+
+  - it: should allow UI pod security context override
+    template: ui-deployment.yaml
+    set:
+      ui:
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 5000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 5000
+
+  - it: should allow UI container security context override
+    template: ui-deployment.yaml
+    set:
+      ui:
+        securityContext:
+          readOnlyRootFilesystem: false
+          runAsUser: 2000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 2000
+
+  - it: should fallback to global pod security context for UI
+    template: ui-deployment.yaml
+    set:
+      ui:
+        podSecurityContext: {}
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 3001
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 3001
+
+  - it: should prefer UI security context over global
+    template: ui-deployment.yaml
+    set:
+      ui:
+        securityContext:
+          readOnlyRootFilesystem: false
+      securityContext:
+        readOnlyRootFilesystem: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false

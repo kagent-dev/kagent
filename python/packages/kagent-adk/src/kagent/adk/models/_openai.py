@@ -48,6 +48,73 @@ def _convert_role_to_openai(role: Optional[str]) -> str:
         return "user"
 
 
+def _extract_thought_signature(extra_content: Any) -> Optional[str]:
+    """Extract a Gemini thought signature from OpenAI-compatible extra content."""
+    if not isinstance(extra_content, dict):
+        return None
+
+    google_extra = extra_content.get("google")
+    if not isinstance(google_extra, dict):
+        return None
+
+    thought_signature = google_extra.get("thought_signature")
+    if isinstance(thought_signature, str) and thought_signature:
+        return thought_signature
+
+    return None
+
+
+def _openai_extra_content_for_thought_signature(thought_signature: Optional[bytes]) -> Optional[dict[str, Any]]:
+    """Convert a Part thought signature into OpenAI-compatible extra content."""
+    if not thought_signature:
+        return None
+
+    return {
+        "google": {
+            "thought_signature": base64.b64encode(thought_signature).decode("utf-8"),
+        }
+    }
+
+
+def _thought_signatures_by_tool_call_id(contents: list[types.Content]) -> dict[str, bytes]:
+    """Index function call thought signatures by tool call id."""
+    thought_signatures: dict[str, bytes] = {}
+    for content in contents:
+        for part in content.parts or []:
+            if part.function_call and part.thought_signature:
+                tool_call_id = part.function_call.id or "call_1"
+                thought_signatures[tool_call_id] = part.thought_signature
+
+    return thought_signatures
+
+
+def _build_function_call_part(
+    *,
+    name: str,
+    args: dict[str, Any],
+    tool_call_id: str,
+    thought_signature: Optional[str] = None,
+) -> types.Part:
+    """Build a function-call part, preserving thought signatures when present."""
+    if thought_signature:
+        return types.Part.model_validate(
+            {
+                "functionCall": {
+                    "id": tool_call_id,
+                    "name": name,
+                    "args": args,
+                },
+                "thoughtSignature": thought_signature,
+            },
+            by_alias=True,
+        )
+
+    part = types.Part.from_function_call(name=name, args=args)
+    if part.function_call:
+        part.function_call.id = tool_call_id
+    return part
+
+
 def _convert_content_to_openai_messages(
     contents: list[types.Content], system_instruction: Optional[str] = None
 ) -> list[ChatCompletionMessageParam]:
@@ -61,6 +128,7 @@ def _convert_content_to_openai_messages(
 
     # First pass: collect all function responses to match with tool calls
     all_function_responses: dict[str, FunctionResponse] = {}
+    thought_signatures = _thought_signatures_by_tool_call_id(contents)
     for content in contents:
         for part in content.parts or []:
             if part.function_response:
@@ -111,6 +179,8 @@ def _convert_content_to_openai_messages(
                     type="function",
                     function=tool_call_function,
                 )
+                if extra_content := _openai_extra_content_for_thought_signature(thought_signatures.get(tool_call_id)):
+                    tool_call["extra_content"] = extra_content
                 tool_calls.append(tool_call)
 
                 # Check if we have a response for this tool call
@@ -131,6 +201,10 @@ def _convert_content_to_openai_messages(
                         tool_call_id=tool_call_id,
                         content=content,
                     )
+                    if extra_content := _openai_extra_content_for_thought_signature(
+                        thought_signatures.get(tool_call_id)
+                    ):
+                        tool_message["extra_content"] = extra_content
                     tool_response_messages.append(tool_message)
                 else:
                     # If no response is available, create a placeholder response
@@ -259,9 +333,14 @@ def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmRes
                 except json.JSONDecodeError:
                     args = {}
 
-                part = types.Part.from_function_call(name=tool_call.function.name, args=args)
-                if part.function_call:
-                    part.function_call.id = tool_call.id
+                part = _build_function_call_part(
+                    name=tool_call.function.name,
+                    args=args,
+                    tool_call_id=tool_call.id,
+                    thought_signature=_extract_thought_signature(
+                        getattr(tool_call, "model_extra", {}).get("extra_content")
+                    ),
+                )
                 parts.append(part)
 
     content = types.Content(role="model", parts=parts)
@@ -465,6 +544,7 @@ class BaseOpenAI(BaseLlm):
                                         "id": "",
                                         "name": "",
                                         "arguments": "",
+                                        "thought_signature": None,
                                     }
                                 # Accumulate the chunks
                                 if tool_call_chunk.id:
@@ -474,6 +554,11 @@ class BaseOpenAI(BaseLlm):
                                         tool_calls_acc[idx]["name"] = tool_call_chunk.function.name
                                     if tool_call_chunk.function.arguments:
                                         tool_calls_acc[idx]["arguments"] += tool_call_chunk.function.arguments
+                                thought_signature = _extract_thought_signature(
+                                    getattr(tool_call_chunk, "model_extra", {}).get("extra_content")
+                                )
+                                if thought_signature:
+                                    tool_calls_acc[idx]["thought_signature"] = thought_signature
 
                         if chunk.choices[0].finish_reason:
                             finish_reason = chunk.choices[0].finish_reason
@@ -500,9 +585,12 @@ class BaseOpenAI(BaseLlm):
                     except json.JSONDecodeError:
                         args = {}
 
-                    part = types.Part.from_function_call(name=tc["name"], args=args)
-                    if part.function_call:
-                        part.function_call.id = tc["id"]
+                    part = _build_function_call_part(
+                        name=tc["name"],
+                        args=args,
+                        tool_call_id=tc["id"],
+                        thought_signature=tc["thought_signature"],
+                    )
                     final_parts.append(part)
 
                 # Map finish reason

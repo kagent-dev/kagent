@@ -51,12 +51,19 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string
-Removes duplicates
+Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
+Precedence: controller.watchNamespaces > rbac.namespaces (when clusterScoped=false) > empty (watch all).
 */}}
 {{- define "kagent.watchNamespaces" -}}
-{{- $nsSet := dict }}
-{{- .Values.controller.watchNamespaces | default list | uniq | join "," }}
+{{- if .Values.controller.watchNamespaces -}}
+  {{- .Values.controller.watchNamespaces | uniq | join "," -}}
+{{- else if and .Values.rbac (not .Values.rbac.clusterScoped) -}}
+  {{- if .Values.rbac.namespaces -}}
+    {{- .Values.rbac.namespaces | uniq | join "," -}}
+  {{- else -}}
+    {{- .Release.Namespace -}}
+  {{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -115,12 +122,25 @@ Check if leader election should be enabled (more than 1 replica)
 {{- end -}}
 
 {{/*
-Validate controller configuration
+PostgreSQL service name for the bundled postgres instance
 */}}
-{{- define "kagent.validateController" -}}
-{{- if and (gt (.Values.controller.replicas | int) 1) (eq .Values.database.type "sqlite") -}}
-{{- fail "ERROR: controller.replicas cannot be greater than 1 when database.type is 'sqlite' as the SQLite database is local to the pod. Please either set controller.replicas to 1 or change database.type to 'postgres'." }}
+{{- define "kagent.postgresqlServiceName" -}}
+{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
+
+{{/*
+Bundled PostgreSQL image - constructs the full image reference from registry/repository/name/tag
+*/}}
+{{- define "kagent.postgresql.image" -}}
+{{- $pg := .Values.database.postgres.bundled -}}
+{{- printf "%s/%s/%s:%s" $pg.image.registry $pg.image.repository $pg.image.name $pg.image.tag -}}
+{{- end -}}
+
+{{/*
+Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWORD.
+*/}}
+{{- define "kagent.passwordSecretName" -}}
+{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -133,3 +153,16 @@ A2A Base URL - computes the default URL based on the controller service name if 
 {{- printf "http://%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+imagePullSecrets from global values (for subchart usage).
+Reads .Values.global.imagePullSecrets set by the parent chart.
+*/}}
+{{- define "kagent.imagePullSecrets" -}}
+{{- $global := ((.Values.global).imagePullSecrets) | default list -}}
+{{- if $global -}}
+imagePullSecrets:
+{{- toYaml $global | nindent 2 }}
+{{- end -}}
+{{- end -}}
+

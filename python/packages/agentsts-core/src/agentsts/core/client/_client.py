@@ -41,7 +41,7 @@ class STSClient:
         """Initialize the client by fetching well-known configuration."""
         if not self._well_known_config:
             self._well_known_config = await fetch_well_known_configuration(
-                self.config.well_known_uri, self.config.timeout, self.config.verify_ssl
+                self.config.well_known_uri, self.config.timeout, self.config.verify_ssl, self.config.use_issuer_host
             )
 
         if not self._http_client:

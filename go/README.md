@@ -1,175 +1,123 @@
-# Kagent Go Components
+# Kagent Go Workspace
 
-This directory contains the Go components of the Kagent project, including the controller and CLI tools.
+This directory is a [Go workspace](https://go.dev/doc/tutorial/workspaces) (`go.work`) containing three modules that make up the Go components of Kagent.
+
+## Modules
+
+| Module | Path | Description |
+|--------|------|-------------|
+| **api** | `go/api/` | Shared types: CRD definitions, ADK model types, database models, HTTP client SDK |
+| **core** | `go/core/` | Infrastructure: Kubernetes controllers, HTTP server, CLI, database implementation |
+| **adk** | `go/adk/` | Go Agent Development Kit for building and running agents |
+
+### Dependency graph
+
+```
+go/api  (shared types — no internal kagent deps)
+  ^       ^
+  |       |
+go/core  go/adk
+```
 
 ## Directory Structure
 
+```
+go/
+├── go.work              # Go workspace file
+├── Makefile              # Unified build targets
+├── Dockerfile            # Shared multi-stage Docker build
+│
+├── api/                  # Shared types module
+│   ├── v1alpha1/         # Legacy CRD types
+│   ├── v1alpha2/         # Current CRD types
+│   ├── adk/              # ADK config & model types
+│   ├── database/         # GORM model structs & Client interface
+│   ├── httpapi/          # HTTP API request/response types
+│   ├── client/           # REST HTTP client SDK
+│   ├── utils/            # Shared utility functions
+│   └── config/           # Generated CRD & RBAC manifests
+│
+├── core/                 # Infrastructure module
+│   ├── cmd/              # Controller binary entry point
+│   ├── cli/              # kagent CLI application
+│   ├── internal/         # Controllers, HTTP server, DB impl, A2A, MCP
+│   ├── pkg/              # Auth, env vars, translator plugins
+│   ├── hack/             # Development utilities (mock LLM, config gen)
+│   └── test/e2e/         # End-to-end tests
+│
+└── adk/                  # Go Agent Development Kit module
+    ├── cmd/              # ADK server entry point
+    ├── pkg/              # Agent runtime, models, MCP, sessions, skills
+    └── examples/         # Example tools (oneshot runner, BYO agent)
+```
 
-- **cli/**: Command-line interface for Kagent
-  - `cmd/`: Entry points for CLI commands
-  - `internal/`: Internal CLI implementation
+## Building
 
-- **controller/**: Kubernetes controller for Kagent
-  - `api/`: API definitions for custom resources
-  - `cmd/`: Controller entry point
-  - `internal/`: Internal controller implementation
-  - `hack/`: Helper scripts and tools
-  - `translator/`: Translator implementation.
-
-- **internal/**: Internal code for the controller and CLI.
-  - `httpserver/`: HTTP server for the controller.
-  - `a2a/`: A2A implementation.
-  - `adk/`: Go types for the declarative ADK framework.
-  - `database/`: Database implementation.
-  - `version/`: Version information for the controller.
-  - `utils/`: Utility functions for the controller.
-
-- **pkg/**: Shared code for the controller and CLI.
-
-
-- **bin/**: Output directory for compiled binaries
-
-- **test/**: Test files and e2e tests. Unit tests are co-located with the code they test.
-
-
-## Building the Code
-
-### Prerequisites
-
-- Go 1.23 or later
-- Docker (for container builds)
-- Make
-
-### Building the CLI
-
-To build the CLI for multiple platforms:
+All commands are run from the `go/` directory via the unified Makefile.
 
 ```bash
-# Build for all supported platforms
+# Generate CRD manifests and DeepCopy methods (after changing api/ types)
+make generate
+make manifests
+
+# Build CLI binaries for all platforms
 make build
 
-# The binaries will be available in the bin/ directory:
-# - bin/kagent-linux-amd64
-# - bin/kagent-linux-arm64
-# - bin/kagent-darwin-amd64
-# - bin/kagent-darwin-arm64
-# - bin/kagent-windows-amd64.exe
-```
+# Build CLI for local development
+make core/bin/kagent-local
 
-### Running the CLI locally
-
-The CLI is a REPL (Read-Eval-Print Loop), so you can run it directly without building:
-
-```bash
-go run cli/cmd/kagent/main.go
-```
-
-### Building the Controller
-
-To build the controller as a Docker image:
-
-```bash
-# Build the Docker image
-make docker-build
-
-# Push the Docker image to a registry
-make docker-push
-```
-
-You can customize the image name and tag by setting the following variables:
-
-```bash
-# Example with custom values
-make docker-build docker-push \
-  DOCKER_REGISTRY=my-registry.io \
-  DOCKER_REPO=my-org/kagent \
-  IMAGE_NAME=controller \
-  VERSION=v1.0.0
-```
-
-## Running the Code
-
-### Running the CLI
-
-After building, you can run the CLI directly from the bin directory:
-
-```bash
-# Linux/macOS
-./bin/kagent-linux-amd64 [command]
-# or
-./bin/kagent-darwin-arm64 [command]
-
-# Windows
-./bin/kagent-windows-amd64.exe [command]
-```
-
-### Running the Controller
-
-To run the controller locally:
-
-```bash
+# Run the controller locally
 make run
 ```
 
-### Deploying to Kubernetes
-
-To deploy the controller to a Kubernetes cluster:
+## Testing
 
 ```bash
-# Install CRDs
-make install
-
-# Deploy the controller
-make deploy
-```
-
-To undeploy:
-
-```bash
-# Undeploy the controller
-make undeploy
-
-# Uninstall CRDs
-make uninstall
-```
-
-## Development
-
-### Code Generation
-
-```bash
-# Generate manifests (CRDs, RBAC, etc.)
-make manifests
-
-# Generate DeepCopy methods
-make generate
-```
-
-### Testing
-
-```bash
-# Run unit tests
+# Run all unit tests across the workspace
 make test
 
-# Run end-to-end tests (requires a running Kind cluster)
-make test-e2e
+# Run end-to-end tests (requires Kind cluster)
+make e2e
 ```
 
-### Linting
+## Code Quality
 
 ```bash
-# Run linters
+# Lint all modules
 make lint
 
-# Fix linting issues automatically where possible
+# Auto-fix lint issues
 make lint-fix
+
+# Format all modules
+make fmt
+
+# Vet all modules
+make vet
 ```
 
-## Building the Installer
+## Docker
 
-To generate a consolidated YAML file for installation:
+The workspace uses a single `Dockerfile` parameterized with `BUILD_PACKAGE`:
 
 ```bash
-make build-installer
-# The installer will be available at dist/install.yaml
+# Build controller image (default)
+docker build --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t controller .
+
+# Build Go ADK image
+docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .
+```
+
+In practice, use the root Makefile targets (`make build-controller`, `make build-golang-adk`).
+
+## Quick Testing with Oneshot
+
+The `adk/examples/oneshot` tool lets you test agent configs locally:
+
+```bash
+# Extract config from a running agent
+kubectl get secret -n kagent k8s-agent -ojson | jq -r '.data."config.json"' | base64 -d > /tmp/config.json
+
+# Run a single prompt
+cd go/adk && go run ./examples/oneshot -config /tmp/config.json -task "Hello"
 ```

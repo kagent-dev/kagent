@@ -2,9 +2,9 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
-LDFLAGS := -X github.com/kagent-dev/kagent/go/internal/version.Version=$(VERSION)    \
-           -X github.com/kagent-dev/kagent/go/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/internal/version.BuildDate=$(BUILD_DATE)
+LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VERSION)    \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -19,104 +19,97 @@ default: help
 help: ## list makefile targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-##@ Development
+##@ Code Generation (api module)
 
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="internal/controller/hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="api/hack/boilerplate.go.txt" paths="./api/..."
+
+##@ Development
 
 .PHONY: fmt
-fmt: ## Run go fmt against code.
+fmt: ## Run go fmt.
 	go fmt ./...
 
 .PHONY: vet
-vet: ## Run go vet against code.
+vet: ## Run go vet.
 	go vet ./...
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter
+lint: golangci-lint ## Run golangci-lint.
 	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+lint-fix: golangci-lint ## Run golangci-lint with auto-fix.
 	$(GOLANGCI_LINT) run --fix
 
 .PHONY: lint-config
-lint-config: golangci-lint ## Verify golangci-lint linter configuration
+lint-config: golangci-lint ## Verify golangci-lint linter configuration.
 	$(GOLANGCI_LINT) config verify
 
 .PHONY: govulncheck
-govulncheck:
+govulncheck: ## Run govulncheck.
 	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
-	go mod tidy -v
-	./bin/govulncheck-latest ./...
+	go mod tidy -v && bin/govulncheck-latest ./...
 
-##@ Build
+##@ Build (core module — CLI binaries)
 
-bin/kagent-local:
-	CGO_ENABLED=0 go test -race ./cli/...
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/kagent-local ./cli/cmd/kagent
+core/bin/kagent-local:
+	go test -race ./core/cli/...
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
 
-bin/kagent-linux-amd64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-amd64 ./cli/cmd/kagent
+core/bin/kagent-linux-amd64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-linux-amd64 ./core/cli/cmd/kagent
 
-bin/kagent-linux-amd64.sha256: bin/kagent-linux-amd64
-	sha256sum bin/kagent-linux-amd64 > bin/kagent-linux-amd64.sha256
+core/bin/kagent-linux-amd64.sha256: core/bin/kagent-linux-amd64
+	sha256sum core/bin/kagent-linux-amd64 > core/bin/kagent-linux-amd64.sha256
 
-bin/kagent-linux-arm64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-linux-arm64 ./cli/cmd/kagent
+core/bin/kagent-linux-arm64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-linux-arm64 ./core/cli/cmd/kagent
 
-bin/kagent-linux-arm64.sha256: bin/kagent-linux-arm64
-	sha256sum bin/kagent-linux-arm64 > bin/kagent-linux-arm64.sha256
+core/bin/kagent-linux-arm64.sha256: core/bin/kagent-linux-arm64
+	sha256sum core/bin/kagent-linux-arm64 > core/bin/kagent-linux-arm64.sha256
 
-bin/kagent-darwin-amd64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-amd64 ./cli/cmd/kagent
+core/bin/kagent-darwin-amd64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-darwin-amd64 ./core/cli/cmd/kagent
 
-bin/kagent-darwin-amd64.sha256: bin/kagent-darwin-amd64
-	sha256sum bin/kagent-darwin-amd64 > bin/kagent-darwin-amd64.sha256
+core/bin/kagent-darwin-amd64.sha256: core/bin/kagent-darwin-amd64
+	sha256sum core/bin/kagent-darwin-amd64 > core/bin/kagent-darwin-amd64.sha256
 
-bin/kagent-darwin-arm64:
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-darwin-arm64 ./cli/cmd/kagent
+core/bin/kagent-darwin-arm64:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-darwin-arm64 ./core/cli/cmd/kagent
 
-bin/kagent-darwin-arm64.sha256: bin/kagent-darwin-arm64
-	sha256sum bin/kagent-darwin-arm64 > bin/kagent-darwin-arm64.sha256
+core/bin/kagent-darwin-arm64.sha256: core/bin/kagent-darwin-arm64
+	sha256sum core/bin/kagent-darwin-arm64 > core/bin/kagent-darwin-arm64.sha256
 
-bin/kagent-windows-amd64.exe:
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/kagent-windows-amd64.exe ./cli/cmd/kagent
+core/bin/kagent-windows-amd64.exe:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-windows-amd64.exe ./core/cli/cmd/kagent
 
-bin/kagent-windows-amd64.exe.sha256: bin/kagent-windows-amd64.exe
-	sha256sum bin/kagent-windows-amd64.exe > bin/kagent-windows-amd64.exe.sha256
+core/bin/kagent-windows-amd64.exe.sha256: core/bin/kagent-windows-amd64.exe
+	sha256sum core/bin/kagent-windows-amd64.exe > core/bin/kagent-windows-amd64.exe.sha256
 
 .PHONY: clean
 clean:
-	rm -f bin/kagent* && mkdir -p bin
+	rm -f core/bin/kagent* && mkdir -p core/bin
 
 .PHONY: build
-build: bin/kagent-linux-amd64.sha256 bin/kagent-linux-arm64.sha256 bin/kagent-darwin-amd64.sha256 bin/kagent-darwin-arm64.sha256 bin/kagent-windows-amd64.exe.sha256
+build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 core/bin/kagent-darwin-amd64.sha256 core/bin/kagent-darwin-arm64.sha256 core/bin/kagent-windows-amd64.exe.sha256
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/controller/main.go
+run: fmt vet ## Run a controller from your host.
+	go run ./core/cmd/controller/main.go
 
 .PHONY: test
-test:
+test: ## Run all unit tests.
 	UPDATE_GOLDEN=$(UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
 .PHONY: e2e
-e2e:
-	go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast
-
-.PHONY: install
-install: manifests
-	$(KUBECTL) apply -f config/crd/bases/
-
-.PHONY: uninstall
-uninstall: manifests
-	$(KUBECTL) delete -f config/crd/bases/ --ignore-not-found=$(ignore-not-found)
+e2e: ## Run end-to-end tests.
+	go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
 ##@ Dependencies
 
@@ -137,7 +130,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.10.1
+GOLANGCI_LINT_VERSION ?= v2.11.3
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.

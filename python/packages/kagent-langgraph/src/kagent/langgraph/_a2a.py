@@ -35,12 +35,12 @@ def health_check(request: Request) -> PlainTextResponse:
 
 def thread_dump(request: Request) -> PlainTextResponse:
     """Thread dump endpoint for debugging."""
-    import io
+    import tempfile
 
-    buf = io.StringIO()
-    faulthandler.dump_traceback(file=buf)
-    buf.seek(0)
-    return PlainTextResponse(buf.read())
+    with tempfile.TemporaryFile(mode="w+") as tmp:
+        faulthandler.dump_traceback(file=tmp, all_threads=True)
+        tmp.seek(0)
+        return PlainTextResponse(tmp.read())
 
 
 class KAgentApp:
@@ -126,7 +126,7 @@ class KAgentApp:
         # Configure tracing/instrumentation if enabled
         if self._enable_tracing:
             try:
-                configure_tracing(app)
+                configure_tracing(self.config.name, self.config.namespace, app)
                 logger.info("Tracing configured for KAgent LangGraph app")
             except Exception:
                 logger.exception("Failed to configure tracing")

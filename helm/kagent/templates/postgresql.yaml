@@ -1,0 +1,140 @@
+{{- if .Values.database.postgres.bundled.enabled }}
+{{- $pg := .Values.database.postgres.bundled }}
+{{- $fullname := include "kagent.postgresqlServiceName" . }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $pg.storageClassName }}
+  storageClassName: {{ $pg.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $pg.storage | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        {{- include "kagent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: database
+    spec:
+      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
+      serviceAccountName: {{ $fullname }}
+      {{- with $pg.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "kagent.postgresql.image" . }}
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          {{- with $pg.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "kagent"
+            - name: POSTGRES_USER
+              value: "kagent"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.passwordSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - kagent
+                - -d
+                - kagent
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - kagent
+                - -d
+                - kagent
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          {{- if $pg.resources }}
+          resources:
+            {{- toYaml $pg.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+  selector:
+    {{- include "kagent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+{{- end }}

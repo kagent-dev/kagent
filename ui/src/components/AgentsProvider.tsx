@@ -7,7 +7,7 @@ import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsRespon
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
-interface ValidationErrors {
+export interface ValidationErrors {
   name?: string;
   namespace?: string;
   description?: string;
@@ -19,6 +19,7 @@ interface ValidationErrors {
   skills?: string;
   memoryModel?: string;
   memoryTtl?: string;
+  serviceAccountName?: string;
 }
 
 export interface AgentFormData {
@@ -53,9 +54,10 @@ export interface AgentFormData {
   annotations?: Record<string, string>;
   env?: EnvVar[];
   imagePullPolicy?: string;
+  serviceAccountName?: string;
 }
 
-interface AgentsContextType {
+export interface AgentsContextType {
   agents: AgentResponse[];
   models: ModelConfig[];
   loading: boolean;
@@ -70,7 +72,7 @@ interface AgentsContextType {
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
-const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
+export const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
 
 export function useAgents() {
   const context = useContext(AgentsContext);
@@ -80,7 +82,7 @@ export function useAgents() {
   return context;
 }
 
-interface AgentsProviderProps {
+export interface AgentsProviderProps {
   children: ReactNode;
 }
 
@@ -187,6 +189,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
     }
 
+    if (data.serviceAccountName !== undefined) {
+      const trimmedSA = data.serviceAccountName.trim();
+      if (trimmedSA && !isResourceNameValid(trimmedSA)) {
+        errors.serviceAccountName = `Service account name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+      }
+    }
+
     return errors;
   }, []);
 
@@ -202,7 +211,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       const agent = agentResult.data;
-      
+
       if (!agent) {
         console.warn(`Agent with name ${name} and namespace ${namespace} not found`);
         return null;

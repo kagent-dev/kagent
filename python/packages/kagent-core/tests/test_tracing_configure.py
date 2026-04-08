@@ -1,5 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+from opentelemetry.propagate import get_global_textmap
+from opentelemetry.trace import get_current_span
+
 from kagent.core.tracing import _utils
 
 
@@ -76,3 +80,43 @@ def test_configure_tracing_logging_disabled_uses_legacy_instrumentation(monkeypa
     assert instrument_calls["instrument_kwargs"] == {}
     assert instrument_calls["anthropic_event_logger_provider"] is None
     assert instrument_calls["google_instrumented"] is True
+
+
+def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
+    """The OTEL SDK must propagate W3C TraceContext by default.
+
+    kagent relies on this to extract incoming traceparent headers without any
+    explicit set_global_textmap call.  If an OTEL SDK upgrade removes this
+    default, this test will fail and explicit configuration will be needed.
+    """
+    trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
+    span_id = 0x00F067AA0BA902B7
+    carrier = {"traceparent": f"00-{trace_id:032x}-{span_id:016x}-01"}
+
+    ctx = get_global_textmap().extract(carrier)
+    assert get_current_span(ctx).get_span_context().trace_id == trace_id
+
+
+@pytest.mark.parametrize(
+    ("signal", "env", "expected"),
+    [
+        ("TRACES", {}, 10.0),
+        ("TRACES", {"OTEL_EXPORTER_OTLP_TIMEOUT": "500"}, 0.5),
+        ("TRACES", {"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "250"}, 0.25),
+        (
+            "LOGS",
+            {
+                "OTEL_EXPORTER_OTLP_TIMEOUT": "500",
+                "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT": "750",
+            },
+            0.75,
+        ),
+    ],
+)
+def test_resolve_otlp_timeout_seconds_uses_milliseconds(monkeypatch, signal, env, expected):
+    for key in ("OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert _utils._resolve_otlp_timeout_seconds(signal) == expected

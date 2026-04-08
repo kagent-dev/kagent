@@ -38,6 +38,15 @@ const (
 	AgentType_BYO         AgentType = "BYO"
 )
 
+// DeclarativeRuntime represents the runtime implementation for declarative agents
+// +kubebuilder:validation:Enum=python;go
+type DeclarativeRuntime string
+
+const (
+	DeclarativeRuntime_Python DeclarativeRuntime = "python"
+	DeclarativeRuntime_Go     DeclarativeRuntime = "go"
+)
+
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
@@ -94,6 +103,21 @@ type SkillForAgent struct {
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+
+	// Configuration for the skills-init init container.
+	// +optional
+	InitContainer *SkillsInitContainer `json:"initContainer,omitempty"`
+}
+
+// SkillsInitContainer configures the skills-init init container.
+type SkillsInitContainer struct {
+	// Resource requirements for the skills-init init container.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Additional environment variables for the skills-init init container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // GitRepo specifies a single Git repository to fetch skills from.
@@ -118,6 +142,14 @@ type GitRepo struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
+	// Runtime specifies which ADK implementation to use for this agent.
+	// - "python": Uses the Python ADK (default, slower startup, full feature set)
+	// - "go": Uses the Go ADK (faster startup, most features supported)
+	// The runtime determines both the container image and readiness probe configuration.
+	// +optional
+	// +kubebuilder:default=python
+	// +kubebuilder:validation:Enum=python;go
+	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
 	// with access to an include("source/key") function and agent context variables
@@ -377,6 +409,7 @@ func (s *Tool) ResolveHeaders(ctx context.Context, client client.Client, namespa
 	return result, nil
 }
 
+// +kubebuilder:validation:XValidation:message="each RequireApproval entry must also appear in ToolNames",rule="!has(self.requireApproval) || self.requireApproval.all(x, has(self.toolNames) && x in self.toolNames)"
 type McpServerTool struct {
 	// The reference to the ToolServer that provides the tool.
 	// +optional
@@ -385,7 +418,16 @@ type McpServerTool struct {
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
+	// +kubebuilder:validation:MaxItems=50
 	ToolNames []string `json:"toolNames,omitempty"`
+
+	// RequireApproval lists tool names that require human approval before
+	// execution. Each name must also appear in ToolNames. When a tool in
+	// this list is invoked by the agent, execution pauses and the user is
+	// prompted to approve or reject the call.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	RequireApproval []string `json:"requireApproval,omitempty"`
 
 	// AllowedHeaders specifies which headers from the A2A request should be
 	// propagated to MCP tool calls. Header names are case-insensitive.
@@ -447,8 +489,9 @@ type A2AConfig struct {
 type AgentSkill server.AgentSkill
 
 const (
-	AgentConditionTypeAccepted = "Accepted"
-	AgentConditionTypeReady    = "Ready"
+	AgentConditionTypeAccepted            = "Accepted"
+	AgentConditionTypeReady               = "Ready"
+	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
 // AgentStatus defines the observed state of Agent.
@@ -460,6 +503,7 @@ type AgentStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
+// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.declarative.runtime",description="The runtime implementation for declarative agents."
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
 // +kubebuilder:storageversion

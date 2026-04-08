@@ -2,11 +2,11 @@ name: CI Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/v0.7.x]
     paths-ignore:
       - "**/*.md"
   pull_request:
-    branches: [main]
+    branches: [main, release/v0.7.x]
     paths-ignore:
       - "**/*.md"
   workflow_dispatch:
@@ -34,38 +34,20 @@ jobs:
   test-e2e:
     needs:
       - setup
-    strategy:
-      fail-fast: false
-      matrix:
-        database: [sqlite, postgres]
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18-trixie
-        env:
-          POSTGRES_DB: kagent
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: kagent
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
@@ -74,13 +56,13 @@ jobs:
           driver-opts: network=host
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4.2.0
+        uses: azure/setup-helm@v5.0.0
         with:
           version: v3.18.0
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@b72c923563e6e80ea66e8e8c810798cc73e97e5e
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           install_only: true
 
@@ -99,11 +81,6 @@ jobs:
         run: |
           make create-kind-cluster
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          if [ "${{ matrix.database }}" = "postgres" ]; then
-            HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
-            export KAGENT_HELM_EXTRA_ARGS="$KAGENT_HELM_EXTRA_ARGS --set database.type=postgres --set database.postgres.url=postgres://postgres:kagent@${HOST_IP}:5432/kagent"
-            echo "Postgres URL: postgres://postgres:kagent@${HOST_IP}:5432/kagent"
-          fi
           make helm-install
           make push-test-agent push-test-skill
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
@@ -124,7 +101,30 @@ jobs:
 
           # no need to run e2e tests with race, as this will just apply to the test code.
           # all objects created in e2e tests have a generated name, so they can run in parallel safely.
-          go test -v github.com/kagent-dev/kagent/go/test/e2e -failfast -shuffle=on
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
+
+      - name: Run namespace-scoped e2e tests
+        if: success()
+        env:
+          OPENAI_API_KEY: fake
+          KAGENT_HELM_EXTRA_ARGS: >-
+            --set rbac.clusterScoped=false
+            --set 'rbac.namespaces={kagent}'
+        run: |
+          # Upgrade helm to use namespace-scoped RBAC
+          make helm-install-provider
+          
+          # Wait for controller to be ready after upgrade
+          kubectl rollout status deployment/kagent-controller -n kagent --timeout=90s
+          
+          # Setup environment variables (reusing logic from previous step)
+          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
+          export KAGENT_LOCAL_HOST=$HOST_IP
+          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          
+          # Run critical tests with namespace-scoped RBAC to verify the controller didn't lose needed permissions
+          cd go
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -run '^TestE2EInvokeInlineAgent$|^TestE2EInvokeDeclarativeAgentWithMcpServerTool$' -failfast
       - name: fail print info
         if: failure()
         run: |
@@ -141,16 +141,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
 
-      - name: Run cmd/main.go tests
+      - name: Run Go unit tests
         working-directory: go
         run: |
           go test -race -skip 'TestE2E.*' -v ./...
@@ -161,10 +161,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4.2.0
+        uses: azure/setup-helm@v5.0.0
         with:
           version: v3.18.0
       # Install unittest plugin
@@ -182,12 +182,19 @@ jobs:
 
   ui-tests:
     runs-on: ubuntu-latest
+    env:
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: "npm"
@@ -203,9 +210,30 @@ jobs:
         working-directory: ./ui
         run: npm run lint
 
-      - name: Run tests
+      - name: Run unit tests (Jest)
         working-directory: ./ui
         run: npm run test
+
+      - name: Install Playwright browser (Chromium)
+        working-directory: ./ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Storybook tests (Vitest + Playwright)
+        working-directory: ./ui
+        run: npm run test:vitest
+
+      - name: Build Storybook
+        working-directory: ./ui
+        run: npm run build-storybook
+
+      - name: Publish to Chromatic
+        # Requires repo secret CHROMATIC_PROJECT_TOKEN. Skipped when unset, or on fork PRs (no token access).
+        if: ${{ env.CHROMATIC_PROJECT_TOKEN != '' && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: chromaui/action@v16.1.0
+        with:
+          projectToken: ${{ env.CHROMATIC_PROJECT_TOKEN }}
+          workingDir: ui
+          storybookBuildDir: storybook-static
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
   build:
@@ -219,6 +247,8 @@ jobs:
           - ui
           - app
           - cli
+          - golang-adk
+          - skills-init
     runs-on: ubuntu-latest
     services:
       registry:
@@ -227,13 +257,13 @@ jobs:
           - 5001:5000
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           platforms: linux/amd64,linux/arm64
@@ -258,18 +288,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.8.0
+          version: v2.11.3
           working-directory: go
 
   python-test:
@@ -281,10 +311,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Install python
         run: uv python install ${{ matrix.python-version }}
@@ -305,10 +335,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Install python
         run: uv python install 3.10
@@ -333,12 +363,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
 

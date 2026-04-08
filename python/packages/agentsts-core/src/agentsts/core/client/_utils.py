@@ -14,7 +14,7 @@ HTTPS_PROTOCOL = "https://"
 
 
 async def fetch_well_known_configuration(
-    well_known_uri: str, timeout: int = 5, verify_ssl: bool = True
+    well_known_uri: str, timeout: int = 5, verify_ssl: bool = True, use_issuer_host: bool = False
 ) -> WellKnownConfiguration:
     try:
         async with httpx.AsyncClient(timeout=timeout, verify=verify_ssl) as client:
@@ -31,6 +31,15 @@ async def fetch_well_known_configuration(
                 else:
                     protocol = HTTP_PROTOCOL
                 data["token_endpoint"] = protocol + data["token_endpoint"]
+
+            # replace host:port in token_endpoint with the host:port from well_known_uri
+            # protocol is already resolved above, so token_endpoint always has a scheme here
+            if use_issuer_host and "token_endpoint" in data:
+                from urllib.parse import urlparse, urlunparse
+
+                issuer = urlparse(well_known_uri)
+                endpoint = urlparse(data["token_endpoint"])
+                data["token_endpoint"] = urlunparse(endpoint._replace(netloc=issuer.netloc))
 
             config = WellKnownConfiguration.model_validate(data)
             return config

@@ -1,0 +1,8 @@
+{
+  "model": {
+    "type": "openai",
+    "model": "gpt-4.1-mini"
+  },
+  "description": "OpenAI test agent",
+  "instruction": "You are a helpful assistant. Answer concisely in one sentence."
+}

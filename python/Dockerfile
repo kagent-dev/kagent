@@ -1,24 +1,3 @@
-# Temporary: use apk to install krane
-# once https://github.com/wolfi-dev/os/pull/78579 is merged.
-### STAGE 0: build krane
-ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS krane-builder
-
-ENV KRANE_VERSION=v0.20.7
-WORKDIR /build
-
-RUN git clone --depth 1 --branch $KRANE_VERSION \
-    https://github.com/google/go-containerregistry.git
-
-WORKDIR /build/go-containerregistry/cmd/krane
-
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /build/krane .
-
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
@@ -83,7 +62,7 @@ RUN addgroup -g 1001 pythongroup                           && \
 # Install anthropic sandbox runtime and dependencies
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add \
-    nodejs npm bubblewrap socat ripgrep
+    nodejs npm node-gyp bubblewrap socat ripgrep
 
 # Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
 # This avoids scope-related rename issues in global node_modules
@@ -102,11 +81,6 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Ensure the sandbox runtime binaries are on PATH
 ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
-
-# Install anthropic sandbox runtime and dependencies
-#RUN --mount=type=cache,target=/var/cache/apk,rw \
-#    apk add krane
-COPY --from=krane-builder --chown=1001:1001 /build/krane /usr/local/bin/krane
 
 USER python
 WORKDIR /.kagent
