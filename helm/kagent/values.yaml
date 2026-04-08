@@ -498,12 +498,12 @@ otel:
       otlp:
         endpoint: ""
         protocol: "grpc"
-        timeout: 15
+        timeout: 15000 # milliseconds
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
         endpoint: ""
-        timeout: 15
+        timeout: 15000 # milliseconds
         insecure: true
