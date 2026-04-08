@@ -1,0 +1,29 @@
+set -e
+{{- range .OCIRefs }}
+_image="$(cat <<'ENDVAL'
+{{ .Image }}
+ENDVAL
+)"
+_dest="$(cat <<'ENDVAL'
+{{ .Dest }}
+ENDVAL
+)"
+echo "Exporting OCI hook image ${_image} into ${_dest}"
+_uname="$(uname -m)"
+case "$_uname" in
+  x86_64|amd64)
+    _arch="amd64"
+    ;;
+  aarch64|arm64)
+    _arch="arm64"
+    ;;
+  *)
+    echo "Unsupported architecture for OCI export: ${_uname}" >&2
+    exit 1
+    ;;
+esac
+krane export{{ if $.InsecureOCI }} --insecure{{ end }} --platform "linux/${_arch}" "$_image" '/tmp/oci-hook.tar'
+mkdir -p "$_dest"
+tar xf '/tmp/oci-hook.tar' -C "$_dest"
+rm -f '/tmp/oci-hook.tar'
+{{- end }}

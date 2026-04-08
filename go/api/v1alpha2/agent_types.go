@@ -76,6 +76,68 @@ type AgentSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
+	// Hooks defines lifecycle hooks for this agent.
+	// Hook commands are loaded from OCI images into the /hooks directory,
+	// similar to how skills are loaded. If the same container ref is used
+	// by multiple hooks it is mounted only once.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Hooks []HookSpec `json:"hooks,omitempty"`
+}
+
+// HookEventType identifies the agent lifecycle event that triggers a hook.
+// +kubebuilder:validation:Enum=PreToolUse;PostToolUse;SessionStart;SessionEnd
+type HookEventType string
+
+const (
+	HookEvent_PreToolUse   HookEventType = "PreToolUse"
+	HookEvent_PostToolUse  HookEventType = "PostToolUse"
+	HookEvent_SessionStart HookEventType = "SessionStart"
+	HookEvent_SessionEnd   HookEventType = "SessionEnd"
+)
+
+// HookProtocolType specifies the stdin/stdout protocol used by a hook command.
+// +kubebuilder:validation:Enum=claude-command
+type HookProtocolType string
+
+const (
+	// HookProtocol_ClaudeCommand uses the Claude Code hook protocol:
+	// the hook reads a JSON object from stdin and writes a JSON object to stdout,
+	// or writes an error message to stderr and exits with code 2.
+	HookProtocol_ClaudeCommand HookProtocolType = "claude-command"
+)
+
+// HookSpec defines a single hook to fire on an agent lifecycle event.
+// Hook commands are loaded from OCI container images, similar to Skills.
+// If the same ref is used by multiple hooks it is only mounted once.
+type HookSpec struct {
+	// Ref is the OCI container image that contains the hook command.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Ref string `json:"ref"`
+
+	// Event is the lifecycle event that triggers this hook.
+	// +kubebuilder:validation:Required
+	Event HookEventType `json:"event"`
+
+	// Type is the hook protocol used for stdin/stdout communication.
+	// Currently only "claude-command" is supported.
+	// +optional
+	// +kubebuilder:default=claude-command
+	Type HookProtocolType `json:"type,omitempty"`
+
+	// Matcher is an optional ECMAScript-compatible regex matched against the tool name.
+	// Only applicable for PreToolUse and PostToolUse events.
+	// When absent, the hook fires for all tool invocations.
+	// +optional
+	Matcher string `json:"matcher,omitempty"`
+
+	// Command is the executable (and optional arguments) to run inside the hook
+	// container directory, e.g. "check-tool-use.sh" or "python3 audit.py".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Command string `json:"command"`
 }
 
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
