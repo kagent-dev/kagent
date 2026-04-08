@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from opentelemetry.propagate import get_global_textmap
 from opentelemetry.trace import get_current_span
 
@@ -94,3 +95,28 @@ def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
 
     ctx = get_global_textmap().extract(carrier)
     assert get_current_span(ctx).get_span_context().trace_id == trace_id
+
+
+@pytest.mark.parametrize(
+    ("signal", "env", "expected"),
+    [
+        ("TRACES", {}, 10.0),
+        ("TRACES", {"OTEL_EXPORTER_OTLP_TIMEOUT": "500"}, 0.5),
+        ("TRACES", {"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "250"}, 0.25),
+        (
+            "LOGS",
+            {
+                "OTEL_EXPORTER_OTLP_TIMEOUT": "500",
+                "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT": "750",
+            },
+            0.75,
+        ),
+    ],
+)
+def test_resolve_otlp_timeout_seconds_uses_milliseconds(monkeypatch, signal, env, expected):
+    for key in ("OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert _utils._resolve_otlp_timeout_seconds(signal) == expected

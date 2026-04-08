@@ -262,7 +262,7 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 		item := ListMemoryResponse{
 			ID:          m.ID,
 			Content:     m.Content,
-			AccessCount: m.AccessCount,
+			AccessCount: int(m.AccessCount),
 			CreatedAt:   m.CreatedAt.Format(time.RFC3339),
 		}
 		if m.ExpiresAt != nil {

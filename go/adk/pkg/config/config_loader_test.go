@@ -45,6 +45,7 @@ func TestLoadAgentConfig(t *testing.T) {
 
 	if config == nil {
 		t.Fatal("LoadAgentConfig() returned nil config")
+		return
 	}
 
 	// Check that model was loaded
@@ -92,6 +93,7 @@ func TestLoadAgentCard(t *testing.T) {
 
 	if card == nil {
 		t.Fatal("LoadAgentCard() returned nil card")
+		return
 	}
 
 	if card.Name != "test-agent" {
