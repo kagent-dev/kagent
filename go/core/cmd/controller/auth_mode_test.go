@@ -14,11 +14,6 @@ func TestGetAuthenticator(t *testing.T) {
 		wantType string
 	}{
 		{
-			name:     "defaults to UnsecureAuthenticator",
-			authCfg:  struct{ Mode, UserIDClaim string }{"", ""},
-			wantType: "*auth.UnsecureAuthenticator",
-		},
-		{
 			name:     "unsecure mode uses UnsecureAuthenticator",
 			authCfg:  struct{ Mode, UserIDClaim string }{"unsecure", ""},
 			wantType: "*auth.UnsecureAuthenticator",
@@ -44,6 +39,16 @@ func TestGetAuthenticator(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetAuthenticatorPanicsOnUnknownMode(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for unknown auth mode, got none")
+		}
+	}()
+	getAuthenticator(struct{ Mode, UserIDClaim string }{"proxy", ""})
 }
 
 func getTypeName(v auth.AuthProvider) string {

@@ -561,7 +561,9 @@ oauth2-proxy:
       value: ""
     - name: OIDC_REDIRECT_URL
       value: ""
-    # Default assumes release name "kagent". Override if using different release name.
+    # IMPORTANT: This must match the UI service name, which is templated as
+    # "<release-name>-ui" (or "<fullnameOverride>-ui"). Override this value
+    # if your release name is not "kagent" or you set fullnameOverride.
     - name: UPSTREAM_URL
       value: "http://kagent-ui:8080"
 

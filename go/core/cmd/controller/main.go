@@ -43,7 +43,9 @@ func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthPr
 	switch authCfg.Mode {
 	case "trusted-proxy":
 		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
-	default:
+	case "unsecure":
 		return &auth.UnsecureAuthenticator{}
+	default:
+		panic("unknown auth mode: " + authCfg.Mode + " (valid modes: unsecure, trusted-proxy)")
 	}
 }
