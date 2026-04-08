@@ -35,5 +35,5 @@ func main() {
 			Authorizer:    authorizer,
 			AgentPlugins:  nil,
 		}, nil
-	})
+	}, nil)
 }
