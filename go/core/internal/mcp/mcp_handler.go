@@ -25,6 +25,7 @@ import (
 type MCPHandler struct {
 	kubeClient    client.Client
 	a2aBaseURL    string
+	a2aTimeout    time.Duration
 	authenticator auth.AuthProvider
 	httpHandler   *mcpsdk.StreamableHTTPHandler
 	server        *mcpsdk.Server
@@ -55,12 +56,20 @@ type InvokeAgentOutput struct {
 	ContextID string `json:"context_id,omitempty"`
 }
 
+// defaultA2ATimeout is the fallback timeout for A2A client calls and should match
+// the configured default streaming timeout.
+const defaultA2ATimeout = 10 * time.Minute
+
 // NewMCPHandler creates a new MCP handler
 // Wraps the StreamableHTTPHandler and adds A2A bridging and context management.
-func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider) (*MCPHandler, error) {
+func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator auth.AuthProvider, a2aTimeout time.Duration) (*MCPHandler, error) {
+	if a2aTimeout <= 0 {
+		a2aTimeout = defaultA2ATimeout
+	}
 	handler := &MCPHandler{
 		kubeClient:    kubeClient,
 		a2aBaseURL:    a2aBaseURL,
+		a2aTimeout:    a2aTimeout,
 		authenticator: authenticator,
 	}
 
@@ -209,7 +218,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	if a2aClient == nil {
 		// Build A2A client options with authentication propagation
 		a2aOpts := []a2aclient.Option{
-			a2aclient.WithTimeout(30 * time.Second),
+			a2aclient.WithTimeout(h.a2aTimeout),
 			a2aclient.WithHTTPReqHandler(
 				authimpl.A2ARequestHandler(
 					h.authenticator,
