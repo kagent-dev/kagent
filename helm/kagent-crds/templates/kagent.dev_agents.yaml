@@ -2238,6 +2238,11 @@ spec:
                             Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
                           minLength: 1
                           type: string
+                        timeout:
+                          description: A2A client read timeout in seconds for calls
+                            to this agent. Defaults to 600s if unset.
+                          format: double
+                          type: number
                       type: object
                     mcpServer:
                       properties:
