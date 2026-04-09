@@ -78,32 +78,6 @@ type AgentSpec struct {
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
-// SandboxAgentSpec defines the desired state of a SandboxAgent. Workload fields match Agent.spec
-// (Declarative or BYO). The kind selects sandbox reconciliation (SandboxTemplate + SandboxClaim) instead of a Deployment.
-//
-// +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
-// +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
-// +kubebuilder:validation:XValidation:message="declarative or byo must match type",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
-type SandboxAgentSpec struct {
-	// +kubebuilder:validation:Enum=Declarative;BYO
-	// +kubebuilder:default=Declarative
-	Type AgentType `json:"type"`
-
-	// +optional
-	BYO *BYOAgentSpec `json:"byo,omitempty"`
-	// +optional
-	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
-
-	// +optional
-	Description string `json:"description,omitempty"`
-
-	// +optional
-	Skills *SkillForAgent `json:"skills,omitempty"`
-
-	// +optional
-	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
-}
-
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).

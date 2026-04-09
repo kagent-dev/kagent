@@ -68,7 +68,7 @@ func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, c
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: v1alpha2.SandboxAgentSpec{
+		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				ModelConfig: modelConfig.Name,

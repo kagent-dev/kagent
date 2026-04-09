@@ -47,17 +47,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              SandboxAgentSpec defines the desired state of a SandboxAgent. Workload fields match Agent.spec
-              (Declarative or BYO). The kind selects sandbox reconciliation (SandboxTemplate + SandboxClaim) instead of a Deployment.
+            description: AgentSpec defines the desired state of Agent.
             properties:
               allowedNamespaces:
                 description: |-
-                  AllowedNamespaces defines which namespaces are allowed to reference this resource.
-                  This mechanism provides a bidirectional handshake for cross-namespace references,
-                  following the pattern used by Gateway API for cross-namespace route attachments.
-
-                  By default (when not specified), only references from the same namespace are allowed.
+                  AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+                  This follows the Gateway API pattern for cross-namespace route attachments.
+                  If not specified, only Agents in the same namespace can reference this Agent as a tool.
+                  This field only applies when this Agent is used as a tool by another Agent.
+                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
                 properties:
                   from:
                     default: Same
@@ -7819,6 +7817,9 @@ spec:
               description:
                 type: string
               skills:
+                description: |-
+                  Skills to load into the agent. They will be pulled from the specified container images.
+                  and made available to the agent under the `/skills` folder.
                 properties:
                   gitAuthSecretRef:
                     description: |-
@@ -8121,7 +8122,8 @@ spec:
               rule: has(self.type)
             - message: type must be either Declarative or BYO
               rule: self.type == 'Declarative' || self.type == 'BYO'
-            - message: declarative or byo must match type
+            - message: declarative must be specified if type is Declarative, or byo
+                must be specified if type is BYO
               rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
                 == 'BYO' && has(self.byo))
           status:

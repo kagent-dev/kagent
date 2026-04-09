@@ -236,27 +236,12 @@ export interface SkillForAgent {
   refs?: string[];
 }
 
-/** Workload discriminator for SandboxAgent; same as Agent except Sandbox (the kind implies sandbox runtime). */
-export type SandboxAgentWorkloadType = "Declarative" | "BYO";
-
-/**
- * Spec for a SandboxAgent: same workload fields as Agent.spec (Declarative or BYO).
- * Isolation comes from the SandboxAgent kind (SandboxTemplate + SandboxClaim), not from extra fields here.
- */
-export interface SandboxAgentSpec {
-  type: SandboxAgentWorkloadType;
-  declarative?: DeclarativeAgentSpec;
-  byo?: BYOAgentSpec;
-  description?: string;
-  skills?: SkillForAgent;
-}
-
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
   metadata: ResourceMetadata;
-  spec: SandboxAgentSpec;
+  spec: AgentSpec;
 }
 
 export interface AgentSpec {

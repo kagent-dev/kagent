@@ -1,6 +1,6 @@
 "use server";
 
-import { AgentSpec, BaseResponse, DeclarativeAgentSpec, SandboxAgent, SandboxAgentSpec } from "@/types";
+import { AgentSpec, BaseResponse, DeclarativeAgentSpec, SandboxAgent } from "@/types";
 import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
@@ -292,7 +292,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     };
   }
 
-  const spec: SandboxAgentSpec = {
+  const spec: AgentSpec = {
     type: "Declarative",
     declarative: decl,
     description: agentFormData.description,

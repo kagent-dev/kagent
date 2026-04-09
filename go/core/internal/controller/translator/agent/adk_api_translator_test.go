@@ -1365,7 +1365,7 @@ func Test_AdkApiTranslator_SandboxAgentView_BYOUsesSandboxTemplateAndClaim(t *te
 	cmd := "/app/run"
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo-sb", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.SandboxAgentSpec{
+		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_BYO,
 			BYO: &v1alpha2.BYOAgentSpec{
 				Deployment: &v1alpha2.ByoDeploymentSpec{
