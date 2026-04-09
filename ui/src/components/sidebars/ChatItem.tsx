@@ -23,9 +23,11 @@ interface ChatItemProps {
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
   createdAt?: string;
+  /** When true, omit delete (e.g. Sandbox single-session agents). */
+  hideDelete?: boolean;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt, hideDelete }: ChatItemProps) => {
   const title = sessionName || "Untitled";
   
   // Format timestamp based on how recent it is
@@ -81,6 +83,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                   <span>Download</span>
                 </Button>
               </DropdownMenuItem>
+              {!hideDelete && (
               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -104,6 +107,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                   </AlertDialogContent>
                 </AlertDialog>
               </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

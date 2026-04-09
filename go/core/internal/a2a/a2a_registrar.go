@@ -25,9 +25,9 @@ import (
 
 type A2ARegistrar struct {
 	cache          crcache.Cache
-	translator     agent_translator.AdkApiTranslator
 	handlerMux     A2AHandlerMux
-	a2aBaseUrl     string
+	a2aBaseURL     string
+	sandboxA2AURL  string
 	authenticator  auth.AuthProvider
 	a2aBaseOptions []a2aclient.Option
 }
@@ -36,9 +36,9 @@ var _ manager.Runnable = (*A2ARegistrar)(nil)
 
 func NewA2ARegistrar(
 	cache crcache.Cache,
-	translator agent_translator.AdkApiTranslator,
 	mux A2AHandlerMux,
 	a2aBaseUrl string,
+	sandboxA2ABaseURL string,
 	authenticator auth.AuthProvider,
 	streamingMaxBuf int,
 	streamingInitialBuf int,
@@ -46,9 +46,9 @@ func NewA2ARegistrar(
 ) *A2ARegistrar {
 	reg := &A2ARegistrar{
 		cache:         cache,
-		translator:    translator,
 		handlerMux:    mux,
-		a2aBaseUrl:    a2aBaseUrl,
+		a2aBaseURL:    a2aBaseUrl,
+		sandboxA2AURL: sandboxA2ABaseURL,
 		authenticator: authenticator,
 		a2aBaseOptions: []a2aclient.Option{
 			a2aclient.WithTimeout(streamingTimeout),
@@ -67,49 +67,11 @@ func (a *A2ARegistrar) NeedLeaderElection() bool {
 func (a *A2ARegistrar) Start(ctx context.Context) error {
 	log := ctrllog.FromContext(ctx).WithName("a2a-registrar")
 
-	informer, err := a.cache.GetInformer(ctx, &v1alpha2.Agent{})
-	if err != nil {
-		return fmt.Errorf("failed to get cache informer: %w", err)
+	if err := a.registerAgentInformer(ctx, &v1alpha2.Agent{}, log); err != nil {
+		return err
 	}
-
-	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj any) {
-			if agent, ok := obj.(*v1alpha2.Agent); ok {
-				if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
-					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
-				}
-			}
-		},
-		UpdateFunc: func(oldObj, newObj any) {
-			oldAgent, ok1 := oldObj.(*v1alpha2.Agent)
-			newAgent, ok2 := newObj.(*v1alpha2.Agent)
-			if !ok1 || !ok2 {
-				return
-			}
-			if oldAgent.Generation != newAgent.Generation || !reflect.DeepEqual(oldAgent.Spec, newAgent.Spec) {
-				if err := a.upsertAgentHandler(ctx, newAgent, log); err != nil {
-					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(newAgent))
-				}
-			}
-		},
-		DeleteFunc: func(obj any) {
-			agent, ok := obj.(*v1alpha2.Agent)
-			if !ok {
-				if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
-					if a2, ok := tombstone.Obj.(*v1alpha2.Agent); ok {
-						agent = a2
-					}
-				}
-			}
-			if agent == nil {
-				return
-			}
-			ref := common.GetObjectRef(agent)
-			a.handlerMux.RemoveAgentHandler(ref)
-			log.V(1).Info("removed A2A handler", "agent", ref)
-		},
-	}); err != nil {
-		return fmt.Errorf("failed to add informer event handler: %w", err)
+	if err := a.registerAgentInformer(ctx, &v1alpha2.SandboxAgent{}, log); err != nil {
+		return err
 	}
 
 	if ok := a.cache.WaitForCacheSync(ctx); !ok {
@@ -120,7 +82,80 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.Agent, log logr.Logger) error {
+func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1alpha2.AgentObject, log logr.Logger) error {
+	informer, err := a.cache.GetInformer(ctx, prototype)
+	if err != nil {
+		return fmt.Errorf("failed to get cache informer for %T: %w", prototype, err)
+	}
+
+	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			agent, ok := informerAgentObject(obj)
+			if !ok {
+				return
+			}
+			if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
+				log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			oldAgent, ok1 := informerAgentObject(oldObj)
+			newAgent, ok2 := informerAgentObject(newObj)
+			if !ok1 || !ok2 {
+				return
+			}
+			if oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent) {
+				if err := a.upsertAgentHandler(ctx, newAgent, log); err != nil {
+					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(newAgent))
+				}
+			}
+		},
+		DeleteFunc: func(obj any) {
+			agent, ok := deletedInformerAgentObject(obj)
+			if !ok {
+				return
+			}
+			ref := a2aRouteKey(agent)
+			a.handlerMux.RemoveAgentHandler(ref)
+			log.V(1).Info("removed A2A handler", "agent", ref)
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to add informer event handler for %T: %w", prototype, err)
+	}
+
+	return nil
+}
+
+func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {
+	oldSpec := oldAgent.GetAgentSpec()
+	newSpec := newAgent.GetAgentSpec()
+	switch {
+	case oldSpec == nil && newSpec == nil:
+		return true
+	case oldSpec == nil || newSpec == nil:
+		return false
+	default:
+		return reflect.DeepEqual(oldSpec, newSpec)
+	}
+}
+
+func informerAgentObject(obj any) (v1alpha2.AgentObject, bool) {
+	typed, ok := obj.(v1alpha2.AgentObject)
+	return typed, ok
+}
+
+func deletedInformerAgentObject(obj any) (v1alpha2.AgentObject, bool) {
+	if typed, ok := informerAgentObject(obj); ok {
+		return typed, true
+	}
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+	return informerAgentObject(tombstone.Obj)
+}
+
+func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.AgentObject, log logr.Logger) error {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	card := agent_translator.GetA2AAgentCard(agent)
 
@@ -145,9 +180,9 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.A
 	}
 
 	cardCopy := *card
-	cardCopy.URL = fmt.Sprintf("%s/%s/", a.a2aBaseUrl, agentRef)
+	cardCopy.URL = a.a2aRouteURL(agent)
 
-	if err := a.handlerMux.SetAgentHandler(agentRef.String(), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
+	if err := a.handlerMux.SetAgentHandler(a2aRouteKey(agent), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
 		return fmt.Errorf("set handler for %s: %w", agentRef, err)
 	}
 
@@ -169,4 +204,21 @@ func debugOpt() a2aclient.Option {
 	} else {
 		return func(*a2aclient.A2AClient) {}
 	}
+}
+
+func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {
+	baseURL := a.a2aBaseURL
+	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+		baseURL = a.sandboxA2AURL
+	}
+	return baseURL + "/" + types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}.String() + "/"
+}
+
+func a2aRouteKey(agent v1alpha2.AgentObject) string {
+	return a2aRoutePath(agent)
+}
+
+func a2aRoutePath(agent v1alpha2.AgentObject) string {
+	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
+	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
 }

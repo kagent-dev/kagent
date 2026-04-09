@@ -178,7 +178,7 @@ func runGoldenTest(t *testing.T, inputFile, outputsDir, testName string, updateG
 
 		// Use proxy URL from test input if provided
 		proxyURL := testInput.ProxyURL
-		result, err = translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyURL).TranslateAgent(ctx, agent)
+		result, err = translator.TranslateAgent(ctx, translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, proxyURL, nil), agent)
 		require.NoError(t, err)
 
 	default:
