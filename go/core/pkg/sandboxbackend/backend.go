@@ -10,15 +10,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// BuildInput carries the pod template to embed in SandboxTemplate and reference from SandboxClaim.
+// BuildInput carries the pod template for a Sandbox workload (agents.x-k8s.io Sandbox).
 type BuildInput struct {
-	Agent        *v1alpha2.Agent
-	PodTemplate  corev1.PodTemplateSpec
+	Agent       *v1alpha2.Agent
+	PodTemplate corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string
-
-	// TemplateName is the SandboxTemplate metadata.name (required).
-	TemplateName string
 }
 
 // Backend builds sandbox CRD objects and evaluates their readiness.

@@ -57,12 +57,6 @@ type SandboxAgentController struct {
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/finalizers,verbs=update
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxtemplates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxtemplates/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxtemplates/finalizers,verbs=update
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxclaims,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxclaims/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=extensions.agents.x-k8s.io,resources=sandboxclaims/finalizers,verbs=update
 
 func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = ctrl.LoggerFrom(ctx)

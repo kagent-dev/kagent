@@ -189,10 +189,6 @@ func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alph
 		return fmt.Errorf("failed to reconcile owned objects: %w", err)
 	}
 
-	if err := a.resyncAgentSandboxWorkload(ctx, sa); err != nil {
-		return err
-	}
-
 	if err := a.upsertAgent(ctx, agentView, agentOutputs, true); err != nil {
 		return fmt.Errorf("failed to upsert agent %s/%s: %w", sa.Namespace, sa.Name, err)
 	}

@@ -602,11 +602,9 @@ func (a *adkApiTranslator) buildManifest(
 
 	var workloadObj client.Object
 	if runInSandbox {
-		templateName := fmt.Sprintf("kagent-%s", agent.Name)
 		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
-			Agent:        agent,
-			PodTemplate:  podTemplate,
-			TemplateName: templateName,
+			Agent:       agent,
+			PodTemplate: podTemplate,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("build sandbox workload: %w", err)
@@ -636,9 +634,8 @@ func (a *adkApiTranslator) buildManifest(
 		outputs.Manifest = append(outputs.Manifest, workloadObj)
 	}
 
-	// Service: Sandbox workloads use SandboxTemplate +
-	// SandboxClaim; the agent-sandbox Sandbox controller creates and owns the Service with the
-	// same name as the claim, so we only need to create a service for non-sandboxed agents.
+	// Service: for Sandbox workloads the agent-sandbox controller creates and owns the Service
+	// (same name as the Sandbox), so we only create a Service for non-sandboxed agents.
 	if !runInSandbox {
 		outputs.Manifest = append(outputs.Manifest, &corev1.Service{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},

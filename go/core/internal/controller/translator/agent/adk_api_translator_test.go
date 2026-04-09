@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
-	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
 
 // Test_AdkApiTranslator_CrossNamespaceAgentTool tests that the translator can
@@ -1291,12 +1290,11 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 	}
 }
 
-func Test_AdkApiTranslator_SandboxAgent_defaultUsesSandboxTemplateAndClaim(t *testing.T) {
+func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
-	require.NoError(t, extensionsv1alpha1.AddToScheme(scheme))
 
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
 	modelConfig := &v1alpha2.ModelConfig{
@@ -1332,13 +1330,9 @@ func Test_AdkApiTranslator_SandboxAgent_defaultUsesSandboxTemplateAndClaim(t *te
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 
-	var sawTemplate, sawClaim, sawSandbox, sawDeploy, sawService bool
+	var sawSandbox, sawDeploy, sawService bool
 	for _, o := range outputs.Manifest {
 		switch o.(type) {
-		case *extensionsv1alpha1.SandboxTemplate:
-			sawTemplate = true
-		case *extensionsv1alpha1.SandboxClaim:
-			sawClaim = true
 		case *agentsandboxv1.Sandbox:
 			sawSandbox = true
 		case *appsv1.Deployment:
@@ -1347,19 +1341,16 @@ func Test_AdkApiTranslator_SandboxAgent_defaultUsesSandboxTemplateAndClaim(t *te
 			sawService = true
 		}
 	}
-	require.True(t, sawTemplate, "sandbox runtime should include SandboxTemplate")
-	require.True(t, sawClaim, "sandbox runtime should include SandboxClaim")
-	require.False(t, sawSandbox, "default should not emit a direct Sandbox CR")
+	require.True(t, sawSandbox, "sandbox runtime should emit a Sandbox CR")
 	require.False(t, sawDeploy, "manifest should not include Deployment when runInSandbox is true")
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }
 
-func Test_AdkApiTranslator_SandboxAgentView_BYOUsesSandboxTemplateAndClaim(t *testing.T) {
+func Test_AdkApiTranslator_SandboxAgentView_BYOEmitsSandbox(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
-	require.NoError(t, extensionsv1alpha1.AddToScheme(scheme))
 
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
 	cmd := "/app/run"
@@ -1392,21 +1383,18 @@ func Test_AdkApiTranslator_SandboxAgentView_BYOUsesSandboxTemplateAndClaim(t *te
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 
-	var sawTemplate, sawClaim, sawDeploy, sawService bool
+	var sawSandbox, sawDeploy, sawService bool
 	for _, o := range outputs.Manifest {
 		switch o.(type) {
-		case *extensionsv1alpha1.SandboxTemplate:
-			sawTemplate = true
-		case *extensionsv1alpha1.SandboxClaim:
-			sawClaim = true
+		case *agentsandboxv1.Sandbox:
+			sawSandbox = true
 		case *appsv1.Deployment:
 			sawDeploy = true
 		case *corev1.Service:
 			sawService = true
 		}
 	}
-	require.True(t, sawTemplate)
-	require.True(t, sawClaim)
+	require.True(t, sawSandbox)
 	require.False(t, sawDeploy)
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }

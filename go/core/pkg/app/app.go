@@ -77,7 +77,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
-	extensionsagentsandboxv1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -98,7 +97,6 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
-	utilruntime.Must(extensionsagentsandboxv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
