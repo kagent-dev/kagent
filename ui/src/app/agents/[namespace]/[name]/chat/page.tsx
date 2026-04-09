@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import { getAgent } from "@/app/actions/agents";
 import { getSessionsForAgent, createSession } from "@/app/actions/sessions";
-import { getCurrentUserId } from "@/app/actions/utils";
 import { Loader2 } from "lucide-react";
 import type { Session } from "@/types";
 
@@ -51,7 +50,6 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           return;
         }
         const created = await createSession({
-          user_id: await getCurrentUserId(),
           agent_ref: agentRef,
           name: "Chat",
         });
