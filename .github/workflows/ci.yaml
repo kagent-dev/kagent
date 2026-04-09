@@ -75,7 +75,7 @@ jobs:
         run: |
           kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/manifest.yaml"
           kubectl wait --for=condition=Established crd/sandboxes.agents.x-k8s.io --timeout=90s
-          kubectl rollout status statefulset/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+          kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
           kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 
       - name: Install Kagent
@@ -126,15 +126,15 @@ jobs:
         run: |
           # Upgrade helm to use namespace-scoped RBAC
           make helm-install-provider
-          
+
           # Wait for controller to be ready after upgrade
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=90s
-          
+
           # Setup environment variables (reusing logic from previous step)
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
           export KAGENT_LOCAL_HOST=$HOST_IP
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          
+
           # Run critical tests with namespace-scoped RBAC to verify the controller didn't lose needed permissions
           cd go
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -run '^TestE2EInvokeInlineAgent$|^TestE2EInvokeDeclarativeAgentWithMcpServerTool$' -failfast
@@ -146,8 +146,8 @@ jobs:
           kubectl describe pods -n kagent
           echo "::error::Kubectl get pods -n agent-sandbox-system"
           kubectl get pods -n agent-sandbox-system -o wide || true
-          echo "::error::Kubectl logs -n agent-sandbox-system statefulset/agent-sandbox-controller"
-          kubectl logs -n agent-sandbox-system statefulset/agent-sandbox-controller || true
+          echo "::error::Kubectl logs -n agent-sandbox-system deployment/agent-sandbox-controller"
+          kubectl logs -n agent-sandbox-system deployment/agent-sandbox-controller || true
           echo "::error::Kubectl get events -n kagent"
           kubectl get events -n kagent
           echo "::error::Kubectl get agents -n kagent"

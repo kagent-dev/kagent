@@ -152,11 +152,6 @@ func setupAgent(t *testing.T, cli client.Client, modelConfigName string, tools [
 	return setupAgentWithOptions(t, cli, modelConfigName, tools, AgentOptions{})
 }
 
-// setupSandboxAgent creates and returns a sandbox agent resource, then waits for it to be ready.
-func setupSandboxAgent(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool) *v1alpha2.SandboxAgent {
-	return setupSandboxAgentWithOptions(t, cli, modelConfigName, tools, AgentOptions{})
-}
-
 // AgentOptions provides optional configuration for agent setup
 type AgentOptions struct {
 	Name           string
