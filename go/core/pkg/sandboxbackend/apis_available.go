@@ -8,7 +8,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
-	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
 
 // EnsureAgentSandboxAPIsRegistered checks that the apiserver exposes the agent-sandbox
@@ -22,8 +21,6 @@ func EnsureAgentSandboxAPIsRegistered(ctx context.Context, c client.Client) erro
 		list client.ObjectList
 		kind string
 	}{
-		{&extensionsv1alpha1.SandboxTemplateList{}, "SandboxTemplate (extensions.agents.x-k8s.io/v1alpha1)"},
-		{&extensionsv1alpha1.SandboxClaimList{}, "SandboxClaim (extensions.agents.x-k8s.io/v1alpha1)"},
 		{&agentsandboxv1.SandboxList{}, "Sandbox (agents.x-k8s.io/v1alpha1)"},
 	}
 	for _, ch := range checks {
