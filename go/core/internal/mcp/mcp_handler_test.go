@@ -3,7 +3,6 @@ package mcp
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -88,22 +87,6 @@ func TestParseAllowedAgents(t *testing.T) {
 			}
 		})
 	}
-}
-
-// --- allowedAgentsFromContext unit tests ---
-
-func TestAllowedAgentsFromContext(t *testing.T) {
-	t.Run("returns nil when no value in context", func(t *testing.T) {
-		got := allowedAgentsFromContext(context.Background())
-		assert.Nil(t, got)
-	})
-
-	t.Run("returns set stored in context", func(t *testing.T) {
-		want := map[string]struct{}{"kagent/k8s-agent": {}}
-		ctx := context.WithValue(context.Background(), allowedAgentsKey, want)
-		got := allowedAgentsFromContext(ctx)
-		assert.Equal(t, want, got)
-	})
 }
 
 // --- MCP handler integration tests ---
@@ -260,7 +243,7 @@ func newTestHandler(t *testing.T, agents ...*v1alpha2.Agent) *MCPHandler {
 		WithStatusSubresource(&v1alpha2.Agent{}).
 		Build()
 
-	handler, err := NewMCPHandler(fakeClient, "http://unused-a2a-base", nil)
+	handler, err := NewMCPHandler(fakeClient, "http://unused-a2a-base", nil, 0)
 	require.NoError(t, err)
 	return handler
 }

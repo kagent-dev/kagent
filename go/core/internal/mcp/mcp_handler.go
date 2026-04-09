@@ -21,17 +21,6 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// contextKey is an unexported type for context keys used within this package.
-// Using a dedicated type prevents collisions with keys from other packages.
-type contextKey int
-
-const (
-	// allowedAgentsKey is the context key that carries the set of agent refs
-	// permitted for the current MCP session. A nil value means all agents
-	// are allowed (no filtering applied).
-	allowedAgentsKey contextKey = iota
-)
-
 // MCPHandler handles MCP requests and bridges them to A2A endpoints.
 //
 // Agent filtering:
@@ -44,13 +33,16 @@ const (
 // and invoke_agent rejects calls targeting any agent not in the list.
 // Omitting the parameter preserves the original behaviour: all agents are
 // accessible.
+//
+// The allow-list is parsed once per session in the server factory (on the
+// initialize request) and closed over in the tool handlers, making it
+// immutable for the session's lifetime.
 type MCPHandler struct {
 	kubeClient    client.Client
 	a2aBaseURL    string
 	a2aTimeout    time.Duration
 	authenticator auth.AuthProvider
 	httpHandler   *mcpsdk.StreamableHTTPHandler
-	server        *mcpsdk.Server
 	a2aClients    sync.Map
 }
 
@@ -95,46 +87,52 @@ func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator au
 		authenticator: authenticator,
 	}
 
-	// Create MCP server
-	impl := &mcpsdk.Implementation{
+	// The server factory is called exactly once per MCP session (on the
+	// initialize request). Parsing the allow-list here and closing over it in
+	// the tool handlers makes the filter immutable for the session's lifetime
+	// — no context plumbing, no per-request re-parsing, no bypass window.
+	handler.httpHandler = mcpsdk.NewStreamableHTTPHandler(
+		func(r *http.Request) *mcpsdk.Server {
+			return handler.newMCPServer(parseAllowedAgents(r))
+		},
+		nil,
+	)
+
+	return handler, nil
+}
+
+// newMCPServer creates a new MCP server with the given agent allow-list
+// closed over in the tool handlers. A nil allow-list means all agents are
+// accessible.
+func (h *MCPHandler) newMCPServer(allowed map[string]struct{}) *mcpsdk.Server {
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{
 		Name:    "kagent-agents",
 		Version: version.Version,
-	}
-	server := mcpsdk.NewServer(impl, nil)
-	handler.server = server
+	}, nil)
 
-	// Add list_agents tool
 	mcpsdk.AddTool[ListAgentsInput, ListAgentsOutput](
 		server,
 		&mcpsdk.Tool{
 			Name:        "list_agents",
 			Description: "List invokable kagent agents (accepted + deploymentReady)",
 		},
-		handler.handleListAgents,
+		func(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
+			return h.handleListAgents(ctx, req, input, allowed)
+		},
 	)
 
-	// Add invoke_agent tool
 	mcpsdk.AddTool[InvokeAgentInput, InvokeAgentOutput](
 		server,
 		&mcpsdk.Tool{
 			Name:        "invoke_agent",
 			Description: "Invoke a kagent agent via A2A",
 		},
-		handler.handleInvokeAgent,
-	)
-
-	// Create HTTP handler. The getServer factory receives the original *http.Request,
-	// whose context carries any values stored by ServeHTTP (e.g. the agent allow-list).
-	// The MCP SDK propagates the request context to tool handlers, preserving those
-	// values even after detaching the cancellation signal for long-running streams.
-	handler.httpHandler = mcpsdk.NewStreamableHTTPHandler(
-		func(*http.Request) *mcpsdk.Server {
-			return server
+		func(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
+			return h.handleInvokeAgent(ctx, req, input, allowed)
 		},
-		nil,
 	)
 
-	return handler, nil
+	return server
 }
 
 // parseAllowedAgents reads the "agents" query parameter from the request and
@@ -166,21 +164,10 @@ func parseAllowedAgents(r *http.Request) map[string]struct{} {
 	return set
 }
 
-// allowedAgentsFromContext returns the agent allow-list stored in ctx, or nil
-// if no filtering is active for the current session.
-func allowedAgentsFromContext(ctx context.Context) map[string]struct{} {
-	v := ctx.Value(allowedAgentsKey)
-	if v == nil {
-		return nil
-	}
-	allowed, _ := v.(map[string]struct{})
-	return allowed
-}
-
 // handleListAgents handles the list_agents MCP tool.
 // When an agent allow-list is active for the session, only agents whose ref
 // appears in the list are returned.
-func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
+func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput, allowed map[string]struct{}) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "list_agents")
 
 	agentList := &v1alpha2.AgentList{}
@@ -192,9 +179,6 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 			IsError: true,
 		}, ListAgentsOutput{}, nil
 	}
-
-	// Retrieve the optional allow-list for this MCP session.
-	allowed := allowedAgentsFromContext(ctx)
 
 	agents := make([]AgentSummary, 0)
 	for _, agent := range agentList.Items {
@@ -259,7 +243,7 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 // handleInvokeAgent handles the invoke_agent MCP tool.
 // When an agent allow-list is active for the session, requests targeting an
 // agent not in the list are rejected before any A2A call is made.
-func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
+func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput, allowed map[string]struct{}) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "invoke_agent")
 
 	// Parse agent reference (namespace/name or just name)
@@ -279,7 +263,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	// This is the hard access-control boundary: if the caller's MCP session was
 	// scoped to a subset of agents (via the "agents" query parameter), any attempt
 	// to invoke an agent outside that subset is rejected here.
-	if allowed := allowedAgentsFromContext(ctx); allowed != nil {
+	if allowed != nil {
 		if _, ok := allowed[agentRef]; !ok {
 			log.Info("Rejected invoke_agent: agent not in allow-list", "agent", agentRef)
 			return &mcpsdk.CallToolResult{
@@ -408,16 +392,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 }
 
 // ServeHTTP implements http.Handler.
-//
-// If the request URL contains an "agents" query parameter, ServeHTTP parses it
-// into an allow-list and stores it in the request context before delegating to
-// the underlying MCP handler. The MCP SDK propagates this context to all tool
-// handlers for the session, enabling per-session agent filtering.
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if allowed := parseAllowedAgents(r); allowed != nil {
-		ctx := context.WithValue(r.Context(), allowedAgentsKey, allowed)
-		r = r.WithContext(ctx)
-	}
 	h.httpHandler.ServeHTTP(w, r)
 }
 
