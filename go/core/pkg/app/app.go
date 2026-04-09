@@ -257,7 +257,7 @@ type BootstrapConfig struct {
 	Manager  manager.Manager
 	Router   *mux.Router
 	DbClient dbpkg.Client
-  Config  *Config
+	Config   *Config
 }
 
 type CtrlManagerConfigFunc func(manager.Manager) error
@@ -470,7 +470,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		Manager:  mgr,
 		Router:   router,
 		DbClient: dbClient,
-    Config:  &cfg,
+		Config:   &cfg,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to get start config")

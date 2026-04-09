@@ -3,7 +3,13 @@
 import { headers } from "next/headers";
 import { decodeJWT, isTokenExpired } from "@/lib/jwt";
 
-export type CurrentUser = Record<string, unknown>;
+export interface CurrentUser extends Record<string, unknown> {
+  sub?: string;
+  name?: string;
+  preferred_username?: string;
+  email?: string;
+  groups?: string[];
+}
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const headersList = await headers();

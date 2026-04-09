@@ -25,7 +25,7 @@ const (
 	// API Path constants
 	APIPathHealth               = "/health"
 	APIPathVersion              = "/version"
-  APIPathMe                   = "/api/me"
+	APIPathMe                   = "/api/me"
 	APIPathModelConfig          = "/api/modelconfigs"
 	APIPathRuns                 = "/api/runs"
 	APIPathSessions             = "/api/sessions"
