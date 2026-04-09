@@ -578,6 +578,34 @@ spec:
                   timeout:
                     description: Timeout
                     type: integer
+                  tokenExchange:
+                    description: |-
+                      TokenExchange configures dynamic bearer token acquisition via credential exchange.
+                      Mutually exclusive with apiKeySecret and apiKeyPassthrough.
+                    properties:
+                      gdchServiceAccount:
+                        description: GDCHServiceAccountConfig holds GDCH-specific
+                          token exchange parameters.
+                        properties:
+                          audience:
+                            description: Audience is the token exchange audience URL
+                              (the GDC inference gateway base URL)
+                            type: string
+                        required:
+                        - audience
+                        type: object
+                      type:
+                        allOf:
+                        - enum:
+                          - GDCHServiceAccount
+                        - enum:
+                          - GDCHServiceAccount
+                        description: TokenExchangeType identifies the token exchange
+                          mechanism
+                        type: string
+                    required:
+                    - type
+                    type: object
                   topP:
                     description: Top-p sampling parameter
                     type: string
@@ -685,6 +713,16 @@ spec:
                 && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef)
                 > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey)
                 == 0))'
+            - message: openAI.tokenExchange requires apiKeySecret (the service account
+                secret)
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)
+                || size(self.apiKeySecret) == 0))'
+            - message: openAI.tokenExchange and apiKeyPassthrough are mutually exclusive
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough)
+                && self.apiKeyPassthrough)'
+            - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
+                == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

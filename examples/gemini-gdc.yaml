@@ -17,11 +17,12 @@ stringData:
   sa.json: |
     {
       "type": "gdch_service_account",
+      "format_version": "1",
       "name": "my-sa",
       "project": "my-project",
       "private_key_id": "key-id",
-      "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n",
-      "token_uri": "https://service-identity.../authenticate"
+      "private_key": "-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----\n",
+      "token_uri": "https://service-identity.../authenticate",
     }
 
 ---
@@ -40,16 +41,14 @@ stringData:
 ---
 # ModelConfig for the GDC Gemini inference gateway.
 #
-#   - provider: OpenAI  — GDC exposes an OpenAI-compatible API
-#   - No apiKeySecret   — token exchange replaces static API keys
-#   - openAI.baseUrl    — points at the GDC inference gateway
-#   - openAI.tokenExchange — tells kagent to exchange the GDCH service account
-#                            for a short-lived bearer token before each call
-#   - tls.caCertSecretRef  — the GDC cluster CA for TLS verification;
-#                            also used by the token exchange to verify the
-#                            GDCH token endpoint
+#   - provider: OpenAI     — GDC exposes an OpenAI-compatible API
+#   - apiKeySecret         — holds the GDCH service account JSON
+#   - openAI.baseUrl       — points at the GDC inference gateway
+#   - openAI.tokenExchange — tells kagent to exchange the service account for
+#                            a short-lived bearer token before each model call
+#   - tls.caCertSecretRef  — the GDC cluster CA for inference gateway TLS
 #   - tls.disableSystemCAs — only trust the GDC CA; no public CA access needed
-#   - defaultHeaders.x-goog-user-project — set the GCP project
+#   - defaultHeaders       — set the GCP project for all requests
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
@@ -59,13 +58,14 @@ spec:
   provider: OpenAI
   model: gemini-2.5-flash
 
+  apiKeySecret: gdch-sa
+  apiKeySecretKey: sa.json
+
   openAI:
     baseUrl: "https://inference-gateway.../chat"
     tokenExchange:
       type: GDCHServiceAccount
       gdchServiceAccount:
-        serviceAccountSecretRef: gdch-sa
-        serviceAccountSecretKey: sa.json
         audience: "https://inference-gateway..."
 
   defaultHeaders:

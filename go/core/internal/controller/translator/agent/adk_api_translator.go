@@ -260,20 +260,22 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 	}
 }
 
-// addTokenExchangeConfiguration adds token exchange configuration to OpenAI model
-// and mounts the service account secret when token exchange is configured.
+// addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
+// model and mounts the service account secret (referenced by the top-level
+// apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
 // Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
-func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, tokenExchange *v1alpha2.TokenExchangeConfig) {
-	if tokenExchange == nil {
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
 		return
 	}
+	tokenExchange := spec.OpenAI.TokenExchange
 	switch tokenExchange.Type {
 	case v1alpha2.TokenExchangeTypeGDCH:
 		cfg := tokenExchange.GDCHServiceAccount
 		if cfg == nil {
 			return
 		}
-		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, cfg.ServiceAccountSecretKey)
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
 		openai.TokenExchange = &adk.TokenExchangeConfig{
 			Type: string(tokenExchange.Type),
 			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
@@ -285,7 +287,7 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 			Name: gdchCredsVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  cfg.ServiceAccountSecretRef,
+					SecretName:  spec.APIKeySecret,
 					DefaultMode: new(int32(0444)),
 				},
 			},
@@ -336,7 +338,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
+		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -358,9 +361,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
 		// Populate TokenExchange fields (OpenAI-specific)
-		if model.Spec.OpenAI != nil {
-			addTokenExchangeConfiguration(openai, modelDeploymentData, model.Spec.OpenAI.TokenExchange)
-		}
+		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
