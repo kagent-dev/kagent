@@ -123,10 +123,6 @@ type AdkApiTranslator interface {
 		agent v1alpha2.AgentObject,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
-	TranslateAgent(
-		ctx context.Context,
-		agent v1alpha2.AgentObject,
-	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
 }
 

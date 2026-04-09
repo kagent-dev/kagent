@@ -181,7 +181,7 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			_, err := trans.TranslateAgent(context.Background(), tt.sourceAgent)
+			_, err := translator.TranslateAgent(context.Background(), trans, tt.sourceAgent)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -344,7 +344,7 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			_, err := trans.TranslateAgent(context.Background(), tt.agent)
+			_, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -418,7 +418,7 @@ func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 
 	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	outputs, err := trans.TranslateAgent(context.Background(), agent)
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 	require.NotNil(t, outputs.Config)
@@ -537,7 +537,7 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
 			require.NoError(t, err)
 			require.NotNil(t, outputs)
 
@@ -684,7 +684,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		kubeClient := builder.Build()
 
 		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-		_, err := trans.TranslateAgent(context.Background(), root)
+		_, err := translator.TranslateAgent(context.Background(), trans, root)
 		require.NoError(t, err, "flat list of 12 agent tools should not hit recursion limit")
 	})
 
@@ -728,7 +728,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		kubeClient := builder.Build()
 
 		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		_, err := translator.TranslateAgent(context.Background(), trans, agents[0])
 		require.NoError(t, err, "deep nesting of 10 levels should pass")
 	})
 
@@ -771,7 +771,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		kubeClient := builder.Build()
 
 		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		_, err := translator.TranslateAgent(context.Background(), trans, agents[0])
 		require.Error(t, err, "deep nesting of 12 levels should fail")
 		assert.Contains(t, err.Error(), "recursion limit reached")
 	})
@@ -826,7 +826,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 			WithObjects(modelConfig, agentA, agentB).Build()
 
 		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-		_, err := trans.TranslateAgent(context.Background(), agentA)
+		_, err := translator.TranslateAgent(context.Background(), trans, agentA)
 		require.Error(t, err, "cycle A->B->A should be detected")
 		assert.Contains(t, err.Error(), "cycle detected")
 	})
@@ -912,7 +912,7 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 			WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
 
 		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-		_, err := trans.TranslateAgent(context.Background(), agentA)
+		_, err := translator.TranslateAgent(context.Background(), trans, agentA)
 		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
 	})
 }
@@ -1118,7 +1118,7 @@ func Test_AdkApiTranslator_MergeDeploymentData(t *testing.T) {
 
 			defaultModel := types.NamespacedName{Namespace: "default", Name: tt.agentModel.Name}
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-			outputs, err := trans.TranslateAgent(context.Background(), makeAgent(tt.agentModel.Name, tt.summModel.Name))
+			outputs, err := translator.TranslateAgent(context.Background(), trans, makeAgent(tt.agentModel.Name, tt.summModel.Name))
 
 			require.NoError(t, err)
 			require.NotNil(t, outputs)
@@ -1270,7 +1270,7 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 
 			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1326,7 +1326,7 @@ func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
 		"",
 		agentsxk8s.New(),
 	)
-	outputs, err := trans.TranslateAgent(ctx, sa)
+	outputs, err := translator.TranslateAgent(ctx, trans, sa)
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 
@@ -1378,7 +1378,7 @@ func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 		"",
 		agentsxk8s.New(),
 	)
-	outputs, err := trans.TranslateAgent(ctx, sa)
+	outputs, err := translator.TranslateAgent(ctx, trans, sa)
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 

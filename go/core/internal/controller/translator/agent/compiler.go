@@ -44,15 +44,16 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
-func (a *adkApiTranslator) TranslateAgent(
+func TranslateAgent(
 	ctx context.Context,
+	translator AdkApiTranslator,
 	agent v1alpha2.AgentObject,
 ) (*AgentOutputs, error) {
-	inputs, err := a.CompileAgent(ctx, agent)
+	inputs, err := translator.CompileAgent(ctx, agent)
 	if err != nil {
 		return nil, err
 	}
-	return a.BuildManifest(ctx, agent, inputs)
+	return translator.BuildManifest(ctx, agent, inputs)
 }
 
 func (a *adkApiTranslator) CompileAgent(
