@@ -176,6 +176,16 @@ class BaseLLM(BaseModel):
     api_key_passthrough: bool | None = None
 
 
+class GDCHTokenExchangeConfig(BaseModel):
+    service_account_path: str
+    audience: str
+
+
+class TokenExchangeConfig(BaseModel):
+    type: Literal["GDCHServiceAccount"]
+    gdch_service_account: GDCHTokenExchangeConfig | None = None
+
+
 class OpenAI(BaseLLM):
     base_url: str | None = None
     frequency_penalty: float | None = None
@@ -188,10 +198,8 @@ class OpenAI(BaseLLM):
     timeout: int | None = None
     top_p: float | None = None
 
-    # Token exchange configuration (OpenAI-specific)
-    token_exchange_type: Literal["GDCHServiceAccount"] | None = None
-    gdch_service_account_path: str | None = None
-    gdch_audience: str | None = None
+    # Token exchange configuration
+    token_exchange: TokenExchangeConfig | None = None
 
     type: Literal["openai"]
 

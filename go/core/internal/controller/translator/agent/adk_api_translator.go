@@ -267,7 +267,6 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 	if tokenExchange == nil {
 		return
 	}
-	openai.TokenExchangeType = string(tokenExchange.Type)
 	switch tokenExchange.Type {
 	case v1alpha2.TokenExchangeTypeGDCH:
 		cfg := tokenExchange.GDCHServiceAccount
@@ -275,8 +274,13 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 			return
 		}
 		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, cfg.ServiceAccountSecretKey)
-		openai.GDCHServiceAccountPath = saPath
-		openai.GDCHAudience = cfg.Audience
+		openai.TokenExchange = &adk.TokenExchangeConfig{
+			Type: string(tokenExchange.Type),
+			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
+				ServiceAccountPath: saPath,
+				Audience:           cfg.Audience,
+			},
+		}
 		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
 			Name: gdchCredsVolumeName,
 			VolumeSource: corev1.VolumeSource{

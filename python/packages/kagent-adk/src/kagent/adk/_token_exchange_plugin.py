@@ -12,7 +12,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
-from kagent.adk.types import ModelUnion
+from kagent.adk.types import ModelUnion  # used for type annotation in create_token_source
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +65,14 @@ def create_token_source(model_config: ModelUnion) -> Optional[GDCHTokenSource]:
 
     Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
     """
-    # Only OpenAI models support token exchange
-    if model_config.type != "openai":
+    te = getattr(model_config, "token_exchange", None)
+    if te is None:
         return None
 
-    # Check if token exchange is configured
-    if model_config.token_exchange_type == "GDCHServiceAccount":
+    if te.type == "GDCHServiceAccount" and te.gdch_service_account is not None:
         return GDCHTokenSource(
-            service_account_path=model_config.gdch_service_account_path,
-            audience=model_config.gdch_audience,
+            service_account_path=te.gdch_service_account.service_account_path,
+            audience=te.gdch_service_account.audience,
             ca_cert_path=model_config.tls_ca_cert_path,
         )
     return None
