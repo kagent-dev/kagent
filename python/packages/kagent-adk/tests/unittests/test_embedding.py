@@ -156,7 +156,9 @@ class TestEmbeddingDispatch:
         svc = make_service(provider="bedrock", model="amazon.titan-embed-text-v1")
         vec = [0.1] * 1536
         mock_client = mock.MagicMock()
-        mock_client.invoke_model = mock.MagicMock(return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")})
+        mock_client.invoke_model = mock.MagicMock(
+            return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")}
+        )
 
         with mock.patch("boto3.client", return_value=mock_client):
             result = await svc._generate_embedding_async("hello world")
@@ -168,7 +170,9 @@ class TestEmbeddingDispatch:
         svc = make_service(provider="bedrock", model="amazon.titan-embed-text-v1")
         vec = [0.5] * 1536
         mock_client = mock.MagicMock()
-        mock_client.invoke_model = mock.MagicMock(return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")})
+        mock_client.invoke_model = mock.MagicMock(
+            return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")}
+        )
 
         with (
             mock.patch.dict("os.environ", {"AWS_REGION": "eu-west-1", "AWS_DEFAULT_REGION": ""}),
