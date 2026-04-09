@@ -33,6 +33,7 @@ from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
 from ._ssl import create_ssl_context
+from ._token_source import GDCHTokenSource
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -389,6 +390,9 @@ class BaseOpenAI(BaseLlm):
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: Optional[bool] = None
 
+    # GDCH token exchange: refreshes a short-lived bearer token before each model call.
+    token_exchange: Optional[GDCHTokenSource] = Field(default=None, exclude=True)
+
     def set_passthrough_key(self, token: str) -> None:
         if self.api_key != token:
             self.api_key = token
@@ -457,6 +461,10 @@ class BaseOpenAI(BaseLlm):
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
         """Generate content using OpenAI API."""
+
+        # Refresh token-exchange credential before every call (no-op when not configured).
+        if self.token_exchange is not None:
+            self.set_passthrough_key(await self.token_exchange.get_token())
 
         # Convert messages
         system_instruction = None

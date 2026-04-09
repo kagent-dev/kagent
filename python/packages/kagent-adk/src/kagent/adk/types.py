@@ -482,6 +482,17 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     base_url = getattr(model_config, "base_url", None)
 
     if model_config.type == "openai":
+        from .models._token_source import GDCHTokenSource
+
+        token_exchange = None
+        te = model_config.token_exchange
+        if te is not None and te.type == "GDCHServiceAccount" and te.gdch_service_account is not None:
+            token_exchange = GDCHTokenSource(
+                service_account_path=te.gdch_service_account.service_account_path,
+                audience=te.gdch_service_account.audience,
+                ca_cert_path=model_config.tls_ca_cert_path,
+            )
+
         return OpenAINative(
             type="openai",
             base_url=base_url,
@@ -500,6 +511,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             tls_ca_cert_path=model_config.tls_ca_cert_path,
             tls_disable_system_cas=model_config.tls_disable_system_cas,
             api_key_passthrough=model_config.api_key_passthrough,
+            token_exchange=token_exchange,
         )
     if model_config.type == "anthropic":
         return KAgentAnthropicLlm(
