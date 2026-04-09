@@ -19,7 +19,6 @@ import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
-import { getCurrentUserId } from "@/app/actions/utils";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
@@ -231,7 +230,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setIsFirstMessage(true);
 
           const newSessionResponse = await createSession({
-            user_id: await getCurrentUserId(),
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
           });
