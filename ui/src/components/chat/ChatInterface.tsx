@@ -37,7 +37,6 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
-  const agentType = useChatAgentType();
   const runInSandbox = useChatRunInSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);

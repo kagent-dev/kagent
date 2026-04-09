@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Info, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import { ModelConfig, AgentType, ContextConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
@@ -24,7 +24,6 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 interface ValidationErrors {
   name?: string;
   namespace?: string;
