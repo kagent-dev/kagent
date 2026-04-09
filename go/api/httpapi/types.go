@@ -94,6 +94,8 @@ type AgentResponse struct {
 	Tools           []*v1alpha2.Tool       `json:"tools"`
 	DeploymentReady bool                   `json:"deploymentReady"`
 	Accepted        bool                   `json:"accepted"`
+	// RunInSandbox is true when the workload is reconciled as a SandboxAgent (SandboxTemplate/SandboxClaim), not a Deployment.
+	RunInSandbox bool `json:"runInSandbox,omitempty"`
 }
 
 // Session types

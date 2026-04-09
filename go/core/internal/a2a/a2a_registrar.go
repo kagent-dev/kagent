@@ -112,6 +112,53 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to add informer event handler: %w", err)
 	}
 
+	sandboxInformer, err := a.cache.GetInformer(ctx, &v1alpha2.SandboxAgent{})
+	if err != nil {
+		return fmt.Errorf("failed to get sandboxagent cache informer: %w", err)
+	}
+
+	if _, err := sandboxInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if sa, ok := obj.(*v1alpha2.SandboxAgent); ok {
+				agentView := agent_translator.AgentViewFromSandboxAgent(sa)
+				if err := a.upsertAgentHandler(ctx, agentView, log); err != nil {
+					log.Error(err, "failed to upsert A2A handler", "sandboxagent", common.GetObjectRef(sa))
+				}
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			oldSA, ok1 := oldObj.(*v1alpha2.SandboxAgent)
+			newSA, ok2 := newObj.(*v1alpha2.SandboxAgent)
+			if !ok1 || !ok2 {
+				return
+			}
+			if oldSA.Generation != newSA.Generation || !reflect.DeepEqual(oldSA.Spec, newSA.Spec) {
+				agentView := agent_translator.AgentViewFromSandboxAgent(newSA)
+				if err := a.upsertAgentHandler(ctx, agentView, log); err != nil {
+					log.Error(err, "failed to upsert A2A handler", "sandboxagent", common.GetObjectRef(newSA))
+				}
+			}
+		},
+		DeleteFunc: func(obj any) {
+			sa, ok := obj.(*v1alpha2.SandboxAgent)
+			if !ok {
+				if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+					if s2, ok := tombstone.Obj.(*v1alpha2.SandboxAgent); ok {
+						sa = s2
+					}
+				}
+			}
+			if sa == nil {
+				return
+			}
+			ref := common.GetObjectRef(sa)
+			a.handlerMux.RemoveAgentHandler(ref)
+			log.V(1).Info("removed A2A handler", "sandboxagent", ref)
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to add sandboxagent informer event handler: %w", err)
+	}
+
 	if ok := a.cache.WaitForCacheSync(ctx); !ok {
 		return fmt.Errorf("cache sync failed")
 	}

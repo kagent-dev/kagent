@@ -47,9 +47,6 @@ export class KagentA2AClient {
     signal?: AbortSignal
   ): Promise<AsyncIterable<any>> {
     const request = this.createStreamingRequest(params);
-    // This redirects to the Next.js API route
-    // Note that this route CAN'T be the same
-    // as the routes on the backend.
     const proxyUrl = `/a2a/${namespace}/${agentName}`;
 
     const response = await fetch(proxyUrl, {

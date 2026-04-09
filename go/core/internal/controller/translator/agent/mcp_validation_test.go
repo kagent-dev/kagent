@@ -94,10 +94,11 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should fail with error about invalid port
-	_, err = translator.TranslateAgent(ctx, agent)
+	_, err = translator.TranslateAgent(ctx, agent, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine port")
 	assert.Contains(t, err.Error(), "test-mcp-server")
@@ -179,10 +180,11 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should succeed
-	outputs, err := translator.TranslateAgent(ctx, agent)
+	outputs, err := translator.TranslateAgent(ctx, agent, false)
 	require.NoError(t, err)
 	assert.NotNil(t, outputs)
 	assert.NotNil(t, outputs.Config)
@@ -249,10 +251,11 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should fail with not found error
-	_, err = translator.TranslateAgent(ctx, agent)
+	_, err = translator.TranslateAgent(ctx, agent, false)
 	require.Error(t, err)
 	assert.True(t, apierrors.IsNotFound(err))
 }
@@ -310,10 +313,11 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should fail with provider or tool server error
-	_, err = translator.TranslateAgent(ctx, agent)
+	_, err = translator.TranslateAgent(ctx, agent, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool must have a provider or tool server")
 }
@@ -388,10 +392,11 @@ func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should succeed - RemoteMCPServer doesn't have port validation
-	outputs, err := translator.TranslateAgent(ctx, agent)
+	outputs, err := translator.TranslateAgent(ctx, agent, false)
 	require.NoError(t, err)
 	assert.NotNil(t, outputs)
 	assert.NotNil(t, outputs.Config)
@@ -546,10 +551,11 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
+		nil,
 	)
 
 	// TranslateAgent should fail because one of the MCPServers is invalid
-	_, err = translator.TranslateAgent(ctx, agent)
+	_, err = translator.TranslateAgent(ctx, agent, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine port")
 	assert.Contains(t, err.Error(), "invalid-mcp-server")

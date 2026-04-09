@@ -62,6 +62,24 @@ func createTestAgentWithStatus(name string, modelConfig *v1alpha2.ModelConfig, c
 	return agent
 }
 
+func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.SandboxAgent {
+	return &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: v1alpha2.SandboxAgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				ModelConfig: modelConfig.Name,
+			},
+		},
+		Status: v1alpha2.AgentStatus{
+			Conditions: conditions,
+		},
+	}
+}
+
 func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string) {
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(setupScheme()).
@@ -213,6 +231,42 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady)
 	})
 
+	t.Run("SandboxAgent CRD gets Accepted and DeploymentReady from status (GET falls back after Agent missing)", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "WorkloadReady",
+			},
+		}
+		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/sandbox-accepted", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.True(t, response.Data.Accepted)
+		require.True(t, response.Data.DeploymentReady)
+		require.Equal(t, v1alpha2.AgentType_Declarative, response.Data.Agent.Spec.Type)
+		require.True(t, response.Data.RunInSandbox)
+	})
+
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
 		handler, _ := setupTestHandler()
 
@@ -333,6 +387,34 @@ func TestHandleListAgents(t *testing.T) {
 		require.Equal(t, "invalid-agent", response.Data[0].Agent.Name)
 		require.Equal(t, false, response.Data[0].Accepted)
 		require.Equal(t, true, response.Data[0].DeploymentReady)
+	})
+
+	t.Run("lists SandboxAgent CRD with Accepted and Ready from status", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{Type: "Accepted", Status: "True", Reason: "Reconciled"},
+			{Type: "Ready", Status: "True", Reason: "WorkloadReady"},
+		}
+		sa := createTestSandboxAgentCRD("mysandbox", modelConfig, conditions)
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[[]api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Len(t, response.Data, 1)
+		require.Equal(t, "mysandbox", response.Data[0].Agent.Name)
+		require.True(t, response.Data[0].Accepted)
+		require.True(t, response.Data[0].DeploymentReady)
+		require.Equal(t, v1alpha2.AgentType_Declarative, response.Data[0].Agent.Spec.Type)
+		require.True(t, response.Data[0].RunInSandbox)
 	})
 }
 

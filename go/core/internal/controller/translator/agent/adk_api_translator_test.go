@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/agentsxk8s"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +19,9 @@ import (
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
 
 // Test_AdkApiTranslator_CrossNamespaceAgentTool tests that the translator can
@@ -176,9 +180,9 @@ func Test_AdkApiTranslator_CrossNamespaceAgentTool(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			_, err := trans.TranslateAgent(context.Background(), tt.sourceAgent)
+			_, err := trans.TranslateAgent(context.Background(), tt.sourceAgent, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -339,9 +343,9 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			_, err := trans.TranslateAgent(context.Background(), tt.agent)
+			_, err := trans.TranslateAgent(context.Background(), tt.agent, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -413,9 +417,9 @@ func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 		Name:      modelName,
 	}
 
-	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	outputs, err := trans.TranslateAgent(context.Background(), agent)
+	outputs, err := trans.TranslateAgent(context.Background(), agent, false)
 	require.NoError(t, err)
 	require.NotNil(t, outputs)
 	require.NotNil(t, outputs.Config)
@@ -532,9 +536,9 @@ func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 				Name:      "test-model",
 			}
 
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent, false)
 			require.NoError(t, err)
 			require.NotNil(t, outputs)
 
@@ -680,8 +684,8 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		}
 		kubeClient := builder.Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), root)
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+		_, err := trans.TranslateAgent(context.Background(), root, false)
 		require.NoError(t, err, "flat list of 12 agent tools should not hit recursion limit")
 	})
 
@@ -724,8 +728,8 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		}
 		kubeClient := builder.Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+		_, err := trans.TranslateAgent(context.Background(), agents[0], false)
 		require.NoError(t, err, "deep nesting of 10 levels should pass")
 	})
 
@@ -767,8 +771,8 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		}
 		kubeClient := builder.Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), agents[0])
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+		_, err := trans.TranslateAgent(context.Background(), agents[0], false)
 		require.Error(t, err, "deep nesting of 12 levels should fail")
 		assert.Contains(t, err.Error(), "recursion limit reached")
 	})
@@ -822,8 +826,8 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(modelConfig, agentA, agentB).Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), agentA)
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+		_, err := trans.TranslateAgent(context.Background(), agentA, false)
 		require.Error(t, err, "cycle A->B->A should be detected")
 		assert.Contains(t, err.Error(), "cycle detected")
 	})
@@ -908,8 +912,8 @@ func Test_AdkApiTranslator_RecursionDepthTracking(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(modelConfig, agentA, agentB, agentC, agentD).Build()
 
-		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-		_, err := trans.TranslateAgent(context.Background(), agentA)
+		trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+		_, err := trans.TranslateAgent(context.Background(), agentA, false)
 		require.NoError(t, err, "diamond pattern should pass — D is not a cycle, just shared")
 	})
 }
@@ -1114,8 +1118,8 @@ func Test_AdkApiTranslator_MergeDeploymentData(t *testing.T) {
 				Build()
 
 			defaultModel := types.NamespacedName{Namespace: "default", Name: tt.agentModel.Name}
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-			outputs, err := trans.TranslateAgent(context.Background(), makeAgent(tt.agentModel.Name, tt.summModel.Name))
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+			outputs, err := trans.TranslateAgent(context.Background(), makeAgent(tt.agentModel.Name, tt.summModel.Name), false)
 
 			require.NoError(t, err)
 			require.NotNil(t, outputs)
@@ -1266,8 +1270,8 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 				Build()
 
 			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
-			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1285,4 +1289,124 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_AdkApiTranslator_SandboxAgent_defaultUsesSandboxTemplateAndClaim(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
+	require.NoError(t, extensionsv1alpha1.AddToScheme(scheme))
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: "sandbox-ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "ag1", Namespace: "sandbox-ns"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "You are a sandboxed agent",
+				ModelConfig:   "m1",
+			},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, modelConfig, agent).
+		Build()
+
+	trans := translator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Namespace: "sandbox-ns", Name: "m1"},
+		nil,
+		"",
+		agentsxk8s.New(),
+	)
+	outputs, err := trans.TranslateAgent(ctx, agent, true)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+
+	var sawTemplate, sawClaim, sawSandbox, sawDeploy, sawService bool
+	for _, o := range outputs.Manifest {
+		switch o.(type) {
+		case *extensionsv1alpha1.SandboxTemplate:
+			sawTemplate = true
+		case *extensionsv1alpha1.SandboxClaim:
+			sawClaim = true
+		case *agentsandboxv1.Sandbox:
+			sawSandbox = true
+		case *appsv1.Deployment:
+			sawDeploy = true
+		case *corev1.Service:
+			sawService = true
+		}
+	}
+	require.True(t, sawTemplate, "sandbox runtime should include SandboxTemplate")
+	require.True(t, sawClaim, "sandbox runtime should include SandboxClaim")
+	require.False(t, sawSandbox, "default should not emit a direct Sandbox CR")
+	require.False(t, sawDeploy, "manifest should not include Deployment when runInSandbox is true")
+	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
+}
+
+func Test_AdkApiTranslator_SandboxAgentView_BYOUsesSandboxTemplateAndClaim(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
+	require.NoError(t, extensionsv1alpha1.AddToScheme(scheme))
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
+	cmd := "/app/run"
+	sa := &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "byo-sb", Namespace: "sandbox-ns"},
+		Spec: v1alpha2.SandboxAgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "example.com/agent:1",
+					Cmd:   &cmd,
+				},
+			},
+		},
+	}
+	agentView := translator.AgentViewFromSandboxAgent(sa)
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns).
+		Build()
+
+	trans := translator.NewAdkApiTranslator(
+		kubeClient,
+		types.NamespacedName{Namespace: "sandbox-ns", Name: "default"},
+		nil,
+		"",
+		agentsxk8s.New(),
+	)
+	outputs, err := trans.TranslateAgent(ctx, agentView, true)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+
+	var sawTemplate, sawClaim, sawDeploy, sawService bool
+	for _, o := range outputs.Manifest {
+		switch o.(type) {
+		case *extensionsv1alpha1.SandboxTemplate:
+			sawTemplate = true
+		case *extensionsv1alpha1.SandboxClaim:
+			sawClaim = true
+		case *appsv1.Deployment:
+			sawDeploy = true
+		case *corev1.Service:
+			sawService = true
+		}
+	}
+	require.True(t, sawTemplate)
+	require.True(t, sawClaim)
+	require.False(t, sawDeploy)
+	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }

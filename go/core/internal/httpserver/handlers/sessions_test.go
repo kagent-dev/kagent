@@ -393,7 +393,11 @@ func TestSessionsHandler(t *testing.T) {
 			userID := "test-user"
 			sessionID := "test-session"
 
-			// Create test session
+			// Session.AgentID must resolve via GetAgent (non-Sandbox: delete allowed).
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:   "1",
+				Type: "Declarative",
+			}))
 			agentID := "1"
 			createTestSession(dbClient, sessionID, userID, agentID)
 

@@ -56,6 +56,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -75,6 +76,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	extensionsagentsandboxv1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -94,6 +97,8 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
+	utilruntime.Must(extensionsagentsandboxv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -267,6 +272,7 @@ type ExtensionConfig struct {
 	Authorizer       auth.Authorizer
 	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
+	SandboxBackend   sandboxbackend.Backend
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -482,6 +488,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
+		extensionCfg.SandboxBackend,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -490,6 +497,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		dbClient,
 		cfg.DefaultModelConfig,
 		watchNamespacesList,
+		extensionCfg.SandboxBackend,
 	)
 
 	if err := (&controller.ServiceController{
@@ -514,6 +522,15 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		AdkTranslator: apiTranslator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
+		os.Exit(1)
+	}
+
+	if err = (&controller.SandboxAgentController{
+		Scheme:        mgr.GetScheme(),
+		Reconciler:    rcnclr,
+		AdkTranslator: apiTranslator,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
 
@@ -618,6 +635,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
+		SandboxBackend:    extensionCfg.SandboxBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

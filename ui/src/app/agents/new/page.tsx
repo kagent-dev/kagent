@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { Brain, Info, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import { ModelConfig, AgentType, ContextConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
@@ -23,7 +24,7 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
+import { Alert, AlertDescription } from "@/components/ui/alert";
 interface ValidationErrors {
   name?: string;
   namespace?: string;
@@ -117,6 +118,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     errors: {},
   });
 
+  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
+  const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+
   // Fetch existing agent data if in edit mode
   useEffect(() => {
     const fetchAgentData = async () => {
@@ -138,26 +142,27 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: agent.spec.type,
+                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.runInSandbox),
               };
-              // v1alpha2: read type and split specs
-              if (agent.spec.type === "Declarative") {
-                const memorySpec = agent.spec?.memory;
+              const useDeclarativeForm = agent.spec.type === "Declarative";
+              if (useDeclarativeForm) {
+                const decl = agent.spec?.declarative;
+                const memorySpec = decl?.memory ?? agent.spec?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
-                  systemPrompt: agent.spec?.declarative?.systemMessage || "",
-                  selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
+                  systemPrompt: decl?.systemMessage || "",
+                  selectedTools: (decl?.tools && agentResponse.tools) ? agentResponse.tools : [],
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
-                  stream: agent.spec?.declarative?.stream ?? false,
+                  stream: decl?.stream ?? false,
                   selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
-                  contextConfig: agent.spec?.declarative?.context,
-                  serviceAccountName: agent.spec?.declarative?.deployment?.serviceAccountName || "",
+                  contextConfig: decl?.context,
+                  serviceAccountName: decl?.deployment?.serviceAccountName || "",
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -235,7 +240,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     const newErrors = validateAgentData(formData);
 
-    if (state.agentType === "Declarative" && state.skillRefs && state.skillRefs.length > 0) {
+    if (useDeclarativeAgentFields && state.skillRefs && state.skillRefs.length > 0) {
       // Filter out empty/whitespace entries first - if all are empty, treat as "no skills"
       const nonEmptyRefs = state.skillRefs.filter(ref => ref.trim());
       
@@ -318,8 +323,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     try {
 
       setState(prev => ({ ...prev, isSubmitting: true }));
-      if (state.agentType === "Declarative" && !state.selectedModel) {
-        throw new Error("Model is required to create a declarative agent.");
+      if (useDeclarativeAgentFields && !state.selectedModel) {
+        throw new Error("Model is required for this agent type.");
       }
 
       const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
@@ -333,14 +338,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
         tools: state.selectedTools,
-        skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
-        memory: state.agentType === "Declarative" && memoryEnabled
+        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
+        memory: useDeclarativeAgentFields && memoryEnabled
           ? {
             modelConfig: state.selectedMemoryModel?.ref || "",
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
           : undefined,
-        context: state.agentType === "Declarative" ? state.contextConfig : undefined,
+        context: useDeclarativeAgentFields ? state.contextConfig : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -454,13 +459,17 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <div>
                   <Label className="text-base mb-2 block font-bold">Agent Type</Label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    Choose declarative (uses a model) or BYO (bring your own containerized agent).
+                    Declarative or Sandbox: model, tools, and prompts below. BYO: your own container image.
                   </p>
                   <Select
                     value={state.agentType}
                     onValueChange={(val) => {
-                      setState(prev => ({ ...prev, agentType: val as AgentType }));
-                      validateField('type', val);
+                      const next = val as AgentType;
+                      setState((prev) => ({
+                        ...prev,
+                        agentType: next,
+                      }));
+                      validateField("type", val);
                     }}
                     disabled={state.isSubmitting || state.isLoading}
                   >
@@ -469,6 +478,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Declarative">Declarative</SelectItem>
+                      <SelectItem value="Sandbox">Sandbox</SelectItem>
                       <SelectItem value="BYO">BYO</SelectItem>
                     </SelectContent>
                   </Select>
@@ -490,7 +500,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   {state.errors.description && <p className="text-red-500 text-sm mt-1">{state.errors.description}</p>}
                 </div>
 
-                {state.agentType === "Declarative" && (
+                {useDeclarativeAgentFields && (
                   <>
                     <SystemPromptSection
                       value={state.systemPrompt}
@@ -543,7 +553,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
                   </>
                 )}
-                {state.agentType === "BYO" && (
+                {showByoFields && (
                   <div className="space-y-4">
                     <div>
                       <Label className="text-sm mb-2 block">Container image</Label>
@@ -704,7 +714,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 )}
               </CardContent>
             </Card>
-            {state.agentType === "Declarative" && (
+            {useDeclarativeAgentFields && (
               <>
                 <Card>
                   <CardHeader>

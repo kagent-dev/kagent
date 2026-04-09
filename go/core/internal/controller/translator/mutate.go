@@ -8,6 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
 
 func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
@@ -57,6 +59,16 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 			dpl := existing.(*appsv1.Deployment)
 			wantDpl := desired.(*appsv1.Deployment)
 			return mutateDeployment(dpl, wantDpl)
+
+		case *extensionsv1alpha1.SandboxTemplate:
+			st := existing.(*extensionsv1alpha1.SandboxTemplate)
+			want := desired.(*extensionsv1alpha1.SandboxTemplate)
+			mutateSandboxTemplate(st, want)
+
+		case *extensionsv1alpha1.SandboxClaim:
+			sc := existing.(*extensionsv1alpha1.SandboxClaim)
+			want := desired.(*extensionsv1alpha1.SandboxClaim)
+			mutateSandboxClaim(sc, want)
 
 		default:
 			return mergeWithOverride(existing, desired)
@@ -118,4 +130,15 @@ func mutatePodTemplate(existing, desired *corev1.PodTemplateSpec) error {
 	existing.Spec = desired.Spec
 
 	return nil
+}
+
+// mutateSandboxTemplate replaces the template spec wholesale. The default mergo path does not
+// reliably replace slice fields (containers, volumes, env), so SandboxAgent updates would not
+// roll pods until we assign spec explicitly (same idea as mutatePodTemplate / Deployment).
+func mutateSandboxTemplate(existing, desired *extensionsv1alpha1.SandboxTemplate) {
+	existing.Spec = desired.Spec
+}
+
+func mutateSandboxClaim(existing, desired *extensionsv1alpha1.SandboxClaim) {
+	existing.Spec = desired.Spec
 }

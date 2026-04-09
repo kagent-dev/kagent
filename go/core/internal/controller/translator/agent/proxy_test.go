@@ -116,9 +116,10 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"http://proxy.kagent.svc.cluster.local:8080",
+			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent)
+		result, err := translator.TranslateAgent(ctx, agent, false)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -145,9 +146,10 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"", // No proxy
+			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent)
+		result, err := translator.TranslateAgent(ctx, agent, false)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -246,9 +248,10 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, agent, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -338,9 +341,10 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, agent, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -435,9 +439,10 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, agent, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)

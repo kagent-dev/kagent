@@ -229,11 +229,34 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO";
+export type AgentType = "Declarative" | "BYO" | "Sandbox";
 
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
+}
+
+/** Workload discriminator for SandboxAgent; same as Agent except Sandbox (the kind implies sandbox runtime). */
+export type SandboxAgentWorkloadType = "Declarative" | "BYO";
+
+/**
+ * Spec for a SandboxAgent: same workload fields as Agent.spec (Declarative or BYO).
+ * Isolation comes from the SandboxAgent kind (SandboxTemplate + SandboxClaim), not from extra fields here.
+ */
+export interface SandboxAgentSpec {
+  type: SandboxAgentWorkloadType;
+  declarative?: DeclarativeAgentSpec;
+  byo?: BYOAgentSpec;
+  description?: string;
+  skills?: SkillForAgent;
+}
+
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
+export interface SandboxAgent {
+  apiVersion?: string;
+  kind?: string;
+  metadata: ResourceMetadata;
+  spec: SandboxAgentSpec;
 }
 
 export interface AgentSpec {
@@ -258,6 +281,8 @@ export interface DeclarativeAgentSpec {
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
   deployment?: DeclarativeDeploymentSpec;
+  /** Long-term memory (same shape as Kubernetes declarative spec). */
+  memory?: MemorySpec;
 }
 
 export interface ContextConfig {
@@ -332,6 +357,8 @@ export interface AgentResponse {
   tools: Tool[];
   deploymentReady: boolean;
   accepted: boolean;
+  /** Set when the workload is reconciled as a SandboxAgent. */
+  runInSandbox?: boolean;
 }
 
 export interface RemoteMCPServer {
@@ -451,7 +478,7 @@ export interface AgentMemory {
 // ---------------------------------------------------------------------------
 // HITL (Human-in-the-Loop) types
 //
-// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the 
+// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the
 // A2A - UI wire format for request and decision paths in HITL flow.
 // ---------------------------------------------------------------------------
 

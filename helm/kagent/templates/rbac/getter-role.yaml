@@ -3,6 +3,7 @@
   - kagent.dev
   resources:
   - agents
+  - sandboxagents
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -17,6 +18,7 @@
   - kagent.dev
   resources:
   - agents/finalizers
+  - sandboxagents/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
@@ -29,6 +31,7 @@
   - kagent.dev
   resources:
   - agents/status
+  - sandboxagents/status
   - modelconfigs/status
   - modelproviderconfigs/status
   - toolservers/status
@@ -75,6 +78,23 @@
   - gateway.networking.k8s.io
   resources:
   - "*"
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - agents.x-k8s.io
+  resources:
+  - sandboxes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - extensions.agents.x-k8s.io
+  resources:
+  - sandboxtemplates
+  - sandboxclaims
   verbs:
   - get
   - list

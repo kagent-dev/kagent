@@ -26,6 +26,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -122,6 +123,7 @@ type AdkApiTranslator interface {
 	TranslateAgent(
 		ctx context.Context,
 		agent *v1alpha2.Agent,
+		runInSandbox bool,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
 }
@@ -160,12 +162,13 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 
 type TranslatorPlugin = translator.TranslatorPlugin
 
-func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string) AdkApiTranslator {
+func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
 		defaultModelConfig: defaultModelConfig,
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
+		sandboxBackend:     sandboxBackend,
 	}
 }
 
@@ -174,6 +177,7 @@ type adkApiTranslator struct {
 	defaultModelConfig types.NamespacedName
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
+	sandboxBackend     sandboxbackend.Backend
 }
 
 const MAX_DEPTH = 10
@@ -204,6 +208,7 @@ func (t *tState) isVisited(agentName string) bool {
 func (a *adkApiTranslator) TranslateAgent(
 	ctx context.Context,
 	agent *v1alpha2.Agent,
+	runInSandbox bool,
 ) (*AgentOutputs, error) {
 	err := a.validateAgent(ctx, agent, &tState{})
 	if err != nil {
@@ -237,9 +242,13 @@ func (a *adkApiTranslator) TranslateAgent(
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
 	}
 
+	if runInSandbox && a.sandboxBackend == nil {
+		return nil, fmt.Errorf("sandbox backend is not configured")
+	}
+
 	card := GetA2AAgentCard(agent)
 
-	return a.buildManifest(ctx, agent, dep, cfg, card, secretHashBytes)
+	return a.buildManifest(ctx, agent, dep, cfg, card, secretHashBytes, runInSandbox)
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
@@ -256,6 +265,10 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 
 	for _, plugin := range r.plugins {
 		ownedResources = append(ownedResources, plugin.GetOwnedResourceTypes()...)
+	}
+
+	if r.sandboxBackend != nil {
+		ownedResources = append(ownedResources, r.sandboxBackend.GetOwnedResourceTypes()...)
 	}
 
 	return ownedResources
@@ -313,6 +326,7 @@ func (a *adkApiTranslator) buildManifest(
 	cfg *adk.AgentConfig, // nil for BYO
 	card *server.AgentCard, // nil for BYO
 	modelConfigSecretHashBytes []byte, // nil for BYO
+	runInSandbox bool,
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
@@ -439,10 +453,10 @@ func (a *adkApiTranslator) buildManifest(
 	}
 	hasSkills := len(skills) > 0 || len(gitRefs) > 0
 
-	// Build Deployment
+	// Build workload pod (Deployment or pluggable Sandbox CRD)
 	volumes := append(secretVol, dep.Volumes...)
 	volumeMounts := append(secretMounts, dep.VolumeMounts...)
-	needSandbox := cfg != nil && cfg.GetExecuteCode()
+	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
 
 	var initContainers []corev1.Container
 
@@ -453,10 +467,10 @@ func (a *adkApiTranslator) buildManifest(
 			Value: "/skills",
 		}
 		// Skills use the BashTool which calls srt (Anthropic Sandbox Runtime) → bubblewrap.
-		// Mark that a sandbox is needed so Privileged is set when possible.
+		// Mark that code-exec isolation is needed so Privileged is set when possible.
 		// Exception: if the user explicitly set AllowPrivilegeEscalation=false (PSS Restricted),
 		// we respect their security context and let srt fall back to user-namespace sandboxing.
-		needSandbox = true
+		needCodeExecIsolation = true
 		volumes = append(volumes, corev1.Volume{
 			Name: "kagent-skills",
 			VolumeSource: corev1.VolumeSource{
@@ -534,16 +548,16 @@ func (a *adkApiTranslator) buildManifest(
 		// When the user explicitly sets AllowPrivilegeEscalation=false (PSS Restricted namespace),
 		// we respect their choice: srt will use unprivileged user-namespace sandboxing instead.
 		// On modern kernels (EKS, GKE) unprivileged_userns_clone is enabled by default.
-		if needSandbox && !allowPrivilegeEscalationExplicitlyFalse(securityContext) {
+		if needCodeExecIsolation && !allowPrivilegeEscalationExplicitlyFalse(securityContext) {
 			securityContext.Privileged = new(true)
 		}
-	} else if needSandbox {
-		// No user-provided securityContext: create one with Privileged for full sandbox
+	} else if needCodeExecIsolation {
+		// No user-provided securityContext: create one with Privileged for code execution
 		securityContext = &corev1.SecurityContext{
 			Privileged: new(true),
 		}
 	}
-	// If neither user-provided securityContext nor sandbox is needed, securityContext remains nil
+	// If neither user-provided securityContext nor code-exec isolation is needed, securityContext remains nil
 
 	// Determine runtime for probe configuration
 	runtime := v1alpha2.DeclarativeRuntime_Python
@@ -552,70 +566,94 @@ func (a *adkApiTranslator) buildManifest(
 	}
 	probeConf := getRuntimeProbeConfig(runtime)
 
-	deployment := &appsv1.Deployment{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: objMeta(),
-		Spec: appsv1.DeploymentSpec{
-			Replicas: dep.Replicas,
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RollingUpdateDeploymentStrategyType,
-				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+	podTemplate := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Labels: podLabels(), Annotations: podTemplateAnnotations},
+		Spec: corev1.PodSpec{
+			ServiceAccountName: *dep.ServiceAccountName,
+			ImagePullSecrets:   dep.ImagePullSecrets,
+			SecurityContext:    dep.PodSecurityContext,
+			InitContainers:     initContainers,
+			Containers: []corev1.Container{{
+				Name:            "kagent",
+				Image:           dep.Image,
+				ImagePullPolicy: dep.ImagePullPolicy,
+				Command:         cmd,
+				Args:            dep.Args,
+				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
+				Resources:       dep.Resources,
+				Env:             env,
+				ReadinessProbe: &corev1.Probe{
+					ProbeHandler: corev1.ProbeHandler{
+						HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
+					},
+					InitialDelaySeconds: probeConf.InitialDelaySeconds,
+					TimeoutSeconds:      probeConf.TimeoutSeconds,
+					PeriodSeconds:       probeConf.PeriodSeconds,
 				},
-			},
-			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(), Annotations: podTemplateAnnotations},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: *dep.ServiceAccountName,
-					ImagePullSecrets:   dep.ImagePullSecrets,
-					SecurityContext:    dep.PodSecurityContext,
-					InitContainers:     initContainers,
-					Containers: []corev1.Container{{
-						Name:            "kagent",
-						Image:           dep.Image,
-						ImagePullPolicy: dep.ImagePullPolicy,
-						Command:         cmd,
-						Args:            dep.Args,
-						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
-						Resources:       dep.Resources,
-						Env:             env,
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
-							},
-							InitialDelaySeconds: probeConf.InitialDelaySeconds,
-							TimeoutSeconds:      probeConf.TimeoutSeconds,
-							PeriodSeconds:       probeConf.PeriodSeconds,
-						},
-						SecurityContext: securityContext,
-						VolumeMounts:    volumeMounts,
-					}},
-					Volumes:      volumes,
-					Tolerations:  dep.Tolerations,
-					Affinity:     dep.Affinity,
-					NodeSelector: dep.NodeSelector,
-				},
-			},
+				SecurityContext: securityContext,
+				VolumeMounts:    volumeMounts,
+			}},
+			Volumes:      volumes,
+			Tolerations:  dep.Tolerations,
+			Affinity:     dep.Affinity,
+			NodeSelector: dep.NodeSelector,
 		},
 	}
-	outputs.Manifest = append(outputs.Manifest, deployment)
 
-	// Service
-	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-		ObjectMeta: objMeta(),
-		Spec: corev1.ServiceSpec{
-			Selector: selectorLabels,
-			Ports: []corev1.ServicePort{{
-				Name:       "http",
-				Port:       dep.Port,
-				TargetPort: intstr.FromInt(int(dep.Port)),
-			}},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	})
+	var workloadObj client.Object
+	if runInSandbox {
+		templateName := fmt.Sprintf("kagent-%s", agent.Name)
+		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
+			Agent:        agent,
+			PodTemplate:  podTemplate,
+			TemplateName: templateName,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build sandbox workload: %w", err)
+		}
+		outputs.Manifest = append(outputs.Manifest, sbObjs...)
+		workloadObj = nil
+	} else {
+		deployment := &appsv1.Deployment{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+			ObjectMeta: objMeta(),
+			Spec: appsv1.DeploymentSpec{
+				Replicas: dep.Replicas,
+				Strategy: appsv1.DeploymentStrategy{
+					Type: appsv1.RollingUpdateDeploymentStrategyType,
+					RollingUpdate: &appsv1.RollingUpdateDeployment{
+						MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
+						MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+					},
+				},
+				Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
+				Template: podTemplate,
+			},
+		}
+		workloadObj = deployment
+	}
+	if workloadObj != nil {
+		outputs.Manifest = append(outputs.Manifest, workloadObj)
+	}
+
+	// Service: Sandbox workloads use SandboxTemplate +
+	// SandboxClaim; the agent-sandbox Sandbox controller creates and owns the Service with the
+	// same name as the claim, so we only need to create a service for non-sandboxed agents.
+	if !runInSandbox {
+		outputs.Manifest = append(outputs.Manifest, &corev1.Service{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+			ObjectMeta: objMeta(),
+			Spec: corev1.ServiceSpec{
+				Selector: selectorLabels,
+				Ports: []corev1.ServicePort{{
+					Name:       "http",
+					Port:       dep.Port,
+					TargetPort: intstr.FromInt(int(dep.Port)),
+				}},
+				Type: corev1.ServiceTypeClusterIP,
+			},
+		})
+	}
 
 	// Owner refs
 	for _, obj := range outputs.Manifest {
