@@ -301,7 +301,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent, false)
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
 			require.NoError(t, err)
 			require.NotNil(t, outputs)
 
@@ -486,7 +486,7 @@ func Test_AdkApiTranslator_SkillsConfigurableImage(t *testing.T) {
 	}
 
 	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-	outputs, err := trans.TranslateAgent(context.Background(), agent, false)
+	outputs, err := trans.TranslateAgent(context.Background(), agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -683,7 +683,7 @@ func Test_AdkApiTranslator_SkillsInitContainer(t *testing.T) {
 				Build()
 
 			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
-			outputs, err := trans.TranslateAgent(context.Background(), tt.agent, false)
+			outputs, err := trans.TranslateAgent(context.Background(), tt.agent)
 			require.NoError(t, err)
 
 			var deployment *appsv1.Deployment

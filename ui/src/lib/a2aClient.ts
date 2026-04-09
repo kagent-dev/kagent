@@ -20,8 +20,9 @@ export class KagentA2AClient {
   /**
    * Get the A2A URL for a specific agent
    */
-  getAgentUrl(namespace: string, agentName: string): string {
-    return `${this.baseUrl}/a2a/${namespace}/${agentName}`;
+  getAgentUrl(namespace: string, agentName: string, runInSandbox = false): string {
+    const prefix = runInSandbox ? "a2a-sandboxes" : "a2a";
+    return `${this.baseUrl}/${prefix}/${namespace}/${agentName}`;
   }
 
   /**
@@ -44,10 +45,13 @@ export class KagentA2AClient {
     namespace: string,
     agentName: string,
     params: MessageSendParams,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    runInSandbox = false
   ): Promise<AsyncIterable<any>> {
     const request = this.createStreamingRequest(params);
-    const proxyUrl = `/a2a/${namespace}/${agentName}`;
+    const proxyUrl = runInSandbox
+      ? `/a2a-sandboxes/${namespace}/${agentName}`
+      : `/a2a/${namespace}/${agentName}`;
 
     const response = await fetch(proxyUrl, {
       method: 'POST',

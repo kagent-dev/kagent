@@ -142,6 +142,17 @@ func DeepEqual(val1, val2 any) bool {
 // SetupOwnerIndexes sets up caching and indexing of owned resources.
 func SetupOwnerIndexes(mgr ctrl.Manager, ownedTypes []client.Object) error {
 	for _, resource := range ownedTypes {
+		gvk, err := apiutil.GVKForObject(resource, mgr.GetScheme())
+		if err != nil {
+			return err
+		}
+		if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+			if meta.IsNoMatchError(err) {
+				continue
+			}
+			return err
+		}
+
 		if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerIndexKey, func(rawObj client.Object) []string {
 			owner := metav1.GetControllerOf(rawObj)
 			if owner == nil {

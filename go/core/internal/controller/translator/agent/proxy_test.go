@@ -119,7 +119,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent, false)
+		result, err := translator.TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -149,7 +149,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent, false)
+		result, err := translator.TranslateAgent(ctx, agent)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -251,7 +251,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent, false)
+	result, err := translator.TranslateAgent(ctx, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -344,7 +344,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent, false)
+	result, err := translator.TranslateAgent(ctx, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -442,7 +442,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent, false)
+	result, err := translator.TranslateAgent(ctx, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)

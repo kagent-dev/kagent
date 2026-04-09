@@ -358,6 +358,25 @@ func (c *InMemoryFakeClient) ListSessionsForAgent(_ context.Context, agentID str
 	return result, nil
 }
 
+func (c *InMemoryFakeClient) ListSessionsForAgentAllUsers(_ context.Context, agentID string) ([]database.Session, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Session
+	for _, session := range c.sessions {
+		if session.AgentID != nil && *session.AgentID == agentID {
+			if session.Source != nil && *session.Source == database.SessionSourceAgent {
+				continue
+			}
+			result = append(result, *session)
+		}
+	}
+	slices.SortStableFunc(result, func(i, j database.Session) int {
+		return strings.Compare(i.ID, j.ID)
+	})
+	return result, nil
+}
+
 // ListAgents lists all agents
 func (c *InMemoryFakeClient) ListAgents(_ context.Context) ([]database.Agent, error) {
 	c.mu.RLock()

@@ -41,6 +41,7 @@ type Querier interface {
 	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error)
+	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
 	ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)

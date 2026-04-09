@@ -19,21 +19,17 @@ package controller
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 var (
@@ -71,252 +67,35 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		For(&v1alpha2.SandboxAgent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
 
-	for _, ownedType := range r.AdkTranslator.GetOwnedResourceTypes() {
-		build = build.Owns(ownedType, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{}))
+	var err error
+	build, err = addOwnedResourceWatches(build, mgr, r.AdkTranslator.GetOwnedResourceTypes())
+	if err != nil {
+		return err
 	}
-
-	build = build.Watches(
-		&v1alpha2.ModelConfig{},
-		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			var requests []reconcile.Request
-			for _, sa := range r.findSandboxAgentsUsingModelConfig(ctx, mgr.GetClient(), types.NamespacedName{
-				Name:      obj.GetName(),
-				Namespace: obj.GetNamespace(),
-			}) {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      sa.Name,
-						Namespace: sa.Namespace,
-					},
-				})
-			}
-			return requests
-		}),
-		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-	).
-		Watches(
-			&v1alpha2.RemoteMCPServer{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				var requests []reconcile.Request
-				for _, sa := range r.findSandboxAgentsUsingRemoteMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      sa.Name,
-							Namespace: sa.Namespace,
-						},
-					})
-				}
-				return requests
-			}),
-		).
-		Watches(
-			&corev1.Service{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				var requests []reconcile.Request
-				for _, sa := range r.findSandboxAgentsUsingMCPService(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      sa.Name,
-							Namespace: sa.Namespace,
-						},
-					})
-				}
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		).
-		Watches(
-			&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				var requests []reconcile.Request
-				for _, sa := range r.findSandboxAgentsReferencingConfigMap(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      sa.Name,
-							Namespace: sa.Namespace,
-						},
-					})
-				}
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		)
-
-	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
-		build = build.Watches(
-			&v1alpha1.MCPServer{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				var requests []reconcile.Request
-				for _, sa := range r.findSandboxAgentsUsingMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      sa.Name,
-							Namespace: sa.Namespace,
-						},
-					})
-				}
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		)
+	build, err = addCommonAgentWatches(build, mgr, agentWatchFinders{
+		modelConfig:     r.sandboxAgentDependencyFinder("failed to list sandboxagents for ModelConfig watch", usesModelConfig),
+		remoteMCPServer: r.sandboxAgentDependencyFinder("failed to list sandboxagents for RemoteMCPServer watch", usesRemoteMCPServer),
+		mcpService:      r.sandboxAgentDependencyFinder("failed to list sandboxagents for Service watch", usesMCPService),
+		configMap:       r.sandboxAgentDependencyFinder("failed to list sandboxagents for ConfigMap watch", referencesConfigMap),
+		mcpServer:       r.sandboxAgentDependencyFinder("failed to list sandboxagents for MCPServer watch", usesMCPServer),
+	})
+	if err != nil {
+		return err
 	}
 
 	return build.Named("sandboxagent").Complete(r)
 }
 
-func (r *SandboxAgentController) findSandboxAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.SandboxAgent {
-	var list v1alpha2.SandboxAgentList
-	if err := cl.List(ctx, &list); err != nil {
-		sandboxAgentControllerLog.Error(err, "failed to list sandboxagents for MCPServer watch")
-		return nil
+func (r *SandboxAgentController) sandboxAgentDependencyFinder(errMsg string, pred agentDependencyPredicate) dependentRefFinder {
+	return func(ctx context.Context, cl client.Client, obj types.NamespacedName) []types.NamespacedName {
+		var list v1alpha2.SandboxAgentList
+		if err := cl.List(ctx, &list); err != nil {
+			sandboxAgentControllerLog.Error(err, errMsg)
+			return nil
+		}
+
+		return collectSandboxAgentRefs(list.Items, func(agent v1alpha2.AgentObject) bool {
+			return pred(agent, obj)
+		})
 	}
-
-	var out []*v1alpha2.SandboxAgent
-	for i := range list.Items {
-		sa := &list.Items[i]
-		decl := sa.Spec.Declarative
-		if decl == nil {
-			continue
-		}
-		for _, tool := range decl.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-			if tool.McpServer.ApiGroup != "kagent.dev" || tool.McpServer.Kind != "MCPServer" {
-				continue
-			}
-			if tool.McpServer.NamespacedName(sa.Namespace) == obj {
-				out = append(out, sa)
-			}
-		}
-	}
-	return out
-}
-
-func (r *SandboxAgentController) findSandboxAgentsUsingRemoteMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.SandboxAgent {
-	var out []*v1alpha2.SandboxAgent
-
-	var list v1alpha2.SandboxAgentList
-	if err := cl.List(ctx, &list); err != nil {
-		sandboxAgentControllerLog.Error(err, "failed to list sandboxagents for RemoteMCPServer watch")
-		return out
-	}
-
-	for i := range list.Items {
-		sa := &list.Items[i]
-		decl := sa.Spec.Declarative
-		if decl == nil {
-			continue
-		}
-		for _, tool := range decl.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-			mcpServerRef := tool.McpServer.NamespacedName(sa.Namespace)
-			if mcpServerRef == obj {
-				out = append(out, sa)
-				break
-			}
-		}
-	}
-	return out
-}
-
-func (r *SandboxAgentController) findSandboxAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.SandboxAgent {
-	var list v1alpha2.SandboxAgentList
-	if err := cl.List(ctx, &list); err != nil {
-		sandboxAgentControllerLog.Error(err, "failed to list sandboxagents for Service watch")
-		return nil
-	}
-
-	var out []*v1alpha2.SandboxAgent
-	for i := range list.Items {
-		sa := &list.Items[i]
-		decl := sa.Spec.Declarative
-		if decl == nil {
-			continue
-		}
-		for _, tool := range decl.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-			if tool.McpServer.ApiGroup != "" || tool.McpServer.Kind != "Service" {
-				continue
-			}
-			if tool.McpServer.NamespacedName(sa.Namespace) == obj {
-				out = append(out, sa)
-			}
-		}
-	}
-	return out
-}
-
-func (r *SandboxAgentController) findSandboxAgentsUsingModelConfig(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.SandboxAgent {
-	var list v1alpha2.SandboxAgentList
-	if err := cl.List(ctx, &list); err != nil {
-		sandboxAgentControllerLog.Error(err, "failed to list sandboxagents for ModelConfig watch")
-		return nil
-	}
-
-	var out []*v1alpha2.SandboxAgent
-	for i := range list.Items {
-		sa := &list.Items[i]
-		if sa.Namespace != obj.Namespace {
-			continue
-		}
-		if sa.Spec.Declarative != nil && sa.Spec.Declarative.ModelConfig == obj.Name {
-			out = append(out, sa)
-		}
-	}
-	return out
-}
-
-func (r *SandboxAgentController) findSandboxAgentsReferencingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.SandboxAgent {
-	var list v1alpha2.SandboxAgentList
-	if err := cl.List(ctx, &list); err != nil {
-		sandboxAgentControllerLog.Error(err, "failed to list sandboxagents for ConfigMap watch")
-		return nil
-	}
-
-	var out []*v1alpha2.SandboxAgent
-	for i := range list.Items {
-		sa := &list.Items[i]
-		if sa.Namespace != obj.Namespace {
-			continue
-		}
-		decl := sa.Spec.Declarative
-		if decl == nil {
-			continue
-		}
-
-		if ref := decl.SystemMessageFrom; ref != nil {
-			if ref.Type == v1alpha2.ConfigMapValueSource && ref.Name == obj.Name {
-				out = append(out, sa)
-				continue
-			}
-		}
-
-		if pt := decl.PromptTemplate; pt != nil {
-			for _, ds := range pt.DataSources {
-				if ds.Name == obj.Name {
-					out = append(out, sa)
-					break
-				}
-			}
-		}
-	}
-
-	return out
 }

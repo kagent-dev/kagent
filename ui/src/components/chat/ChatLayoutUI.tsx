@@ -108,7 +108,7 @@ export default function ChatLayoutUI({
       <main className="w-full max-w-6xl mx-auto px-4">
         <ChatAgentProvider
           agentType={currentAgent.agent.spec.type}
-          runInSandbox={currentAgent.runInSandbox ?? false}
+          runInSandbox={currentAgent.workloadMode === "sandbox"}
         >
           {children}
         </ChatAgentProvider>

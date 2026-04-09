@@ -329,8 +329,19 @@ export interface AgentSkill {
 
 
 export interface Agent {
+  apiVersion?: string;
+  kind?: string;
   metadata: ResourceMetadata;
   spec: AgentSpec;
+  status?: {
+    observedGeneration?: number;
+    conditions?: Array<{
+      type: string;
+      status: string;
+      reason?: string;
+      message?: string;
+    }>;
+  };
 }
 
 export interface AgentResponse {
@@ -342,8 +353,7 @@ export interface AgentResponse {
   tools: Tool[];
   deploymentReady: boolean;
   accepted: boolean;
-  /** Set when the workload is reconciled as a SandboxAgent. */
-  runInSandbox?: boolean;
+  workloadMode?: "deployment" | "sandbox";
 }
 
 export interface RemoteMCPServer {

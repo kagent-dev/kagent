@@ -27,7 +27,7 @@ export function formUsesByoSections(
 /** Create-agent form type from GET /agents response (SandboxAgent → form "Sandbox"). */
 export function formAgentTypeFromApi(
   specType: AgentType,
-  runInSandbox: boolean | undefined,
+  workloadMode: "deployment" | "sandbox" | undefined,
 ): AgentType {
-  return runInSandbox ? "Sandbox" : specType;
+  return workloadMode === "sandbox" ? "Sandbox" : specType;
 }

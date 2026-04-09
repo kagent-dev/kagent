@@ -32,7 +32,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           setGate("ready");
           return;
         }
-        if (!agentRes.data.runInSandbox) {
+        if (agentRes.data.workloadMode !== "sandbox") {
           setGate("ready");
           return;
         }

@@ -41,8 +41,8 @@ export default function SessionsSidebar({
               agentName={agentName}
               agentNamespace={agentNamespace}
               sessions={agentSessions}
-              hideNewChat={!!currentAgent.runInSandbox}
-              hideSessionDelete={!!currentAgent.runInSandbox}
+              hideNewChat={currentAgent.workloadMode === "sandbox"}
+              hideSessionDelete={currentAgent.workloadMode === "sandbox"}
             />
           )}
         </ScrollArea>

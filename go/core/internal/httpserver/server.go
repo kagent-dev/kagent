@@ -41,6 +41,7 @@ const (
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
 	APIPathA2A                  = "/api/a2a"
+	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
 	APIPathMCP                  = "/mcp"
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
@@ -245,8 +246,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
+	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
 
 	// Model Provider Configs
 	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
@@ -286,6 +290,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
+	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 
 	// MCP
 	if s.config.MCPHandler != nil {

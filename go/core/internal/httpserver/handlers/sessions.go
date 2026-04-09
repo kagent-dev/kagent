@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,8 +11,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -26,18 +23,6 @@ type SessionsHandler struct {
 // NewSessionsHandler creates a new SessionsHandler
 func NewSessionsHandler(base *Base) *SessionsHandler {
 	return &SessionsHandler{Base: base}
-}
-
-func (h *SessionsHandler) isSandboxWorkload(ctx context.Context, namespace, name string) (bool, error) {
-	sa := &v1alpha2.SandboxAgent{}
-	err := h.KubeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, sa)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }
 
 // RunRequest represents a run creation request
@@ -147,18 +132,15 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	nn, perr := utils.ParseRefString(*sessionRequest.AgentRef, "")
-	if perr == nil {
-		if isSandboxWorkload, err := h.isSandboxWorkload(r.Context(), nn.Namespace, nn.Name); err == nil && isSandboxWorkload {
-			existing, lerr := h.DatabaseService.ListSessionsForAgent(r.Context(), agent.ID, userID)
-			if lerr != nil {
-				w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
-				return
-			}
-			if len(existing) > 0 {
-				w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session per user", fmt.Errorf("a session already exists for this agent")))
-				return
-			}
+	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
+		existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
+		if lerr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+			return
+		}
+		if len(existing) > 0 {
+			w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
+			return
 		}
 	}
 

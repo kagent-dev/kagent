@@ -337,7 +337,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         selectedNamespace,
         selectedAgentName,
         sendParams,
-        abortControllerRef.current?.signal
+        abortControllerRef.current?.signal,
+        runInSandbox
       );
 
       let timeoutTimer: NodeJS.Timeout | null = null;

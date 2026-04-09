@@ -3,6 +3,7 @@ package a2a
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/mux"
@@ -28,19 +29,21 @@ type A2AHandlerMux interface {
 }
 
 type handlerMux struct {
-	handlers       map[string]http.Handler
-	lock           sync.RWMutex
-	basePathPrefix string
-	authenticator  auth.AuthProvider
+	handlers          map[string]http.Handler
+	lock              sync.RWMutex
+	agentPathPrefix   string
+	sandboxPathPrefix string
+	authenticator     auth.AuthProvider
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(pathPrefix string, authenticator auth.AuthProvider) *handlerMux {
+func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider) *handlerMux {
 	return &handlerMux{
-		handlers:       make(map[string]http.Handler),
-		basePathPrefix: pathPrefix,
-		authenticator:  authenticator,
+		handlers:          make(map[string]http.Handler),
+		agentPathPrefix:   agentPathPrefix,
+		sandboxPathPrefix: sandboxPathPrefix,
+		authenticator:     authenticator,
 	}
 }
 
@@ -96,7 +99,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handlerName := common.ResourceRefString(agentNamespace, agentName)
+	handlerName := routeKey(a.isSandboxRoute(r), agentNamespace, agentName)
 
 	// get the underlying handler
 	handlerHandler, ok := a.getHandler(handlerName)
@@ -110,4 +113,15 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handlerHandler.ServeHTTP(w, r)
+}
+
+func (a *handlerMux) isSandboxRoute(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, a.sandboxPathPrefix+"/") || r.URL.Path == a.sandboxPathPrefix
+}
+
+func routeKey(isSandbox bool, namespace, name string) string {
+	if isSandbox {
+		return common.ResourceRefString("sandboxes", common.ResourceRefString(namespace, name))
+	}
+	return common.ResourceRefString(namespace, name)
 }

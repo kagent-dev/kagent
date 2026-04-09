@@ -12,7 +12,7 @@ import (
 
 // BuildInput carries the pod template for a Sandbox workload (agents.x-k8s.io Sandbox).
 type BuildInput struct {
-	Agent        *v1alpha2.Agent
+	Agent        v1alpha2.AgentObject
 	PodTemplate  corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string

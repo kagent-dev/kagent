@@ -34,7 +34,7 @@ func (b *Backend) BuildSandbox(_ context.Context, in sandboxbackend.BuildInput) 
 	if in.Agent == nil {
 		return nil, fmt.Errorf("agent is required")
 	}
-	name := in.Agent.Name
+	name := in.Agent.GetName()
 	if in.WorkloadName != "" {
 		name = in.WorkloadName
 	}
@@ -51,7 +51,7 @@ func (b *Backend) BuildSandbox(_ context.Context, in sandboxbackend.BuildInput) 
 		},
 	}
 
-	labelUnion := mapsUnion(podLabels, in.Agent.Labels)
+	labelUnion := mapsUnion(podLabels, in.Agent.GetLabels())
 
 	replicas := int32(1)
 	sb := &agentsandboxv1.Sandbox{
@@ -61,8 +61,8 @@ func (b *Backend) BuildSandbox(_ context.Context, in sandboxbackend.BuildInput) 
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Namespace:   in.Agent.Namespace,
-			Annotations: in.Agent.Annotations,
+			Namespace:   in.Agent.GetNamespace(),
+			Annotations: in.Agent.GetAnnotations(),
 			Labels:      labelUnion,
 		},
 		Spec: agentsandboxv1.SandboxSpec{

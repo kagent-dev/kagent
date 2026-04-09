@@ -141,7 +141,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.runInSandbox),
+                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.workloadMode),
               };
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
