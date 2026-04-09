@@ -40,8 +40,7 @@ class GDCHTokenSource:
         creds = creds.with_gdch_audience(self._audience)
         session = requests.Session()
         if self._ca_cert_path:
-            # session.verify accepts a CA bundle path to verify the server's TLS
-            # certificate against a custom CA (not a client cert — that's session.cert).
+            # Replaces the REQUESTS_CA_BUNDLE environment variable
             session.verify = self._ca_cert_path
         creds.refresh(google_requests.Request(session=session))
         if creds.expiry:

@@ -1,0 +1,89 @@
+# GDC (Google Distributed Cloud) Gemini Example
+#
+# Requirements:
+# - Custom root CA
+# - Custom endpoint
+# - Custom header: x-goog-user-project: $PROJECT_HEADER
+# - Authorization header: Short lived access token obtained via token exchange
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gdch-sa
+  namespace: kagent
+type: Opaque
+stringData:
+  sa.json: |
+    {
+      "type": "gdch_service_account",
+      "name": "my-sa",
+      "project": "my-project",
+      "private_key_id": "key-id",
+      "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n",
+      "token_uri": "https://service-identity.../authenticate"
+    }
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gdch-ca-cert
+  namespace: kagent
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    (GDC cluster CA certificate in PEM format)
+    -----END CERTIFICATE-----
+
+---
+# ModelConfig for the GDC Gemini inference gateway.
+#
+#   - provider: OpenAI  — GDC exposes an OpenAI-compatible API
+#   - No apiKeySecret   — token exchange replaces static API keys
+#   - openAI.baseUrl    — points at the GDC inference gateway
+#   - openAI.tokenExchange — tells kagent to exchange the GDCH service account
+#                            for a short-lived bearer token before each call
+#   - tls.caCertSecretRef  — the GDC cluster CA for TLS verification;
+#                            also used by the token exchange to verify the
+#                            GDCH token endpoint
+#   - tls.disableSystemCAs — only trust the GDC CA; no public CA access needed
+#   - defaultHeaders.x-goog-user-project — set the GCP project
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: gdc-gemini
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gemini-2.5-flash
+
+  openAI:
+    baseUrl: "https://inference-gateway.../chat"
+    tokenExchange:
+      type: GDCHServiceAccount
+      gdchServiceAccount:
+        serviceAccountSecretRef: gdch-sa
+        serviceAccountSecretKey: sa.json
+        audience: "https://inference-gateway..."
+
+  defaultHeaders:
+    x-goog-user-project: "my-project"
+
+  tls:
+    caCertSecretRef: gdch-ca-cert
+    caCertSecretKey: ca.crt
+    disableSystemCAs: true
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: gdc-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  modelConfigRef: gdc-gemini
+  description: "A general-purpose assistant running on GDC Gemini"
+  systemPrompt: "You are a helpful assistant."
