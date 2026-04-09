@@ -390,7 +390,9 @@ class BaseOpenAI(BaseLlm):
     api_key_passthrough: Optional[bool] = None
 
     def set_passthrough_key(self, token: str) -> None:
-        self.api_key = token
+        if self.api_key != token:
+            self.api_key = token
+            self.__dict__.pop("_client", None)  # invalidate cached client
 
     @classmethod
     def supported_models(cls) -> list[str]:

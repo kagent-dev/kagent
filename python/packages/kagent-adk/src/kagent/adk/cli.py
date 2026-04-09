@@ -11,10 +11,10 @@ from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
-
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
+from ._token_exchange_plugin import TokenExchangePlugin, create_token_source
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,13 @@ def static(
         if plugins is None:
             plugins = []
         plugins.append(LLMPassthroughPlugin())
+
+    # Register token exchange plugin if configured
+    token_source = create_token_source(agent_config.model)
+    if token_source is not None:
+        if plugins is None:
+            plugins = []
+        plugins.append(TokenExchangePlugin(token_source))
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
@@ -170,6 +177,13 @@ def run(
     except FileNotFoundError:
         logger.debug(f"No config.json found at {config_path}, using defaults")
 
+    if agent_config:
+        token_source = create_token_source(agent_config.model)
+        if token_source is not None:
+            if plugins is None:
+                plugins = []
+            plugins.append(TokenExchangePlugin(token_source))
+
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = AgentCard.model_validate(agent_card)
@@ -217,6 +231,13 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
     sts_integration = create_sts_integration()
     if sts_integration:
         plugins = [sts_integration]
+
+    # Register token exchange plugin if configured
+    token_source = create_token_source(agent_config.model)
+    if token_source is not None:
+        if plugins is None:
+            plugins = []
+        plugins.append(TokenExchangePlugin(token_source))
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)

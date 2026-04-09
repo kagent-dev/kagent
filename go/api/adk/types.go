@@ -75,6 +75,11 @@ type OpenAI struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	Timeout          *int     `json:"timeout,omitempty"`
 	TopP             *float64 `json:"top_p,omitempty"`
+
+	// Token exchange configuration (OpenAI-specific)
+	TokenExchangeType      string `json:"token_exchange_type,omitempty"`
+	GDCHServiceAccountPath string `json:"gdch_service_account_path,omitempty"`
+	GDCHAudience           string `json:"gdch_audience,omitempty"`
 }
 
 const (

@@ -188,6 +188,11 @@ class OpenAI(BaseLLM):
     timeout: int | None = None
     top_p: float | None = None
 
+    # Token exchange configuration (OpenAI-specific)
+    token_exchange_type: Literal["GDCHServiceAccount"] | None = None
+    gdch_service_account_path: str | None = None
+    gdch_audience: str | None = None
+
     type: Literal["openai"]
 
 

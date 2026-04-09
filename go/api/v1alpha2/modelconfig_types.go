@@ -113,6 +113,34 @@ type AnthropicConfig struct {
 	TopK int `json:"topK,omitempty"`
 }
 
+// TokenExchangeType identifies the token exchange mechanism
+// +kubebuilder:validation:Enum=GDCHServiceAccount
+type TokenExchangeType string
+
+const TokenExchangeTypeGDCH TokenExchangeType = "GDCHServiceAccount"
+
+// GDCHServiceAccountConfig holds credentials for GDCH token exchange
+type GDCHServiceAccountConfig struct {
+	// ServiceAccountSecretRef is the name of the Secret containing the GDCH SA JSON
+	// +required
+	ServiceAccountSecretRef string `json:"serviceAccountSecretRef"`
+	// ServiceAccountSecretKey is the key within the Secret
+	// +required
+	ServiceAccountSecretKey string `json:"serviceAccountSecretKey"`
+	// Audience is the token exchange audience URL (the GDC inference gateway base URL)
+	// +required
+	Audience string `json:"audience"`
+}
+
+// TokenExchangeConfig configures dynamic bearer token acquisition before model calls.
+// Mutually exclusive with apiKeySecret and apiKeyPassthrough.
+type TokenExchangeConfig struct {
+	// +kubebuilder:validation:Enum=GDCHServiceAccount
+	Type TokenExchangeType `json:"type"`
+	// +optional
+	GDCHServiceAccount *GDCHServiceAccountConfig `json:"gdchServiceAccount,omitempty"`
+}
+
 // OpenAIConfig contains OpenAI-specific configuration options
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
@@ -156,6 +184,11 @@ type OpenAIConfig struct {
 	// Reasoning effort
 	// +optional
 	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
+
+	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
+	// Mutually exclusive with apiKeySecret and apiKeyPassthrough.
+	// +optional
+	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
@@ -271,6 +304,10 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
 // +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey (unless disableVerify is true)",rule="!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey) == 0))"
+// +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeySecret are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
+// +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeyPassthrough are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough) && self.apiKeyPassthrough)"
+// +kubebuilder:validation:XValidation:message="openAI.tokenExchange requires openAI.tokenExchange.type",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && !has(self.openAI.tokenExchange.type))"
+// +kubebuilder:validation:XValidation:message="openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type == 'GDCHServiceAccount' && !has(self.openAI.tokenExchange.gdchServiceAccount))"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 

@@ -207,6 +207,8 @@ const (
 	googleCredsVolumeName = "google-creds"
 	tlsCACertVolumeName   = "tls-ca-cert"
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	gdchCredsVolumeName   = "gdch-creds"
+	gdchCredsMountPath    = "/gdch-creds"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -253,6 +255,40 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
 			Name:      tlsCACertVolumeName,
 			MountPath: tlsCACertMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
+
+// addTokenExchangeConfiguration adds token exchange configuration to OpenAI model
+// and mounts the service account secret when token exchange is configured.
+// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, tokenExchange *v1alpha2.TokenExchangeConfig) {
+	if tokenExchange == nil {
+		return
+	}
+	openai.TokenExchangeType = string(tokenExchange.Type)
+	switch tokenExchange.Type {
+	case v1alpha2.TokenExchangeTypeGDCH:
+		cfg := tokenExchange.GDCHServiceAccount
+		if cfg == nil {
+			return
+		}
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, cfg.ServiceAccountSecretKey)
+		openai.GDCHServiceAccountPath = saPath
+		openai.GDCHAudience = cfg.Audience
+		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
+			Name: gdchCredsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  cfg.ServiceAccountSecretRef,
+					DefaultMode: new(int32(0444)),
+				},
+			},
+		})
+		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
+			Name:      gdchCredsVolumeName,
+			MountPath: gdchCredsMountPath,
 			ReadOnly:  true,
 		})
 	}
@@ -317,6 +353,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		// Populate TokenExchange fields (OpenAI-specific)
+		if model.Spec.OpenAI != nil {
+			addTokenExchangeConfiguration(openai, modelDeploymentData, model.Spec.OpenAI.TokenExchange)
+		}
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
