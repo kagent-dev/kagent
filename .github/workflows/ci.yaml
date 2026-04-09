@@ -15,7 +15,7 @@ env:
   # Cache key components for better organization
   CACHE_KEY_PREFIX: kagent-v2
   BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
-  AGENT_SANDBOX_VERSION: v0.2.1
+  AGENT_SANDBOX_VERSION: v0.3.10
   # Consistent builder configuration
   BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
   BUILDX_VERSION: v0.23.0
