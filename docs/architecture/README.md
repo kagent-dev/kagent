@@ -149,7 +149,7 @@ The controller uses SQLite (default) or PostgreSQL for persistent state that sup
 **Why a separate DB?** The Kubernetes API is not designed for high-frequency read patterns like listing conversations or searching tools. The DB provides fast lookups for the HTTP API and UI, while the CRDs remain the source of truth for agent configuration.
 
 **Key files:**
-- `go/api/database/models.go` — GORM models
+- `go/api/database/models.go` — database models
 - `go/core/internal/database/client.go` — Database client implementation
 - `go/core/internal/database/service.go` — Business logic with atomic upserts
 
@@ -398,7 +398,7 @@ go/
 ├── go.work
 ├── api/        # github.com/kagent-dev/kagent/go/api
 │   ├── v1alpha2/         # CRD type definitions
-│   ├── database/         # GORM database models
+│   ├── database/         # database models
 │   ├── httpapi/          # HTTP API request/response types
 │   ├── client/           # REST client SDK for the HTTP API
 │   └── config/crd/       # Generated CRD manifests

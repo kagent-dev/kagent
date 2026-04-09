@@ -36,7 +36,7 @@ func main() {
 			Authorizer:    authorizer,
 			AgentPlugins:  nil,
 		}, nil
-	})
+	}, nil)
 }
 
 func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthProvider {

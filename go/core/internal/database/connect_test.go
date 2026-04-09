@@ -8,15 +8,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"gorm.io/gorm"
 )
 
 func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// Use an unreachable address so every attempt fails immediately.
-	_, err := retryDBConnection(ctx, "postgres://user:pass@localhost:1/nodb?connect_timeout=1", &gorm.Config{})
+	_, err := retryDBConnection(ctx, "postgres://user:pass@localhost:1/nodb?connect_timeout=1", false)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 

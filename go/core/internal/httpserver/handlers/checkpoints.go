@@ -110,7 +110,7 @@ func (h *CheckpointsHandler) HandlePutCheckpoint(w ErrorResponseWriter, r *http.
 		ParentCheckpointID: req.ParentCheckpointID,
 		Metadata:           req.Metadata,
 		Checkpoint:         req.Checkpoint,
-		Version:            req.Version,
+		Version:            int64(req.Version),
 		CheckpointType:     req.Type,
 	}
 	// Store checkpoint and writes atomically
@@ -171,7 +171,7 @@ func (h *CheckpointsHandler) HandleListCheckpoints(w ErrorResponseWriter, r *htt
 		for j, write := range tuple.Writes {
 			taskID = write.TaskID
 			writes[j] = KagentCheckpointWrite{
-				Idx:     write.WriteIdx,
+				Idx:     int(write.WriteIdx),
 				Channel: write.Channel,
 				Type:    write.ValueType,
 				Value:   write.Value,
@@ -232,7 +232,7 @@ func (h *CheckpointsHandler) HandlePutWrites(w ErrorResponseWriter, r *http.Requ
 			ThreadID:     req.ThreadID,
 			CheckpointNS: req.CheckpointNS,
 			CheckpointID: req.CheckpointID,
-			WriteIdx:     writeReq.Idx,
+			WriteIdx:     int64(writeReq.Idx),
 			Value:        writeReq.Value,
 			ValueType:    writeReq.Type,
 			Channel:      writeReq.Channel,
