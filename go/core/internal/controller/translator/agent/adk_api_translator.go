@@ -255,6 +255,7 @@ func (a *adkApiTranslator) TranslateAgent(
 // Even though this method returns an array of client.Object, these are (empty)
 // example structs rather than actual resources.
 func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
+	ctx := context.Background()
 	ownedResources := []client.Object{
 		&appsv1.Deployment{},
 		&corev1.ConfigMap{},
@@ -267,7 +268,8 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 		ownedResources = append(ownedResources, plugin.GetOwnedResourceTypes()...)
 	}
 
-	if r.sandboxBackend != nil {
+	// Only set this up if the sandbox CRDs are available
+	if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, r.kube); err == nil {
 		ownedResources = append(ownedResources, r.sandboxBackend.GetOwnedResourceTypes()...)
 	}
 
