@@ -20,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/agentsxk8s"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -32,9 +33,10 @@ func main() {
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
 		authenticator := getAuthenticator(bootstrap.Config.Auth)
 		return &app.ExtensionConfig{
-			Authenticator: authenticator,
-			Authorizer:    authorizer,
-			AgentPlugins:  nil,
+			Authenticator:  authenticator,
+			Authorizer:     authorizer,
+			AgentPlugins:   nil,
+			SandboxBackend: agentsxk8s.New(),
 		}, nil
 	}, nil)
 }

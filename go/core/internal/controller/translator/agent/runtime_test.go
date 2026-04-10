@@ -62,10 +62,10 @@ func TestRuntime_GoRuntime(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -137,10 +137,10 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -212,10 +212,10 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -296,10 +296,10 @@ func TestRuntime_CustomRepositoryPath(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

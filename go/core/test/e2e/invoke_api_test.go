@@ -196,10 +196,47 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 	return agent
 }
 
+// setupSandboxAgentWithOptions creates and returns a sandbox agent resource with custom options.
+func setupSandboxAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
+	agent := generateSandboxAgent(modelConfigName, tools, opts)
+	err := cli.Create(t.Context(), agent)
+	if err != nil {
+		t.Fatalf("failed to create sandbox agent: %v", err)
+	}
+	cleanup(t, cli, agent)
+
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"sandboxagents.kagent.dev",
+		agent.Name,
+		"-n",
+		"kagent",
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	waitForSandboxEndpoint(t, agent.Namespace, agent.Name)
+
+	return agent
+}
+
 // setupA2AClient creates an A2A client for the test agent
 func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
-	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aURL := a2aURL(agent.Namespace, agent.Name, false)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+	return a2aClient
+}
+
+// setupSandboxA2AClient creates an A2A client for the test sandbox agent.
+func setupSandboxA2AClient(t *testing.T, agent *v1alpha2.SandboxAgent) *a2aclient.A2AClient {
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL(agent.Namespace, agent.Name, true))
 	require.NoError(t, err)
 	return a2aClient
 }
@@ -334,14 +371,21 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 	require.NoError(t, err, lastJSON)
 }
 
-func a2aUrl(namespace, name string) string {
+func a2aURL(namespace, name string, sandbox bool) string {
 	kagentURL := os.Getenv("KAGENT_URL")
 	if kagentURL == "" {
 		// if running locally on kind, do "kubectl port-forward -n kagent deployments/kagent-controller 8083"
 		kagentURL = "http://localhost:8083"
 	}
-	// A2A URL format: <base_url>/<namespace>/<agent_name>
-	return kagentURL + "/api/a2a/" + namespace + "/" + name
+	path := "/api/a2a/"
+	if sandbox {
+		path = "/api/a2a-sandboxes/"
+	}
+	return kagentURL + path + namespace + "/" + name
+}
+
+func a2aUrl(namespace, name string) string {
+	return a2aURL(namespace, name, false)
 }
 
 // waitForEndpoint polls the A2A agent card endpoint until it returns a non-5xx response.
@@ -349,7 +393,16 @@ func a2aUrl(namespace, name string) string {
 // and the agent actually being able to serve requests through the controller proxy.
 func waitForEndpoint(t *testing.T, namespace, name string) {
 	t.Helper()
-	url := a2aUrl(namespace, name)
+	waitForEndpointURL(t, a2aURL(namespace, name, false))
+}
+
+func waitForSandboxEndpoint(t *testing.T, namespace, name string) {
+	t.Helper()
+	waitForEndpointURL(t, a2aURL(namespace, name, true))
+}
+
+func waitForEndpointURL(t *testing.T, url string) {
+	t.Helper()
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 
 	t.Logf("Waiting for endpoint %s to become ready", url)
@@ -450,6 +503,14 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 	}
 
 	return agent
+}
+
+func generateSandboxAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
+	agent := generateAgent(modelConfigName, tools, opts)
+	return &v1alpha2.SandboxAgent{
+		ObjectMeta: agent.ObjectMeta,
+		Spec:       agent.Spec,
+	}
 }
 
 func generateMCPServer() *v1alpha1.MCPServer {
@@ -563,6 +624,41 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	// Run streaming test
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
+	})
+}
+
+func TestE2EInvokeSandboxAgent(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedReference: v1alpha2.TypedReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
+
+	a2aClient := setupSandboxA2AClient(t, agent)
+	var taskResult *protocol.Task
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		taskResult = runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", taskResult.ContextID)
 	})
 }
 

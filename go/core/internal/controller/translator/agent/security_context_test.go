@@ -83,10 +83,10 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -174,9 +174,9 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -249,9 +249,9 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -323,9 +323,9 @@ func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -407,9 +407,9 @@ func TestSecurityContext_SkillsPSSRestricted(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
