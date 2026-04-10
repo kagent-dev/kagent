@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,13 +9,15 @@ import (
 )
 
 func TestResolveReadPath_AllowsSymlinkedSkillsDirectory(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
 	skillFile := filepath.Join(skillsDir, "script.py")
 	if err := os.WriteFile(skillFile, []byte("print('ok')\n"), 0644); err != nil {
 		t.Fatalf("failed to write skill file: %v", err)
 	}
 
-	resolved, err := resolveReadPath("session-read", skillsDir, "skills/script.py")
+	sessionID := fmt.Sprintf("%s-read", t.Name())
+	resolved, err := resolveReadPath(sessionID, skillsDir, "skills/script.py")
 	if err != nil {
 		t.Fatalf("resolveReadPath() error = %v", err)
 	}
@@ -24,8 +27,10 @@ func TestResolveReadPath_AllowsSymlinkedSkillsDirectory(t *testing.T) {
 }
 
 func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
-	_, err := resolveWritePath("session-write", skillsDir, "skills/new-file.txt")
+	sessionID := fmt.Sprintf("%s-write", t.Name())
+	_, err := resolveWritePath(sessionID, skillsDir, "skills/new-file.txt")
 	if err == nil {
 		t.Fatal("expected write through skills symlink to be rejected")
 	}
@@ -36,6 +41,7 @@ func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
 
 func TestNewSkillsTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("failed to create skill dir: %v", err)

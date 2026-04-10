@@ -1147,6 +1147,15 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 }
 
 func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", nil)
+}
+
+func TestE2EGoDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "go", &goRuntime)
+}
+
+func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill_network.json")
 	defer stopServer()
 
@@ -1155,8 +1164,9 @@ func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
 
 	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
 
-	t.Run("deny_by_default", func(t *testing.T) {
+	t.Run(runtimeName+"/deny_by_default", func(t *testing.T) {
 		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Runtime: runtimeOverride,
 			Skills: &v1alpha2.SkillForAgent{
 				InsecureSkipVerify: true,
 				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
@@ -1164,11 +1174,12 @@ func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
 		})
 
 		a2aClient := setupA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health with bash", "NETWORK_DENIED", nil)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; network denied", nil)
 	})
 
-	t.Run("allowlist_enables_access", func(t *testing.T) {
+	t.Run(runtimeName+"/allowlist_enables_access", func(t *testing.T) {
 		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Runtime: runtimeOverride,
 			Skills: &v1alpha2.SkillForAgent{
 				InsecureSkipVerify: true,
 				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
@@ -1181,7 +1192,7 @@ func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
 		})
 
 		a2aClient := setupA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health with bash", "controller health is ok", nil)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; controller health is ok", nil)
 	})
 }
 

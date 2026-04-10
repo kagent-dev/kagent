@@ -60,8 +60,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}",
-        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
     {
@@ -130,7 +129,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "15176547937826351031"
+              "kagent.dev/config-hash": "13646724703108583778"
             },
             "labels": {
               "app": "kagent",
@@ -192,10 +191,6 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
-                  },
-                  {
-                    "name": "KAGENT_SRT_SETTINGS_PATH",
-                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

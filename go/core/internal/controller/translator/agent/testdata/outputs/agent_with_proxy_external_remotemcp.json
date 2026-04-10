@@ -65,8 +65,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy_external\",\"description\":\"\",\"url\":\"http://agent-with-proxy-external.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"stream\":false}",
-        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"https://external-mcp.example.com/mcp\",\"headers\":{}},\"tools\":[\"test-tool\"]}],\"stream\":false}"
       }
     },
     {
@@ -135,7 +134,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "15219955371023757939"
+              "kagent.dev/config-hash": "5804061310999897590"
             },
             "labels": {
               "app": "kagent",
@@ -181,10 +180,6 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
-                  },
-                  {
-                    "name": "KAGENT_SRT_SETTINGS_PATH",
-                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

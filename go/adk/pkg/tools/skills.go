@@ -113,6 +113,10 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover skills: %w", err)
 	}
+	commandExecutor, err := skillruntime.NewCommandExecutorFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure bash sandbox: %w", err)
+	}
 
 	skillsTool, err := functiontool.New(functiontool.Config{
 		Name:        "skills",
@@ -208,7 +212,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
 		}
 
-		result, err := skillruntime.ExecuteCommand(ctx, command, sessionPath)
+		result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
 		if err != nil {
 			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
 		}

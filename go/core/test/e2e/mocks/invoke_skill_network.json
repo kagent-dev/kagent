@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"python - <<'PY'\\nimport os\\nimport urllib.request\\nurl = os.environ['KAGENT_URL'] + '/health'\\ntry:\\n    print(urllib.request.urlopen(url, timeout=5).read().decode().strip())\\nexcept Exception:\\n    print('NETWORK_DENIED')\\nPY\"}"
+                    "arguments": "{\"command\": \"python -c \\\"print('PY_OK')\\\" && node -e \\\"console.log('NODE_OK')\\\" && python - <<'PY'\\nimport os\\nimport urllib.request\\nurl = os.environ['KAGENT_URL'] + '/health'\\ntry:\\n    urllib.request.urlopen(url, timeout=5).read()\\n    print('NETWORK_ALLOWED')\\nexcept Exception:\\n    print('NETWORK_DENIED')\\nPY\"}"
                   }
                 }
               ]
@@ -41,7 +41,7 @@
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "NETWORK_DENIED",
+          "content": "PY_OK\nNODE_OK\nNETWORK_DENIED",
           "role": "tool",
           "tool_call_id": "call_1"
         }
@@ -56,7 +56,7 @@
             "index": 0,
             "role": "assistant",
             "message": {
-              "content": "NETWORK_DENIED"
+              "content": "python and node are available; network denied"
             }
           }
         ]
@@ -67,7 +67,7 @@
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "\"status\":\"OK\"",
+          "content": "PY_OK\nNODE_OK\nNETWORK_ALLOWED",
           "role": "tool",
           "tool_call_id": "call_1"
         }
@@ -82,7 +82,7 @@
             "index": 0,
             "role": "assistant",
             "message": {
-              "content": "controller health is ok"
+              "content": "python and node are available; controller health is ok"
             }
           }
         ]

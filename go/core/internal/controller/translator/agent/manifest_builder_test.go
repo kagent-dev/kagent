@@ -53,6 +53,24 @@ func TestNeedsSRTSettings(t *testing.T) {
 			Declarative: &v1alpha2.DeclarativeAgentSpec{},
 		},
 	}
+	skillsAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{},
+			Skills:      &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
+		},
+	}
+	executeCode := true
+	codeAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "code", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				ExecuteCodeBlocks: &executeCode,
+			},
+		},
+	}
 	byoAgent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
@@ -61,13 +79,41 @@ func TestNeedsSRTSettings(t *testing.T) {
 		},
 	}
 
-	if !needsSRTSettings(declarativeAgent, nil) {
-		t.Fatal("declarative agents should always get default srt settings")
+	if needsSRTSettings(declarativeAgent, nil) {
+		t.Fatal("declarative agents without sandboxed execution should not get srt settings")
+	}
+	if !needsSRTSettings(skillsAgent, nil) {
+		t.Fatal("declarative agents with skills should get srt settings")
+	}
+	if !needsSRTSettings(codeAgent, nil) {
+		t.Fatal("declarative agents with executeCodeBlocks should get srt settings")
 	}
 	if needsSRTSettings(byoAgent, nil) {
 		t.Fatal("BYO agents should not get srt settings unless sandbox config is set")
 	}
 	if !needsSRTSettings(byoAgent, &v1alpha2.SandboxConfig{}) {
 		t.Fatal("BYO agents with sandbox config should get srt settings")
+	}
+}
+
+func TestBuildConfigSecretData_OmitsEmptySRTSettings(t *testing.T) {
+	data := buildConfigSecretData(`{"app":"ok"}`, `{"card":"ok"}`, "")
+
+	if data["config.json"] == "" {
+		t.Fatal("config.json should be present")
+	}
+	if data["agent-card.json"] == "" {
+		t.Fatal("agent-card.json should be present")
+	}
+	if _, ok := data["srt-settings.json"]; ok {
+		t.Fatal("srt-settings.json should be omitted when empty")
+	}
+}
+
+func TestBuildConfigSecretData_IncludesSRTSettingsWhenPresent(t *testing.T) {
+	data := buildConfigSecretData(`{"app":"ok"}`, `{"card":"ok"}`, `{"network":{}}`)
+
+	if got := data["srt-settings.json"]; got == "" {
+		t.Fatal("srt-settings.json should be present when non-empty")
 	}
 }

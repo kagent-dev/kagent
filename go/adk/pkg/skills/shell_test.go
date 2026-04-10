@@ -310,6 +310,10 @@ func TestExecuteCommand(t *testing.T) {
 	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		t.Fatalf("NewCommandExecutorFromEnv() error = %v", err)
+	}
 
 	tests := []struct {
 		name       string
@@ -390,7 +394,7 @@ func TestExecuteCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCommand(ctx, tt.command, tt.workingDir)
+			result, err := executor.ExecuteCommand(ctx, tt.command, tt.workingDir)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -412,7 +416,7 @@ func TestExecuteCommand(t *testing.T) {
 func TestExecuteCommand_RequiresMountedSRTSettings(t *testing.T) {
 	t.Setenv(srtSettingsPathEnv, "")
 
-	_, err := ExecuteCommand(context.Background(), "echo hello", t.TempDir())
+	_, err := NewCommandExecutorFromEnv()
 	if err == nil {
 		t.Fatal("expected error when SRT settings path is missing")
 	}
@@ -433,6 +437,10 @@ func TestExecuteCommand_Timeout(t *testing.T) {
 	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		t.Fatalf("NewCommandExecutorFromEnv() error = %v", err)
+	}
 
 	// Test timeout for long-running command
 	// The timeout is 30 seconds for non-python commands
@@ -441,7 +449,7 @@ func TestExecuteCommand_Timeout(t *testing.T) {
 	command := "sleep 31" // This should timeout after 30 seconds
 
 	start := time.Now()
-	result, err := ExecuteCommand(ctx, command, tmpDir)
+	result, err := executor.ExecuteCommand(ctx, command, tmpDir)
 	elapsed := time.Since(start)
 
 	// When a command times out, ExecuteCommand should return an error

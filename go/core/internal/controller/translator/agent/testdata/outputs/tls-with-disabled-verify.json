@@ -58,8 +58,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"tls_agent_with_disabled_verify\",\"description\":\"\",\"url\":\"http://tls-agent-with-disabled-verify.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":true,\"tls_disable_system_cas\":false,\"base_url\":\"https://dev-litellm.local\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a development environment.\",\"stream\":false}",
-        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":true,\"tls_disable_system_cas\":false,\"base_url\":\"https://dev-litellm.local\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a development environment.\",\"stream\":false}"
       }
     },
     {
@@ -128,7 +127,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "867178719638642559"
+              "kagent.dev/config-hash": "10856931762932391451"
             },
             "labels": {
               "app": "kagent",
@@ -174,10 +173,6 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
-                  },
-                  {
-                    "name": "KAGENT_SRT_SETTINGS_PATH",
-                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

@@ -265,6 +265,7 @@ jobs:
           - app
           - cli
           - golang-adk
+          - golang-adk-full
           - skills-init
     runs-on: ubuntu-latest
     services:

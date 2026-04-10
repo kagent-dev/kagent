@@ -54,8 +54,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"bedrock_agent\",\"description\":\"\",\"url\":\"http://bedrock-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"stream\":false}",
-        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
+        "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"stream\":false}"
       }
     },
     {
@@ -124,7 +123,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "10122984659563558181"
+              "kagent.dev/config-hash": "2506162027043564572"
             },
             "labels": {
               "app": "kagent",
@@ -183,10 +182,6 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
-                  },
-                  {
-                    "name": "KAGENT_SRT_SETTINGS_PATH",
-                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

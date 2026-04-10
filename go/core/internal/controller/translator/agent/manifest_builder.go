@@ -165,7 +165,10 @@ func (a *adkApiTranslator) buildConfigSecret(
 		if secretData == nil {
 			secretData = []byte{}
 		}
-		configHash = computeConfigHash([]byte(cfgJSON), []byte(agentCard), append(secretData, []byte(srtSettingsJSON)...))
+		hashData := make([]byte, 0, len(secretData)+len(srtSettingsJSON))
+		hashData = append(hashData, secretData...)
+		hashData = append(hashData, srtSettingsJSON...)
+		configHash = computeConfigHash([]byte(cfgJSON), []byte(agentCard), hashData)
 		volumes = []corev1.Volume{{
 			Name: "config",
 			VolumeSource: corev1.VolumeSource{
@@ -179,16 +182,23 @@ func (a *adkApiTranslator) buildConfigSecret(
 		secret: &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: manifestCtx.objectMeta(),
-			StringData: map[string]string{
-				"config.json":       cfgJSON,
-				"agent-card.json":   agentCard,
-				"srt-settings.json": srtSettingsJSON,
-			},
+			StringData: buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON),
 		},
 		configHash: configHash,
 		volumes:    volumes,
 		mounts:     mounts,
 	}, nil
+}
+
+func buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON string) map[string]string {
+	data := map[string]string{
+		"config.json":     cfgJSON,
+		"agent-card.json": agentCard,
+	}
+	if srtSettingsJSON != "" {
+		data["srt-settings.json"] = srtSettingsJSON
+	}
+	return data
 }
 
 func buildServiceAccount(manifestCtx manifestContext) *corev1.ServiceAccount {
@@ -271,12 +281,16 @@ func buildPodRuntime(
 }
 
 func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxConfig) bool {
-	if sandboxCfg != nil {
+	spec := agent.GetAgentSpec()
+	if spec.Type == v1alpha2.AgentType_BYO {
+		return sandboxCfg != nil
+	}
+	if spec.Skills != nil {
 		return true
 	}
-
-	spec := agent.GetAgentSpec()
-	return spec.Type == v1alpha2.AgentType_Declarative
+	return spec.Declarative != nil &&
+		spec.Declarative.ExecuteCodeBlocks != nil &&
+		*spec.Declarative.ExecuteCodeBlocks
 }
 
 func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {

@@ -303,6 +303,7 @@ Use the script in scripts/convert.py.
 	}
 
 	t.Setenv("KAGENT_SKILLS_FOLDER", skillsDir)
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 
 	tools, err := buildAgentTools(&adk.AgentConfig{}, nil, nil, logr.Discard())
 	if err != nil {
