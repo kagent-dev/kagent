@@ -150,3 +150,43 @@ class TestEmbeddingDispatch:
             mock_cls.return_value = instance
             result = await svc._generate_embedding_async("test")
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_bedrock_embed(self):
+        svc = make_service(provider="bedrock", model="amazon.titan-embed-text-v1")
+        vec = [0.1] * 1536
+        mock_client = mock.MagicMock()
+        mock_client.invoke_model = mock.MagicMock(
+            return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")}
+        )
+
+        with mock.patch("boto3.client", return_value=mock_client):
+            result = await svc._generate_embedding_async("hello world")
+        assert len(result) == 768
+        mock_client.invoke_model.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bedrock_embed_uses_region_from_env(self):
+        svc = make_service(provider="bedrock", model="amazon.titan-embed-text-v1")
+        vec = [0.5] * 1536
+        mock_client = mock.MagicMock()
+        mock_client.invoke_model = mock.MagicMock(
+            return_value={"body": mock.MagicMock(read=lambda: b'{"embedding": ' + str(vec).encode() + b"}")}
+        )
+
+        with (
+            mock.patch.dict("os.environ", {"AWS_REGION": "eu-west-1", "AWS_DEFAULT_REGION": ""}),
+            mock.patch("boto3.client", return_value=mock_client) as mock_boto,
+        ):
+            await svc._generate_embedding_async("test")
+        mock_boto.assert_called_once_with("bedrock-runtime", region_name="eu-west-1")
+
+    @pytest.mark.asyncio
+    async def test_bedrock_embed_error_returns_empty(self):
+        svc = make_service(provider="bedrock", model="amazon.titan-embed-text-v1")
+        mock_client = mock.MagicMock()
+        mock_client.invoke_model = mock.MagicMock(side_effect=Exception("Bedrock API error"))
+
+        with mock.patch("boto3.client", return_value=mock_client):
+            result = await svc._generate_embedding_async("test")
+        assert result == []
