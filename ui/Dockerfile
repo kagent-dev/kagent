@@ -10,7 +10,7 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" npm \
+    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" npm node-gyp \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1

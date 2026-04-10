@@ -385,6 +385,10 @@ type MemoryConfig struct {
 	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
 }
 
+type NetworkConfig struct {
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
+}
+
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
@@ -438,6 +442,7 @@ type AgentConfig struct {
 	ExecuteCode   *bool                 `json:"execute_code,omitempty"`
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
+	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 }
 
@@ -468,6 +473,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		ExecuteCode   *bool                 `json:"execute_code,omitempty"`
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
+		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
@@ -496,6 +502,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.ExecuteCode = tmp.ExecuteCode
 	a.Stream = tmp.Stream
 	a.Memory = memory
+	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
 	return nil
 }

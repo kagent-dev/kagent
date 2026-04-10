@@ -122,17 +122,22 @@ class ADKTokenPropagationPlugin(BasePlugin):
         Add the plugin to an ADK LLM agent by updating its MCP toolset
         Call this once when setting up the agent; do not call it at runtime.
         """
+        agent_name = getattr(agent, "name", "unknown")
+        logger.debug(f"add_to_agent called for agent {agent_name}")
+
         if not isinstance(agent, LlmAgent):
+            logger.debug(f"add_to_agent: agent {agent_name} is not LlmAgent, skipping")
             return
 
         if not agent.tools:
+            logger.debug(f"add_to_agent: agent {agent_name} has no tools, skipping")
             return
 
         for tool in agent.tools:
             if isinstance(tool, McpToolset):
                 mcp_toolset = tool
                 mcp_toolset._header_provider = self.header_provider
-                logger.debug("Updated tool connection params to include access token from STS server")
+                logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
         # access saved token
@@ -140,6 +145,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         if not cache_entry:
             return {}
 
+        logger.debug("Using cached access token for tool invocation")
         return {
             "Authorization": f"Bearer {cache_entry.token}",
         }

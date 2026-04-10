@@ -55,7 +55,6 @@ TROUBLESHOOTING:
   - Check pod status: kubectl -n {{ include "kagent.namespace" . }} get pods
   - View events: kubectl -n {{ include "kagent.namespace" . }} get events --sort-by='.lastTimestamp'
   - Controller logs: kubectl -n {{ include "kagent.namespace" . }} logs -l app.kubernetes.io/component=controller -f
-
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 

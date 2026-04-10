@@ -252,6 +252,10 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class NetworkConfig(BaseModel):
+    allowed_domains: list[str] = Field(default_factory=list)
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -262,6 +266,7 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
+    network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
