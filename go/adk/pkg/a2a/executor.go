@@ -2,9 +2,11 @@ package a2a
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -13,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	adkapi "github.com/kagent-dev/kagent/go/api/adk"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
@@ -34,6 +37,7 @@ type KAgentExecutorConfig struct {
 	AppName            string
 	SkillsDirectory    string
 	Logger             logr.Logger
+	RetryPolicy        *adkapi.RetryPolicyConfig
 }
 
 // KAgentExecutor implements a2asrv.AgentExecutor
@@ -45,6 +49,7 @@ type KAgentExecutor struct {
 	appName            string
 	skillsDirectory    string
 	logger             logr.Logger
+	retryPolicy        *adkapi.RetryPolicyConfig
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -66,6 +71,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		appName:            cfg.AppName,
 		skillsDirectory:    skillsDir,
 		logger:             cfg.Logger.WithName("kagent-executor"),
+		retryPolicy:        cfg.RetryPolicy,
 	}
 }
 
@@ -97,10 +103,65 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	return ctx, nil
 }
 
+// computeRetryDelay calculates the delay for a retry attempt using exponential backoff.
+func computeRetryDelay(attempt int, policy *adkapi.RetryPolicyConfig) time.Duration {
+	delay := policy.InitialRetryDelay * float64(int(1)<<attempt)
+	if policy.MaxRetryDelay != nil && delay > *policy.MaxRetryDelay {
+		delay = *policy.MaxRetryDelay
+	}
+	return time.Duration(delay * float64(time.Second))
+}
+
+// executeWithRetry runs fn with optional retry on failure.
+// If policy is nil or MaxRetries is 0, fn is called once.
+// Context cancellation is never retried.
+func executeWithRetry(ctx context.Context, policy *adkapi.RetryPolicyConfig, fn func(ctx context.Context) error) error {
+	maxAttempts := 1
+	if policy != nil {
+		maxAttempts += policy.MaxRetries
+	}
+
+	var lastErr error
+	for attempt := range maxAttempts {
+		lastErr = fn(ctx)
+		if lastErr == nil {
+			return nil
+		}
+
+		// Never retry context cancellation
+		if ctx.Err() != nil || errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+			return lastErr
+		}
+
+		if attempt+1 < maxAttempts {
+			delay := computeRetryDelay(attempt, policy)
+			logr.FromContextOrDiscard(ctx).Info("Request failed, retrying",
+				"attempt", attempt+1,
+				"maxAttempts", maxAttempts,
+				"delay", delay,
+				"error", lastErr,
+			)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return lastErr
+}
+
 // Execute implements a2asrv.AgentExecutor.
+func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+	return executeWithRetry(ctx, e.retryPolicy, func(ctx context.Context) error {
+		return e.executeOnce(ctx, reqCtx, queue)
+	})
+}
+
+// executeOnce performs a single attempt at handling an A2A request.
 // It follows the Python _handle_request pattern: set up session, handle HITL,
 // convert inbound message, run the agent loop, and emit A2A events.
-func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
+func (e *KAgentExecutor) executeOnce(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
 	if reqCtx.Message == nil {
 		return fmt.Errorf("A2A request message cannot be nil")
 	}

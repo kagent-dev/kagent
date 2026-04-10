@@ -138,9 +138,10 @@ class KAgentApp:
         if not local and http_client is not None:
             task_store = KAgentTaskStore(http_client)
 
+        retry_policy = self.agent_config.retry_policy if self.agent_config else None
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
-            config=A2aAgentExecutorConfig(stream=self.stream),
+            config=A2aAgentExecutorConfig(stream=self.stream, retry_policy=retry_policy),
             task_store=task_store,
         )
 

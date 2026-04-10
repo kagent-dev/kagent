@@ -427,6 +427,13 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// RetryPolicyConfig configures retry behavior for agent request executions.
+type RetryPolicyConfig struct {
+	MaxRetries        int      `json:"max_retries"`
+	InitialRetryDelay float64  `json:"initial_retry_delay_seconds"`
+	MaxRetryDelay     *float64 `json:"max_retry_delay_seconds,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -439,6 +446,7 @@ type AgentConfig struct {
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	RetryPolicy   *RetryPolicyConfig    `json:"retry_policy,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -469,6 +477,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		RetryPolicy   *RetryPolicyConfig    `json:"retry_policy,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -497,6 +506,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.ContextConfig = tmp.ContextConfig
+	a.RetryPolicy = tmp.RetryPolicy
 	return nil
 }
 
