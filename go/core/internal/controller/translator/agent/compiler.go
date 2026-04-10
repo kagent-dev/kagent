@@ -14,6 +14,7 @@ import (
 // AgentManifestInputs holds the translated data needed to emit Kubernetes resources.
 type AgentManifestInputs struct {
 	Config          *adk.AgentConfig
+	Sandbox         *v1alpha2.SandboxConfig
 	Deployment      *resolvedDeployment
 	AgentCard       *server.AgentCard
 	SecretHashBytes []byte
@@ -101,6 +102,7 @@ func (a *adkApiTranslator) CompileAgent(
 
 	return &AgentManifestInputs{
 		Config:          cfg,
+		Sandbox:         spec.Sandbox,
 		Deployment:      dep,
 		AgentCard:       card,
 		SecretHashBytes: secretHashBytes,
@@ -172,6 +174,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		Model:       model,
 		ExecuteCode: spec.Declarative.ExecuteCodeBlocks,
 		Stream:      new(spec.Declarative.Stream),
+	}
+
+	if spec.Sandbox != nil && spec.Sandbox.Network != nil {
+		cfg.Network = &adk.NetworkConfig{
+			AllowedDomains: append([]string(nil), spec.Sandbox.Network.AllowedDomains...),
+		}
 	}
 
 	// Translate context management configuration

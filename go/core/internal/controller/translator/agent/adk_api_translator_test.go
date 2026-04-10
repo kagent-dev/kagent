@@ -1257,6 +1257,22 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 				assert.Equal(t, adk.ModelTypeOpenAI, cfg.ContextConfig.Compaction.SummarizerModel.GetType())
 			},
 		},
+		{
+			name: "network allowlist",
+			agent: func() *v1alpha2.Agent {
+				agent := makeAgent(nil)
+				agent.Spec.Sandbox = &v1alpha2.SandboxConfig{
+					Network: &v1alpha2.NetworkConfig{
+						AllowedDomains: []string{"api.example.com", "*.example.org"},
+					},
+				}
+				return agent
+			}(),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.Network)
+				assert.Equal(t, []string{"api.example.com", "*.example.org"}, cfg.Network.AllowedDomains)
+			},
+		},
 	}
 
 	for _, tt := range tests {
