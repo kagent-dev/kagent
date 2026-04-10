@@ -84,6 +84,7 @@ metadata:
   namespace: kagent
 spec:
   type: Declarative
-  modelConfigRef: gdc-gemini
   description: "A general-purpose assistant running on GDC Gemini"
-  systemPrompt: "You are a helpful assistant."
+  declarative:
+    modelConfig: gdc-gemini
+    systemMessage: "You are a helpful assistant."
