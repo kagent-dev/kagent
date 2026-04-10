@@ -5,9 +5,11 @@ This module provides a standalone EmbeddingClient that supports multiple provide
 - azure_openai: Azure OpenAI embeddings
 - ollama: Ollama local embeddings
 - gemini/vertex_ai: Google Gemini/Vertex AI embeddings
+- bedrock: AWS Bedrock Titan Embedding API
 """
 
 import asyncio
+import json
 import logging
 import os
 from typing import Any, List, Union
@@ -86,6 +88,8 @@ class KAgentEmbedding:
             return await self._embed_ollama(texts)
         if provider in ("vertex_ai", "gemini"):
             return await self._embed_google(texts)
+        if provider == "bedrock":
+            return await self._embed_bedrock(texts)
 
         # Unknown provider - try OpenAI-compatible as a fallback
         logger.warning(
@@ -194,3 +198,33 @@ class KAgentEmbedding:
             config=genai_types.EmbedContentConfig(output_dimensionality=self.TARGET_DIMENSION),
         )
         return [list(emb.values) for emb in response.embeddings]
+
+    async def _embed_bedrock(
+        self,
+        texts: List[str],
+    ) -> List[List[float]]:
+        """Embed using the AWS Bedrock Titan Embedding API via boto3.
+
+        Uses the same credential chain (env vars, IRSA, instance profile) as
+        KAgentBedrockLlm.  Each text is embedded individually because the
+        Titan Embedding API accepts a single ``inputText`` per invocation.
+        """
+        import boto3
+
+        region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
+        client = boto3.client("bedrock-runtime", region_name=region)
+
+        async def _invoke_single(text: str) -> List[float]:
+            body = json.dumps({"inputText": text})
+            response = await asyncio.to_thread(
+                client.invoke_model,
+                modelId=self.config.model,
+                body=body,
+                contentType="application/json",
+                accept="application/json",
+            )
+            result = json.loads(response["body"].read())
+            return result["embedding"]
+
+        embeddings = await asyncio.gather(*[_invoke_single(t) for t in texts])
+        return list(embeddings)

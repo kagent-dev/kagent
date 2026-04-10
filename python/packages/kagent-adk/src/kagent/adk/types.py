@@ -19,11 +19,10 @@ from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._ollama import create_ollama_llm
+from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
+from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
-
-from .models import AzureOpenAI as OpenAIAzure
-from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
 
