@@ -22,7 +22,13 @@ func setupScheme() *runtime.Scheme {
 		&v1alpha2.ModelConfigList{},
 	)
 
+	s.AddKnownTypes(v1alpha2.GroupVersion,
+		&v1alpha2.SandboxAgent{},
+		&v1alpha2.SandboxAgentList{},
+	)
+
 	metav1.AddToGroupVersion(s, schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"})
+	metav1.AddToGroupVersion(s, v1alpha2.GroupVersion)
 
 	return s
 }

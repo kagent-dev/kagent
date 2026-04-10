@@ -6,6 +6,8 @@ import (
 	"dario.cat/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -57,6 +59,11 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 			dpl := existing.(*appsv1.Deployment)
 			wantDpl := desired.(*appsv1.Deployment)
 			return mutateDeployment(dpl, wantDpl)
+
+		case *agentsandboxv1.Sandbox:
+			sb := existing.(*agentsandboxv1.Sandbox)
+			want := desired.(*agentsandboxv1.Sandbox)
+			mutateSandbox(sb, want)
 
 		default:
 			return mergeWithOverride(existing, desired)
@@ -118,4 +125,11 @@ func mutatePodTemplate(existing, desired *corev1.PodTemplateSpec) error {
 	existing.Spec = desired.Spec
 
 	return nil
+}
+
+// mutateSandbox replaces the spec wholesale. The default mergo path does not reliably replace
+// slice fields (containers, volumes, env), so SandboxAgent updates would not roll pods until we
+// assign spec explicitly (same idea as mutatePodTemplate / Deployment).
+func mutateSandbox(existing, desired *agentsandboxv1.Sandbox) {
+	existing.Spec = desired.Spec
 }

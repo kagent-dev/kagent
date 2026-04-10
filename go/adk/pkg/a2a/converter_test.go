@@ -125,6 +125,7 @@ func TestMessageToGenAIContent_TextPart(t *testing.T) {
 	}
 	if content == nil {
 		t.Fatal("expected non-nil content")
+		return
 	}
 	if len(content.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(content.Parts))

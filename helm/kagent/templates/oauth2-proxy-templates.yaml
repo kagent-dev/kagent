@@ -1,0 +1,19 @@
+{{- if index .Values "oauth2-proxy" "enabled" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kagent-oauth2-proxy-templates
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+data:
+  sign_in.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta http-equiv="refresh" content="0;url=/login">
+      <script>window.location.href = "/login";</script>
+    </head>
+    <body>Redirecting to login...</body>
+    </html>
+{{- end }}

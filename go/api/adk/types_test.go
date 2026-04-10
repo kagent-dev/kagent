@@ -247,6 +247,40 @@ func TestMarshalJSON_TypeSpecificFields(t *testing.T) {
 	})
 }
 
+func TestAgentConfig_UnmarshalJSON_Network(t *testing.T) {
+	configJSON := `{
+		"model": {
+			"type": "openai",
+			"model": "gpt-4o"
+		},
+		"description": "test agent",
+		"instruction": "you are helpful",
+		"network": {
+			"allowed_domains": ["api.example.com", "*.example.org"]
+		}
+	}`
+
+	var cfg AgentConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	if cfg.Network == nil {
+		t.Fatal("network config is nil")
+	}
+
+	if len(cfg.Network.AllowedDomains) != 2 {
+		t.Fatalf("allowed domains len = %d, want 2", len(cfg.Network.AllowedDomains))
+	}
+
+	if cfg.Network.AllowedDomains[0] != "api.example.com" {
+		t.Errorf("allowed_domains[0] = %q, want %q", cfg.Network.AllowedDomains[0], "api.example.com")
+	}
+	if cfg.Network.AllowedDomains[1] != "*.example.org" {
+		t.Errorf("allowed_domains[1] = %q, want %q", cfg.Network.AllowedDomains[1], "*.example.org")
+	}
+}
+
 func TestParseModel_Roundtrip(t *testing.T) {
 	tests := []struct {
 		name     string

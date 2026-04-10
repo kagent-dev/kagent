@@ -21,6 +21,7 @@ jobs:
           - ui
           - app
           - golang-adk
+          - golang-adk-full
           - skills-init
     runs-on: ubuntu-latest
     permissions:
@@ -95,7 +96,7 @@ jobs:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@main
     - name: Install uv
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@v7
     - name: 'Release Python Packages'
       working-directory: python
       run: |

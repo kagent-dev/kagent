@@ -12,6 +12,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 )
@@ -59,11 +60,13 @@ type remoteA2AState struct {
 //   - the initial A2A context/session ID for subagent session stamping
 //
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
-// If httpClient is nil, http.DefaultClient is used.
+// If httpClient is nil, a default client is created. The client's transport is
+// wrapped with otelhttp to propagate W3C trace context to subagents.
 func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string) (tool.Tool, string, error) {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{}
 	}
+	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
 		name:          name,
 		description:   description,
@@ -352,6 +355,19 @@ func buildDecisionData(confirmed bool, payload a2a.HitlConfirmationPayload) map[
 		}
 		return data
 	}
+}
+
+// withOTelTransport returns a shallow copy of the client whose transport is
+// wrapped with otelhttp. This injects W3C traceparent/tracestate headers on
+// outbound requests so subagent spans are linked to the parent trace.
+func withOTelTransport(c *http.Client) *http.Client {
+	cp := *c
+	transport := cp.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	cp.Transport = otelhttp.NewTransport(transport)
+	return &cp
 }
 
 // extractUsageFromTask extracts kagent_usage_metadata from a completed task.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
@@ -48,6 +49,7 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 		if modelName == "" || modelName == "anthropic" {
 			modelName = "claude-sonnet-4-20250514"
 		}
+		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		// Build request parameters
 		params := anthropic.MessageNewParams{
@@ -352,13 +354,15 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 			CandidatesTokenCount: int32(outputTokens),
 		}
 	}
-	_ = yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(stopReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	_ = yield(resp, nil)
 }
 
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -398,11 +402,13 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 		}
 	}
 
-	yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(message.StopReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	yield(resp, nil)
 }
