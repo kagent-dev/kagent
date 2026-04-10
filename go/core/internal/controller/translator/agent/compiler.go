@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -244,6 +245,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 	}
 
+	// Translate retry policy configuration
+	if spec.Declarative.RetryPolicy != nil {
+		retryPolicy, err := translateRetryPolicy(spec.Declarative.RetryPolicy)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to translate retry policy: %w", err)
+		}
+		cfg.RetryPolicy = retryPolicy
+	}
+
 	for _, tool := range spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.GetNamespace())
 		if err != nil {
@@ -325,4 +335,35 @@ func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent v1
 		return spec.Declarative.SystemMessage, nil
 	}
 	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
+}
+
+func translateRetryPolicy(spec *v1alpha2.RetryPolicySpec) (*adk.RetryPolicyConfig, error) {
+	if spec == nil {
+		return nil, nil
+	}
+
+	cfg := &adk.RetryPolicyConfig{}
+
+	if spec.MaxRetries != nil {
+		cfg.MaxRetries = *spec.MaxRetries
+	}
+
+	if spec.InitialRetryDelay != nil {
+		d, err := time.ParseDuration(*spec.InitialRetryDelay)
+		if err != nil {
+			return nil, fmt.Errorf("invalid initialRetryDelay %q: %w", *spec.InitialRetryDelay, err)
+		}
+		cfg.InitialRetryDelay = d.Seconds()
+	}
+
+	if spec.MaxRetryDelay != nil {
+		d, err := time.ParseDuration(*spec.MaxRetryDelay)
+		if err != nil {
+			return nil, fmt.Errorf("invalid maxRetryDelay %q: %w", *spec.MaxRetryDelay, err)
+		}
+		secs := d.Seconds()
+		cfg.MaxRetryDelay = &secs
+	}
+
+	return cfg, nil
 }

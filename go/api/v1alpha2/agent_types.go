@@ -209,6 +209,11 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// RetryPolicy configures retry behavior for failed agent request executions.
+	// When set, failed requests are retried with exponential backoff.
+	// +optional
+	RetryPolicy *RetryPolicySpec `json:"retryPolicy,omitempty"`
 }
 
 // SandboxConfig configures sandboxed execution behavior.
@@ -273,6 +278,21 @@ type ContextSummarizerConfig struct {
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
 	PromptTemplate *string `json:"promptTemplate,omitempty"`
+}
+
+// RetryPolicySpec configures retry behavior for failed agent request executions.
+// When set, failed requests are retried with exponential backoff.
+type RetryPolicySpec struct {
+	// Maximum number of retry attempts. 0 means no retries.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=0
+	MaxRetries *int `json:"maxRetries,omitempty"`
+	// Initial delay between retries. Uses Go duration format (e.g., "1s", "500ms").
+	// +kubebuilder:default="1s"
+	InitialRetryDelay *string `json:"initialRetryDelay,omitempty"`
+	// Maximum delay between retries (caps exponential growth). Optional.
+	// +optional
+	MaxRetryDelay *string `json:"maxRetryDelay,omitempty"`
 }
 
 // PromptTemplateSpec configures prompt template processing for an agent's system message.

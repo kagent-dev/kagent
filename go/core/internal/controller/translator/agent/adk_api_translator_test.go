@@ -1306,6 +1306,128 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 	}
 }
 
+func Test_AdkApiTranslator_RetryPolicy(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	makeAgent := func(retryPolicy *v1alpha2.RetryPolicySpec) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a test agent",
+					ModelConfig:   "test-model",
+					RetryPolicy:   retryPolicy,
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		agent        *v1alpha2.Agent
+		wantErr      bool
+		errContains  string
+		assertConfig func(t *testing.T, cfg *adk.AgentConfig)
+	}{
+		{
+			name:  "no retry policy",
+			agent: makeAgent(nil),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				assert.Nil(t, cfg.RetryPolicy)
+			},
+		},
+		{
+			name: "basic retry policy",
+			agent: makeAgent(&v1alpha2.RetryPolicySpec{
+				MaxRetries:        new(3),
+				InitialRetryDelay: new("1s"),
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.RetryPolicy)
+				assert.Equal(t, 3, cfg.RetryPolicy.MaxRetries)
+				assert.Equal(t, 1.0, cfg.RetryPolicy.InitialRetryDelay)
+				assert.Nil(t, cfg.RetryPolicy.MaxRetryDelay)
+			},
+		},
+		{
+			name: "retry policy with max delay",
+			agent: makeAgent(&v1alpha2.RetryPolicySpec{
+				MaxRetries:        new(5),
+				InitialRetryDelay: new("500ms"),
+				MaxRetryDelay:     new("30s"),
+			}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.RetryPolicy)
+				assert.Equal(t, 5, cfg.RetryPolicy.MaxRetries)
+				assert.Equal(t, 0.5, cfg.RetryPolicy.InitialRetryDelay)
+				require.NotNil(t, cfg.RetryPolicy.MaxRetryDelay)
+				assert.Equal(t, 30.0, *cfg.RetryPolicy.MaxRetryDelay)
+			},
+		},
+		{
+			name: "invalid initial retry delay",
+			agent: makeAgent(&v1alpha2.RetryPolicySpec{
+				MaxRetries:        new(3),
+				InitialRetryDelay: new("not-a-duration"),
+			}),
+			wantErr:     true,
+			errContains: "invalid initialRetryDelay",
+		},
+		{
+			name: "invalid max retry delay",
+			agent: makeAgent(&v1alpha2.RetryPolicySpec{
+				MaxRetries:        new(3),
+				InitialRetryDelay: new("1s"),
+				MaxRetryDelay:     new("bad"),
+			}),
+			wantErr:     true,
+			errContains: "invalid maxRetryDelay",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig.DeepCopy()).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+			if tt.assertConfig != nil {
+				tt.assertConfig(t, outputs.Config)
+			}
+		})
+	}
+}
+
 func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
