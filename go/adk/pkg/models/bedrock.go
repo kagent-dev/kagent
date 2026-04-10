@@ -447,13 +447,13 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 			}
 
 			// Build input schema as JSON document
-			properties := make(map[string]interface{})
+			properties := make(map[string]any)
 			if decl.Parameters != nil {
 				for name, schema := range decl.Parameters.Properties {
 					if schema == nil {
 						continue
 					}
-					prop := map[string]interface{}{
+					prop := map[string]any{
 						"type": string(schema.Type),
 					}
 					if schema.Description != "" {
@@ -466,14 +466,14 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 				}
 			}
 
-			var required []interface{}
+			var required []any
 			if decl.Parameters != nil {
 				for _, r := range decl.Parameters.Required {
 					required = append(required, r)
 				}
 			}
 
-			schema := map[string]interface{}{
+			schema := map[string]any{
 				"type":       "object",
 				"properties": properties,
 			}

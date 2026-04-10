@@ -31,7 +31,6 @@ type AnthropicModel struct {
 	Logger logr.Logger
 }
 
-
 // NewAnthropicModelWithLogger creates a new Anthropic model instance with a logger
 func NewAnthropicModelWithLogger(config *AnthropicConfig, logger logr.Logger) (*AnthropicModel, error) {
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport

@@ -138,13 +138,17 @@ func TestOllamaConfigDefaults(t *testing.T) {
 		},
 	}
 
-	// Check that config is valid
 	if config.Model != "llama3.2" {
 		t.Errorf("expected model 'llama3.2', got %s", config.Model)
 	}
 
-	// Check that empty Host will be filled from env in NewOllamaModelWithLogger
 	if config.Host != "" {
 		t.Errorf("expected empty host, got %s", config.Host)
+	}
+
+	// Verify options are preserved and convertible
+	converted := convertOllamaOptions(config.Options)
+	if v, ok := converted["temperature"].(float64); !ok || v != 0.8 {
+		t.Errorf("expected temperature 0.8, got %v", converted["temperature"])
 	}
 }

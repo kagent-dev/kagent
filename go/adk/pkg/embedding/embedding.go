@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/go-logr/logr"
@@ -364,10 +365,10 @@ func (c *Client) generateBedrock(ctx context.Context, texts []string) ([][]float
 		}
 
 		output, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
-			ModelId:     &c.config.Model,
+			ModelId:     aws.String(c.config.Model),
 			Body:        reqBody,
-			ContentType: strPtr("application/json"),
-			Accept:      strPtr("application/json"),
+			ContentType: aws.String("application/json"),
+			Accept:      aws.String("application/json"),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to invoke Bedrock model for text %d: %w", i, err)
@@ -393,8 +394,6 @@ func (c *Client) generateBedrock(ctx context.Context, texts []string) ([][]float
 	log.Info("Successfully generated embeddings with Bedrock", "count", len(embeddings))
 	return embeddings, nil
 }
-
-func strPtr(s string) *string { return &s }
 
 type bedrockEmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`

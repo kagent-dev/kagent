@@ -10,7 +10,7 @@ const defaultTimeout = 30 * time.Minute
 
 // TransportConfig holds TLS, passthrough, and header settings shared by all model providers.
 type TransportConfig struct {
-	Headers           map[string]string
+	Headers               map[string]string
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
