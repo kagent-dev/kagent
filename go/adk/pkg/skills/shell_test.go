@@ -17,6 +17,26 @@ func createTempDir(t *testing.T) string {
 	return tmpDir
 }
 
+func installFakeSRT(t *testing.T) string {
+	t.Helper()
+
+	tmpDir := createTempDir(t)
+	scriptPath := filepath.Join(tmpDir, "srt")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--settings\" ]; then\n  shift 2\nfi\nexec \"$@\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("Failed to write fake srt: %v", err)
+	}
+
+	settingsPath := filepath.Join(tmpDir, "srt-settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":[],"allowWrite":[".","/tmp"],"denyWrite":[]}}`), 0644); err != nil {
+		t.Fatalf("Failed to write fake srt settings: %v", err)
+	}
+
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(srtSettingsPathEnv, settingsPath)
+	return tmpDir
+}
+
 func TestReadFileContent(t *testing.T) {
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
@@ -287,6 +307,7 @@ func TestEditFileContent(t *testing.T) {
 func TestExecuteCommand(t *testing.T) {
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
 
@@ -388,6 +409,18 @@ func TestExecuteCommand(t *testing.T) {
 	}
 }
 
+func TestExecuteCommand_RequiresMountedSRTSettings(t *testing.T) {
+	t.Setenv(srtSettingsPathEnv, "")
+
+	_, err := ExecuteCommand(context.Background(), "echo hello", t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when SRT settings path is missing")
+	}
+	if !strings.Contains(err.Error(), srtSettingsPathEnv+" is not set") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestExecuteCommand_Timeout(t *testing.T) {
 	// Skip this test if running in CI or if test timeout is too short
 	// This test requires at least 35 seconds to run properly
@@ -397,6 +430,7 @@ func TestExecuteCommand_Timeout(t *testing.T) {
 
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
 

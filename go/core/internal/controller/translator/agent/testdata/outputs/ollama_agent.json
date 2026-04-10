@@ -61,7 +61,8 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"ollama\",\"model\":\"llama3.2:latest\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"}},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"ollama\",\"model\":\"llama3.2:latest\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"}},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"stream\":false}",
+        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
       }
     },
     {
@@ -130,7 +131,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "6821530982436445347"
+              "kagent.dev/config-hash": "10052615773555340980"
             },
             "labels": {
               "app": "kagent",
@@ -171,6 +172,10 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SRT_SETTINGS_PATH",
+                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

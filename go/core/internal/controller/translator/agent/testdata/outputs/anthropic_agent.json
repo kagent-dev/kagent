@@ -53,7 +53,8 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}",
+        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
       }
     },
     {
@@ -122,7 +123,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "528889185235999010"
+              "kagent.dev/config-hash": "6018576071495086339"
             },
             "labels": {
               "app": "kagent",
@@ -168,6 +169,10 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SRT_SETTINGS_PATH",
+                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

@@ -1,0 +1,92 @@
+{
+  "openai": [
+    {
+      "name": "initial_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "check the controller health with bash",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_1",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"python - <<'PY'\\nimport os\\nimport urllib.request\\nurl = os.environ['KAGENT_URL'] + '/health'\\ntry:\\n    print(urllib.request.urlopen(url, timeout=5).read().decode().strip())\\nexcept Exception:\\n    print('NETWORK_DENIED')\\nPY\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bash_response_denied",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "NETWORK_DENIED",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "NETWORK_DENIED"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bash_response_allowed",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "\"status\":\"OK\"",
+          "role": "tool",
+          "tool_call_id": "call_1"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-3",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "controller health is ok"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

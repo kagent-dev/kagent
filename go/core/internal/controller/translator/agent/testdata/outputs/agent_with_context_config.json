@@ -72,7 +72,8 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_context\",\"description\":\"Agent with context management\",\"url\":\"http://agent-with-context.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"Agent with context management\",\"instruction\":\"You are a helpful assistant with context management enabled.\",\"stream\":false,\"context_config\":{\"compaction\":{\"compaction_interval\":5,\"overlap_size\":2,\"summarizer_model\":{\"type\":\"anthropic\",\"model\":\"claude-3-haiku\"},\"prompt_template\":\"Summarize the following conversation events concisely.\",\"token_threshold\":50000,\"event_retention_size\":10}}}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"Agent with context management\",\"instruction\":\"You are a helpful assistant with context management enabled.\",\"stream\":false,\"context_config\":{\"compaction\":{\"compaction_interval\":5,\"overlap_size\":2,\"summarizer_model\":{\"type\":\"anthropic\",\"model\":\"claude-3-haiku\"},\"prompt_template\":\"Summarize the following conversation events concisely.\",\"token_threshold\":50000,\"event_retention_size\":10}}}",
+        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
       }
     },
     {
@@ -141,7 +142,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "542503096430191840"
+              "kagent.dev/config-hash": "17001509985287842910"
             },
             "labels": {
               "app": "kagent",
@@ -196,6 +197,10 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SRT_SETTINGS_PATH",
+                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

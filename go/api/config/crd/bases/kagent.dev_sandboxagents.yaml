@@ -7816,6 +7816,26 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              sandbox:
+                description: |-
+                  Sandbox configures sandboxed execution behavior shared across runtimes.
+                  This is intended for sandboxed declarative execution today, and can also
+                  be consumed by BYO agents.
+                properties:
+                  network:
+                    description: |-
+                      Network configures outbound network access for sandboxed execution paths.
+                      When unset or when allowedDomains is empty, outbound access is denied by default.
+                    properties:
+                      allowedDomains:
+                        description: |-
+                          AllowedDomains lists the domains that sandboxed execution may contact.
+                          Wildcards such as *.example.com are supported by the sandbox runtime.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
               skills:
                 description: |-
                   Skills to load into the agent. They will be pulled from the specified container images.

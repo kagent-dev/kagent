@@ -59,7 +59,8 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"tls_agent_with_system_cas_disabled\",\"description\":\"\",\"url\":\"http://tls-agent-with-system-cas-disabled.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/ca.crt\",\"tls_disable_system_cas\":true,\"base_url\":\"https://corp-llm-gateway.internal\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a corporate environment.\",\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/ca.crt\",\"tls_disable_system_cas\":true,\"base_url\":\"https://corp-llm-gateway.internal\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a corporate environment.\",\"stream\":false}",
+        "srt-settings.json": "{\"filesystem\":{\"allowWrite\":[\".\",\"/tmp\"],\"denyRead\":[],\"denyWrite\":[]},\"network\":{\"allowedDomains\":[],\"deniedDomains\":[]}}"
       }
     },
     {
@@ -128,7 +129,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "17859960310914938650"
+              "kagent.dev/config-hash": "9057820533302539142"
             },
             "labels": {
               "app": "kagent",
@@ -174,6 +175,10 @@
                   {
                     "name": "KAGENT_URL",
                     "value": "http://kagent-controller.kagent:8083"
+                  },
+                  {
+                    "name": "KAGENT_SRT_SETTINGS_PATH",
+                    "value": "/config/srt-settings.json"
                   }
                 ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",

@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const srtSettingsPathEnv = "KAGENT_SRT_SETTINGS_PATH"
+
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
 	file, err := os.Open(path)
@@ -102,6 +104,14 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	return os.WriteFile(path, []byte(newContent), 0644)
 }
 
+func getSRTSettingsArgs() ([]string, error) {
+	settingsPath := strings.TrimSpace(os.Getenv(srtSettingsPathEnv))
+	if settingsPath == "" {
+		return nil, fmt.Errorf("%s is not set", srtSettingsPathEnv)
+	}
+	return []string{"--settings", settingsPath}, nil
+}
+
 // ExecuteCommand executes a shell command.
 func ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	timeout := 30 * time.Second
@@ -112,16 +122,20 @@ func ExecuteCommand(ctx context.Context, command string, workingDir string) (str
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// In the python version, it uses 'srt' for sandboxing.
-	// Here we'll execute the command directly but you might want to wrap it in a sandbox.
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	srtArgs, err := getSRTSettingsArgs()
+	if err != nil {
+		return "", err
+	}
+
+	args := append(srtArgs, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "srt", args...)
 	cmd.Dir = workingDir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("command timed out after %v", timeout)
 	}

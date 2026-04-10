@@ -22,6 +22,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	e2emocks "github.com/kagent-dev/kagent/go/core/test/e2e/mocks"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/kagent-dev/mockllm"
@@ -159,6 +160,7 @@ type AgentOptions struct {
 	Stream         bool
 	Env            []corev1.EnvVar
 	Skills         *v1alpha2.SkillForAgent
+	Sandbox        *v1alpha2.SandboxConfig
 	ExecuteCode    *bool
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
@@ -496,6 +498,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if opts.Memory != nil {
 		agent.Spec.Declarative.Memory = opts.Memory
+	}
+
+	if opts.Sandbox != nil {
+		agent.Spec.Sandbox = opts.Sandbox
 	}
 
 	if opts.PromptTemplate != nil {
@@ -1140,6 +1146,45 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
 }
 
+func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill_network.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
+
+	t.Run("deny_by_default", func(t *testing.T) {
+		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Skills: &v1alpha2.SkillForAgent{
+				InsecureSkipVerify: true,
+				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+			},
+		})
+
+		a2aClient := setupA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "NETWORK_DENIED", nil)
+	})
+
+	t.Run("allowlist_enables_access", func(t *testing.T) {
+		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Skills: &v1alpha2.SkillForAgent{
+				InsecureSkipVerify: true,
+				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+			},
+			Sandbox: &v1alpha2.SandboxConfig{
+				Network: &v1alpha2.NetworkConfig{
+					AllowedDomains: []string{controllerHost},
+				},
+			},
+		})
+
+		a2aClient := setupA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "controller health is ok", nil)
+	})
+}
+
 func TestE2EInvokePassthroughAgent(t *testing.T) {
 	// Setup mock server with header matching — the mock only responds
 	// if the Authorization header contains our passthrough token.
@@ -1411,6 +1456,38 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 
 	// Run tests
 	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
+}
+
+func TestE2ESandboxAgentNetworkAllowlistWithExecuteCode(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/run_code_network.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
+
+	t.Run("deny_by_default", func(t *testing.T) {
+		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			ExecuteCode: new(true),
+		})
+
+		a2aClient := setupSandboxA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health in python", "NETWORK_DENIED", nil)
+	})
+
+	t.Run("allowlist_enables_access", func(t *testing.T) {
+		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			ExecuteCode: new(true),
+			Sandbox: &v1alpha2.SandboxConfig{
+				Network: &v1alpha2.NetworkConfig{
+					AllowedDomains: []string{controllerHost},
+				},
+			},
+		})
+
+		a2aClient := setupSandboxA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health in python", "controller health is ok", nil)
+	})
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
