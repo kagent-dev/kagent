@@ -1,3 +1,4 @@
+import os
 import json
 import shutil
 import tempfile
@@ -15,7 +16,7 @@ from kagent.skills import (
     read_file_content,
     write_file_content,
 )
-from kagent.skills.shell import _sanitize_env
+from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
 
 
 @pytest.fixture
@@ -104,10 +105,29 @@ async def test_skill_core_logic(skill_test_env: Path):
     input_csv_path = session_dir / "uploads" / "data.csv"
     input_csv_path.write_text("id,name\n1,Alice\n2,Bob\n")
 
+    fake_bin_dir = session_dir.parent / "bin"
+    fake_bin_dir.mkdir()
+    fake_srt = fake_bin_dir / "srt"
+    fake_srt.write_text('#!/bin/sh\nif [ "$1" = "--settings" ]; then\n  shift 2\nfi\nexec "$@"\n')
+    fake_srt.chmod(0o755)
+
+    settings_path = session_dir.parent / "srt-settings.json"
+    settings_path.write_text(
+        '{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":[],"allowWrite":[".","/tmp"],"denyWrite":[]}}'
+    )
+
     # 2. Execute the skill's core command, just as an agent would
     # We use the centralized `execute_command` function directly
     command = "python skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
-    result = await execute_command(command, working_dir=session_dir, skills_dir=Path("/skills"))
+    with patch.dict(
+        "os.environ",
+        {
+            "KAGENT_SRT_SETTINGS_PATH": str(settings_path),
+            "PATH": f"{fake_bin_dir}:{os.environ.get('PATH', '')}",
+        },
+        clear=False,
+    ):
+        result = await execute_command(command, working_dir=session_dir, skills_dir=Path("/skills"))
 
     assert "Successfully converted" in result
 
@@ -144,6 +164,7 @@ async def test_execute_command_no_shell_injection(tmp_path):
     injection_payload = 'ls"; cat /etc/passwd; echo "pwned'
 
     with (
+        patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json"}, clear=False),
         patch("asyncio.create_subprocess_shell") as mock_shell,
         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
     ):
@@ -156,9 +177,25 @@ async def test_execute_command_no_shell_injection(tmp_path):
     args = captured["args"]
     # The first argument should still be the sandbox runner.
     assert args[0] == "srt"
+    assert args[1] == "--settings"
     # The injection payload must appear exactly once as its own argument.
     assert injection_payload in args
     assert list(args).count(injection_payload) == 1
+
+
+def test_get_srt_settings_args_uses_mounted_path():
+    """Mounted srt settings should be used when the env var is present."""
+    with patch.dict("os.environ", {"KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json"}, clear=True):
+        args = _get_srt_settings_args()
+
+    assert args == ["--settings", "/config/srt-settings.json"]
+
+
+def test_get_srt_settings_args_requires_mounted_path():
+    """Sandbox execution should require the mounted settings path."""
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="KAGENT_SRT_SETTINGS_PATH is not set"):
+            _get_srt_settings_args()
 
 
 # --- Path traversal tests ---
@@ -329,7 +366,11 @@ async def test_execute_command_strips_secret_env_vars(tmp_path):
     }
 
     with (
-        patch.dict("os.environ", env_overrides, clear=True),
+        patch.dict(
+            "os.environ",
+            {**env_overrides, "KAGENT_SRT_SETTINGS_PATH": "/config/srt-settings.json"},
+            clear=True,
+        ),
         patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
     ):
         await execute_command("echo hello", working_dir=tmp_path)

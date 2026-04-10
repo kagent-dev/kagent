@@ -69,6 +69,12 @@ type AgentSpec struct {
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
+	// Sandbox configures sandboxed execution behavior shared across runtimes.
+	// This is intended for sandboxed declarative execution today, and can also
+	// be consumed by BYO agents.
+	// +optional
+	Sandbox *SandboxConfig `json:"sandbox,omitempty"`
+
 	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
@@ -208,6 +214,22 @@ type DeclarativeAgentSpec struct {
 	// When set, failed requests are retried with exponential backoff.
 	// +optional
 	RetryPolicy *RetryPolicySpec `json:"retryPolicy,omitempty"`
+}
+
+// SandboxConfig configures sandboxed execution behavior.
+type SandboxConfig struct {
+	// Network configures outbound network access for sandboxed execution paths.
+	// When unset or when allowedDomains is empty, outbound access is denied by default.
+	// +optional
+	Network *NetworkConfig `json:"network,omitempty"`
+}
+
+// NetworkConfig configures outbound network access for sandboxed execution paths.
+type NetworkConfig struct {
+	// AllowedDomains lists the domains that sandboxed execution may contact.
+	// Wildcards such as *.example.com are supported by the sandbox runtime.
+	// +optional
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.

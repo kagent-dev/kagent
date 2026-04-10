@@ -68,23 +68,10 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
-	// Add memory tools if memory is configured
-	var memoryTools []tool.Tool
-	if agentConfig.Memory != nil {
-		log.Info("Memory configuration detected, adding memory tools")
-		memoryTools = []tool.Tool{
-			preloadmemorytool.New(),
-			loadmemorytool.New(),
-		}
-	}
-	memoryTools = append(memoryTools, remoteAgentTools...)
-	memoryTools = append(memoryTools, extraTools...)
-
-	askUserTool, err := tools.NewAskUserTool()
+	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create ask_user tool: %w", err)
+		return nil, nil, err
 	}
-	memoryTools = append(memoryTools, askUserTool)
 
 	if agentConfig.Model == nil {
 		return nil, nil, fmt.Errorf("model configuration is required")
@@ -126,7 +113,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		Instruction:         agentConfig.Instruction,
 		Model:               llmModel,
 		IncludeContents:     llmagent.IncludeContentsDefault,
-		Tools:               memoryTools,
+		Tools:               localTools,
 		Toolsets:            toolsets,
 		BeforeToolCallbacks: beforeToolCallbacks,
 		AfterToolCallbacks: []llmagent.AfterToolCallback{
@@ -154,6 +141,36 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
 	return llmAgent, subagentSessionIDs, nil
+}
+
+func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log logr.Logger) ([]tool.Tool, error) {
+	var localTools []tool.Tool
+	if agentConfig.Memory != nil {
+		log.Info("Memory configuration detected, adding memory tools")
+		localTools = []tool.Tool{
+			preloadmemorytool.New(),
+			loadmemorytool.New(),
+		}
+	}
+	localTools = append(localTools, remoteAgentTools...)
+	localTools = append(localTools, extraTools...)
+
+	skillsDirectory := strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
+	if skillsDirectory != "" {
+		skillsTools, err := tools.NewSkillsTools(skillsDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create skills tools: %w", err)
+		}
+		localTools = append(localTools, skillsTools...)
+		log.Info("Wired local skills tools", "skillsDirectory", skillsDirectory, "toolCount", len(skillsTools))
+	}
+
+	askUserTool, err := tools.NewAskUserTool()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ask_user tool: %w", err)
+	}
+	localTools = append(localTools, askUserTool)
+	return localTools, nil
 }
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.

@@ -139,10 +139,14 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		registry = spec.ImageRegistry
 	}
 
-	// Get repository based on runtime
 	repository := getRuntimeImageRepository(runtime)
 
-	image := fmt.Sprintf("%s/%s:%s", registry, repository, DefaultImageConfig.Tag)
+	tag := DefaultImageConfig.Tag
+	if runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox) {
+		tag += "-full"
+	}
+
+	image := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {

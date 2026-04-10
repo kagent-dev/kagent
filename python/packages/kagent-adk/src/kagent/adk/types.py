@@ -261,6 +261,9 @@ class RetryPolicyConfig(BaseModel):
     initial_retry_delay_seconds: float = 1.0
     max_retry_delay_seconds: float | None = None
 
+class NetworkConfig(BaseModel):
+    allowed_domains: list[str] = Field(default_factory=list)
+
 
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
@@ -272,6 +275,7 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
+    network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
     retry_policy: RetryPolicyConfig | None = None  # Retry policy configuration
 
