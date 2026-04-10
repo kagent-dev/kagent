@@ -9,9 +9,13 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"google.golang.org/genai"
 )
 
 const (
@@ -69,8 +73,15 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 		return c.generateOpenAI(ctx, texts)
 	case "azure_openai":
 		return c.generateAzureOpenAI(ctx, texts)
+	case "ollama":
+		return c.generateOllama(ctx, texts)
+	case "gemini", "vertex_ai":
+		return c.generateGemini(ctx, texts)
+	case "bedrock":
+		return c.generateBedrock(ctx, texts)
 	default:
-		return nil, fmt.Errorf("unsupported embedding provider: %s", c.config.Provider)
+		// Unknown provider - try OpenAI-compatible as fallback
+		return c.generateOpenAI(ctx, texts)
 	}
 }
 
@@ -208,6 +219,185 @@ func (c *Client) generateAzureOpenAI(ctx context.Context, texts []string) ([][]f
 	}
 
 	return embeddings, nil
+}
+
+// generateOllama generates embeddings using Ollama API.
+// Ollama's /v1/embeddings endpoint is OpenAI-compatible.
+func (c *Client) generateOllama(ctx context.Context, texts []string) ([][]float32, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	// Get Ollama API base URL
+	baseURL := c.config.BaseUrl
+	if baseURL == "" {
+		baseURL = os.Getenv("OLLAMA_API_BASE")
+	}
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+
+	// Build URL for OpenAI-compatible endpoint
+	url := fmt.Sprintf("%s/v1/embeddings", strings.TrimSuffix(baseURL, "/"))
+
+	reqBody := map[string]any{
+		"input": texts,
+		"model": c.config.Model,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	// Ollama doesn't require API key, but accept one if provided
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result openAIEmbeddingResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Extract and process embeddings
+	embeddings := make([][]float32, 0, len(result.Data))
+	for _, item := range result.Data {
+		embedding := item.Embedding
+
+		// Ensure correct dimension
+		if len(embedding) > TargetDimension {
+			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
+			embedding = embedding[:TargetDimension]
+			embedding = normalizeL2(embedding)
+		} else if len(embedding) < TargetDimension {
+			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
+		}
+
+		embeddings = append(embeddings, embedding)
+	}
+
+	log.Info("Successfully generated embeddings with Ollama", "count", len(embeddings))
+	return embeddings, nil
+}
+
+// generateGemini generates embeddings using Google Gemini/Vertex AI API.
+func (c *Client) generateGemini(ctx context.Context, texts []string) ([][]float32, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	// Create genai client
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey: os.Getenv("GOOGLE_API_KEY"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	}
+
+	// Call the embedding API with dimensionality parameter
+	// Note: This uses the same approach as Python - calling EmbedContent with OutputDimensionality
+	targetDim := int32(TargetDimension)
+	embeddingResults := make([][]float32, len(texts))
+
+	for i, text := range texts {
+		// Use genai.Text to create the content
+		content := genai.Text(text)
+		result, err := client.Models.EmbedContent(ctx, c.config.Model, content, &genai.EmbedContentConfig{
+			OutputDimensionality: &targetDim,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate embedding for text %d: %w", i, err)
+		}
+
+		if len(result.Embeddings) > 0 {
+			embedding := result.Embeddings[0].Values
+			// Convert to float32
+			emb32 := make([]float32, len(embedding))
+			for j, v := range embedding {
+				emb32[j] = float32(v)
+			}
+			embeddingResults[i] = emb32
+		}
+	}
+
+	log.Info("Successfully generated embeddings with Gemini", "count", len(embeddingResults))
+	return embeddingResults, nil
+}
+
+// generateBedrock generates embeddings using the AWS Bedrock Titan Embedding API.
+// Each text is embedded individually because the Titan Embedding API accepts
+// a single inputText per invocation.
+func (c *Client) generateBedrock(ctx context.Context, texts []string) ([][]float32, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	region := os.Getenv("AWS_DEFAULT_REGION")
+	if region == "" {
+		region = os.Getenv("AWS_REGION")
+	}
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(awsCfg)
+
+	embeddings := make([][]float32, 0, len(texts))
+	for i, text := range texts {
+		reqBody, err := json.Marshal(map[string]string{"inputText": text})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request for text %d: %w", i, err)
+		}
+
+		output, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
+			ModelId:     &c.config.Model,
+			Body:        reqBody,
+			ContentType: strPtr("application/json"),
+			Accept:      strPtr("application/json"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to invoke Bedrock model for text %d: %w", i, err)
+		}
+
+		var result bedrockEmbeddingResponse
+		if err := json.Unmarshal(output.Body, &result); err != nil {
+			return nil, fmt.Errorf("failed to decode Bedrock response for text %d: %w", i, err)
+		}
+
+		embedding := result.Embedding
+		if len(embedding) > TargetDimension {
+			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
+			embedding = embedding[:TargetDimension]
+			embedding = normalizeL2(embedding)
+		} else if len(embedding) < TargetDimension {
+			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
+		}
+
+		embeddings = append(embeddings, embedding)
+	}
+
+	log.Info("Successfully generated embeddings with Bedrock", "count", len(embeddings))
+	return embeddings, nil
+}
+
+func strPtr(s string) *string { return &s }
+
+type bedrockEmbeddingResponse struct {
+	Embedding []float32 `json:"embedding"`
 }
 
 // normalizeL2 normalizes a vector to unit length using L2 norm.

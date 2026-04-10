@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -113,6 +115,18 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		}
 	}
 	sessionID := reqCtx.ContextID
+
+	// Extract Bearer token from incoming request for API key passthrough
+	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+		if meta := callCtx.RequestMeta(); meta != nil {
+			if vals, ok := meta.Get("authorization"); ok && len(vals) > 0 && vals[0] != "" {
+				auth := vals[0]
+				if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
+					ctx = context.WithValue(ctx, models.BearerTokenKey, token)
+				}
+			}
+		}
+	}
 
 	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
