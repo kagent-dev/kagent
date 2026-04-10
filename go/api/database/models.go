@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -15,8 +16,9 @@ type Agent struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Type   string           `json:"type"`
-	Config *adk.AgentConfig `json:"config"`
+	Type         string                `json:"type"`
+	WorkloadType v1alpha2.WorkloadMode `json:"workload_type"`
+	Config       *adk.AgentConfig      `json:"config"`
 }
 
 type Event struct {

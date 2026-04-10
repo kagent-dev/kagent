@@ -102,6 +102,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				nil,
 				"",
+				nil,
 			)
 			reconciler := NewKagentReconciler(
 				translator,
@@ -109,6 +110,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				dbClient,
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				[]string{}, // No namespace restrictions for tests
+				nil,
 			)
 
 			// Call ReconcileKagentMCPServer

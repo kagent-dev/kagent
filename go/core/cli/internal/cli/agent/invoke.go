@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
@@ -110,7 +112,13 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			return
 		}
 
-		a2aURL := fmt.Sprintf("%s/api/a2a/%s/%s", cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent)
+		agentResponse, err := clientSet.Agent.GetAgent(ctx, fmt.Sprintf("%s/%s", cfg.Config.Namespace, cfg.Agent))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting agent metadata: %v\n", err)
+			return
+		}
+
+		a2aURL := buildA2AURL(cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent, agentResponse.Data)
 		a2aClient, err = a2aclient.NewA2AClient(a2aURL, a2aClientOpts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
@@ -166,4 +174,12 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 
 		fmt.Fprintf(os.Stdout, "%+v\n", string(jsn))
 	}
+}
+
+func buildA2AURL(baseURL, namespace, agent string, agentResponse *api.AgentResponse) string {
+	a2aPath := "api/a2a"
+	if agentResponse != nil && agentResponse.WorkloadMode == v1alpha2.WorkloadModeSandbox {
+		a2aPath = "api/a2a-sandboxes"
+	}
+	return fmt.Sprintf("%s/%s/%s/%s", baseURL, a2aPath, namespace, agent)
 }

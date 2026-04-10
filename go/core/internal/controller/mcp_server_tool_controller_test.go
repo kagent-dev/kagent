@@ -31,6 +31,10 @@ func (f *fakeReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Requ
 	return nil
 }
 
+func (f *fakeReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req ctrl.Request) error {
+	return nil
+}
+
 func (f *fakeReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
 	return nil
 }

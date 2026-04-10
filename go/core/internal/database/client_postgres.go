@@ -45,9 +45,10 @@ func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) err
 
 func (c *postgresClient) StoreAgent(ctx context.Context, agent *dbpkg.Agent) error {
 	return c.q.UpsertAgent(ctx, dbgen.UpsertAgentParams{
-		ID:     agent.ID,
-		Type:   agent.Type,
-		Config: agent.Config,
+		ID:           agent.ID,
+		Type:         agent.Type,
+		WorkloadType: string(agent.WorkloadType),
+		Config:       agent.Config,
 	})
 }
 
@@ -118,6 +119,18 @@ func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, user
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list sessions for agent: %w", err)
+	}
+	sessions := make([]dbpkg.Session, len(rows))
+	for i, r := range rows {
+		sessions[i] = *toSession(r)
+	}
+	return sessions, nil
+}
+
+func (c *postgresClient) ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]dbpkg.Session, error) {
+	rows, err := c.q.ListSessionsForAgentAllUsers(ctx, &agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sessions for agent across all users: %w", err)
 	}
 	sessions := make([]dbpkg.Session, len(rows))
 	for i, r := range rows {
@@ -683,12 +696,13 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 
 func toAgent(r dbgen.Agent) *dbpkg.Agent {
 	return &dbpkg.Agent{
-		ID:        r.ID,
-		CreatedAt: derefTime(r.CreatedAt),
-		UpdatedAt: derefTime(r.UpdatedAt),
-		DeletedAt: r.DeletedAt,
-		Type:      r.Type,
-		Config:    r.Config,
+		ID:           r.ID,
+		CreatedAt:    derefTime(r.CreatedAt),
+		UpdatedAt:    derefTime(r.UpdatedAt),
+		DeletedAt:    r.DeletedAt,
+		Type:         r.Type,
+		WorkloadType: v1alpha2.WorkloadMode(r.WorkloadType),
+		Config:       r.Config,
 	}
 }
 

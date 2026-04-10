@@ -12,7 +12,7 @@ import (
 )
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, created_at, updated_at, deleted_at, type, config FROM agent
+SELECT id, created_at, updated_at, deleted_at, type, config, workload_type FROM agent
 WHERE id = $1 AND deleted_at IS NULL
 LIMIT 1
 `
@@ -27,12 +27,13 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.DeletedAt,
 		&i.Type,
 		&i.Config,
+		&i.WorkloadType,
 	)
 	return i, err
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, created_at, updated_at, deleted_at, type, config FROM agent
+SELECT id, created_at, updated_at, deleted_at, type, config, workload_type FROM agent
 WHERE deleted_at IS NULL
 ORDER BY created_at ASC
 `
@@ -53,6 +54,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 			&i.DeletedAt,
 			&i.Type,
 			&i.Config,
+			&i.WorkloadType,
 		); err != nil {
 			return nil, err
 		}
@@ -74,22 +76,29 @@ func (q *Queries) SoftDeleteAgent(ctx context.Context, id string) error {
 }
 
 const upsertAgent = `-- name: UpsertAgent :exec
-INSERT INTO agent (id, type, config, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO agent (id, type, workload_type, config, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     type       = EXCLUDED.type,
+    workload_type = EXCLUDED.workload_type,
     config     = EXCLUDED.config,
     updated_at = NOW(),
     deleted_at = NULL
 `
 
 type UpsertAgentParams struct {
-	ID     string
-	Type   string
-	Config *adk.AgentConfig
+	ID           string
+	Type         string
+	WorkloadType string
+	Config       *adk.AgentConfig
 }
 
 func (q *Queries) UpsertAgent(ctx context.Context, arg UpsertAgentParams) error {
-	_, err := q.db.Exec(ctx, upsertAgent, arg.ID, arg.Type, arg.Config)
+	_, err := q.db.Exec(ctx, upsertAgent,
+		arg.ID,
+		arg.Type,
+		arg.WorkloadType,
+		arg.Config,
+	)
 	return err
 }

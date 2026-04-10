@@ -10,11 +10,12 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
-func GetA2AAgentCard(agent *v1alpha2.Agent) *server.AgentCard {
+func GetA2AAgentCard(agent v1alpha2.AgentObject) *server.AgentCard {
+	spec := agent.GetAgentSpec()
 	card := server.AgentCard{
-		Name:        strings.ReplaceAll(agent.Name, "-", "_"),
-		Description: agent.Spec.Description,
-		URL:         fmt.Sprintf("http://%s.%s:8080", agent.Name, agent.Namespace),
+		Name:        strings.ReplaceAll(agent.GetName(), "-", "_"),
+		Description: spec.Description,
+		URL:         fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
 		Capabilities: server.AgentCapabilities{
 			Streaming:              new(true),
 			PushNotifications:      new(false),
@@ -25,8 +26,9 @@ func GetA2AAgentCard(agent *v1alpha2.Agent) *server.AgentCard {
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
 	}
-	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative != nil && agent.Spec.Declarative.A2AConfig != nil {
-		card.Skills = slices.Collect(utils.Map(slices.Values(agent.Spec.Declarative.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
+	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.A2AConfig != nil {
+		decl := spec.Declarative
+		card.Skills = slices.Collect(utils.Map(slices.Values(decl.A2AConfig.Skills), func(skill v1alpha2.AgentSkill) server.AgentSkill {
 			return server.AgentSkill(skill)
 		}))
 	}

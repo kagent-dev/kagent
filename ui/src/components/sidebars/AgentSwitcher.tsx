@@ -31,8 +31,9 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
     selectedAgent.agent.metadata.name
   );
 
-  // We don't want to show agents that are not ready or accepted
-  const filteredAgentResponses = agentResponses.filter(({ deploymentReady, accepted }) => deploymentReady && accepted);
+  const filteredAgentResponses = agentResponses.filter(
+    ({ deploymentReady, accepted }) => accepted && deploymentReady
+  );
 
   return (
     <SidebarMenu>
