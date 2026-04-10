@@ -187,6 +187,7 @@ func main() {
 		Stream:             stream,
 		AppName:            appName,
 		Logger:             logger,
+		RetryPolicy:        agentConfig.RetryPolicy,
 	})
 
 	// Build the agent card.

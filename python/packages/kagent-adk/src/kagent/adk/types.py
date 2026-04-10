@@ -254,6 +254,16 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class RetryPolicyConfig(BaseModel):
+    """Retry policy configuration for agent request executions."""
+
+    max_retries: int = 0
+    initial_retry_delay_seconds: float = 1.0
+    max_retry_delay_seconds: float | None = None
+class NetworkConfig(BaseModel):
+    allowed_domains: list[str] = Field(default_factory=list)
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -264,7 +274,9 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
+    network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
+    retry_policy: RetryPolicyConfig | None = None  # Retry policy configuration
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():

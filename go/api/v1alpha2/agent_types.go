@@ -69,6 +69,12 @@ type AgentSpec struct {
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
+	// Sandbox configures sandboxed execution behavior shared across runtimes.
+	// This is intended for sandboxed declarative execution today, and can also
+	// be consumed by BYO agents.
+	// +optional
+	Sandbox *SandboxConfig `json:"sandbox,omitempty"`
+
 	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
@@ -203,6 +209,27 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// RetryPolicy configures retry behavior for failed agent request executions.
+	// When set, failed requests are retried with exponential backoff.
+	// +optional
+	RetryPolicy *RetryPolicySpec `json:"retryPolicy,omitempty"`
+}
+
+// SandboxConfig configures sandboxed execution behavior.
+type SandboxConfig struct {
+	// Network configures outbound network access for sandboxed execution paths.
+	// When unset or when allowedDomains is empty, outbound access is denied by default.
+	// +optional
+	Network *NetworkConfig `json:"network,omitempty"`
+}
+
+// NetworkConfig configures outbound network access for sandboxed execution paths.
+type NetworkConfig struct {
+	// AllowedDomains lists the domains that sandboxed execution may contact.
+	// Wildcards such as *.example.com are supported by the sandbox runtime.
+	// +optional
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
 }
 
 // ContextConfig configures context management for an agent.
@@ -251,6 +278,21 @@ type ContextSummarizerConfig struct {
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
 	PromptTemplate *string `json:"promptTemplate,omitempty"`
+}
+
+// RetryPolicySpec configures retry behavior for failed agent request executions.
+// When set, failed requests are retried with exponential backoff.
+type RetryPolicySpec struct {
+	// Maximum number of retry attempts. 0 means no retries.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=0
+	MaxRetries *int `json:"maxRetries,omitempty"`
+	// Initial delay between retries. Uses Go duration format (e.g., "1s", "500ms").
+	// +kubebuilder:default="1s"
+	InitialRetryDelay *string `json:"initialRetryDelay,omitempty"`
+	// Maximum delay between retries (caps exponential growth). Optional.
+	// +optional
+	MaxRetryDelay *string `json:"maxRetryDelay,omitempty"`
 }
 
 // PromptTemplateSpec configures prompt template processing for an agent's system message.

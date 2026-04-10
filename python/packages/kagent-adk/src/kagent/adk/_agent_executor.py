@@ -53,6 +53,7 @@ from kagent.core.tracing._span_processor import (
 )
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
+from .types import RetryPolicyConfig
 from ._remote_a2a_tool import SubagentSessionProvider
 from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
@@ -65,6 +66,15 @@ class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the KAgent A2aAgentExecutor."""
 
     stream: bool = False
+    retry_policy: Optional["RetryPolicyConfig"] = None
+
+
+def _compute_retry_delay(attempt: int, policy: "RetryPolicyConfig") -> float:
+    """Compute retry delay using exponential backoff."""
+    delay = policy.initial_retry_delay_seconds * (2**attempt)
+    if policy.max_retry_delay_seconds is not None:
+        delay = min(delay, policy.max_retry_delay_seconds)
+    return delay
 
 
 def _kagent_request_converter(request, _part_converter=None):
@@ -163,42 +173,61 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ):
-        """Executes an A2A request and publishes updates to the event queue
-        specified. It runs as following:
-        * Takes the input from the A2A request
-        * Convert the input to ADK input content, and runs the ADK agent
-        * Collects output events of the underlying ADK Agent
-        * Converts the ADK output events into A2A task updates
-        * Publishes the updates back to A2A server via event queue
-        """
-        try:
-            await self._execute_impl(context, event_queue)
-        except asyncio.CancelledError as e:
-            # anyio cancel scope corruption (from MCP session cleanup in a
-            # different task context) calls Task.cancel() on the current
-            # task. CancelledError can escape from multiple places: the
-            # outer try body, the inner except handler (if the task's
-            # cancellation counter > 1), or the finally block's
-            # _safe_close_runner (which re-raises CancelledError).
-            # This top-level guard ensures CancelledError never propagates
-            # to _run_event_stream in the A2A SDK, which would produce a
-            # 500 Internal Server Error.
-            current_task = asyncio.current_task()
-            if current_task is not None:
-                # Clear all pending cancellation requests so subsequent
-                # awaits (e.g. publishing the failure event) don't re-raise.
-                while current_task.uncancel() > 0:
-                    pass
-            logger.error(
-                "CancelledError escaped execute, converting to failed status: %s",
-                e,
-                exc_info=True,
-            )
-            await self._publish_failed_status_event(
-                context,
-                event_queue,
-                str(e) or "A2A request execution was cancelled.",
-            )
+        """Executes an A2A request with optional retry on failure."""
+        retry_policy = self._kagent_config.retry_policy if self._kagent_config else None
+        max_attempts = 1 + (retry_policy.max_retries if retry_policy else 0)
+        last_error: Exception | None = None
+
+        for attempt in range(max_attempts):
+            try:
+                await self._execute_impl(context, event_queue)
+                return  # success
+            except asyncio.CancelledError as e:
+                # anyio cancel scope corruption (from MCP session cleanup in a
+                # different task context) calls Task.cancel() on the current
+                # task. CancelledError can escape from multiple places: the
+                # outer try body, the inner except handler (if the task's
+                # cancellation counter > 1), or the finally block's
+                # _safe_close_runner (which re-raises CancelledError).
+                # This top-level guard ensures CancelledError never propagates
+                # to _run_event_stream in the A2A SDK, which would produce a
+                # 500 Internal Server Error.
+                # Never retry cancellations.
+                current_task = asyncio.current_task()
+                if current_task is not None:
+                    # Clear all pending cancellation requests so subsequent
+                    # awaits (e.g. publishing the failure event) don't re-raise.
+                    while current_task.uncancel() > 0:
+                        pass
+                logger.error(
+                    "CancelledError escaped execute, converting to failed status: %s",
+                    e,
+                    exc_info=True,
+                )
+                await self._publish_failed_status_event(
+                    context,
+                    event_queue,
+                    str(e) or "A2A request execution was cancelled.",
+                )
+                return
+            except Exception as e:
+                last_error = e
+                if attempt + 1 < max_attempts:
+                    delay = _compute_retry_delay(attempt, retry_policy)
+                    logger.warning(
+                        "Request failed (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt + 1,
+                        max_attempts,
+                        delay,
+                        e,
+                    )
+                    await asyncio.sleep(delay)
+
+        # All attempts exhausted — publish failure (matches original behavior)
+        if last_error is not None:
+            logger.error("All %d attempts failed: %s", max_attempts, last_error, exc_info=True)
+            error_message = str(last_error)
+            await self._publish_failed_status_event(context, event_queue, error_message)
 
     async def _execute_impl(
         self,

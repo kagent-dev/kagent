@@ -1,0 +1,66 @@
+ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/go:latest AS builder
+ARG TARGETARCH
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG BUILD_PACKAGE=adk/cmd/main.go
+
+WORKDIR /workspace
+COPY go.mod go.sum .
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
+    --mount=type=cache,target=/root/.cache/go-build,rw \
+    go mod download
+
+COPY api/ api/
+COPY core/ core/
+COPY adk/ adk/
+
+ARG LDFLAGS
+RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
+    --mount=type=cache,target=/root/.cache/go-build,rw \
+    echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
+
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
+ARG TOOLS_PYTHON_VERSION=3.13
+
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk add --no-cache \
+    bash git ca-certificates nodejs npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
+
+RUN --mount=type=cache,target=/root/.npm \
+    mkdir -p /opt && \
+    cd /opt && \
+    git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
+    cd sandbox-runtime && \
+    npm install && \
+    npm run build && \
+    npm prune --omit=dev
+
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
+ARG TOOLS_PYTHON_VERSION=3.13
+
+RUN --mount=type=cache,target=/var/cache/apk,rw \
+    apk add --no-cache \
+    bash ca-certificates curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
+
+RUN addgroup -g 1001 goagent && \
+    adduser -u 1001 -G goagent -s /bin/bash -D goagent
+
+COPY --from=srt-builder /opt/sandbox-runtime /opt/sandbox-runtime
+
+RUN chmod +x /opt/sandbox-runtime/dist/cli.js && \
+    ln -s /opt/sandbox-runtime/dist/cli.js /usr/bin/srt
+
+WORKDIR /
+COPY --from=builder /app /app
+ENV PATH="/usr/bin:/opt/sandbox-runtime/node_modules/.bin:$PATH"
+ARG VERSION
+
+LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
+LABEL org.opencontainers.image.description="Kagent Go ADK runtime with sandbox execution dependencies."
+LABEL org.opencontainers.image.version="$VERSION"
+
+USER 1001:1001
+ENTRYPOINT ["/app"]
