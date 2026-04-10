@@ -9,10 +9,11 @@ WHERE deleted_at IS NULL
 ORDER BY created_at ASC;
 
 -- name: UpsertAgent :exec
-INSERT INTO agent (id, type, config, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO agent (id, type, workload_type, config, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     type       = EXCLUDED.type,
+    workload_type = EXCLUDED.workload_type,
     config     = EXCLUDED.config,
     updated_at = NOW(),
     deleted_at = NULL;

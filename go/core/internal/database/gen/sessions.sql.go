@@ -112,6 +112,42 @@ func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForA
 	return items, nil
 }
 
+const listSessionsForAgentAllUsers = `-- name: ListSessionsForAgentAllUsers :many
+SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
+WHERE agent_id = $1 AND deleted_at IS NULL
+  AND (source IS NULL OR source != 'agent')
+ORDER BY created_at ASC
+`
+
+func (q *Queries) ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error) {
+	rows, err := q.db.Query(ctx, listSessionsForAgentAllUsers, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.AgentID,
+			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteSession = `-- name: SoftDeleteSession :exec
 UPDATE session SET deleted_at = NOW()
 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL

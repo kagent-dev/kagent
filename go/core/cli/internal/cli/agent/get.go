@@ -109,8 +109,8 @@ func printAgents(agents []api.AgentResponse) error {
 	for i, agent := range agents {
 		rows[i] = []string{
 			strconv.Itoa(i + 1),
-			utils.GetObjectRef(agent.Agent),
-			agent.Agent.CreationTimestamp.Format(time.RFC3339),
+			utils.ResourceRefString(agent.Agent.Metadata.Namespace, agent.Agent.Metadata.Name),
+			agent.Agent.Metadata.CreationTimestamp.Format(time.RFC3339),
 			strconv.FormatBool(agent.DeploymentReady),
 			strconv.FormatBool(agent.Accepted),
 		}

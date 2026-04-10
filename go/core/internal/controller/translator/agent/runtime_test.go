@@ -62,10 +62,10 @@ func TestRuntime_GoRuntime(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -83,12 +83,79 @@ func TestRuntime_GoRuntime(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
+	assert.NotContains(t, container.Image, "-full", "Go runtime without sandboxed execution should use the distroless tag")
 
 	// Verify Go runtime readiness probe timings (fast startup)
 	require.NotNil(t, container.ReadinessProbe)
 	assert.Equal(t, int32(1), container.ReadinessProbe.InitialDelaySeconds, "Go runtime should have 1s initial delay")
 	assert.Equal(t, int32(5), container.ReadinessProbe.TimeoutSeconds, "Go runtime should have 5s timeout")
 	assert.Equal(t, int32(1), container.ReadinessProbe.PeriodSeconds, "Go runtime should have 1s period")
+}
+
+func TestRuntime_GoRuntimeWithSkillsUsesFullImageTag(t *testing.T) {
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-go-skills-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "Test Go agent with skills",
+				ModelConfig:   "test-model",
+			},
+			Skills: &v1alpha2.SkillForAgent{
+				Refs: []string{"example.com/skill:latest"},
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment, "Deployment should be in manifest")
+
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	container := deployment.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
+	assert.Contains(t, container.Image, "-full", "Go runtime with skills should use the full image tag")
 }
 
 func TestRuntime_PythonRuntime(t *testing.T) {
@@ -137,10 +204,10 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -212,10 +279,10 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -296,10 +363,10 @@ func TestRuntime_CustomRepositoryPath(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -317,4 +384,77 @@ func TestRuntime_CustomRepositoryPath(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
+	assert.NotContains(t, container.Image, "-full", "Go runtime without sandboxed execution should keep the base tag")
+}
+
+func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
+	ctx := context.Background()
+
+	originalRepo := translator.DefaultImageConfig.Repository
+	defer func() {
+		translator.DefaultImageConfig.Repository = originalRepo
+	}()
+	translator.DefaultImageConfig.Repository = "my-registry.com/custom/app"
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-custom-repo-skills-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "Test Go agent with custom repo and skills",
+				ModelConfig:   "test-model",
+			},
+			Skills: &v1alpha2.SkillForAgent{
+				Refs: []string{"example.com/skill:latest"},
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment, "Deployment should be in manifest")
+
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	container := deployment.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
+	assert.Contains(t, container.Image, "-full", "Go runtime with skills should use the full tag")
 }

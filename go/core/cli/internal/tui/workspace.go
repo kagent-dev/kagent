@@ -222,7 +222,10 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Sort and store agents for later; do not auto-open chooser or auto-select.
 		slices.SortStableFunc(msg.agents, func(a, b api.AgentResponse) int {
-			return strings.Compare(utils.GetObjectRef(a.Agent), utils.GetObjectRef(a.Agent))
+			return strings.Compare(
+				utils.ResourceRefString(a.Agent.Metadata.Namespace, a.Agent.Metadata.Name),
+				utils.ResourceRefString(b.Agent.Metadata.Namespace, b.Agent.Metadata.Name),
+			)
 		})
 		m.agents = msg.agents
 		// Keep welcome screen visible until user presses Ctrl+A
@@ -459,7 +462,11 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 	if m.agent == nil || m.current == nil {
 		return nil
 	}
-	a2aURL := fmt.Sprintf("%s/api/a2a/%s", m.cfg.KAgentURL, m.agentRef)
+	a2aPath := "api/a2a"
+	if m.agent != nil && m.agent.WorkloadMode == v1alpha2.WorkloadModeSandbox {
+		a2aPath = "api/a2a-sandboxes"
+	}
+	a2aURL := fmt.Sprintf("%s/%s/%s", m.cfg.KAgentURL, a2aPath, m.agentRef)
 	client, err := a2aclient.NewA2AClient(a2aURL,
 		a2aclient.WithTimeout(m.cfg.Timeout),
 	)
