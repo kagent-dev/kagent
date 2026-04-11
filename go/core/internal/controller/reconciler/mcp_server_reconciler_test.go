@@ -85,19 +85,16 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				WithObjects(tc.mcpServer).
 				Build()
 
-			dbManager, err := database.NewManager(&database.Config{
-				PostgresConfig: &database.PostgresConfig{
-					URL:           connStr,
-					VectorEnabled: true,
-				},
+			dbtest.MigrateT(t, connStr, true)
+
+			db, err := database.Connect(context.Background(), &database.PostgresConfig{
+				URL:           connStr,
+				VectorEnabled: true,
 			})
 			require.NoError(t, err)
-			defer dbManager.Close()
+			defer db.Close()
 
-			err = dbManager.Initialize()
-			require.NoError(t, err)
-
-			dbClient := database.NewClient(dbManager)
+			dbClient := database.NewClient(db)
 
 			// Create reconciler
 			translator := agenttranslator.NewAdkApiTranslator(
@@ -105,6 +102,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				nil,
 				"",
+				nil,
 			)
 			reconciler := NewKagentReconciler(
 				translator,
@@ -112,6 +110,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				dbClient,
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				[]string{}, // No namespace restrictions for tests
+				nil,
 			)
 
 			// Call ReconcileKagentMCPServer

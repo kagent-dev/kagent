@@ -134,8 +134,34 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
         a2a_part.root.metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
 
 
+def _process_subagent_session_id(a2a_part: A2APart, subagent_session_ids: Dict[str, str]) -> None:
+    """Stamps a subagent session ID onto a function_call DataPart.
+
+    If the part is a function_call whose tool name appears in
+    ``subagent_session_ids``, the corresponding session ID is added to
+    the DataPart metadata so the UI can find the subagent session.
+
+    Args:
+      a2a_part: The A2A part to potentially stamp.
+      subagent_session_ids: Mapping of tool name to pre-generated session ID.
+    """
+    if not isinstance(a2a_part.root, DataPart) or not a2a_part.root.metadata:
+        return
+    if (
+        a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+    ):
+        return
+    tool_name = a2a_part.root.data.get("name") if isinstance(a2a_part.root.data, dict) else None
+    if tool_name and tool_name in subagent_session_ids:
+        a2a_part.root.metadata[get_kagent_metadata_key("subagent_session_id")] = subagent_session_ids[tool_name]
+
+
 def convert_event_to_a2a_message(
-    event: Event, invocation_context: InvocationContext, role: Role = Role.agent
+    event: Event,
+    invocation_context: InvocationContext,
+    role: Role = Role.agent,
+    subagent_session_ids: Optional[Dict[str, str]] = None,
 ) -> Optional[Message]:
     """Converts an ADK event to an A2A message.
 
@@ -143,6 +169,9 @@ def convert_event_to_a2a_message(
       event: The ADK event to convert.
       invocation_context: The invocation context.
       role: The role attribute for the message (default: Role.agent).
+      subagent_session_ids: Optional mapping of tool name to pre-generated
+        subagent session ID.  When provided, function_call DataParts for
+        matching tools will have the session ID stamped into their metadata.
 
     Returns:
       An A2A Message if the event has content, None otherwise.
@@ -165,6 +194,8 @@ def convert_event_to_a2a_message(
             if a2a_part:
                 a2a_parts.append(a2a_part)
                 _process_long_running_tool(a2a_part, event)
+                if subagent_session_ids:
+                    _process_subagent_session_id(a2a_part, subagent_session_ids)
 
         if a2a_parts:
             message_metadata = _get_context_metadata(event, invocation_context)
@@ -280,6 +311,7 @@ def convert_event_to_a2a_events(
     invocation_context: InvocationContext,
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
+    subagent_session_ids: Optional[Dict[str, str]] = None,
 ) -> List[A2AEvent]:
     """Converts a GenAI event to a list of A2A events.
 
@@ -288,6 +320,8 @@ def convert_event_to_a2a_events(
       invocation_context: The invocation context.
       task_id: Optional task ID to use for generated events.
       context_id: Optional Context ID to use for generated events.
+      subagent_session_ids: Optional mapping of tool name to pre-generated
+        subagent session ID, threaded to ``convert_event_to_a2a_message``.
 
     Returns:
       A list of A2A events representing the converted ADK event.
@@ -309,7 +343,7 @@ def convert_event_to_a2a_events(
             a2a_events.append(error_event)
 
         # Handle regular message content
-        message = convert_event_to_a2a_message(event, invocation_context)
+        message = convert_event_to_a2a_message(event, invocation_context, subagent_session_ids=subagent_session_ids)
         if message:
             running_event = _create_status_update_event(message, invocation_context, event, task_id, context_id)
             a2a_events.append(running_event)

@@ -1,0 +1,19 @@
+{
+  "name": "hitl-tools-agent",
+  "description": "A LangGraph agent demonstrating HITL tool approval. Has a safe tool (get_time) and a dangerous tool (delete_file) that requires human approval.",
+  "url": "localhost:8080",
+  "version": "0.1.0",
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "hitl-tools",
+      "name": "HITL Tools Demo",
+      "description": "Demonstrates tool approval flow with safe and dangerous tools",
+      "tags": ["hitl", "tools", "approval"]
+    }
+  ]
+}

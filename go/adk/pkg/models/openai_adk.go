@@ -11,8 +11,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/openai/openai-go/v3/shared/constant"
 	"google.golang.org/adk/model"
@@ -27,6 +29,7 @@ const (
 	openAIFinishLength        = "length"
 	openAIFinishContentFilter = "content_filter"
 	openAIToolTypeFunction    = "function"
+	openAIExtraContentKey     = "extra_content"
 )
 
 // openAIFinishReasonToGenai maps OpenAI finish_reason to genai.FinishReason.
@@ -39,6 +42,82 @@ func openAIFinishReasonToGenai(reason string) genai.FinishReason {
 	default:
 		return genai.FinishReasonStop // includes "stop", "tool_calls", and empty
 	}
+}
+
+type openAIThoughtSignatureExtra struct {
+	Google struct {
+		ThoughtSignature string `json:"thought_signature"`
+	} `json:"google"`
+}
+
+func extractThoughtSignatureFromRaw(raw string) []byte {
+	if raw == "" {
+		return nil
+	}
+
+	var extra openAIThoughtSignatureExtra
+	if err := json.Unmarshal([]byte(raw), &extra); err != nil {
+		return nil
+	}
+	if extra.Google.ThoughtSignature == "" {
+		return nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(extra.Google.ThoughtSignature)
+	if err != nil {
+		return nil
+	}
+	return decoded
+}
+
+func extractThoughtSignatureFromExtraFields(extraFields map[string]respjson.Field) []byte {
+	if len(extraFields) == 0 {
+		return nil
+	}
+	field, ok := extraFields[openAIExtraContentKey]
+	if !ok {
+		return nil
+	}
+	return extractThoughtSignatureFromRaw(field.Raw())
+}
+
+func openAIExtraContentForThoughtSignature(thoughtSignature []byte) map[string]any {
+	if len(thoughtSignature) == 0 {
+		return nil
+	}
+
+	return map[string]any{
+		"google": map[string]any{
+			"thought_signature": base64.StdEncoding.EncodeToString(thoughtSignature),
+		},
+	}
+}
+
+func thoughtSignaturesByToolCallID(contents []*genai.Content) map[string][]byte {
+	thoughtSignatures := make(map[string][]byte)
+	for _, content := range contents {
+		if content == nil || content.Parts == nil {
+			continue
+		}
+		for _, part := range content.Parts {
+			if part == nil || part.FunctionCall == nil || len(part.ThoughtSignature) == 0 {
+				continue
+			}
+			thoughtSignatures[part.FunctionCall.ID] = part.ThoughtSignature
+		}
+	}
+	return thoughtSignatures
+}
+
+func newFunctionCallPart(name string, args map[string]any, id string, thoughtSignature []byte) *genai.Part {
+	part := genai.NewPartFromFunctionCall(name, args)
+	if part.FunctionCall != nil {
+		part.FunctionCall.ID = id
+	}
+	if len(thoughtSignature) > 0 {
+		part.ThoughtSignature = thoughtSignature
+	}
+	return part
 }
 
 // Name implements model.LLM.
@@ -57,6 +136,7 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		if m.IsAzure && m.Config.Model != "" {
 			modelName = m.Config.Model
 		}
+		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		params := openai.ChatCompletionNewParams{
 			Model:    shared.ChatModel(modelName),
@@ -124,6 +204,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 	systemInstruction := strings.TrimSpace(systemBuilder.String())
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
+	thoughtSignatures := thoughtSignaturesByToolCallID(contents)
 	for _, c := range contents {
 		if c == nil || c.Parts == nil {
 			continue
@@ -165,21 +246,35 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			var toolResponseMessages []openai.ChatCompletionMessageParamUnion
 			for _, fc := range functionCalls {
 				argsJSON, _ := json.Marshal(fc.Args)
-				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-						ID:   fc.ID,
-						Type: constant.Function(openAIToolTypeFunction),
-						Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-							Name:      fc.Name,
-							Arguments: string(argsJSON),
-						},
+				toolCall := openai.ChatCompletionMessageFunctionToolCallParam{
+					ID:   fc.ID,
+					Type: constant.Function(openAIToolTypeFunction),
+					Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+						Name:      fc.Name,
+						Arguments: string(argsJSON),
 					},
+				}
+				if extraContent := openAIExtraContentForThoughtSignature(thoughtSignatures[fc.ID]); extraContent != nil {
+					toolCall.SetExtraFields(map[string]any{openAIExtraContentKey: extraContent})
+				}
+				toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
+					OfFunction: &toolCall,
 				})
 				contentStr := "No response available for this function call."
 				if fr := functionResponses[fc.ID]; fr != nil {
 					contentStr = functionResponseContentString(fr.Response)
 				}
-				toolResponseMessages = append(toolResponseMessages, openai.ToolMessage(contentStr, fc.ID))
+				toolMessage := openai.ChatCompletionToolMessageParam{
+					Content: openai.ChatCompletionToolMessageParamContentUnion{
+						OfString: param.NewOpt(contentStr),
+					},
+					ToolCallID: fc.ID,
+					Role:       constant.Tool("tool"),
+				}
+				if extraContent := openAIExtraContentForThoughtSignature(thoughtSignatures[fc.ID]); extraContent != nil {
+					toolMessage.SetExtraFields(map[string]any{openAIExtraContentKey: extraContent})
+				}
+				toolResponseMessages = append(toolResponseMessages, openai.ChatCompletionMessageParamUnion{OfTool: &toolMessage})
 			}
 			textContent := strings.Join(textParts, "\n")
 			asst := openai.ChatCompletionAssistantMessageParam{
@@ -247,6 +342,13 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 				if m, ok := fd.ParametersJsonSchema.(map[string]any); ok {
 					maps.Copy(paramsMap, m)
 				}
+			} else if fd.Parameters != nil {
+				// Tools that use Declaration() with genai.Schema set fd.Parameters,
+				// not fd.ParametersJsonSchema. Without this conversion,
+				// OpenAI sees an empty parameter schema and omits required arguments.
+				if m := genaiSchemaToMap(fd.Parameters); m != nil {
+					maps.Copy(paramsMap, m)
+				}
 			}
 			// OpenAI requires object schemas to have a "properties" field.
 			if _, ok := paramsMap["type"]; !ok {
@@ -266,6 +368,50 @@ func genaiToolsToOpenAITools(tools []*genai.Tool) []openai.ChatCompletionToolUni
 		}
 	}
 	return out
+}
+
+// Converts a genai.Schema to a map[string]any suitable for OpenAI's function parameters.
+func genaiSchemaToMap(s *genai.Schema) map[string]any {
+	if s == nil {
+		return nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	lowercaseSchemaTypes(m)
+	return m
+}
+
+// Gemini schema uses uppercase ("STRING") while OpenAI uses lower case
+func lowercaseSchemaTypes(m map[string]any) {
+	if t, ok := m["type"].(string); ok {
+		m["type"] = strings.ToLower(t)
+	}
+	// Recurse into "properties"
+	if props, ok := m["properties"].(map[string]any); ok {
+		for _, v := range props {
+			if sub, ok := v.(map[string]any); ok {
+				lowercaseSchemaTypes(sub)
+			}
+		}
+	}
+	// Recurse into "items" (for arrays)
+	if items, ok := m["items"].(map[string]any); ok {
+		lowercaseSchemaTypes(items)
+	}
+	// Recurse into "anyOf"
+	if anyOf, ok := m["anyOf"].([]any); ok {
+		for _, v := range anyOf {
+			if sub, ok := v.(map[string]any); ok {
+				lowercaseSchemaTypes(sub)
+			}
+		}
+	}
 }
 
 func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -304,7 +450,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		for _, tc := range delta.ToolCalls {
 			idx := tc.Index
 			if toolCallsAcc[idx] == nil {
-				toolCallsAcc[idx] = map[string]any{"id": "", "name": "", "arguments": ""}
+				toolCallsAcc[idx] = map[string]any{"id": "", "name": "", "arguments": "", "thought_signature": []byte(nil)}
 			}
 			if tc.ID != "" {
 				toolCallsAcc[idx]["id"] = tc.ID
@@ -315,6 +461,9 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			if tc.Function.Arguments != "" {
 				prev, _ := toolCallsAcc[idx]["arguments"].(string)
 				toolCallsAcc[idx]["arguments"] = prev + tc.Function.Arguments
+			}
+			if thoughtSignature := extractThoughtSignatureFromExtraFields(tc.JSON.ExtraFields); len(thoughtSignature) > 0 {
+				toolCallsAcc[idx]["thought_signature"] = thoughtSignature
 			}
 		}
 		if choice.FinishReason != "" {
@@ -351,8 +500,8 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		name, _ := tc["name"].(string)
 		id, _ := tc["id"].(string)
 		if name != "" || id != "" {
-			p := genai.NewPartFromFunctionCall(name, args)
-			p.FunctionCall.ID = id
+			thoughtSignature, _ := tc["thought_signature"].([]byte)
+			p := newFunctionCallPart(name, args, id, thoughtSignature)
 			finalParts = append(finalParts, p)
 		}
 	}
@@ -364,13 +513,15 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			CandidatesTokenCount: int32(completionTokens),
 		}
 	}
-	_ = yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(finishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	_ = yield(resp, nil)
 }
 
 func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
@@ -383,6 +534,12 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 		yield(&model.LLMResponse{ErrorCode: "API_ERROR", ErrorMessage: "No choices in response"}, nil)
 		return
 	}
+	resp := chatCompletionToLLMResponse(completion)
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	yield(resp, nil)
+}
+
+func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMResponse {
 	choice := completion.Choices[0]
 	msg := choice.Message
 	nParts := 0
@@ -400,8 +557,13 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 			if tc.Function.Arguments != "" {
 				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			}
-			p := genai.NewPartFromFunctionCall(tc.Function.Name, args)
-			p.FunctionCall.ID = tc.ID
+			functionToolCall := tc.AsFunction()
+			p := newFunctionCallPart(
+				tc.Function.Name,
+				args,
+				tc.ID,
+				extractThoughtSignatureFromExtraFields(functionToolCall.JSON.ExtraFields),
+			)
 			parts = append(parts, p)
 		}
 	}
@@ -412,11 +574,11 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
 		}
 	}
-	yield(&model.LLMResponse{
+	return &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  openAIFinishReasonToGenai(choice.FinishReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
-	}, nil)
+	}
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	e2emocks "github.com/kagent-dev/kagent/go/core/test/e2e/mocks"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/kagent-dev/mockllm"
@@ -159,6 +160,7 @@ type AgentOptions struct {
 	Stream         bool
 	Env            []corev1.EnvVar
 	Skills         *v1alpha2.SkillForAgent
+	Sandbox        *v1alpha2.SandboxConfig
 	ExecuteCode    *bool
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
@@ -196,10 +198,47 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 	return agent
 }
 
+// setupSandboxAgentWithOptions creates and returns a sandbox agent resource with custom options.
+func setupSandboxAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
+	agent := generateSandboxAgent(modelConfigName, tools, opts)
+	err := cli.Create(t.Context(), agent)
+	if err != nil {
+		t.Fatalf("failed to create sandbox agent: %v", err)
+	}
+	cleanup(t, cli, agent)
+
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"sandboxagents.kagent.dev",
+		agent.Name,
+		"-n",
+		"kagent",
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	waitForSandboxEndpoint(t, agent.Namespace, agent.Name)
+
+	return agent
+}
+
 // setupA2AClient creates an A2A client for the test agent
 func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
-	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aURL := a2aURL(agent.Namespace, agent.Name, false)
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+	return a2aClient
+}
+
+// setupSandboxA2AClient creates an A2A client for the test sandbox agent.
+func setupSandboxA2AClient(t *testing.T, agent *v1alpha2.SandboxAgent) *a2aclient.A2AClient {
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL(agent.Namespace, agent.Name, true))
 	require.NoError(t, err)
 	return a2aClient
 }
@@ -334,14 +373,21 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 	require.NoError(t, err, lastJSON)
 }
 
-func a2aUrl(namespace, name string) string {
+func a2aURL(namespace, name string, sandbox bool) string {
 	kagentURL := os.Getenv("KAGENT_URL")
 	if kagentURL == "" {
 		// if running locally on kind, do "kubectl port-forward -n kagent deployments/kagent-controller 8083"
 		kagentURL = "http://localhost:8083"
 	}
-	// A2A URL format: <base_url>/<namespace>/<agent_name>
-	return kagentURL + "/api/a2a/" + namespace + "/" + name
+	path := "/api/a2a/"
+	if sandbox {
+		path = "/api/a2a-sandboxes/"
+	}
+	return kagentURL + path + namespace + "/" + name
+}
+
+func a2aUrl(namespace, name string) string {
+	return a2aURL(namespace, name, false)
 }
 
 // waitForEndpoint polls the A2A agent card endpoint until it returns a non-5xx response.
@@ -349,7 +395,16 @@ func a2aUrl(namespace, name string) string {
 // and the agent actually being able to serve requests through the controller proxy.
 func waitForEndpoint(t *testing.T, namespace, name string) {
 	t.Helper()
-	url := a2aUrl(namespace, name)
+	waitForEndpointURL(t, a2aURL(namespace, name, false))
+}
+
+func waitForSandboxEndpoint(t *testing.T, namespace, name string) {
+	t.Helper()
+	waitForEndpointURL(t, a2aURL(namespace, name, true))
+}
+
+func waitForEndpointURL(t *testing.T, url string) {
+	t.Helper()
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 
 	t.Logf("Waiting for endpoint %s to become ready", url)
@@ -445,11 +500,23 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 		agent.Spec.Declarative.Memory = opts.Memory
 	}
 
+	if opts.Sandbox != nil {
+		agent.Spec.Sandbox = opts.Sandbox
+	}
+
 	if opts.PromptTemplate != nil {
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
 	}
 
 	return agent
+}
+
+func generateSandboxAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
+	agent := generateAgent(modelConfigName, tools, opts)
+	return &v1alpha2.SandboxAgent{
+		ObjectMeta: agent.ObjectMeta,
+		Spec:       agent.Spec,
+	}
 }
 
 func generateMCPServer() *v1alpha1.MCPServer {
@@ -566,6 +633,41 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	})
 }
 
+func TestE2EInvokeSandboxAgent(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+
+	tools := []*v1alpha2.Tool{
+		{
+			Type: v1alpha2.ToolProviderType_McpServer,
+			McpServer: &v1alpha2.McpServerTool{
+				TypedReference: v1alpha2.TypedReference{
+					ApiGroup: "kagent.dev",
+					Kind:     "RemoteMCPServer",
+					Name:     "kagent-tool-server",
+				},
+				ToolNames: []string{"k8s_get_resources"},
+			},
+		},
+	}
+
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
+
+	a2aClient := setupSandboxA2AClient(t, agent)
+	var taskResult *protocol.Task
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		taskResult = runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", taskResult.ContextID)
+	})
+}
+
 func TestE2EInvokeExternalAgent(t *testing.T) {
 	// Setup A2A client for external agent
 	a2aURL := a2aUrl("kagent", "kebab-agent")
@@ -670,6 +772,43 @@ func generateOpenAIAgent(baseURL string) *v1alpha2.Agent {
 	}
 }
 
+func generateLangGraphAgent(baseURL string) *v1alpha2.Agent {
+	return &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "langgraph-kebab-test",
+			Namespace: "kagent",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Description: "LangGraph kebab sample for E2E testing",
+			Type:        v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "localhost:5001/langgraph-kebab:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Env: []corev1.EnvVar{
+							{
+								Name: "OPENAI_API_KEY",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kagent-openai",
+										},
+										Key: "OPENAI_API_KEY",
+									},
+								},
+							},
+							{
+								Name:  "OPENAI_API_BASE",
+								Value: baseURL + "/v1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func generateCrewAIAgent(baseURL string) *v1alpha2.Agent {
 	return &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
@@ -716,13 +855,12 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
 
-	// Setup specific resources
-	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := generateOpenAIAgent(baseURL)
 
 	// Create the agent on the cluster
 	err := cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for agent to be ready
 	args := []string{
@@ -744,11 +882,6 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	// Poll until the A2A endpoint is actually serving requests through the proxy
 	waitForEndpoint(t, agent.Namespace, agent.Name)
 
-	defer func() {
-		cli.Delete(t.Context(), agent)    //nolint:errcheck
-		cli.Delete(t.Context(), modelCfg) //nolint:errcheck
-	}()
-
 	// Setup A2A client - use the agent's actual name
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
 	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
@@ -761,6 +894,68 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 
 	t.Run("streaming_invocation_weather", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "What is the weather in London?", "Rainy, 52°F")
+	})
+}
+
+func TestE2EInvokeLangGraphAgent(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_langgraph_agent.json")
+	defer stopServer()
+
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+
+	scheme := k8s_runtime.NewScheme()
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	cli, err := client.New(cfg, client.Options{
+		Scheme: scheme,
+	})
+	require.NoError(t, err)
+
+	_ = cli.Delete(t.Context(), &v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "langgraph-kebab-test", Namespace: "kagent"}})
+
+	// Generate the LangGraph agent and inject the mock server's URL
+	agent := generateLangGraphAgent(baseURL)
+
+	// Create the agent on the cluster
+	err = cli.Create(t.Context(), agent)
+	require.NoError(t, err)
+	cleanup(t, cli, agent)
+
+	// Wait for the agent to become Ready
+	args := []string{
+		"wait",
+		"--for",
+		"condition=Ready",
+		"--timeout=1m",
+		"agents.kagent.dev",
+		agent.Name,
+		"-n",
+		agent.Namespace,
+	}
+
+	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Run())
+
+	// Poll until the A2A endpoint is actually serving requests through the proxy
+	waitForEndpoint(t, agent.Namespace, agent.Name)
+
+	// Setup A2A client
+	a2aURL := a2aUrl(agent.Namespace, agent.Name)
+	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
+	require.NoError(t, err)
+
+	t.Run("sync_invocation", func(t *testing.T) {
+		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready", nil)
+	})
+
+	t.Run("streaming_invocation", func(t *testing.T) {
+		runStreamingTest(t, a2aClient, "make me a kebab", "kebab is ready")
 	})
 }
 
@@ -802,6 +997,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	// Create the agent on the cluster
 	err = cli.Create(t.Context(), agent)
 	require.NoError(t, err)
+	cleanup(t, cli, agent)
 
 	// Wait for the agent to become Ready
 	args := []string{
@@ -842,8 +1038,6 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 	})
-
-	cli.Delete(t.Context(), agent) //nolint:errcheck
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
@@ -950,6 +1144,56 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 
 	// Run tests
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+}
+
+func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", nil)
+}
+
+func TestE2EGoDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "go", &goRuntime)
+}
+
+func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill_network.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
+
+	t.Run(runtimeName+"/deny_by_default", func(t *testing.T) {
+		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Runtime: runtimeOverride,
+			Skills: &v1alpha2.SkillForAgent{
+				InsecureSkipVerify: true,
+				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+			},
+		})
+
+		a2aClient := setupA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; network denied", nil)
+	})
+
+	t.Run(runtimeName+"/allowlist_enables_access", func(t *testing.T) {
+		agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			Runtime: runtimeOverride,
+			Skills: &v1alpha2.SkillForAgent{
+				InsecureSkipVerify: true,
+				Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+			},
+			Sandbox: &v1alpha2.SandboxConfig{
+				Network: &v1alpha2.NetworkConfig{
+					AllowedDomains: []string{controllerHost},
+				},
+			},
+		})
+
+		a2aClient := setupA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; controller health is ok", nil)
+	})
 }
 
 func TestE2EInvokePassthroughAgent(t *testing.T) {
@@ -1223,6 +1467,38 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 
 	// Run tests
 	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
+}
+
+func TestE2ESandboxAgentNetworkAllowlistWithExecuteCode(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/run_code_network.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
+
+	t.Run("deny_by_default", func(t *testing.T) {
+		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			ExecuteCode: new(true),
+		})
+
+		a2aClient := setupSandboxA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health in python", "NETWORK_DENIED", nil)
+	})
+
+	t.Run("allowlist_enables_access", func(t *testing.T) {
+		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+			ExecuteCode: new(true),
+			Sandbox: &v1alpha2.SandboxConfig{
+				Network: &v1alpha2.NetworkConfig{
+					AllowedDomains: []string{controllerHost},
+				},
+			},
+		})
+
+		a2aClient := setupSandboxA2AClient(t, agent)
+		runSyncTest(t, a2aClient, "check the controller health in python", "controller health is ok", nil)
+	})
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {

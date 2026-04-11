@@ -252,6 +252,7 @@ func TestLoadSkillContent_NoSkillMD(t *testing.T) {
 func TestSkillExecution_Integration(t *testing.T) {
 	sessionDir, _ := createSkillTestEnv(t)
 	defer os.RemoveAll(filepath.Dir(sessionDir))
+	defer os.RemoveAll(installFakeSRT(t))
 
 	// 1. "Upload" a file for the skill to process
 	inputCSVPath := filepath.Join(sessionDir, "uploads", "data.csv")
@@ -262,7 +263,11 @@ func TestSkillExecution_Integration(t *testing.T) {
 
 	// 2. Execute the skill's core command
 	command := "python skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
-	result, err := ExecuteCommand(context.Background(), command, sessionDir)
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		t.Fatalf("NewCommandExecutorFromEnv() error = %v", err)
+	}
+	result, err := executor.ExecuteCommand(context.Background(), command, sessionDir)
 	if err != nil {
 		// Python might not be available, skip this test
 		t.Skipf("Python not available or command failed: %v", err)

@@ -75,7 +75,7 @@ type AppConfig struct {
 type KAgentApp struct {
 	server         *server.A2AServer
 	tokenService   *auth.KAgentTokenService
-	sessionService session.SessionService
+	sessionService *session.KAgentSessionService
 	logger         logr.Logger
 }
 
@@ -113,13 +113,15 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		app.sessionService = sessionSvc
 		log.Info("Using KAgent session service", "url", cfg.KAgentURL)
 
-		taskStoreInstance := taskstore.NewKAgentTaskStoreWithClient(cfg.KAgentURL, httpClient)
-		taskStoreAdapter := taskstore.NewA2ATaskStoreAdapter(taskStoreInstance)
-		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStoreAdapter))
+		taskStore := taskstore.NewKAgentTaskStoreWithClient(cfg.KAgentURL, httpClient)
+		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStore))
 		log.Info("Using KAgent task store", "url", cfg.KAgentURL)
 	} else {
 		log.Info("No KAgentURL configured, using in-memory session and no task persistence")
 	}
+
+	// Append the user-ID interceptor
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptor(a2a.UserIDCallInterceptor()))
 
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
@@ -152,7 +154,7 @@ func (a *KAgentApp) Run() error {
 
 // SessionService returns the wired session service. BYO executors that need
 // session persistence can use this. Returns nil when KAgentURL is not configured.
-func (a *KAgentApp) SessionService() session.SessionService {
+func (a *KAgentApp) SessionService() *session.KAgentSessionService {
 	return a.sessionService
 }
 
@@ -191,6 +193,13 @@ func applyDefaults(cfg AppConfig) AppConfig {
 
 	if cfg.Logger.GetSink() == nil {
 		cfg.Logger = newDefaultLogger()
+	}
+
+	// Ensure the agent card always advertises a transport so that A2A clients
+	// can select a compatible one. Without this, NewFromCard fails with
+	// "no compatible transports found: available transports - []".
+	if cfg.AgentCard.PreferredTransport == "" {
+		cfg.AgentCard.PreferredTransport = a2atype.TransportProtocolJSONRPC
 	}
 
 	return cfg

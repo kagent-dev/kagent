@@ -14,6 +14,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
         {{- with .Values.controller.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -60,6 +61,29 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: AUTH_MODE
+              value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
+            {{- if .Values.controller.auth.userIdClaim }}
+            - name: AUTH_USER_ID_CLAIM
+              value: {{ .Values.controller.auth.userIdClaim | quote }}
+            {{- end }}
+            {{- if .Values.database.postgres.urlFile }}
+            - name: POSTGRES_DATABASE_URL_FILE
+              value: {{ .Values.database.postgres.urlFile | quote }}
+            {{- else if .Values.database.postgres.url }}
+            - name: POSTGRES_DATABASE_URL
+              value: {{ .Values.database.postgres.url | quote }}
+            {{- else if .Values.database.postgres.bundled.enabled }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kagent.passwordSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DATABASE_URL
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
+            {{- else }}
+            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

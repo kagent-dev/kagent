@@ -7,6 +7,7 @@ Common GitHub Actions CI failures and how to fix them.
 | Failure | Likely Cause | Quick Fix |
 |---------|--------------|-----------|
 | manifests-check | CRD manifests out of date | `make -C go generate && cp go/api/config/crd/bases/*.yaml helm/kagent-crds/templates/` |
+| sqlc-generate-check | `gen/` out of sync with queries | `cd go/core/internal/database && sqlc generate`, commit `gen/` |
 | go-lint depguard | Forbidden package used | Replace with allowed alternative (e.g., `slices.Sort` not `sort.Strings`) |
 | test-e2e timeout | Agent not starting or KAGENT_URL wrong | Check pod status, verify KAGENT_URL setup in CI |
 | golden files mismatch | Translator output changed | `UPDATE_GOLDEN=true make -C go test` and commit |
@@ -520,6 +521,7 @@ make init-git-hooks
 Before submitting PR:
 
 - [ ] Ran `make -C go generate` after CRD changes
+- [ ] Ran `cd go/core/internal/database && sqlc generate` after query changes, committed `gen/`
 - [ ] Ran `make lint` and fixed issues
 - [ ] Ran `make -C go test` and all pass
 - [ ] Regenerated golden files if translator changed

@@ -19,11 +19,12 @@ import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
-import { getCurrentUserId } from "@/app/actions/utils";
+import { waitForSandboxAgentReady } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
+import { useChatAgentType, useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
 import { Message, DataPart } from "@a2a-js/sdk";
@@ -36,6 +37,7 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
+  const runInSandbox = useChatRunInSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -75,6 +77,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       toast.error(msg);
     },
   });
+
+  const agentContext = useMemo(() => ({
+    namespace: selectedNamespace,
+    agentName: selectedAgentName
+  }), [selectedNamespace, selectedAgentName]);
+
+  const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
@@ -207,7 +216,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     };
 
-    // Add user message to streaming messages to show immediately 
+    // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
     setStreamingMessages([userMessage]);
 
@@ -224,7 +233,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setIsFirstMessage(true);
 
           const newSessionResponse = await createSession({
-            user_id: await getCurrentUserId(),
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
           });
@@ -272,6 +280,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       await streamA2AMessage(a2aMessage, {
         errorLabel: "Streaming failed",
         onError: () => setCurrentInputMessage(userMessageText),
+        sessionIdForWait: currentSessionId,
       });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
@@ -292,18 +301,44 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       errorLabel?: string;
       onError?: () => void;
       onFinally?: () => void;
+      /** Session id for readiness polling when React state may lag. */
+      sessionIdForWait?: string;
     },
   ) => {
     abortControllerRef.current = new AbortController();
     isFirstAssistantChunkRef.current = true;
 
     try {
+      const sid = opts?.sessionIdForWait ?? session?.id ?? sessionId;
+      if (runInSandbox && !sid) {
+        throw new Error("Session is required before messaging a Sandbox agent");
+      }
+      if (runInSandbox && sid) {
+        let loadingToast: string | number | undefined;
+        const slowToast = setTimeout(() => {
+          loadingToast = toast.loading("Starting sandbox workload…");
+        }, 600);
+        try {
+          const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+          clearTimeout(slowToast);
+          if (loadingToast !== undefined) toast.dismiss(loadingToast);
+          if (!ready.ok) {
+            throw new Error(ready.error ?? "Sandbox workload not ready");
+          }
+        } catch (waitErr) {
+          clearTimeout(slowToast);
+          if (loadingToast !== undefined) toast.dismiss(loadingToast);
+          throw waitErr;
+        }
+      }
+      isCreatingSessionRef.current = false;
       const sendParams = { message: a2aMessage, metadata: {} };
       const stream = await kagentA2AClient.sendMessageStream(
         selectedNamespace,
         selectedAgentName,
         sendParams,
-        abortControllerRef.current?.signal
+        abortControllerRef.current?.signal,
+        runInSandbox
       );
 
       let timeoutTimer: NodeJS.Timeout | null = null;
@@ -444,6 +479,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     await streamA2AMessage(a2aMessage, {
       errorLabel: "Approval failed",
+      sessionIdForWait: currentSessionId,
       onFinally: () => {
         // Ensure chat state resets after approval stream ends
         setIsStreaming(false);
@@ -582,6 +618,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     streamA2AMessage(a2aMessage, {
       errorLabel: "Ask user response failed",
+      sessionIdForWait: currentSessionId,
       onFinally: () => {
         setIsStreaming(false);
         setStreamingContent("");
@@ -639,11 +676,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stored-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
@@ -656,11 +690,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                   return <ChatMessage
                     key={`stream-${index}`}
                     message={message}
-                    allMessages={[...storedMessages, ...streamingMessages]}
-                    agentContext={{
-                      namespace: selectedNamespace,
-                      agentName: selectedAgentName
-                    }}
+                    allMessages={allMessages}
+                    agentContext={agentContext}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}

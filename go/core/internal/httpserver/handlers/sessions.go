@@ -8,6 +8,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -131,11 +132,24 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
+	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
+		existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
+		if lerr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+			return
+		}
+		if len(existing) > 0 {
+			w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
+			return
+		}
+	}
+
 	session := &database.Session{
 		ID:      id,
 		Name:    sessionRequest.Name,
 		UserID:  userID,
 		AgentID: &agent.ID,
+		Source:  sessionRequest.Source,
 	}
 
 	log.V(1).Info("Creating session in database",

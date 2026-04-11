@@ -50,6 +50,14 @@ func (h *FeedbackHandler) HandleCreateFeedback(w ErrorResponseWriter, r *http.Re
 		return
 	}
 
+	userID, err := GetUserID(r)
+	if err != nil {
+		log.Error(err, "Failed to get user ID")
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	feedbackReq.UserID = userID
+
 	err = h.DatabaseService.StoreFeedback(r.Context(), &feedbackReq)
 	if err != nil {
 		log.Error(err, "Failed to create feedback")

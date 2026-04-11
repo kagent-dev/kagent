@@ -18,6 +18,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	database_fake "github.com/kagent-dev/kagent/go/core/internal/database/fake"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
@@ -58,7 +59,8 @@ func TestSessionsHandler(t *testing.T) {
 
 	createTestAgent := func(dbClient database.Client, agentRef string) *database.Agent {
 		agent := &database.Agent{
-			ID: agentRef,
+			ID:           agentRef,
+			WorkloadType: v1alpha2.WorkloadModeDeployment,
 		}
 		dbClient.StoreAgent(context.Background(), agent) //nolint:errcheck
 		// The fake client should assign an ID, but we'll use a default for testing
@@ -207,6 +209,35 @@ func TestSessionsHandler(t *testing.T) {
 			handler.HandleCreateSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("SandboxAgentAllowsOnlyOneSessionGlobally", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler()
+			userID := "test-user"
+			agentRef := utils.ConvertToPythonIdentifier("default/test-sandbox-agent")
+
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:           agentRef,
+				WorkloadType: v1alpha2.WorkloadModeSandbox,
+			}))
+
+			existingAgentID := agentRef
+			createTestSession(dbClient, "existing-session", "other-user", existingAgentID)
+
+			sessionReq := api.SessionRequest{
+				AgentRef: &agentRef,
+				Name:     new("second-session"),
+			}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, userID)
+
+			handler.HandleCreateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusConflict, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 	})
@@ -393,7 +424,11 @@ func TestSessionsHandler(t *testing.T) {
 			userID := "test-user"
 			sessionID := "test-session"
 
-			// Create test session
+			// Session.AgentID must resolve via GetAgent (non-Sandbox: delete allowed).
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:   "1",
+				Type: "Declarative",
+			}))
 			agentID := "1"
 			createTestSession(dbClient, sessionID, userID, agentID)
 

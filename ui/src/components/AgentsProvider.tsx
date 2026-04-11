@@ -3,11 +3,22 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar, ContextConfig } from "@/types";
+import type {
+  Agent,
+  Tool,
+  AgentResponse,
+  BaseResponse,
+  ModelConfig,
+  ToolsResponse,
+  AgentType,
+  EnvVar,
+  ContextConfig,
+} from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
+import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import { isResourceNameValid } from "@/lib/utils";
 
-interface ValidationErrors {
+export interface ValidationErrors {
   name?: string;
   namespace?: string;
   description?: string;
@@ -57,7 +68,7 @@ export interface AgentFormData {
   serviceAccountName?: string;
 }
 
-interface AgentsContextType {
+export interface AgentsContextType {
   agents: AgentResponse[];
   models: ModelConfig[];
   loading: boolean;
@@ -72,7 +83,7 @@ interface AgentsContextType {
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
-const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
+export const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
 
 export function useAgents() {
   const context = useContext(AgentsContext);
@@ -82,7 +93,7 @@ export function useAgents() {
   return context;
 }
 
-interface AgentsProviderProps {
+export interface AgentsProviderProps {
   children: ReactNode;
 }
 
@@ -167,7 +178,8 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
 
     const type = data.type || "Declarative";
-    if (type === "Declarative") {
+    const byoImage = data.byoImage;
+    if (formUsesDeclarativeSections(type, byoImage)) {
       if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
         errors.systemPrompt = "Agent instructions are required";
       }
@@ -183,7 +195,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
           errors.memoryTtl = "TTL must be at least 1 day";
         }
       }
-    } else if (type === "BYO") {
+    } else if (formUsesByoSections(type, byoImage)) {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
       }
@@ -211,7 +223,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       const agent = agentResult.data;
-      
+
       if (!agent) {
         console.warn(`Agent with name ${name} and namespace ${namespace} not found`);
         return null;

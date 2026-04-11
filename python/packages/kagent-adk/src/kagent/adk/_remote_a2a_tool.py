@@ -13,7 +13,7 @@ This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purp
 
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 import httpx
@@ -22,6 +22,7 @@ from a2a.client.card_resolver import A2ACardResolver
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.client_factory import ClientFactory as A2AClientFactory
 from a2a.client.errors import A2AClientHTTPError
+from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
 from a2a.types import (
     AgentCard,
     DataPart,
@@ -54,6 +55,27 @@ from kagent.core.a2a import (
 )
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+_USER_ID_CONTEXT_KEY = "x-user-id"
+_SOURCE_HEADER = "x-kagent-source"
+_SOURCE_SUBAGENT = "agent"
+
+
+class _SubagentInterceptor(ClientCallInterceptor):
+    """
+    Injects the authenticated user's ID as an ``x-user-id`` HTTP header and
+    marks the request as originating from an agent call via
+    ``x-kagent-source: agent`` on every outgoing A2A request.
+    """
+
+    async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
+        headers = dict(http_kwargs.get("headers", {}))
+        # Always mark requests from a parent agent tool as subagent-originated
+        headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
+        if context and _USER_ID_CONTEXT_KEY in context.state:
+            headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+        http_kwargs["headers"] = headers
+        return request_payload, http_kwargs
 
 
 def _extract_text_from_task(task: Task) -> str:
@@ -98,6 +120,17 @@ def _extract_usage_from_task(task: Task) -> Optional[dict]:
     return None
 
 
+@runtime_checkable
+class SubagentSessionProvider(Protocol):
+    """Protocol for tools that delegate to a subagent and can expose
+    the subagent's session ID for live activity polling."""
+
+    name: str
+
+    @property
+    def subagent_session_id(self) -> str | None: ...
+
+
 class KAgentRemoteA2ATool(BaseTool):
     """A tool that calls a remote A2A agent and propagates HITL state."""
 
@@ -114,8 +147,13 @@ class KAgentRemoteA2ATool(BaseTool):
         self._httpx_client = httpx_client
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
-        # Track the context_id from the remote agent for session continuity
-        self._last_context_id: Optional[str] = None
+        # Pre-generate context_id for UI session polling
+        self._last_context_id: str = str(uuid.uuid4())
+
+    @property
+    def subagent_session_id(self) -> str | None:
+        """The subagent's session ID (== context_id sent in the A2A message)."""
+        return self._last_context_id
 
     async def _ensure_client(self) -> A2AClient:
         """Lazily resolve the agent card and initialize the A2A client."""
@@ -141,7 +179,7 @@ class KAgentRemoteA2ATool(BaseTool):
         if not self.description and self._agent_card.description:
             self.description = self._agent_card.description
 
-        # Create the A2A client
+        # Create the A2A client.
         config = A2AClientConfig(
             httpx_client=self._httpx_client,
             streaming=False,
@@ -149,7 +187,10 @@ class KAgentRemoteA2ATool(BaseTool):
             supported_transports=[A2ATransport.jsonrpc],
         )
         factory = A2AClientFactory(config=config)
-        self._a2a_client = factory.create(self._agent_card)
+        self._a2a_client = factory.create(
+            self._agent_card,
+            interceptors=[_SubagentInterceptor()],
+        )
         return self._a2a_client
 
     def _get_declaration(self) -> genai_types.FunctionDeclaration:
@@ -197,16 +238,17 @@ class KAgentRemoteA2ATool(BaseTool):
             context_id=self._last_context_id,
         )
 
+        # Forward the authenticated user ID so the subagent session is scoped
+        # to the same user as the parent agent session.
+        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+
         task: Optional[Task] = None
         try:
-            async for response in client.send_message(request=message):
+            async for response in client.send_message(request=message, context=call_context):
                 if isinstance(response, tuple):
                     # ClientEvent: (Task, UpdateEvent | None)
                     task = response[0]
                 elif isinstance(response, A2AMessage):
-                    # Direct message response (no task management)
-                    if response.context_id:
-                        self._last_context_id = response.context_id
                     return self._extract_text_from_message(response)
         except A2AClientHTTPError as e:
             return f"Remote agent '{self.name}' request failed: {e}"
@@ -216,10 +258,6 @@ class KAgentRemoteA2ATool(BaseTool):
 
         if task is None:
             return f"Remote agent '{self.name}' returned no result."
-
-        # Track context_id for future requests to the same remote agent
-        if task.context_id:
-            self._last_context_id = task.context_id
 
         state = task.status.state if task.status else None
 
@@ -235,8 +273,8 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage}
-        return result_text or ""
+            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": self._last_context_id}
+        return {"result": result_text or "", "subagent_session_id": self._last_context_id}
 
     def _handle_input_required(self, task: Task, tool_context: ToolContext) -> dict[str, Any]:
         """Handle a subagent that returned input_required (HITL).
@@ -344,9 +382,10 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         client = await self._ensure_client()
+        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
         task: Optional[Task] = None
         try:
-            async for response in client.send_message(request=decision_message):
+            async for response in client.send_message(request=decision_message, context=call_context):
                 if isinstance(response, tuple):
                     task = response[0]
                 elif isinstance(response, A2AMessage):
@@ -374,8 +413,13 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage}
-        return result_text or ""
+            return {
+                "result": result_text,
+                "kagent_usage_metadata": usage,
+                "subagent_session_id": context_id or self._last_context_id,
+            }
+        # context_id from the confirmation payload is the original subagent session ID in case of interrupts
+        return {"result": result_text, "subagent_session_id": context_id or self._last_context_id}
 
     @staticmethod
     def _extract_text_from_message(message: A2AMessage) -> str:
@@ -415,6 +459,15 @@ class KAgentRemoteA2AToolset(BaseToolset):
             agent_card_url=agent_card_url,
             httpx_client=httpx_client,
         )
+
+    @property
+    def name(self) -> str:
+        return self._tool.name
+
+    @property
+    def subagent_session_id(self) -> str | None:
+        """The subagent's session ID (== context_id sent in the A2A message)."""
+        return self._tool.subagent_session_id
 
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         return [self._tool]

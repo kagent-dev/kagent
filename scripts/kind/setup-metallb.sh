@@ -4,7 +4,7 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-METALLB_VERSION=${METALLB_VERSION:-v0.13.7}
+METALLB_VERSION=${METALLB_VERSION:-v0.15.3}
 
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/config/manifests/metallb-native.yaml
 
