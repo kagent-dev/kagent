@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     },
   },
   experimental: { swcPlugins: [] },
+  reactCompiler: true,
   compiler: { removeConsole: process.env.NODE_ENV === "production" },
 };
 

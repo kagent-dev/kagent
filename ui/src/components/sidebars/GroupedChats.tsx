@@ -13,9 +13,13 @@ interface GroupedChatsProps {
   agentName: string;
   agentNamespace: string;
   sessions: Session[];
+  /** Sandbox agents use a single persistent chat; hide "New Chat". */
+  hideNewChat?: boolean;
+  /** Sandbox agents cannot delete their only session from the UI. */
+  hideSessionDelete?: boolean;
 }
 
-export default function GroupedChats({ agentName, agentNamespace, sessions }: GroupedChatsProps) {
+export default function GroupedChats({ agentName, agentNamespace, sessions, hideNewChat, hideSessionDelete }: GroupedChatsProps) {
   // Local state to manage sessions for immediate UI updates
   const [localSessions, setLocalSessions] = useState<Session[]>(sessions);
 
@@ -106,6 +110,7 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
 
   return (
     <>
+      {!hideNewChat && (
       <div className="mb-4 px-2">
         <Button
           variant="secondary"
@@ -116,16 +121,17 @@ export default function GroupedChats({ agentName, agentNamespace, sessions }: Gr
           New Chat
         </Button>
       </div>
+      )}
 
       {hasNoSessions || localSessions.length === 0 ? (
-        <EmptyState />
+        <EmptyState variant={hideNewChat ? "singleChat" : "default"} />
       ) : (
         <>
-          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />}
+          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />}
           {groupedChats.yesterday.length > 0 && (
-            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />
+            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />
           )}
-          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} />}
+          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />}
         </>
       )}
     </>

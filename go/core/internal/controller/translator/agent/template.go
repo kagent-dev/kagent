@@ -61,11 +61,12 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 // buildTemplateContext constructs the template context from an Agent resource and its
 // already-translated AgentConfig. Tool names are extracted from the config rather than
 // recomputed from the spec.
-func buildTemplateContext(agent *v1alpha2.Agent, cfg *adk.AgentConfig) PromptTemplateContext {
+func buildTemplateContext(agent v1alpha2.AgentObject, cfg *adk.AgentConfig) PromptTemplateContext {
+	spec := agent.GetAgentSpec()
 	tplCtx := PromptTemplateContext{
-		AgentName:      agent.Name,
-		AgentNamespace: agent.Namespace,
-		Description:    agent.Spec.Description,
+		AgentName:      agent.GetName(),
+		AgentNamespace: agent.GetNamespace(),
+		Description:    spec.Description,
 	}
 
 	// Collect tool names from the already-translated agent config.
@@ -77,13 +78,13 @@ func buildTemplateContext(agent *v1alpha2.Agent, cfg *adk.AgentConfig) PromptTem
 	}
 
 	// Collect skill names using the shared OCI/Git name helpers.
-	if agent.Spec.Skills != nil {
-		for _, ref := range agent.Spec.Skills.Refs {
+	if spec.Skills != nil {
+		for _, ref := range spec.Skills.Refs {
 			if name := ociSkillName(ref); name != "" {
 				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
 			}
 		}
-		for _, gitRef := range agent.Spec.Skills.GitRefs {
+		for _, gitRef := range spec.Skills.GitRefs {
 			if name := gitSkillName(gitRef); name != "" {
 				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
 			}

@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,15 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 var (
@@ -57,6 +53,9 @@ type AgentController struct {
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/finalizers,verbs=update
 
 func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
@@ -71,303 +70,37 @@ func (r *AgentController) SetupWithManager(mgr ctrl.Manager) error {
 		}).
 		For(&v1alpha2.Agent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
 
-	// Setup owns relationships for resources created by the Agent controller -
-	// for now ownership of agent resources is handled by the ADK translator
-	for _, ownedType := range r.AdkTranslator.GetOwnedResourceTypes() {
-		build = build.Owns(ownedType, builder.WithPredicates(ownedObjectPredicate{}, predicate.ResourceVersionChangedPredicate{}))
+	var err error
+	build, err = addOwnedResourceWatches(build, mgr, r.AdkTranslator.GetOwnedResourceTypes())
+	if err != nil {
+		return err
 	}
-
-	// Setup watches for secondary resources that are not owned by the Agent
-	build = build.Watches(
-		&v1alpha2.ModelConfig{},
-		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			requests := []reconcile.Request{}
-
-			for _, agent := range r.findAgentsUsingModelConfig(ctx, mgr.GetClient(), types.NamespacedName{
-				Name:      obj.GetName(),
-				Namespace: obj.GetNamespace(),
-			}) {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      agent.ObjectMeta.Name,
-						Namespace: agent.ObjectMeta.Namespace,
-					},
-				})
-			}
-
-			return requests
-		}),
-		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-	).
-		Watches(
-			&v1alpha2.RemoteMCPServer{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				for _, agent := range r.findAgentsUsingRemoteMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.ObjectMeta.Name,
-							Namespace: agent.ObjectMeta.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-		).
-		Watches(
-			&corev1.Service{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				for _, agent := range r.findAgentsUsingMCPService(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.Name,
-							Namespace: agent.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		)
-
-	// Watch ConfigMaps referenced by agents via promptTemplates or systemMessageFrom.
-	// When a ConfigMap changes, re-reconcile any agents that reference it.
-	build = build.Watches(
-		&corev1.ConfigMap{},
-		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			requests := []reconcile.Request{}
-
-			for _, agent := range r.findAgentsReferencingConfigMap(ctx, mgr.GetClient(), types.NamespacedName{
-				Name:      obj.GetName(),
-				Namespace: obj.GetNamespace(),
-			}) {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      agent.Name,
-						Namespace: agent.Namespace,
-					},
-				})
-			}
-
-			return requests
-		}),
-		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-	)
-
-	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
-		build = build.Watches(
-			&v1alpha1.MCPServer{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				requests := []reconcile.Request{}
-
-				for _, agent := range r.findAgentsUsingMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
-					Name:      obj.GetName(),
-					Namespace: obj.GetNamespace(),
-				}) {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      agent.Name,
-							Namespace: agent.Namespace,
-						},
-					})
-				}
-
-				return requests
-			}),
-			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		)
+	build, err = addCommonAgentWatches(build, mgr, agentWatchFinders{
+		modelConfig:     r.agentDependencyFinder("failed to list Agents in order to reconcile ModelConfig update", usesModelConfig),
+		remoteMCPServer: r.agentDependencyFinder("failed to list Agents in order to reconcile ToolServer update", usesRemoteMCPServer),
+		mcpService:      r.agentDependencyFinder("failed to list agents in order to reconcile MCPService update", usesMCPService),
+		configMap:       r.agentDependencyFinder("failed to list agents in order to reconcile ConfigMap update", referencesConfigMap),
+		mcpServer:       r.agentDependencyFinder("failed to list agents in order to reconcile MCPServer update", usesMCPServer),
+	})
+	if err != nil {
+		return err
 	}
 
 	return build.Named("agent").Complete(r)
 }
 
-func (r *AgentController) findAgentsUsingMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agentsList v1alpha2.AgentList
-	if err := cl.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		agentControllerLog.Error(err, "failed to list agents in order to reconcile MCPServer update")
-		return nil
+func (r *AgentController) agentDependencyFinder(errMsg string, pred agentDependencyPredicate) dependentRefFinder {
+	return func(ctx context.Context, cl client.Client, obj types.NamespacedName) []types.NamespacedName {
+		var agentsList v1alpha2.AgentList
+		if err := cl.List(ctx, &agentsList); err != nil {
+			agentControllerLog.Error(err, errMsg)
+			return nil
+		}
+
+		return collectAgentRefs(agentsList.Items, func(agent v1alpha2.AgentObject) bool {
+			return pred(agent, obj)
+		})
 	}
-
-	var agents []*v1alpha2.Agent
-	for _, agent := range agentsList.Items {
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-			continue
-		}
-
-		for _, tool := range agent.Spec.Declarative.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-
-			if tool.McpServer.ApiGroup != "kagent.dev" || tool.McpServer.Kind != "MCPServer" {
-				continue
-			}
-
-			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
-			if mcpServerRef == obj {
-				agents = append(agents, &agent)
-			}
-		}
-	}
-
-	return agents
-}
-
-func (r *AgentController) findAgentsUsingRemoteMCPServer(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agents []*v1alpha2.Agent
-
-	var agentsList v1alpha2.AgentList
-	if err := cl.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		agentControllerLog.Error(err, "failed to list Agents in order to reconcile ToolServer update")
-		return agents
-	}
-
-	appendAgentIfUsesRemoteMCPServer := func(agent *v1alpha2.Agent) {
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-			return
-		}
-
-		for _, tool := range agent.Spec.Declarative.Tools {
-			if tool.McpServer == nil {
-				return
-			}
-
-			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
-			if mcpServerRef == obj {
-				agents = append(agents, agent)
-				return
-			}
-		}
-	}
-
-	for _, agent := range agentsList.Items {
-		appendAgentIfUsesRemoteMCPServer(&agent)
-	}
-
-	return agents
-}
-
-func (r *AgentController) findAgentsUsingMCPService(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agentsList v1alpha2.AgentList
-
-	if err := cl.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		agentControllerLog.Error(err, "failed to list agents in order to reconcile MCPService update")
-		return nil
-	}
-
-	var agents []*v1alpha2.Agent
-	for _, agent := range agentsList.Items {
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-			continue
-		}
-
-		for _, tool := range agent.Spec.Declarative.Tools {
-			if tool.McpServer == nil {
-				continue
-			}
-
-			if tool.McpServer.ApiGroup != "" || tool.McpServer.Kind != "Service" {
-				continue
-			}
-
-			mcpServerRef := tool.McpServer.NamespacedName(agent.Namespace)
-			if mcpServerRef == obj {
-				agents = append(agents, &agent)
-			}
-		}
-	}
-
-	return agents
-}
-
-func (r *AgentController) findAgentsUsingModelConfig(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agents []*v1alpha2.Agent
-
-	var agentsList v1alpha2.AgentList
-	if err := cl.List(
-		ctx,
-		&agentsList,
-	); err != nil {
-		agentControllerLog.Error(err, "failed to list Agents in order to reconcile ModelConfig update")
-		return agents
-	}
-
-	for i := range agentsList.Items {
-		agent := &agentsList.Items[i]
-		// Must be in the same namespace as the model config
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-			continue
-		}
-
-		if agent.Spec.Declarative.ModelConfig == obj.Name {
-			agents = append(agents, agent)
-		}
-	}
-
-	return agents
-}
-
-func (r *AgentController) findAgentsReferencingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.Agent {
-	var agentsList v1alpha2.AgentList
-	if err := cl.List(ctx, &agentsList); err != nil {
-		agentControllerLog.Error(err, "failed to list agents in order to reconcile ConfigMap update")
-		return nil
-	}
-
-	var agents []*v1alpha2.Agent
-	for i := range agentsList.Items {
-		agent := &agentsList.Items[i]
-		if agent.Namespace != obj.Namespace {
-			continue
-		}
-		if agent.Spec.Type != v1alpha2.AgentType_Declarative || agent.Spec.Declarative == nil {
-			continue
-		}
-
-		// Check if systemMessageFrom references this ConfigMap.
-		if ref := agent.Spec.Declarative.SystemMessageFrom; ref != nil {
-			if ref.Type == v1alpha2.ConfigMapValueSource && ref.Name == obj.Name {
-				agents = append(agents, agent)
-				continue
-			}
-		}
-
-		// Check if any promptTemplate dataSources reference this ConfigMap.
-		if pt := agent.Spec.Declarative.PromptTemplate; pt != nil {
-			for _, ds := range pt.DataSources {
-				if ds.Name == obj.Name {
-					agents = append(agents, agent)
-					break
-				}
-			}
-		}
-	}
-
-	return agents
 }
 
 type ownedObjectPredicate = typedOwnedObjectPredicate[client.Object]

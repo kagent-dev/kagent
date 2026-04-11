@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
@@ -207,16 +208,26 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	assert.Equal(t, "Updated description", retrieved.Description)
 }
 
-// setupTestDB resets the shared Postgres manager's tables for test isolation.
-func setupTestDB(t *testing.T) *Manager {
+// setupTestDB resets the shared Postgres database's tables for test isolation.
+func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
 	}
 
-	require.NoError(t, sharedManager.Reset(true), "Failed to reset test database")
+	// Truncate application tables instead of full down+up migrations.
+	// Full down migration drops and recreates the pgvector extension, which
+	// changes type OIDs and breaks existing pool connections.
+	_, err := sharedDB.Exec(context.Background(), `
+		TRUNCATE TABLE
+			agent, session, event, task, push_notification, feedback,
+			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
+			crewai_agent_memory, crewai_flow_state, memory
+		RESTART IDENTITY CASCADE
+	`)
+	require.NoError(t, err, "Failed to truncate test tables")
 
-	return sharedManager
+	return sharedDB
 }
 func TestListEventsForSession(t *testing.T) {
 	db := setupTestDB(t)
@@ -439,23 +450,15 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID: "iso-1", AgentName: "agent-a", UserID: "user-1",
-		Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5),
-	}))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID: "iso-2", AgentName: "agent-b", UserID: "user-1",
-		Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5),
-	}))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID: "iso-3", AgentName: "agent-a", UserID: "user-2",
-		Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5),
-	}))
+	mem1 := &dbpkg.Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
+	require.NoError(t, client.StoreAgentMemory(ctx, mem1))
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-b", UserID: "user-1", Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5)}))
+	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-a", UserID: "user-2", Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5)}))
 
 	results, err := client.SearchAgentMemory(ctx, "agent-a", "user-1", makeEmbedding(0.5), 10)
 	require.NoError(t, err)
 	require.Len(t, results, 1, "Should only return memories for agent-a / user-1")
-	assert.Equal(t, "iso-1", results[0].ID)
+	assert.Equal(t, mem1.ID, results[0].ID)
 }
 
 // TestDeleteAgentMemory verifies that DeleteAgentMemory removes all memories for the
@@ -505,38 +508,17 @@ func TestPruneExpiredMemories(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 
 	// Memory that is expired and unpopular — should be deleted
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID:          "prune-cold",
-		AgentName:   agentName,
-		UserID:      userID,
-		Content:     "cold expired memory",
-		Embedding:   makeEmbedding(0.1),
-		ExpiresAt:   &past,
-		AccessCount: 2,
-	}))
+	coldMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
+	require.NoError(t, client.StoreAgentMemory(ctx, coldMem))
 
 	// Memory that is expired but popular (AccessCount >= 10) — TTL should be extended
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID:          "prune-hot",
-		AgentName:   agentName,
-		UserID:      userID,
-		Content:     "hot expired memory",
-		Embedding:   makeEmbedding(0.9),
-		ExpiresAt:   &past,
-		AccessCount: 15,
-	}))
+	hotMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
+	require.NoError(t, client.StoreAgentMemory(ctx, hotMem))
 
 	// Memory that has not expired — should be untouched
 	future := time.Now().Add(24 * time.Hour)
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{
-		ID:          "prune-live",
-		AgentName:   agentName,
-		UserID:      userID,
-		Content:     "non-expired memory",
-		Embedding:   makeEmbedding(0.5),
-		ExpiresAt:   &future,
-		AccessCount: 0,
-	}))
+	liveMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
+	require.NoError(t, client.StoreAgentMemory(ctx, liveMem))
 
 	err := client.PruneExpiredMemories(ctx)
 	require.NoError(t, err)
@@ -549,7 +531,7 @@ func TestPruneExpiredMemories(t *testing.T) {
 		ids = append(ids, r.ID)
 	}
 
-	assert.NotContains(t, ids, "prune-cold", "Expired unpopular memory should be pruned")
-	assert.Contains(t, ids, "prune-hot", "Expired popular memory should have TTL extended and be retained")
-	assert.Contains(t, ids, "prune-live", "Non-expired memory should be retained")
+	assert.NotContains(t, ids, coldMem.ID, "Expired unpopular memory should be pruned")
+	assert.Contains(t, ids, hotMem.ID, "Expired popular memory should have TTL extended and be retained")
+	assert.Contains(t, ids, liveMem.ID, "Non-expired memory should be retained")
 }
