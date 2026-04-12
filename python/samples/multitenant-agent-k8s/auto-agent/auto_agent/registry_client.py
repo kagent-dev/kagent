@@ -2,6 +2,13 @@
 
 GET  /tools?tenant_id=X&org_id=Y  → list[ToolInfo]   (TTL-cached)
 POST /call/{name}                  → dict              (timeout enforced)
+
+Connection pooling:
+    A single persistent AsyncClient is shared across all calls.
+    This avoids TCP handshake overhead on every sequential call and is
+    required for parallel calls (call_tools_parallel) to avoid spawning
+    an unbounded number of connections.
+    Pool limits: max 20 connections (10 per host) — enough for heavy parallel use.
 """
 from __future__ import annotations
 
@@ -22,6 +29,32 @@ TOOL_REGISTRY_URL = os.getenv(
 REGISTRY_TOKEN = os.getenv("REGISTRY_TOKEN", "")
 CALL_TIMEOUT = 30  # seconds
 _CACHE_TTL = 60  # seconds
+
+# ── Shared persistent HTTP client ─────────────────────────────────────────────
+# One client for the process lifetime — reuses TCP connections for all calls.
+# Limits: 20 total / 10 per host — enough for parallel batch calls.
+_http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {REGISTRY_TOKEN}"} if REGISTRY_TOKEN else {}
+
+
+async def _get_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        async with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+                _http_client = httpx.AsyncClient(
+                    base_url=TOOL_REGISTRY_URL,
+                    headers=_auth_headers(),
+                    limits=limits,
+                    timeout=httpx.Timeout(CALL_TIMEOUT, connect=5.0),
+                )
+                log.debug("Created persistent httpx.AsyncClient for tool-registry")
+    return _http_client
 
 
 @dataclass
@@ -54,15 +87,15 @@ async def get_tools(tenant_id: str, org_id: str) -> list[ToolInfo]:
         if cached and time.monotonic() - cached[1] < _CACHE_TTL:
             return cached[0]
 
-    headers = {"Authorization": f"Bearer {REGISTRY_TOKEN}"} if REGISTRY_TOKEN else {}
+    client = await _get_client()
     try:
-        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
-            r = await client.get(
-                f"{TOOL_REGISTRY_URL}/tools",
-                params={"tenant_id": tenant_id, "org_id": org_id},
-            )
-            r.raise_for_status()
-            data = r.json()
+        r = await client.get(
+            "/tools",
+            params={"tenant_id": tenant_id, "org_id": org_id},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
     except Exception as exc:
         log.warning("registry_client.get_tools failed: %s", exc)
         # Return stale cache on error rather than failing the agent
@@ -87,22 +120,16 @@ async def call_tool(
     org_id: str,
 ) -> dict:
     """Proxy a tool call to tool-registry. Enforces tenant+org scope and timeout."""
-    headers = {"Authorization": f"Bearer {REGISTRY_TOKEN}"} if REGISTRY_TOKEN else {}
     encoded_name = tool_name.replace("/", "%2F").replace("?", "%3F")
     payload = {"arguments": arguments, "tenant_id": tenant_id, "org_id": org_id}
 
+    client = await _get_client()
     try:
-        async with httpx.AsyncClient(
-            timeout=CALL_TIMEOUT, headers=headers
-        ) as client:
-            r = await client.post(
-                f"{TOOL_REGISTRY_URL}/call/{encoded_name}",
-                json=payload,
-            )
-            if r.status_code == 403:
-                return {"error": f"Tool '{tool_name}' not available for org '{org_id}'"}
-            r.raise_for_status()
-            return r.json()
+        r = await client.post(f"/call/{encoded_name}", json=payload)
+        if r.status_code == 403:
+            return {"error": f"Tool '{tool_name}' not available for org '{org_id}'"}
+        r.raise_for_status()
+        return r.json()
     except httpx.TimeoutException:
         return {"error": f"Tool '{tool_name}' timed out after {CALL_TIMEOUT}s"}
     except Exception as exc:

@@ -24,6 +24,7 @@ from auto_agent.tools import (
     ask_human,
     call_agent,
     call_tool,
+    call_tools_parallel,
     list_available_tools,
     think,
 )
@@ -44,8 +45,17 @@ SYSTEM_PROMPT = f"""You are an autonomous AI assistant for **{ORG_NAME}** \
 1. **think** — plan complex multi-step tasks before acting
 2. **list_available_tools** — discover what tools you can use
 3. **ask_human** — REQUIRED before ANY create / update / delete action
-4. **call_tool** — execute the tool with correct arguments
-5. On errors: retry once with corrected args, then ask_human if still failing
+4. **call_tool** — execute one tool with correct arguments
+5. **call_tools_parallel** — execute multiple INDEPENDENT read-only tools at the same time
+6. On errors: retry once with corrected args, then ask_human if still failing
+
+## When to use call_tools_parallel vs call_tool:
+
+- call_tool: when result of one tool feeds into the next (sequential dependency)
+- call_tools_parallel: when you need data from multiple independent sources simultaneously
+  Example: "get current pods + get disk usage + get recent error logs" — all three
+  can be dispatched at once; waiting for each one before starting the next wastes time.
+- call_tools_parallel is READ-ONLY. For any write action use call_tool + ask_human.
 
 ## Rules:
 
@@ -81,7 +91,7 @@ kagent_checkpointer = KAgentCheckpointer(
 # ── Graph ─────────────────────────────────────────────────────────────────────
 graph = create_react_agent(
     model=ChatOpenAI(**_llm_kwargs),
-    tools=[think, list_available_tools, call_tool, ask_human, call_agent],
+    tools=[think, list_available_tools, call_tool, call_tools_parallel, ask_human, call_agent],
     checkpointer=kagent_checkpointer,
     prompt=SYSTEM_PROMPT,
 )
