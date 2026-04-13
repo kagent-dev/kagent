@@ -17,7 +17,9 @@ export function extractMessagesFromTasks(tasks: Task[]): TaskExtractionResult {
   let pendingTask: { taskId: string; state: 'working' | 'submitted' } | undefined;
 
   for (const task of tasks) {
-    // Detect in-flight tasks for stream reconnection
+    // Detect in-flight tasks for stream reconnection.
+    // If multiple tasks are in-flight (unusual), the last one wins — sessions
+    // are expected to have at most one concurrent active task.
     const taskState = task.status?.state;
     if (taskState === 'working' || taskState === 'submitted') {
       pendingTask = { taskId: task.id, state: taskState };

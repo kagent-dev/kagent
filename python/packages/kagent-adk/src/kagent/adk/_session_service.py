@@ -219,7 +219,7 @@ class KAgentSessionService(BaseSessionService):
             response.raise_for_status()
         logger.info("Successfully recreated session %s", session.id)
 
-        # Fetch existing tasks for this session to check for in-flight work
+        # Fetch existing tasks for this session to log in-flight work for observability
         tasks_response = await self.client.get(
             f"/api/sessions/{session.id}/tasks?user_id={session.user_id}",
             headers={"X-User-ID": session.user_id},
@@ -227,25 +227,23 @@ class KAgentSessionService(BaseSessionService):
         if tasks_response.status_code == 200:
             tasks_data = tasks_response.json()
             if tasks_data.get("data"):
-                logger.info(
+                logger.debug(
                     "Session %s has %d existing task(s) after recreation",
                     session.id,
                     len(tasks_data["data"]),
                 )
-                # Log info about in-flight tasks
                 for task in tasks_data["data"]:
-                    task_status = task.get("status", {})
-                    task_state = task_status.get("state", "unknown")
+                    task_state = task.get("status", {}).get("state", "unknown")
                     if task_state in ("working", "submitted"):
-                        logger.info(
-                            "Found in-flight task %s in state '%s' - UI should resubscribe to continue receiving updates",
+                        logger.debug(
+                            "Session %s has in-flight task %s in state '%s'",
+                            session.id,
                             task.get("id"),
                             task_state,
                         )
         else:
             logger.warning(
-                "Failed to fetch tasks for recreated session %s (HTTP %d). "
-                "In-flight task detection unavailable - UI may not auto-reconnect to active tasks.",
+                "Failed to fetch tasks for recreated session %s (HTTP %d)",
                 session.id,
                 tasks_response.status_code,
             )
