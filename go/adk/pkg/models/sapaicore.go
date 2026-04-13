@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -47,7 +48,7 @@ func NewSAPAICoreModelWithLogger(config SAPAICoreConfig, logger logr.Logger) (*S
 	}, nil
 }
 
-func (m *SAPAICoreModel) ensureToken() (string, error) {
+func (m *SAPAICoreModel) ensureToken(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -66,18 +67,25 @@ func (m *SAPAICoreModel) ensureToken() (string, error) {
 		tokenURL += "/oauth/token"
 	}
 
-	resp, err := m.httpClient.PostForm(tokenURL, url.Values{
+	formData := url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {clientID},
 		"client_secret": {clientSecret},
-	})
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth2 token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("OAuth2 token request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OAuth2 token request returned %d", resp.StatusCode)
+		return "", &orchHTTPError{StatusCode: resp.StatusCode, URL: tokenURL}
 	}
 
 	var tokenResp struct {
@@ -104,7 +112,7 @@ func (m *SAPAICoreModel) invalidateToken() {
 	m.tokenExpiresAt = time.Time{}
 }
 
-func (m *SAPAICoreModel) resolveDeploymentURL() (string, error) {
+func (m *SAPAICoreModel) resolveDeploymentURL(ctx context.Context) (string, error) {
 	m.mu.Lock()
 	if m.deploymentURL != "" && time.Now().Before(m.deploymentURLAt.Add(time.Hour)) {
 		u := m.deploymentURL
@@ -113,13 +121,13 @@ func (m *SAPAICoreModel) resolveDeploymentURL() (string, error) {
 	}
 	m.mu.Unlock()
 
-	token, err := m.ensureToken()
+	token, err := m.ensureToken(ctx)
 	if err != nil {
 		return "", err
 	}
 
 	reqURL := fmt.Sprintf("%s/v2/lm/deployments", m.Config.BaseUrl)
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -133,7 +141,7 @@ func (m *SAPAICoreModel) resolveDeploymentURL() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("list deployments returned %d", resp.StatusCode)
+		return "", &orchHTTPError{StatusCode: resp.StatusCode, URL: reqURL}
 	}
 
 	var result struct {

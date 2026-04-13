@@ -532,8 +532,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return KAgentSAPAICoreLlm(
             model=model_config.model,
             base_url=base_url,
-            resource_group=getattr(model_config, "resource_group", "default"),
-            auth_url=getattr(model_config, "auth_url", None),
+            resource_group=model_config.resource_group,
+            auth_url=model_config.auth_url,
             api_key_passthrough=model_config.api_key_passthrough,
             tls_disable_verify=model_config.tls_disable_verify or False,
             tls_ca_cert_path=model_config.tls_ca_cert_path,

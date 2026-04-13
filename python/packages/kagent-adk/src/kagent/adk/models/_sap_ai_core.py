@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import ssl
-import threading
 import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -23,47 +22,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_token_cache: dict[tuple[str, str], tuple[str, float]] = {}
-_token_cache_lock = threading.Lock()
 
-
-def _get_oauth_token_sync(auth_url: str, client_id: str, client_secret: str) -> tuple[str, float]:
-    cache_key = (auth_url, client_id)
-
-    with _token_cache_lock:
-        cached = _token_cache.get(cache_key)
-        if cached and time.time() < cached[1] - 120:
-            return cached
-
+async def _fetch_oauth_token(auth_url: str, client_id: str, client_secret: str) -> tuple[str, float]:
+    """Fetch a new OAuth2 token from the auth server. No caching — callers manage expiry."""
     token_url = auth_url.rstrip("/")
     if not token_url.endswith("/oauth/token"):
         token_url += "/oauth/token"
 
-    resp = httpx.post(
-        token_url,
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=30,
-    )
-    resp.raise_for_status()
+    def _sync_fetch() -> tuple[str, float]:
+        resp = httpx.post(
+            token_url,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        token = data["access_token"]
+        expires_at = time.time() + data.get("expires_in", 43200)
+        return token, expires_at
 
-    data = resp.json()
-    token = data["access_token"]
-    expires_at = time.time() + data.get("expires_in", 43200)
-    result = (token, expires_at)
-
-    with _token_cache_lock:
-        _token_cache[cache_key] = result
-
-    return result
-
-
-async def _get_oauth_token(auth_url: str, client_id: str, client_secret: str) -> tuple[str, float]:
-    return await asyncio.to_thread(_get_oauth_token_sync, auth_url, client_id, client_secret)
+    return await asyncio.to_thread(_sync_fetch)
 
 
 def _build_orchestration_template(
@@ -114,11 +97,13 @@ def _build_orchestration_template(
             if text_parts:
                 template.append({"role": role, "content": "\n".join(text_parts)})
             for tool_call_id, resp_content in function_responses:
-                template.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": resp_content,
-                })
+                template.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": resp_content,
+                    }
+                )
         elif text_parts:
             template.append({"role": role, "content": "\n".join(text_parts)})
 
@@ -131,14 +116,16 @@ def _build_orchestration_tools(
     openai_tools = _convert_tools_to_openai(tools)
     result = []
     for t in openai_tools:
-        result.append({
-            "type": "function",
-            "function": {
-                "name": t["function"]["name"],
-                "description": t["function"].get("description", ""),
-                "parameters": t["function"].get("parameters", {"type": "object", "properties": {}}),
-            },
-        })
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t["function"]["name"],
+                    "description": t["function"].get("description", ""),
+                    "parameters": t["function"].get("parameters", {"type": "object", "properties": {}}),
+                },
+            }
+        )
     return result
 
 
@@ -219,10 +206,6 @@ class KAgentSAPAICoreLlm(BaseLlm):
     def _invalidate_token(self) -> None:
         self._token = None
         self._token_expires_at = 0.0
-        if self.auth_url:
-            cache_key = (self.auth_url, os.environ.get("SAP_AI_CORE_CLIENT_ID", ""))
-            with _token_cache_lock:
-                _token_cache.pop(cache_key, None)
 
     def _invalidate_deployment_url(self) -> None:
         self._deployment_url = None
@@ -240,7 +223,7 @@ class KAgentSAPAICoreLlm(BaseLlm):
         client_secret = os.environ.get("SAP_AI_CORE_CLIENT_SECRET", "")
 
         if self.auth_url and client_id and client_secret:
-            token, expires_at = await _get_oauth_token(self.auth_url, client_id, client_secret)
+            token, expires_at = await _fetch_oauth_token(self.auth_url, client_id, client_secret)
             self._token = token
             self._token_expires_at = expires_at
             return token
@@ -316,8 +299,7 @@ class KAgentSAPAICoreLlm(BaseLlm):
 
         if llm_request.config and llm_request.config.tools:
             genai_tools: list[types.Tool] = [
-                t for t in llm_request.config.tools
-                if isinstance(t, types.Tool) and hasattr(t, "function_declarations")
+                t for t in llm_request.config.tools if isinstance(t, types.Tool) and hasattr(t, "function_declarations")
             ]
             if genai_tools:
                 orch_tools = _build_orchestration_tools(genai_tools)
@@ -352,7 +334,7 @@ class KAgentSAPAICoreLlm(BaseLlm):
                 if status in (401, 403):
                     self._invalidate_token()
                 self._invalidate_deployment_url()
-                logger.warning("SAP AI Core returned %d, invalidated caches. Retrying once.", status)
+                logger.warning("SAP AI Core returned %d from %s, invalidated caches. Retrying once.", status, e.response.url)
                 try:
                     headers = await self._get_headers()
                     deployment_url = await self._resolve_deployment_url()
@@ -388,7 +370,7 @@ class KAgentSAPAICoreLlm(BaseLlm):
                 if not line:
                     continue
 
-                payload = line[len("data: "):] if line.startswith("data: ") else line
+                payload = line[len("data: ") :] if line.startswith("data: ") else line
                 if payload == "[DONE]":
                     break
 
@@ -463,9 +445,7 @@ class KAgentSAPAICoreLlm(BaseLlm):
             usage_metadata=usage_metadata,
         )
 
-    async def _non_stream_request(
-        self, url: str, headers: dict[str, str], body: dict[str, Any]
-    ) -> LlmResponse:
+    async def _non_stream_request(self, url: str, headers: dict[str, str], body: dict[str, Any]) -> LlmResponse:
         client = self._get_http_client()
         resp = await client.post(url, headers=headers, json=body)
         resp.raise_for_status()
@@ -490,11 +470,15 @@ class KAgentSAPAICoreLlm(BaseLlm):
                 parts.append(part)
 
         usage = result.get("usage", {})
-        usage_metadata = types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=usage.get("prompt_tokens"),
-            candidates_token_count=usage.get("completion_tokens"),
-            total_token_count=usage.get("total_tokens"),
-        ) if usage else None
+        usage_metadata = (
+            types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=usage.get("prompt_tokens"),
+                candidates_token_count=usage.get("completion_tokens"),
+                total_token_count=usage.get("total_tokens"),
+            )
+            if usage
+            else None
+        )
 
         stop_reason = result.get("choices", [{}])[0].get("finish_reason", "stop")
         fr = self._map_finish_reason(stop_reason)

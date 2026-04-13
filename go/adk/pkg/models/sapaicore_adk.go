@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -27,7 +28,12 @@ func (m *SAPAICoreModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 			if isRetryableError(err) {
 				m.invalidateToken()
 				m.invalidateDeploymentURL()
-				m.Logger.Info("SAP AI Core request failed, retrying", "error", err)
+				var he *orchHTTPError
+				if errors.As(err, &he) {
+					m.Logger.Info("SAP AI Core request failed, retrying", "status", he.StatusCode, "url", he.URL)
+				} else {
+					m.Logger.Info("SAP AI Core request failed, retrying", "error", err)
+				}
 				resp, err = m.doRequest(ctx, req, stream)
 				if err != nil {
 					yield(nil, fmt.Errorf("SAP AI Core retry failed: %w", err))
@@ -49,12 +55,12 @@ func (m *SAPAICoreModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 }
 
 func (m *SAPAICoreModel) doRequest(ctx context.Context, req *model.LLMRequest, stream bool) (*http.Response, error) {
-	deploymentURL, err := m.resolveDeploymentURL()
+	deploymentURL, err := m.resolveDeploymentURL(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := m.ensureToken()
+	token, err := m.ensureToken(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +88,7 @@ func (m *SAPAICoreModel) doRequest(ctx context.Context, req *model.LLMRequest, s
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, &orchHTTPError{StatusCode: resp.StatusCode, Body: string(errBody)}
+		return nil, &orchHTTPError{StatusCode: resp.StatusCode, Body: string(errBody), URL: url}
 	}
 
 	return resp, nil
@@ -91,10 +97,11 @@ func (m *SAPAICoreModel) doRequest(ctx context.Context, req *model.LLMRequest, s
 type orchHTTPError struct {
 	StatusCode int
 	Body       string
+	URL        string
 }
 
 func (e *orchHTTPError) Error() string {
-	return fmt.Sprintf("SAP AI Core returned HTTP %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("SAP AI Core returned HTTP %d (url: %s): %s", e.StatusCode, e.URL, e.Body)
 }
 
 func isRetryableError(err error) bool {
