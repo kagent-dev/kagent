@@ -1,12 +1,35 @@
 "use server";
 
-import { AgentSpec, BaseResponse, DeclarativeAgentSpec, SandboxAgent } from "@/types";
+import { AgentSpec, BaseResponse, DeclarativeAgentSpec, PromptSource, SandboxAgent } from "@/types";
 import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+
+function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
+  if (!agentFormData.promptSources?.some((s) => s.name.trim())) {
+    return;
+  }
+  const dataSources: PromptSource[] = agentFormData.promptSources
+    .filter((s) => s.name.trim())
+    .map((s) => {
+      const src: PromptSource = {
+        kind: "ConfigMap",
+        name: s.name.trim(),
+        apiGroup: "",
+      };
+      const al = s.alias.trim();
+      if (al) {
+        src.alias = al;
+      }
+      return src;
+    });
+  if (dataSources.length > 0) {
+    decl.promptTemplate = { dataSources };
+  }
+}
 
 /**
  * Converts AgentFormData to Agent format
@@ -137,6 +160,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         serviceAccountName: trimmedSA,
       };
     }
+
+    attachPromptTemplateToDeclarative(base.spec!.declarative!, agentFormData);
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {
@@ -291,6 +316,8 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
       serviceAccountName: trimmedSA,
     };
   }
+
+  attachPromptTemplateToDeclarative(decl, agentFormData);
 
   const spec: AgentSpec = {
     type: "Declarative",

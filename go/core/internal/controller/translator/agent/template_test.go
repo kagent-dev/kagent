@@ -1,11 +1,15 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -312,4 +316,39 @@ func TestBuildTemplateContext(t *testing.T) {
 			assert.Equal(t, tt.wantCtx, got)
 		})
 	}
+}
+
+func TestResolvePromptSources_AliasAndConfigMapNameBothResolve(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent-builtin-prompts", Namespace: "ns"},
+		Data: map[string]string{
+			"safety-guardrails": "be safe",
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+	sources := []v1alpha2.PromptSource{
+		{
+			TypedLocalReference: v1alpha2.TypedLocalReference{
+				Kind:     "ConfigMap",
+				ApiGroup: "",
+				Name:     "kagent-builtin-prompts",
+			},
+			Alias: "builtin",
+		},
+	}
+
+	lookup, err := resolvePromptSources(ctx, cl, "ns", sources)
+	require.NoError(t, err)
+
+	assert.Equal(t, "be safe", lookup["builtin/safety-guardrails"])
+	assert.Equal(t, "be safe", lookup["kagent-builtin-prompts/safety-guardrails"], "include by ConfigMap name must work when alias is set")
+
+	out, err := executeSystemMessageTemplate(`{{include "kagent-builtin-prompts/safety-guardrails"}}`, lookup, PromptTemplateContext{})
+	require.NoError(t, err)
+	assert.Equal(t, "be safe", out)
 }

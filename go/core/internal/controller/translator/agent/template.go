@@ -47,11 +47,26 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 		}
 
 		for key, value := range data {
-			lookupKey := identifier + "/" + key
-			if _, exists := lookup[lookupKey]; exists {
-				return nil, fmt.Errorf("duplicate prompt template identifier %q from prompt source %q (kind=%q, apiGroup=%q)", lookupKey, src.Name, src.Kind, src.ApiGroup)
+			// Register primary path: alias/key when alias is set, otherwise name/key.
+			keys := []string{identifier + "/" + key}
+			// When an alias is set, includes may still use the ConfigMap name (e.g. from @ picker);
+			// register name/key as well so both forms resolve to the same fragment.
+			if src.Alias != "" {
+				namePath := src.Name + "/" + key
+				if namePath != keys[0] {
+					keys = append(keys, namePath)
+				}
 			}
-			lookup[lookupKey] = value
+
+			for _, lookupKey := range keys {
+				if existing, exists := lookup[lookupKey]; exists {
+					if existing != value {
+						return nil, fmt.Errorf("duplicate prompt template identifier %q from prompt source %q (kind=%q, apiGroup=%q)", lookupKey, src.Name, src.Kind, src.ApiGroup)
+					}
+					continue
+				}
+				lookup[lookupKey] = value
+			}
 		}
 	}
 

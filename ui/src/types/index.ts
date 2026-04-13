@@ -257,6 +257,34 @@ export interface DeclarativeDeploymentSpec {
   serviceAccountName?: string;
 }
 
+/** Prompt library sources referenced for {{include "alias/key"}} in system messages. */
+export interface PromptSource {
+  kind: string;
+  name: string;
+  apiGroup?: string;
+  alias?: string;
+}
+
+export interface PromptTemplateSpec {
+  dataSources?: PromptSource[];
+}
+
+export interface PromptTemplateSummary {
+  namespace: string;
+  name: string;
+  keyCount: number;
+  /** Fragment keys per library (for @ include picker). */
+  keys?: string[];
+  readOnly: boolean;
+}
+
+export interface PromptTemplateDetail {
+  namespace: string;
+  name: string;
+  data: Record<string, string>;
+  readOnly: boolean;
+}
+
 export interface DeclarativeAgentSpec {
   systemMessage: string;
   tools: Tool[];
@@ -268,6 +296,8 @@ export interface DeclarativeAgentSpec {
   deployment?: DeclarativeDeploymentSpec;
   /** Long-term memory (same shape as Kubernetes declarative spec). */
   memory?: MemorySpec;
+  /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
+  promptTemplate?: PromptTemplateSpec;
 }
 
 export interface ContextConfig {
