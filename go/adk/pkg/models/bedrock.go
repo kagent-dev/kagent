@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"regexp"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,6 +18,32 @@ import (
 	"google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
+
+// bedrockToolIDValid matches Bedrock's toolUseId constraint: [a-zA-Z0-9_.:-]+
+var (
+	bedrockToolIDValid   = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
+	bedrockToolIDInvalid = regexp.MustCompile(`[^a-zA-Z0-9_.:-]`)
+)
+
+// sanitizeBedrockToolID returns a valid Bedrock toolUseId.
+// Bedrock requires toolUseId to match [a-zA-Z0-9_.:-]+ and be non-empty.
+// idMap caches original→sanitized so FunctionCall and FunctionResponse
+// with the same original ID get the same sanitized ID, unless the ID is empty or fully-invalid.
+func sanitizeBedrockToolID(id string, idMap map[string]string, counter *int) string {
+	if id != "" {
+		if sanitized, ok := idMap[id]; ok {
+			return sanitized
+		}
+	}
+	sanitized := bedrockToolIDInvalid.ReplaceAllString(id, "_")
+	if !bedrockToolIDValid.MatchString(sanitized) {
+		*counter++
+		sanitized = fmt.Sprintf("tool_%d", *counter)
+		return sanitized
+	}
+	idMap[id] = sanitized
+	return sanitized
+}
 
 // BedrockConfig holds Bedrock configuration for the Converse API
 type BedrockConfig struct {
@@ -386,6 +413,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 	var messages []types.Message
 	var systemInstruction string
 
+	// Sanitize tool IDs: Bedrock requires toolUseId to match [a-zA-Z0-9_.:-]+ (non-empty).
+	// See https://github.com/kagent-dev/kagent/issues/1473
+	idMap := make(map[string]string)
+	idCounter := 0
+
 	for _, content := range contents {
 		if content == nil || len(content.Parts) == 0 {
 			continue
@@ -398,8 +430,6 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 		}
 
 		var contentBlocks []types.ContentBlock
-		var toolUseBlocks []types.ContentBlock
-		var toolResultBlocks []types.ContentBlock
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -422,11 +452,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 			// Handle function call (tool use in Bedrock terminology)
 			if part.FunctionCall != nil {
 				toolUse := types.ToolUseBlock{
-					ToolUseId: aws.String(part.FunctionCall.ID),
+					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
 					Name:      aws.String(part.FunctionCall.Name),
 					Input:     document.NewLazyDocument(part.FunctionCall.Args),
 				}
-				toolUseBlocks = append(toolUseBlocks, &types.ContentBlockMemberToolUse{
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
 					Value: toolUse,
 				})
 				continue
@@ -435,9 +465,9 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 			// Handle function response (tool result in Bedrock terminology)
 			if part.FunctionResponse != nil {
 				// Extract response content
-				result := extractBedrockFunctionResponseContent(part.FunctionResponse.Response)
+				result := extractFunctionResponseContent(part.FunctionResponse.Response)
 				toolResult := types.ToolResultBlock{
-					ToolUseId: aws.String(part.FunctionResponse.ID),
+					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionResponse.ID, idMap, &idCounter)),
 					Content: []types.ToolResultContentBlock{
 						&types.ToolResultContentBlockMemberText{
 							Value: result,
@@ -445,52 +475,19 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 					},
 					Status: types.ToolResultStatusSuccess,
 				}
-				toolResultBlocks = append(toolResultBlocks, &types.ContentBlockMemberToolResult{
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolResult{
 					Value: toolResult,
 				})
 				continue
 			}
 		}
 
-		// Build messages based on what we found
-		// Tool use and tool result blocks are appended to content blocks
-		allContent := append(contentBlocks, toolUseBlocks...)
-		allContent = append(allContent, toolResultBlocks...)
-
-		if len(allContent) > 0 {
-			msg := types.Message{
-				Role:    role,
-				Content: allContent,
-			}
-			messages = append(messages, msg)
+		if len(contentBlocks) > 0 {
+			messages = append(messages, types.Message{Role: role, Content: contentBlocks})
 		}
 	}
 
 	return messages, systemInstruction
-}
-
-// extractBedrockFunctionResponseContent extracts text content from a function response for Bedrock.
-func extractBedrockFunctionResponseContent(response any) string {
-	if response == nil {
-		return ""
-	}
-
-	switch v := response.(type) {
-	case string:
-		return v
-	case map[string]any:
-		// Try to extract text from common formats
-		if result, ok := v["result"].(string); ok {
-			return result
-		}
-		if content, ok := v["content"].(string); ok {
-			return content
-		}
-		// Fallback: serialize the whole map
-		return fmt.Sprintf("%v", v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
 }
 
 // convertGenaiToolsToBedrock converts genai.Tool to Bedrock Tool format.
@@ -511,39 +508,21 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 				continue
 			}
 
-			// Build input schema as JSON document
-			properties := make(map[string]any)
-			if decl.Parameters != nil {
-				for name, schema := range decl.Parameters.Properties {
-					if schema == nil {
-						continue
-					}
-					prop := map[string]any{
-						"type": strings.ToLower(string(schema.Type)),
-					}
-					if schema.Description != "" {
-						prop["description"] = schema.Description
-					}
-					if len(schema.Enum) > 0 {
-						prop["enum"] = schema.Enum
-					}
-					properties[name] = prop
-				}
+			// Build input schema as JSON document.
+			// MCP tools and built-in local toolsset ParametersJsonSchema
+			var schema map[string]any
+			if decl.ParametersJsonSchema != nil {
+				schema = parametersJsonSchemaToMap(decl.ParametersJsonSchema)
 			}
-
-			var required []any
-			if decl.Parameters != nil {
-				for _, r := range decl.Parameters.Required {
-					required = append(required, r)
-				}
+			// Declaration-based tools set Parameters (genai.Schema with uppercase type names).
+			if schema == nil && decl.Parameters != nil {
+				// Marshal the full genai.Schema to JSON (preserves nested props, arrays, anyOf, etc.)
+				// then lowercase all type values to match JSON Schema standard.
+				schema = genaiSchemaToMap(decl.Parameters)
 			}
-
-			schema := map[string]any{
-				"type":       "object",
-				"properties": properties,
-			}
-			if len(required) > 0 {
-				schema["required"] = required
+			// Fallback to empty object if no schema is found
+			if schema == nil {
+				schema = map[string]any{"type": "object", "properties": map[string]any{}}
 			}
 
 			inputSchema := &types.ToolInputSchemaMemberJson{

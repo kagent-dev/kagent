@@ -331,38 +331,6 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content) ([]api.Mess
 	return messages, systemInstruction
 }
 
-// extractFunctionResponseContent extracts text content from a function response.
-func extractFunctionResponseContent(response any) string {
-	if response == nil {
-		return ""
-	}
-
-	switch v := response.(type) {
-	case string:
-		return v
-	case map[string]any:
-		// Try to extract text from common formats
-		if content, ok := v["content"].([]any); ok {
-			var parts []string
-			for _, item := range content {
-				if itemMap, ok := item.(map[string]any); ok {
-					if text, ok := itemMap["text"].(string); ok {
-						parts = append(parts, text)
-					}
-				}
-			}
-			return strings.Join(parts, "\n")
-		}
-		if result, ok := v["result"].(string); ok {
-			return result
-		}
-		// Fallback: serialize the whole map
-		return fmt.Sprintf("%v", v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
 // convertGenaiToolsToOllama converts genai.Tool to Ollama tool format.
 func convertGenaiToolsToOllama(tools []*genai.Tool) []api.Tool {
 	if len(tools) == 0 {
@@ -381,18 +349,46 @@ func convertGenaiToolsToOllama(tools []*genai.Tool) []api.Tool {
 				continue
 			}
 
-			// Build parameters
+			// Build parameters.
 			params := api.ToolFunctionParameters{
 				Type:       "object",
 				Properties: api.NewToolPropertiesMap(),
 			}
-			if decl.Parameters != nil {
+			if decl.ParametersJsonSchema != nil {
+				// Ollama requires typed properties, so we convert to map[string]any first then to api.ToolProperty.
+				if m := parametersJsonSchemaToMap(decl.ParametersJsonSchema); m != nil {
+					if props, ok := m["properties"].(map[string]any); ok {
+						for name, propAny := range props {
+							if propMap, ok := propAny.(map[string]any); ok {
+								prop := api.ToolProperty{}
+								if t, ok := propMap["type"].(string); ok {
+									prop.Type = api.PropertyType{t}
+								}
+								if d, ok := propMap["description"].(string); ok {
+									prop.Description = d
+								}
+								if enumVals, ok := propMap["enum"].([]any); ok {
+									prop.Enum = enumVals
+								}
+								params.Properties.Set(name, prop)
+							}
+						}
+					}
+					if required, ok := m["required"].([]any); ok {
+						for _, r := range required {
+							if s, ok := r.(string); ok {
+								params.Required = append(params.Required, s)
+							}
+						}
+					}
+				}
+			} else if decl.Parameters != nil {
 				for name, schema := range decl.Parameters.Properties {
 					if schema == nil {
 						continue
 					}
 					prop := api.ToolProperty{
-						Type:        api.PropertyType{string(schema.Type)},
+						Type:        api.PropertyType{strings.ToLower(string(schema.Type))},
 						Description: schema.Description,
 					}
 					if len(schema.Enum) > 0 {
