@@ -2,8 +2,11 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
@@ -280,6 +283,42 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 	}
 	if br.Region != "us-east-1" {
 		t.Errorf("region = %q, want %q", br.Region, "us-east-1")
+	}
+}
+
+func TestBuildAgentTools_WiresSkillsToolsFromEnv(t *testing.T) {
+	skillsDir := t.TempDir()
+	skillDir := filepath.Join(skillsDir, "csv-to-json")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatalf("failed to create skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: csv-to-json
+description: Convert CSV into JSON.
+---
+
+Use the script in scripts/convert.py.
+`), 0644); err != nil {
+		t.Fatalf("failed to write SKILL.md: %v", err)
+	}
+
+	t.Setenv("KAGENT_SKILLS_FOLDER", skillsDir)
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+
+	tools, err := buildAgentTools(&adk.AgentConfig{}, nil, nil, logr.Discard())
+	if err != nil {
+		t.Fatalf("buildAgentTools() error = %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, tool := range tools {
+		got[tool.Name()] = true
+	}
+
+	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash", "ask_user"} {
+		if !got[name] {
+			t.Errorf("expected tool %q to be registered", name)
+		}
 	}
 }
 

@@ -17,6 +17,26 @@ func createTempDir(t *testing.T) string {
 	return tmpDir
 }
 
+func installFakeSRT(t *testing.T) string {
+	t.Helper()
+
+	tmpDir := createTempDir(t)
+	scriptPath := filepath.Join(tmpDir, "srt")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--settings\" ]; then\n  shift 2\nfi\nexec \"$@\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("Failed to write fake srt: %v", err)
+	}
+
+	settingsPath := filepath.Join(tmpDir, "srt-settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"denyRead":[],"allowWrite":[".","/tmp"],"denyWrite":[]}}`), 0644); err != nil {
+		t.Fatalf("Failed to write fake srt settings: %v", err)
+	}
+
+	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(srtSettingsPathEnv, settingsPath)
+	return tmpDir
+}
+
 func TestReadFileContent(t *testing.T) {
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
@@ -287,8 +307,13 @@ func TestEditFileContent(t *testing.T) {
 func TestExecuteCommand(t *testing.T) {
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		t.Fatalf("NewCommandExecutorFromEnv() error = %v", err)
+	}
 
 	tests := []struct {
 		name       string
@@ -369,7 +394,7 @@ func TestExecuteCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteCommand(ctx, tt.command, tt.workingDir)
+			result, err := executor.ExecuteCommand(ctx, tt.command, tt.workingDir)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -388,6 +413,18 @@ func TestExecuteCommand(t *testing.T) {
 	}
 }
 
+func TestExecuteCommand_RequiresMountedSRTSettings(t *testing.T) {
+	t.Setenv(srtSettingsPathEnv, "")
+
+	_, err := NewCommandExecutorFromEnv()
+	if err == nil {
+		t.Fatal("expected error when SRT settings path is missing")
+	}
+	if !strings.Contains(err.Error(), srtSettingsPathEnv+" is not set") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestExecuteCommand_Timeout(t *testing.T) {
 	// Skip this test if running in CI or if test timeout is too short
 	// This test requires at least 35 seconds to run properly
@@ -397,8 +434,13 @@ func TestExecuteCommand_Timeout(t *testing.T) {
 
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(installFakeSRT(t))
 
 	ctx := context.Background()
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		t.Fatalf("NewCommandExecutorFromEnv() error = %v", err)
+	}
 
 	// Test timeout for long-running command
 	// The timeout is 30 seconds for non-python commands
@@ -407,7 +449,7 @@ func TestExecuteCommand_Timeout(t *testing.T) {
 	command := "sleep 31" // This should timeout after 30 seconds
 
 	start := time.Now()
-	result, err := ExecuteCommand(ctx, command, tmpDir)
+	result, err := executor.ExecuteCommand(ctx, command, tmpDir)
 	elapsed := time.Since(start)
 
 	// When a command times out, ExecuteCommand should return an error

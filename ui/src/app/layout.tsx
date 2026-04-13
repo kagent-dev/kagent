@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentsProvider } from "@/components/AgentsProvider";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -22,18 +23,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <TooltipProvider>
       <AgentsProvider>
-        <html lang="en" className="">
-          <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              <AppInitializer>
-                <Header />
-                <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-                <Footer />
-              </AppInitializer>
-              <Toaster richColors/>
-            </ThemeProvider>
-          </body>
-        </html>
+        <AuthProvider>
+          <html lang="en" className="" suppressHydrationWarning>
+            <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
+              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                <AppInitializer>
+                  <Header />
+                  <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
+                  <Footer />
+                </AppInitializer>
+                <Toaster richColors/>
+              </ThemeProvider>
+            </body>
+          </html>
+        </AuthProvider>
       </AgentsProvider>
     </TooltipProvider>
   );

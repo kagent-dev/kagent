@@ -368,6 +368,8 @@ class KagentMemoryService(BaseMemoryService):
             return await self._embed_ollama(model_name, texts, api_base)
         if provider in ("vertex_ai", "gemini"):
             return await self._embed_google(provider, model_name, texts)
+        if provider == "bedrock":
+            return await self._embed_bedrock(model_name, texts)
         # Unknown provider — try OpenAI-compatible as a fallback
         logger.warning("Unknown embedding provider '%s'; attempting OpenAI-compatible call.", provider)
         return await self._embed_openai("openai", model_name, texts, api_base)
@@ -436,6 +438,39 @@ class KagentMemoryService(BaseMemoryService):
             config=genai_types.EmbedContentConfig(output_dimensionality=768),
         )
         return [list(emb.values) for emb in response.embeddings]
+
+    async def _embed_bedrock(
+        self,
+        model_name: str,
+        texts: List[str],
+    ) -> List[List[float]]:
+        """Embed using the AWS Bedrock Titan Embedding API via boto3.
+
+        Uses the same credential chain (env vars, IRSA, instance profile) as
+        KAgentBedrockLlm.  Each text is embedded individually because the
+        Titan Embedding API accepts a single ``inputText`` per invocation.
+        """
+        import os
+
+        import boto3
+
+        region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
+        client = boto3.client("bedrock-runtime", region_name=region)
+
+        async def _invoke_single(text: str) -> List[float]:
+            body = json.dumps({"inputText": text})
+            response = await asyncio.to_thread(
+                client.invoke_model,
+                modelId=model_name,
+                body=body,
+                contentType="application/json",
+                accept="application/json",
+            )
+            result = json.loads(response["body"].read())
+            return result["embedding"]
+
+        embeddings = await asyncio.gather(*[_invoke_single(t) for t in texts])
+        return list(embeddings)
 
     async def _summarize_session_content_async(
         self,

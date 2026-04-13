@@ -83,10 +83,10 @@ func TestSecurityContext_AppliedToPodSpec(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
 	// Translate agent
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -174,9 +174,9 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -249,9 +249,9 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -275,7 +275,83 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 	assert.Equal(t, int64(3000), *containerSecurityContext.RunAsGroup)
 }
 
-func TestSecurityContext_WithSandbox(t *testing.T) {
+// TestSecurityContext_SkillsDefaultPrivilegedSandbox verifies that when skills are
+// configured and the user has NOT set any securityContext (i.e., no PSS restriction),
+// the controller sets Privileged=true so that srt/bubblewrap can fully sandbox the BashTool.
+func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Skills: &v1alpha2.SkillForAgent{
+				Refs: []string{"test-skill:latest"},
+			},
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test agent",
+				ModelConfig:   "test-model",
+				// No Deployment.SecurityContext set — default behaviour
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment)
+	podTemplate := &deployment.Spec.Template
+
+	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
+	require.NotNil(t, containerSecurityContext, "SecurityContext should be created for sandbox")
+	// Without an explicit AllowPrivilegeEscalation=false constraint, skills trigger Privileged=true
+	// so that srt/bubblewrap can use kernel namespaces for full BashTool sandboxing.
+	require.NotNil(t, containerSecurityContext.Privileged, "Privileged should be set when no securityContext restriction")
+	assert.True(t, *containerSecurityContext.Privileged, "Privileged should be true for skills without PSS restrictions")
+}
+
+// TestSecurityContext_SkillsPSSRestricted verifies that when a user explicitly sets
+// AllowPrivilegeEscalation=false (PSS Restricted profile), adding skills does NOT
+// force Privileged=true — which Kubernetes rejects as an invalid combination.
+// srt (Anthropic Sandbox Runtime) falls back to unprivileged user-namespace sandboxing
+// on modern kernels (EKS, GKE) that have unprivileged_userns_clone enabled.
+func TestSecurityContext_SkillsPSSRestricted(t *testing.T) {
 	ctx := context.Background()
 
 	agent := &v1alpha2.Agent{
@@ -294,8 +370,12 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						SecurityContext: &corev1.SecurityContext{
-							RunAsUser:  new(int64(1000)),
-							RunAsGroup: new(int64(1000)),
+							RunAsUser:                new(int64(1000)),
+							RunAsGroup:               new(int64(1000)),
+							AllowPrivilegeEscalation: new(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+							},
 						},
 					},
 				},
@@ -327,9 +407,9 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 		Namespace: "test",
 		Name:      "test-model",
 	}
-	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "")
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
 
-	result, err := translatorInstance.TranslateAgent(ctx, agent)
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
 	require.NoError(t, err)
 
 	var deployment *appsv1.Deployment
@@ -342,9 +422,10 @@ func TestSecurityContext_WithSandbox(t *testing.T) {
 	require.NotNil(t, deployment)
 	podTemplate := &deployment.Spec.Template
 
-	// When sandbox is needed, Privileged should be set even if user provided securityContext
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
 	require.NotNil(t, containerSecurityContext)
-	assert.True(t, *containerSecurityContext.Privileged, "Privileged should be true when sandbox is needed")
-	assert.Equal(t, int64(1000), *containerSecurityContext.RunAsUser, "User-provided runAsUser should still be set")
+	// AllowPrivilegeEscalation=false prevents Privileged=true (invalid Kubernetes combination)
+	assert.Nil(t, containerSecurityContext.Privileged, "Privileged must not be set when AllowPrivilegeEscalation=false")
+	assert.Equal(t, int64(1000), *containerSecurityContext.RunAsUser, "User-provided runAsUser should be preserved")
+	assert.False(t, *containerSecurityContext.AllowPrivilegeEscalation, "AllowPrivilegeEscalation should be preserved as false")
 }

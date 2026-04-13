@@ -44,6 +44,13 @@ def maybe_add_skills(root_agent: BaseAgent):
         add_skills_tool_to_agent(skills_directory, root_agent)
 
 
+def maybe_add_skills_with_config(root_agent: BaseAgent, agent_config: Optional[AgentConfig] = None):
+    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
+    if skills_directory:
+        logger.info(f"Adding skills from directory: {skills_directory}")
+        add_skills_tool_to_agent(skills_directory, root_agent)
+
+
 @app.command()
 def static(
     host: str = "127.0.0.1",
@@ -75,7 +82,7 @@ def static(
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
 
-        maybe_add_skills(root_agent)
+        maybe_add_skills_with_config(root_agent, agent_config)
 
         return root_agent
 
@@ -149,7 +156,7 @@ def run(
         if sts_integration:
             add_to_agent(sts_integration, root_agent)
 
-        maybe_add_skills(root_agent)
+        maybe_add_skills_with_config(root_agent, agent_config)
 
         return root_agent
 
@@ -213,7 +220,7 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
-        maybe_add_skills(root_agent)
+        maybe_add_skills_with_config(root_agent, agent_config)
         return root_agent
 
     app = KAgentApp(

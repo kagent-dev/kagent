@@ -36,7 +36,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
 
   const isBYO = agent.spec?.type === "BYO";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
-  const isReady = deploymentReady && accepted;
+  const isReady = accepted && deploymentReady;
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
