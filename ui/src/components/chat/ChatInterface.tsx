@@ -26,7 +26,7 @@ import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessage
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Message, DataPart, TaskState } from "@a2a-js/sdk";
+import { Message, DataPart } from "@a2a-js/sdk";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -159,7 +159,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           // If there's a pending task (and no pending approval taking priority), reconnect to its stream
           if (pendingTask && !hasPendingApproval) {
             setIsLoading(false);
-            setChatStatus(mapA2AStateToStatus(pendingTask.state as TaskState));
+            setChatStatus(mapA2AStateToStatus(pendingTask.state));
 
             try {
               abortControllerRef.current = new AbortController();
@@ -171,9 +171,25 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                 abortControllerRef.current.signal
               );
 
-              for await (const event of stream) {
-                handleMessageEvent(event);
-                if (abortControllerRef.current?.signal.aborted) break;
+              let timeoutTimer: NodeJS.Timeout | null = null;
+              const streamTimeout = 600000; // 10 minutes
+              const startTimeout = () => {
+                if (timeoutTimer) clearTimeout(timeoutTimer);
+                timeoutTimer = setTimeout(() => {
+                  toast.error("Reconnection timed out - no events received for 10 minutes");
+                  abortControllerRef.current?.abort();
+                }, streamTimeout);
+              };
+              startTimeout();
+
+              try {
+                for await (const event of stream) {
+                  startTimeout(); // reset on each event
+                  handleMessageEvent(event);
+                  if (abortControllerRef.current?.signal.aborted) break;
+                }
+              } finally {
+                if (timeoutTimer) clearTimeout(timeoutTimer);
               }
             } catch (error: unknown) {
               if (error instanceof Error && error.name !== 'AbortError') {
@@ -189,7 +205,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                 }
               }
             } finally {
-              setChatStatus('ready');
+              // Only reset to ready from transient states; preserve input_required / error set by stream events
+              setChatStatus(prev => (prev === 'working' || prev === 'submitted' || prev === 'thinking') ? 'ready' : prev);
               abortControllerRef.current = null;
             }
             return;

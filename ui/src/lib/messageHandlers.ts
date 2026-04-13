@@ -7,14 +7,14 @@ import { mapA2AStateToStatus } from "@/lib/statusUtils";
 // Result type for extractMessagesFromTasks
 export interface TaskExtractionResult {
   messages: Message[];
-  pendingTask?: { taskId: string; state: string };
+  pendingTask?: { taskId: string; state: 'working' | 'submitted' };
 }
 
 // Helper functions for extracting data from stored tasks
 export function extractMessagesFromTasks(tasks: Task[]): TaskExtractionResult {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
-  let pendingTask: { taskId: string; state: string } | undefined;
+  let pendingTask: { taskId: string; state: 'working' | 'submitted' } | undefined;
 
   for (const task of tasks) {
     // Detect in-flight tasks for stream reconnection

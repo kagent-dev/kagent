@@ -85,7 +85,7 @@ export class KagentA2AClient {
     agentName: string,
     taskId: string,
     signal?: AbortSignal
-  ): Promise<AsyncIterable<any>> {
+  ): Promise<AsyncIterable<unknown>> {
     const request: A2AJsonRpcRequest = {
       jsonrpc: "2.0",
       method: "tasks/resubscribe",

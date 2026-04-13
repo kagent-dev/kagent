@@ -114,7 +114,7 @@ class KAgentSessionService(BaseSessionService):
             session = Session(
                 id=session_data["id"],
                 user_id=session_data["user_id"],
-                events=events,
+                events=[],
                 app_name=app_name,
                 state={},
             )
@@ -168,11 +168,11 @@ class KAgentSessionService(BaseSessionService):
         - user_id: Preserved
         - agent_ref: Preserved
         - session_name: Preserved (from session.state["session_name"])
+        - source: Preserved (from session.state["source"])
         - Other session.state fields: NOT preserved (lost on recreation)
 
-        Note: Only session_name is currently used by the application.
         If additional state fields are added in the future, they must be
-        explicitly preserved here.
+        explicitly preserved here and added to _PRESERVED_STATE_FIELDS.
 
         Args:
             session: The session object to recreate
@@ -180,6 +180,8 @@ class KAgentSessionService(BaseSessionService):
         Raises:
             httpx.HTTPStatusError: If recreation fails
         """
+        _PRESERVED_STATE_FIELDS = {"session_name", "source"}
+
         request_data = {
             "id": session.id,
             "user_id": session.user_id,
@@ -187,16 +189,19 @@ class KAgentSessionService(BaseSessionService):
         }
         if session.state and session.state.get("session_name"):
             request_data["name"] = session.state["session_name"]
+        if session.state and session.state.get("source"):
+            request_data["source"] = session.state["source"]
 
-        # Warn if session has additional state fields that won't be preserved
-        if session.state and len(session.state) > 1:
-            extra_fields = [k for k in session.state.keys() if k != "session_name"]
-            logger.warning(
-                "Session %s has additional state fields that will not be preserved during recreation: %s. "
-                "Update _recreate_session() if these fields are critical.",
-                session.id,
-                extra_fields,
-            )
+        # Warn if session has unknown state fields that won't be preserved
+        if session.state:
+            extra_fields = [k for k in session.state.keys() if k not in _PRESERVED_STATE_FIELDS]
+            if extra_fields:
+                logger.warning(
+                    "Session %s has additional state fields that will not be preserved during recreation: %s. "
+                    "Update _recreate_session() if these fields are critical.",
+                    session.id,
+                    extra_fields,
+                )
 
         response = await self.client.post(
             "/api/sessions",
@@ -269,7 +274,12 @@ class KAgentSessionService(BaseSessionService):
                 "Session %s not found (404), attempting to recreate before retry",
                 session.id,
             )
-            await self._recreate_session(session)
+            try:
+                await self._recreate_session(session)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Session {session.id} not found (404) and recreation failed"
+                ) from e
 
             # Retry the append ONCE. If this retry also fails (including another 404),
             # raise_for_status() below will propagate the error without further attempts.
