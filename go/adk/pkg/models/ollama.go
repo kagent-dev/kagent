@@ -31,7 +31,7 @@ func (m *OllamaModel) Name() string {
 }
 
 // convertOllamaOptions converts string option values to their proper types
-// based on known Ollama option types. This matches Python's _convert_ollama_options.
+// based on known Ollama option types.
 func convertOllamaOptions(opts map[string]string) map[string]any {
 	if opts == nil {
 		return nil

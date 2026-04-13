@@ -1,170 +1,182 @@
 package models
 
 import (
-	"crypto/x509"
+	"context"
+	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-func TestBuildTLSTransport_NilConfig_ReturnsDefault(t *testing.T) {
+// newTLSServer starts a test HTTPS server that always returns 200.
+func newTLSServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// serverCAPEMPath writes the test server's certificate to a temp file and returns the path.
+func serverCAPEMPath(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	data := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: srv.Certificate().Raw,
+	})
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("failed to write CA PEM: %v", err)
+	}
+	return path
+}
+
+// get is a helper that makes a GET request and returns the status code.
+func get(t *testing.T, client *http.Client, url string) int {
+	t.Helper()
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// --- BuildTLSTransport ---
+
+func TestBuildTLSTransport_NilConfig_ReturnsBase(t *testing.T) {
 	base := http.DefaultTransport
 	transport, err := BuildTLSTransport(base, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Should return base unchanged
 	if transport != base {
-		t.Error("expected transport to be returned unchanged when no TLS config is set")
-	}
-}
-
-func TestBuildTLSTransport_InsecureSkipVerify(t *testing.T) {
-	insecure := true
-	transport, err := BuildTLSTransport(nil, &insecure, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should return a transport (wrapped or cloned)
-	if transport == nil {
-		t.Error("expected transport to be created")
-	}
-
-	// Verify it's an http.Transport with TLS config
-	if tr, ok := transport.(*http.Transport); ok {
-		if tr.TLSClientConfig == nil {
-			t.Error("expected TLSClientConfig to be set")
-		} else if !tr.TLSClientConfig.InsecureSkipVerify {
-			t.Error("expected InsecureSkipVerify to be true")
-		}
-	}
-	// If wrapped in tlsTransport, we can't easily verify, but at least we got a transport
-}
-
-func TestBuildTLSTransport_CustomCA(t *testing.T) {
-	// Create a temporary CA cert file
-	tmpDir := t.TempDir()
-	caCertPath := filepath.Join(tmpDir, "ca.crt")
-
-	// Write a dummy CA cert (this is not a valid cert, just for testing file reading)
-	// In reality, we need a valid PEM format for successful parsing
-	dummyCert := `-----BEGIN CERTIFICATE-----
-MIIBkTCB+wIJAKHBfpegPjMCMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRlc3Rj
-YTAgFw0yMzA4MDEwMDAwMDBaGA8yMDMzMDczMTIzNTk1OVowETEPMA0GA1UEAwwGdGVz
-dGNhMFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL8KdI6z8YlQbR2aPQHjNfCJ3ZpF+6f
-L2vL1hNQn8xFzQlYxJ5vQJbKwKBgQDzN1T0qK0w8DxVp8tX8nlXDQJK9mT2X6pK5qJq
------END CERTIFICATE-----
-`
-	if err := os.WriteFile(caCertPath, []byte(dummyCert), 0644); err != nil {
-		t.Fatalf("failed to write test CA cert: %v", err)
-	}
-
-	// This will fail because the cert is invalid, but we can test the error handling
-	disableSystemCAs := true
-	_, err := BuildTLSTransport(nil, nil, &caCertPath, &disableSystemCAs)
-	// We expect this to potentially fail because of the invalid cert format
-	// but the key is that it tried to read the file
-	if err == nil {
-		// If it didn't error, we should check if the transport was created
-		t.Log("BuildTLSTransport succeeded with dummy cert (may indicate cert wasn't fully parsed)")
-	} else {
-		t.Logf("BuildTLSTransport failed as expected with dummy cert: %v", err)
+		t.Error("expected base to be returned unchanged when no TLS config is set")
 	}
 }
 
 func TestBuildTLSTransport_CAFileNotFound(t *testing.T) {
-	nonExistentPath := "/nonexistent/path/to/ca.crt"
-	_, err := BuildTLSTransport(nil, nil, &nonExistentPath, nil)
+	path := "/nonexistent/ca.pem"
+	_, err := BuildTLSTransport(nil, nil, &path, nil)
 	if err == nil {
-		t.Error("expected error when CA file doesn't exist")
+		t.Error("expected error for missing CA file")
 	}
 }
 
-func TestBuildTLSTransport_DisableSystemCAs(t *testing.T) {
-	// Create a temporary valid CA cert
-	tmpDir := t.TempDir()
-	caCertPath := filepath.Join(tmpDir, "ca.crt")
-
-	// Generate a simple self-signed cert for testing
-	certPEM := generateTestCert(t)
-	if err := os.WriteFile(caCertPath, certPEM, 0644); err != nil {
-		t.Fatalf("failed to write test CA cert: %v", err)
-	}
-
-	disableSystemCAs := true
-	transport, err := BuildTLSTransport(nil, nil, &caCertPath, &disableSystemCAs)
+// Should reject self-signed cert by default
+func TestBuildHTTPClient_DefaultRejectsSelfsigned(t *testing.T) {
+	srv := newTLSServer(t)
+	client, err := BuildHTTPClient(TransportConfig{})
 	if err != nil {
-		// If we can't parse the cert, that's ok for this test
-		t.Skipf("skipping test - could not build transport with test cert: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if transport == nil {
-		t.Error("expected transport to be created")
-	}
-
-	// Check if the transport has only the custom CA
-	if tr, ok := transport.(*http.Transport); ok && tr.TLSClientConfig != nil {
-		if tr.TLSClientConfig.RootCAs == nil {
-			t.Error("expected RootCAs to be set")
-		} else {
-			// Check that system CAs were not included (only our custom cert)
-			// This is hard to verify without actually making a connection,
-			// but we can at least verify the cert pool has some certs
-			if tr.TLSClientConfig.RootCAs.Equal(x509.NewCertPool()) {
-				t.Error("expected RootCAs to contain at least one cert")
-			}
-		}
+	_, err = client.Get(srv.URL)
+	if err == nil {
+		t.Fatal("expected TLS error for self-signed cert with no config")
 	}
 }
 
-func TestBuildTLSTransport_WithSystemCAs(t *testing.T) {
-	// Create a temporary valid CA cert
-	tmpDir := t.TempDir()
-	caCertPath := filepath.Join(tmpDir, "ca.crt")
-
-	// Generate a simple self-signed cert for testing
-	certPEM := generateTestCert(t)
-	if err := os.WriteFile(caCertPath, certPEM, 0644); err != nil {
-		t.Fatalf("failed to write test CA cert: %v", err)
-	}
-
-	// Test with disableSystemCAs = false (nil means use system CAs)
-	transport, err := BuildTLSTransport(nil, nil, &caCertPath, nil)
-	if err != nil {
-		// If we can't parse the cert, that's ok for this test
-		t.Skipf("skipping test - could not build transport with test cert: %v", err)
-	}
-
-	if transport == nil {
-		t.Error("expected transport to be created")
-	}
-}
-
-func TestBuildTLSTransport_NilBase_UsesDefault(t *testing.T) {
+// Should accept self-signed cert if insecure skip verify is set
+func TestBuildHTTPClient_InsecureSkipVerify(t *testing.T) {
+	srv := newTLSServer(t)
 	insecure := true
-	transport, err := BuildTLSTransport(nil, &insecure, nil, nil)
+	client, err := BuildHTTPClient(TransportConfig{TLSInsecureSkipVerify: &insecure})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status := get(t, client, srv.URL); status != http.StatusOK {
+		t.Errorf("expected 200, got %d", status)
+	}
+}
+
+// Should accept custom CA if specified
+func TestBuildHTTPClient_CustomCA(t *testing.T) {
+	srv := newTLSServer(t)
+	caPath := serverCAPEMPath(t, srv)
+	client, err := BuildHTTPClient(TransportConfig{TLSCACertPath: &caPath})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status := get(t, client, srv.URL); status != http.StatusOK {
+		t.Errorf("expected 200, got %d", status)
+	}
+}
+
+// Should accept custom CA if specified and system CAs are disabled
+func TestBuildHTTPClient_CustomCA_DisableSystemCAs(t *testing.T) {
+	srv := newTLSServer(t)
+	caPath := serverCAPEMPath(t, srv)
+	disableSystem := true
+	client, err := BuildHTTPClient(TransportConfig{
+		TLSCACertPath:       &caPath,
+		TLSDisableSystemCAs: &disableSystem,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status := get(t, client, srv.URL); status != http.StatusOK {
+		t.Errorf("expected 200, got %d", status)
+	}
+}
+
+// Should set timeout if specified
+func TestBuildHTTPClient_Timeout(t *testing.T) {
+	seconds := 42
+	client, err := BuildHTTPClient(TransportConfig{Timeout: &seconds})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client.Timeout != 42*time.Second {
+		t.Errorf("expected timeout 42s, got %v", client.Timeout)
+	}
+}
+
+// Should inject headers if specified
+func TestBuildHTTPClient_HeadersInjected(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Test")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := BuildHTTPClient(TransportConfig{Headers: map[string]string{"X-Test": "hello"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	get(t, client, srv.URL)
+	if got != "hello" {
+		t.Errorf("expected X-Test 'hello', got %q", got)
+	}
+}
+
+// Should inject bearer token if API key passthrough is enabled
+func TestBuildHTTPClient_PassthroughInjectsBearer(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := BuildHTTPClient(TransportConfig{APIKeyPassthrough: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if transport == nil {
-		t.Error("expected transport to be created when base is nil")
+	ctx := context.WithValue(context.Background(), BearerTokenKey, "tok-123")
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
+	resp.Body.Close()
 
-// generateTestCert generates a simple self-signed cert for testing
-func generateTestCert(t *testing.T) []byte {
-	// This is a minimal valid self-signed certificate in PEM format for testing
-	// Generated with: openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 1 -nodes -subj '/CN=test'
-	return []byte(`-----BEGIN CERTIFICATE-----
-MIIBkTCB+wIJAKHBfpegPjMCMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl
-c3RjYTAeFw0yMzA4MDEwMDAwMDBaFw0yMzA4MDIwMDAwMDBaMBExDzANBgNVBAMM
-BnRlc3RjYTBcMA0GCSqGSIb3DQEBAQUAA0sAMEgCQQC/CnSNs/GJUG0dmj0B4zXw
-id2aRfunky9ry9YTUJ/MRc0JWMSeb0CWysCgYEA8zdU9KCtMPA8VafLV/J5Vw0C
-SvZk9l+oSuYiagICAA==
------END CERTIFICATE-----
-`)
+	if got != "Bearer tok-123" {
+		t.Errorf("expected 'Bearer tok-123', got %q", got)
+	}
 }

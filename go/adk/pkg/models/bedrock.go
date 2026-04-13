@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"strings"
@@ -142,6 +143,7 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 }
 
 // generateStreaming handles streaming responses from Bedrock ConverseStream.
+// It properly handles both text and tool use content blocks during streaming.
 func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.ConverseStream(ctx, &bedrockruntime.ConverseStreamInput{
 		ModelId:         aws.String(modelId),
@@ -163,15 +165,36 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 	var finishReason genai.FinishReason
 	var usageMetadata *genai.GenerateContentResponseUsageMetadata
 
+	// Track tool calls during streaming
+	// Map of content block index -> tool call being built
+	toolCalls := make(map[int32]*streamingToolCall)
+	var completedToolCalls []*genai.Part
+
 	// Get the event stream and read events from the channel
 	stream := output.GetStream()
 	defer stream.Close()
 
 	// Read events from the channel
 	for event := range stream.Events() {
-		// Handle content block delta (streaming text)
+		// Handle content block start (tool use start)
+		if start, ok := event.(*types.ConverseStreamOutputMemberContentBlockStart); ok {
+			if toolStart, ok := start.Value.Start.(*types.ContentBlockStartMemberToolUse); ok {
+				// A new tool use block is starting - initialize tracking
+				blockIdx := aws.ToInt32(start.Value.ContentBlockIndex)
+				toolCalls[blockIdx] = &streamingToolCall{
+					ID:   aws.ToString(toolStart.Value.ToolUseId),
+					Name: aws.ToString(toolStart.Value.Name),
+				}
+			}
+		}
+
+		// Handle content block delta (streaming text or tool input)
 		if chunk, ok := event.(*types.ConverseStreamOutputMemberContentBlockDelta); ok {
-			if delta, ok := chunk.Value.Delta.(*types.ContentBlockDeltaMemberText); ok {
+			blockIdx := aws.ToInt32(chunk.Value.ContentBlockIndex)
+
+			switch delta := chunk.Value.Delta.(type) {
+			case *types.ContentBlockDeltaMemberText:
+				// Text content - yield immediately for streaming
 				text := delta.Value
 				aggregatedText.WriteString(text)
 
@@ -188,6 +211,28 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 				if !yield(response, nil) {
 					return
 				}
+
+			case *types.ContentBlockDeltaMemberToolUse:
+				// Tool use delta - accumulate the input JSON
+				if tc, ok := toolCalls[blockIdx]; ok && delta.Value.Input != nil {
+					tc.InputJSON += aws.ToString(delta.Value.Input)
+				}
+			}
+		}
+
+		// Handle content block stop (tool use complete)
+		if stop, ok := event.(*types.ConverseStreamOutputMemberContentBlockStop); ok {
+			blockIdx := aws.ToInt32(stop.Value.ContentBlockIndex)
+			if tc, ok := toolCalls[blockIdx]; ok {
+				// Tool use block completed - parse the accumulated JSON and create FunctionCall
+				args := tc.parseArgs()
+				functionCall := &genai.FunctionCall{
+					ID:   tc.ID,
+					Name: tc.Name,
+					Args: args,
+				}
+				completedToolCalls = append(completedToolCalls, &genai.Part{FunctionCall: functionCall})
+				delete(toolCalls, blockIdx) // Clean up
 			}
 		}
 
@@ -214,10 +259,8 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 	if text != "" {
 		finalParts = append(finalParts, &genai.Part{Text: text})
 	}
-
-	// Note: Tool calls are not extracted from streaming response as they require
-	// parsing the complete message structure. The non-streaming path handles tool calls.
-	// This is a limitation that could be improved in the future.
+	// Add completed tool calls
+	finalParts = append(finalParts, completedToolCalls...)
 
 	response := &model.LLMResponse{
 		Content: &genai.Content{
@@ -230,6 +273,26 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		UsageMetadata: usageMetadata,
 	}
 	yield(response, nil)
+}
+
+// streamingToolCall tracks a tool call being built during streaming
+type streamingToolCall struct {
+	ID        string
+	Name      string
+	InputJSON string // Accumulated JSON input
+}
+
+// parseArgs parses the accumulated JSON input into a map
+func (tc *streamingToolCall) parseArgs() map[string]any {
+	if tc.InputJSON == "" {
+		return map[string]any{}
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(tc.InputJSON), &args); err != nil {
+		// If unmarshal fails, return raw string wrapped in map
+		return map[string]any{"_raw": tc.InputJSON}
+	}
+	return args
 }
 
 // generateNonStreaming handles non-streaming responses from Bedrock Converse.
@@ -302,18 +365,20 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 }
 
 // documentToMap converts an AWS document.Interface to a map[string]any.
-// The document.Interface is an internal AWS type that stores JSON data.
-// We use a simple approach of returning an empty map since we can't directly
-// access the underlying data without JSON parsing.
+// The document.Interface is an abstraction that stores JSON data internally.
 func documentToMap(doc document.Interface) map[string]any {
 	if doc == nil {
 		return nil
 	}
-	// The AWS SDK document type stores JSON data internally.
-	// For simplicity in this implementation, we return an empty map.
-	// In a production implementation, you would use the String() method
-	// and json.Unmarshal to extract the actual data.
-	return map[string]any{}
+
+	// document.Interface provides UnmarshalSmithyDocument to decode JSON data
+	var result map[string]any
+	if err := doc.UnmarshalSmithyDocument(&result); err != nil {
+		// If unmarshal fails, return empty map to avoid nil pointer issues
+		return map[string]any{}
+	}
+
+	return result
 }
 
 // convertGenaiContentsToBedrockMessages converts genai.Content to Bedrock Converse API message format.
@@ -454,7 +519,7 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 						continue
 					}
 					prop := map[string]any{
-						"type": string(schema.Type),
+						"type": strings.ToLower(string(schema.Type)),
 					}
 					if schema.Description != "" {
 						prop["description"] = schema.Description
