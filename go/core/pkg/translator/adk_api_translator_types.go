@@ -17,6 +17,6 @@ type AgentOutputs struct {
 }
 
 type TranslatorPlugin interface {
-	ProcessAgent(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error
+	ProcessAgent(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error
 	GetOwnedResourceTypes() []client.Object
 }

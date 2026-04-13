@@ -26,8 +26,12 @@ manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDef
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: controller-gen sqlc-generate ## Generate DeepCopy methods and sqlc query code.
 	$(CONTROLLER_GEN) object:headerFile="api/hack/boilerplate.go.txt" paths="./api/..."
+
+.PHONY: sqlc-generate
+sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.
+	cd core/internal/database && $(SQLC) generate
 
 ##@ Development
 
@@ -123,6 +127,7 @@ KUBECTL ?= kubectl
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+SQLC = $(LOCALBIN)/sqlc
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.19.0
@@ -131,6 +136,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.11.3
+SQLC_VERSION ?= v1.30.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
@@ -154,6 +160,11 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
+.PHONY: sqlc
+sqlc: $(SQLC) ## Download sqlc locally if necessary.
+$(SQLC): $(LOCALBIN)
+	$(call go-install-tool,$(SQLC),github.com/sqlc-dev/sqlc/cmd/sqlc,$(SQLC_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

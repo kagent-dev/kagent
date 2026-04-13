@@ -6,6 +6,7 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,7 +147,7 @@ func TestKagentMemoryService_AddSession(t *testing.T) {
 				model:           nil, // No summarization
 			}
 
-			err := svc.AddSession(context.Background(), tt.session)
+			err := svc.AddSessionToMemory(context.Background(), tt.session)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddSession() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -251,7 +252,7 @@ func TestKagentMemoryService_Search(t *testing.T) {
 				model:           nil,
 			}
 
-			resp, err := svc.Search(context.Background(), &memory.SearchRequest{
+			resp, err := svc.SearchMemory(context.Background(), &memory.SearchRequest{
 				Query:  tt.query,
 				UserID: tt.userID,
 			})
@@ -407,7 +408,7 @@ func TestKagentMemoryService_ExtractSessionContent(t *testing.T) {
 				t.Error("Expected non-empty content, got empty")
 			}
 
-			if tt.wantContain != "" && !contains(content, tt.wantContain) {
+			if tt.wantContain != "" && !strings.Contains(content, tt.wantContain) {
 				t.Errorf("Expected content to contain %q, got: %s", tt.wantContain, content)
 			}
 		})
@@ -565,17 +566,4 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 		},
 	}
 	return evt
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

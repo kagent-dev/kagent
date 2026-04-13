@@ -14,6 +14,7 @@ import (
 
 // Constants for partial-event metadata keys (inlined to avoid import cycle).
 const (
+	metadataKeyKagentPartial    = "kagent_partial"
 	metadataKeyKagentAdkPartial = "kagent_adk_partial"
 	metadataKeyAdkPartial       = "adk_partial"
 	headerContentType           = "Content-Type"
@@ -47,17 +48,16 @@ type KAgentTaskResponse struct {
 }
 
 // isPartialMeta checks if a metadata map has a partial flag set to true.
-// It checks both the upstream ADK key (adk_partial) and the kagent key
-// (kagent_adk_partial) so that events from either prefix are recognised.
+// It checks the canonical kagent key (kagent_adk_partial) as well as legacy keys
+// (adk_partial, kagent_partial) so that events from any prefix are recognised.
 func isPartialMeta(meta map[string]any) bool {
 	if meta == nil {
 		return false
 	}
-	if partial, ok := meta[metadataKeyAdkPartial].(bool); ok && partial {
-		return true
-	}
-	if partial, ok := meta[metadataKeyKagentAdkPartial].(bool); ok && partial {
-		return true
+	for _, key := range []string{metadataKeyKagentPartial, metadataKeyAdkPartial, metadataKeyKagentAdkPartial} {
+		if partial, ok := meta[key].(bool); ok && partial {
+			return true
+		}
 	}
 	return false
 }

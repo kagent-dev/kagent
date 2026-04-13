@@ -62,6 +62,24 @@ func createTestAgentWithStatus(name string, modelConfig *v1alpha2.ModelConfig, c
 	return agent
 }
 
+func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.SandboxAgent {
+	return &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				ModelConfig: modelConfig.Name,
+			},
+		},
+		Status: v1alpha2.AgentStatus{
+			Conditions: conditions,
+		},
+	}
+}
+
 func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string) {
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(setupScheme()).
@@ -113,7 +131,7 @@ func TestHandleGetAgent(t *testing.T) {
 		var response api.StandardResponse[api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Equal(t, "test-team", response.Data.Agent.Name)
+		require.Equal(t, "test-team", response.Data.Agent.Metadata.Name)
 		require.Equal(t, "default/test-model-config", response.Data.ModelConfigRef, w.Body.String())
 		require.Equal(t, "gpt-4", response.Data.Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data.ModelProvider)
@@ -213,6 +231,34 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady)
 	})
 
+	t.Run("returns 404 when only sandbox agent exists with that name", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{
+				Type:   "Accepted",
+				Status: "True",
+				Reason: "AgentReconciled",
+			},
+			{
+				Type:   "Ready",
+				Status: "True",
+				Reason: "WorkloadReady",
+			},
+		}
+		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/sandbox-accepted", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
 		handler, _ := setupTestHandler()
 
@@ -224,6 +270,55 @@ func TestHandleGetAgent(t *testing.T) {
 		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	})
+}
+
+func TestHandleGetSandboxAgent(t *testing.T) {
+	t.Run("gets sandbox agent successfully", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{Type: "Accepted", Status: "True", Reason: "AgentReconciled"},
+			{Type: "Ready", Status: "True", Reason: "WorkloadReady"},
+		}
+		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
+
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/sandboxagents/default/sandbox-accepted", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetSandboxAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.True(t, response.Data.Accepted)
+		require.True(t, response.Data.DeploymentReady)
+		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data.WorkloadMode)
+	})
+
+	t.Run("same name as regular agent still returns sandbox resource", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("shared-name", modelConfig)
+		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
+		handler, _ := setupTestHandler(agent, sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/sandboxagents/default/shared-name", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetSandboxAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data.WorkloadMode)
 	})
 }
 
@@ -266,12 +361,12 @@ func TestHandleListAgents(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Len(t, response.Data, 2)
-		require.Equal(t, "not-ready-agent", response.Data[0].Agent.Name)
+		require.Equal(t, "not-ready-agent", response.Data[0].Agent.Metadata.Name)
 		require.Equal(t, "default/test-model-config", response.Data[0].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[0].Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[0].ModelProvider)
 		require.Equal(t, false, response.Data[0].DeploymentReady)
-		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Metadata.Name)
 		require.Equal(t, "default/test-model-config", response.Data[1].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[1].Model)
 		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[1].ModelProvider)
@@ -327,35 +422,133 @@ func TestHandleListAgents(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Len(t, response.Data, 2)
-		require.Equal(t, "ready-agent", response.Data[1].Agent.Name)
+		require.Equal(t, "ready-agent", response.Data[1].Agent.Metadata.Name)
 		require.Equal(t, true, response.Data[1].Accepted)
 		require.Equal(t, true, response.Data[1].DeploymentReady)
-		require.Equal(t, "invalid-agent", response.Data[0].Agent.Name)
+		require.Equal(t, "invalid-agent", response.Data[0].Agent.Metadata.Name)
 		require.Equal(t, false, response.Data[0].Accepted)
 		require.Equal(t, true, response.Data[0].DeploymentReady)
+	})
+
+	t.Run("lists SandboxAgent CRD with Accepted and Ready from status", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{Type: "Accepted", Status: "True", Reason: "Reconciled"},
+			{Type: "Ready", Status: "True", Reason: "WorkloadReady"},
+		}
+		sa := createTestSandboxAgentCRD("mysandbox", modelConfig, conditions)
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[[]api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Empty(t, response.Data)
+	})
+}
+
+func TestHandleListSandboxAgents(t *testing.T) {
+	t.Run("lists sandbox agents successfully", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		conditions := []metav1.Condition{
+			{Type: "Accepted", Status: "True", Reason: "Reconciled"},
+			{Type: "Ready", Status: "True", Reason: "WorkloadReady"},
+		}
+		sa := createTestSandboxAgentCRD("mysandbox", modelConfig, conditions)
+		agent := createTestAgent("myagent", modelConfig)
+		handler, _ := setupTestHandler(sa, agent, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/sandboxagents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListSandboxAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response api.StandardResponse[[]api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Len(t, response.Data, 1)
+		require.Equal(t, "mysandbox", response.Data[0].Agent.Metadata.Name)
+		require.True(t, response.Data[0].Accepted)
+		require.True(t, response.Data[0].DeploymentReady)
+		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data[0].WorkloadMode)
+	})
+
+	t.Run("same names across kinds are both preserved by separate list endpoints", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("shared-name", modelConfig)
+		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
+		handler, _ := setupTestHandler(agent, sa, modelConfig)
+
+		agentReq := httptest.NewRequest("GET", "/api/agents", nil)
+		agentReq = setUser(agentReq, "test-user")
+		agentW := httptest.NewRecorder()
+		handler.HandleListAgents(&testErrorResponseWriter{agentW}, agentReq)
+
+		sandboxReq := httptest.NewRequest("GET", "/api/sandboxagents", nil)
+		sandboxReq = setUser(sandboxReq, "test-user")
+		sandboxW := httptest.NewRecorder()
+		handler.HandleListSandboxAgents(&testErrorResponseWriter{sandboxW}, sandboxReq)
+
+		require.Equal(t, http.StatusOK, agentW.Code)
+		require.Equal(t, http.StatusOK, sandboxW.Code)
+
+		var agentResp api.StandardResponse[[]api.AgentResponse]
+		var sandboxResp api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(agentW.Body.Bytes(), &agentResp))
+		require.NoError(t, json.Unmarshal(sandboxW.Body.Bytes(), &sandboxResp))
+		require.Len(t, agentResp.Data, 1)
+		require.Len(t, sandboxResp.Data, 1)
+		require.Equal(t, v1alpha2.WorkloadModeDeployment, agentResp.Data[0].WorkloadMode)
+		require.Equal(t, v1alpha2.WorkloadModeSandbox, sandboxResp.Data[0].WorkloadMode)
 	})
 }
 
 func TestHandleUpdateAgent(t *testing.T) {
 	t.Run("updates agent successfully", func(t *testing.T) {
+		oldModelConfig := &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "old-model-config", Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:    "gpt-4o-mini",
+				Provider: v1alpha2.ModelProviderOpenAI,
+			},
+		}
+		newModelConfig := &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "new-model-config", Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:    "gpt-4.1",
+				Provider: v1alpha2.ModelProviderOpenAI,
+			},
+		}
 		existingAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
 				Type: v1alpha2.AgentType_Declarative,
 				Declarative: &v1alpha2.DeclarativeAgentSpec{
-					ModelConfig: "old-model-config",
+					ModelConfig:   "old-model-config",
+					SystemMessage: "old system message",
 				},
 			},
 		}
 
-		handler, _ := setupTestHandler(existingAgent)
+		handler, _ := setupTestHandler(existingAgent, oldModelConfig, newModelConfig)
 
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
 				Type: v1alpha2.AgentType_Declarative,
 				Declarative: &v1alpha2.DeclarativeAgentSpec{
-					ModelConfig: "new-model-config",
+					ModelConfig:   "new-model-config",
+					SystemMessage: "new system message",
 				},
 			},
 		}
@@ -375,6 +568,50 @@ func TestHandleUpdateAgent(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Equal(t, "new-model-config", response.Data.Spec.Declarative.ModelConfig)
+	})
+
+	t.Run("returns 400 for invalid updated agent configuration", func(t *testing.T) {
+		modelConfig := &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "old-model-config", Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:    "gpt-4o-mini",
+				Provider: v1alpha2.ModelProviderOpenAI,
+			},
+		}
+		existingAgent := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig:   modelConfig.Name,
+					SystemMessage: "old system message",
+				},
+			},
+		}
+
+		handler, _ := setupTestHandler(existingAgent, modelConfig)
+
+		updatedAgent := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig:   "missing-model-config",
+					SystemMessage: "updated system message",
+				},
+			},
+		}
+
+		body, _ := json.Marshal(updatedAgent)
+		req := httptest.NewRequest("PUT", "/api/agents/default/test-team", bytes.NewBuffer(body))
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
+		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleUpdateAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
@@ -475,5 +712,42 @@ func TestHandleDeleteTeam(t *testing.T) {
 		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("does not delete sandbox agent with same name", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("shared-name", modelConfig)
+		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
+		handler, _ := setupTestHandler(agent, sa, modelConfig)
+
+		req := httptest.NewRequest("DELETE", "/api/agents/default/shared-name", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var stillThere v1alpha2.SandboxAgent
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "shared-name"}, &stillThere)
+		require.NoError(t, err)
+	})
+}
+
+func TestHandleDeleteSandboxAgent(t *testing.T) {
+	t.Run("deletes sandbox agent successfully", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		sa := createTestSandboxAgentCRD("test-sandbox", modelConfig, nil)
+		handler, _ := setupTestHandler(sa, modelConfig)
+
+		req := httptest.NewRequest("DELETE", "/api/sandboxagents/default/test-sandbox", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-sandbox"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteSandboxAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
 	})
 }

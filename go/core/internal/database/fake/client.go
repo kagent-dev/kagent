@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
-	"gorm.io/gorm"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
@@ -83,7 +83,7 @@ func (c *InMemoryFakeClient) GetTask(_ context.Context, taskID string) (*protoco
 
 	task, exists := c.tasks[taskID]
 	if !exists {
-		return nil, gorm.ErrRecordNotFound
+		return nil, pgx.ErrNoRows
 	}
 	parsedTask := &protocol.Task{}
 	err := json.Unmarshal([]byte(task.Data), parsedTask)
@@ -108,10 +108,11 @@ func (c *InMemoryFakeClient) StoreFeedback(_ context.Context, feedback *database
 
 	// Copy the feedback and assign an ID
 	newFeedback := *feedback
-	newFeedback.MessageID = uint(c.nextFeedbackID)
+	id := int64(c.nextFeedbackID)
+	newFeedback.MessageID = &id
 	c.nextFeedbackID++
 
-	key := fmt.Sprintf("%d", newFeedback.MessageID)
+	key := fmt.Sprintf("%d", id)
 	c.feedback[key] = &newFeedback
 	return nil
 }
@@ -208,7 +209,7 @@ func (c *InMemoryFakeClient) DeleteAgent(_ context.Context, agentName string) er
 
 	_, exists := c.agents[agentName]
 	if !exists {
-		return gorm.ErrRecordNotFound
+		return pgx.ErrNoRows
 	}
 
 	delete(c.agents, agentName)
@@ -247,7 +248,7 @@ func (c *InMemoryFakeClient) GetSession(_ context.Context, sessionID string, use
 	key := c.sessionKey(sessionID, userID)
 	session, exists := c.sessions[key]
 	if !exists {
-		return nil, gorm.ErrRecordNotFound
+		return nil, pgx.ErrNoRows
 	}
 	return session, nil
 }
@@ -259,7 +260,7 @@ func (c *InMemoryFakeClient) GetAgent(_ context.Context, agentName string) (*dat
 
 	agent, exists := c.agents[agentName]
 	if !exists {
-		return nil, gorm.ErrRecordNotFound
+		return nil, pgx.ErrNoRows
 	}
 	return agent, nil
 }
@@ -271,7 +272,7 @@ func (c *InMemoryFakeClient) GetTool(_ context.Context, toolName string) (*datab
 
 	tool, exists := c.tools[toolName]
 	if !exists {
-		return nil, gorm.ErrRecordNotFound
+		return nil, pgx.ErrNoRows
 	}
 	return tool, nil
 }
@@ -283,7 +284,7 @@ func (c *InMemoryFakeClient) GetToolServer(_ context.Context, serverName string)
 
 	server, exists := c.toolServers[serverName]
 	if !exists {
-		return nil, gorm.ErrRecordNotFound
+		return nil, pgx.ErrNoRows
 	}
 	return server, nil
 }
@@ -345,6 +346,25 @@ func (c *InMemoryFakeClient) ListSessionsForAgent(_ context.Context, agentID str
 	for _, session := range c.sessions {
 		if session.AgentID != nil && *session.AgentID == agentID && session.UserID == userID {
 			// Exclude agent-initiated sessions from the listing
+			if session.Source != nil && *session.Source == database.SessionSourceAgent {
+				continue
+			}
+			result = append(result, *session)
+		}
+	}
+	slices.SortStableFunc(result, func(i, j database.Session) int {
+		return strings.Compare(i.ID, j.ID)
+	})
+	return result, nil
+}
+
+func (c *InMemoryFakeClient) ListSessionsForAgentAllUsers(_ context.Context, agentID string) ([]database.Session, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var result []database.Session
+	for _, session := range c.sessions {
+		if session.AgentID != nil && *session.AgentID == agentID {
 			if session.Source != nil && *session.Source == database.SessionSourceAgent {
 				continue
 			}

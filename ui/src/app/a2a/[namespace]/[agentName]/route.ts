@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
+import { getAuthHeadersFromRequest } from '@/lib/auth';
 
 export async function POST(
   request: NextRequest,
@@ -13,6 +14,9 @@ export async function POST(
     const backendUrl = getBackendUrl();
     const targetUrl = `${backendUrl}/a2a/${namespace}/${agentName}/`;
 
+    // Get auth headers from incoming request
+    const authHeaders = getAuthHeadersFromRequest(request);
+
     const backendResponse = await fetch(targetUrl, {
       method: 'POST',
       headers: {
@@ -21,6 +25,7 @@ export async function POST(
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'User-Agent': 'kagent-ui',
+        ...authHeaders,
       },
       body: JSON.stringify(a2aRequest),
     });
