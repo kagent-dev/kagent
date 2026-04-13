@@ -3,9 +3,47 @@ package agent
 import (
 	"fmt"
 
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
+	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/adk/tool"
 )
+
+// stripConfirmationPartsCallback is a BeforeModelCallback that removes
+// adk_request_confirmation FunctionCall and FunctionResponse parts from the
+// LLM request before it reaches any model provider. These are synthetic ADK
+// HITL events the LLM never produced and does not need to reason about.
+// The session still stores them so ADK's resume machinery can find them.
+func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
+	return func(_ agent.CallbackContext, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
+		out := req.Contents[:0]
+		for _, c := range req.Contents {
+			if c == nil {
+				continue
+			}
+			filtered := c.Parts[:0]
+			for _, p := range c.Parts {
+				if p == nil {
+					continue
+				}
+				if p.FunctionCall != nil && p.FunctionCall.Name == "adk_request_confirmation" {
+					continue
+				}
+				if p.FunctionResponse != nil && p.FunctionResponse.Name == "adk_request_confirmation" {
+					continue
+				}
+				filtered = append(filtered, p)
+			}
+			if len(filtered) == 0 {
+				continue
+			}
+			c.Parts = filtered
+			out = append(out, c)
+		}
+		req.Contents = out
+		return nil, nil
+	}
+}
 
 // MakeApprovalCallback creates a BeforeToolCallback that gates execution of
 // tools in the approval set behind request_confirmation / ToolConfirmation.

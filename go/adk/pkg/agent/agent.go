@@ -101,21 +101,25 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 
 	// Build BeforeToolCallbacks. Approval gating runs first.
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
+	// Strip synthetic HITL tool messages from the model request to avoid unnecessary token usage.
+	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 	if len(approvalSet) > 0 {
 		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
+		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
 	}
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
 	llmAgentConfig := llmagent.Config{
-		Name:                agentName,
-		Description:         agentConfig.Description,
-		Instruction:         agentConfig.Instruction,
-		Model:               llmModel,
-		IncludeContents:     llmagent.IncludeContentsDefault,
-		Tools:               localTools,
-		Toolsets:            toolsets,
-		BeforeToolCallbacks: beforeToolCallbacks,
+		Name:                 agentName,
+		Description:          agentConfig.Description,
+		Instruction:          agentConfig.Instruction,
+		Model:                llmModel,
+		IncludeContents:      llmagent.IncludeContentsDefault,
+		Tools:                localTools,
+		Toolsets:             toolsets,
+		BeforeToolCallbacks:  beforeToolCallbacks,
+		BeforeModelCallbacks: beforeModelCallbacks,
 		AfterToolCallbacks: []llmagent.AfterToolCallback{
 			makeAfterToolCallback(log),
 		},
