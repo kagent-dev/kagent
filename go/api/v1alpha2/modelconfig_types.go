@@ -321,11 +321,14 @@ type TLSConfig struct {
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
-	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
+	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
+	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
+	// (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
 	// +optional
 	APIKeySecret string `json:"apiKeySecret"`
 
-	// The key in the secret that contains the API key
+	// The key in the secret that contains the API key.
+	// Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey"`
 
