@@ -43,6 +43,11 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           namespace = agentNamespace;
         }
 
+        const requireApproval =
+          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
+            ? mcpServer.requireApproval
+            : undefined;
+
         return {
           type: "McpServer",
           mcpServer: {
@@ -51,6 +56,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
+            ...(requireApproval ? { requireApproval } : {}),
           },
         } as Tool;
       }
@@ -217,6 +223,11 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
           namespace = agentNamespace;
         }
 
+        const requireApproval =
+          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
+            ? mcpServer.requireApproval
+            : undefined;
+
         return {
           type: "McpServer",
           mcpServer: {
@@ -225,6 +236,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
             kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
+            ...(requireApproval ? { requireApproval } : {}),
           },
         } as Tool;
       }
