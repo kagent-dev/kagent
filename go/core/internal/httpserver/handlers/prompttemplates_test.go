@@ -106,5 +106,4 @@ func TestPromptTemplatesHandler(t *testing.T) {
 		assert.Equal(t, "updated", cm.Data["intro"])
 		assert.Equal(t, "true", cm.Labels["kagent.dev/prompt-library"])
 	})
-
 }

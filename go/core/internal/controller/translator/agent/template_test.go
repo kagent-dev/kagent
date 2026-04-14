@@ -361,7 +361,7 @@ func TestResolvePromptSources_NoAliasUsesConfigMapNameInLookup(t *testing.T) {
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-lib", Namespace: "ns"},
-		Data:         map[string]string{"k": "v"},
+		Data:       map[string]string{"k": "v"},
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
