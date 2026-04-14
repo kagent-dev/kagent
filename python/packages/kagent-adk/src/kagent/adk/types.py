@@ -11,7 +11,7 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
@@ -168,7 +168,10 @@ class BaseLLM(BaseModel):
     headers: dict[str, str] | None = None
 
     # TLS/SSL configuration (applies to all model types)
-    tls_disable_verify: bool | None = None
+    tls_disable_verify: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    )
     tls_ca_cert_path: str | None = None
     tls_disable_system_cas: bool | None = None
 
