@@ -264,7 +264,7 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 }
 
 func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	stream := m.Client.Messages.NewStreaming(ctx, params)
+	stream := m.Client.Messages.NewStreaming(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	defer stream.Close()
 
 	var aggregatedText string
@@ -366,7 +366,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 }
 
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	message, err := m.Client.Messages.New(ctx, params)
+	message, err := m.Client.Messages.New(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	if err != nil {
 		yield(nil, fmt.Errorf("anthropic API error: %w", err))
 		return

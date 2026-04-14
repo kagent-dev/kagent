@@ -23,7 +23,7 @@ type TransportConfig struct {
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
-// TLS → passthrough auth → custom headers → timeout.
+// TLS → custom headers → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
@@ -33,10 +33,6 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	if tc.APIKeyPassthrough {
-		transport = &passthroughAuthTransport{base: transport}
 	}
 
 	if len(tc.Headers) > 0 {
@@ -55,19 +51,6 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 var BearerTokenKey = &contextKey{}
 
 type contextKey struct{}
-
-// passthroughAuthTransport wraps an http.RoundTripper and adds the Bearer token from context
-type passthroughAuthTransport struct {
-	base http.RoundTripper
-}
-
-func (t *passthroughAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if token, ok := req.Context().Value(BearerTokenKey).(string); ok && token != "" {
-		req = req.Clone(req.Context())
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	return t.base.RoundTrip(req)
-}
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {

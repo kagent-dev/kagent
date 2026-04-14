@@ -348,7 +348,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: param.NewOpt(true),
 	}
-	stream := m.Client.Chat.Completions.NewStreaming(ctx, params)
+	stream := m.Client.Chat.Completions.NewStreaming(ctx, params, openAIPassthroughOpts(ctx, m)...)
 	defer stream.Close()
 
 	var aggregatedText string
@@ -455,7 +455,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 }
 
 func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatCompletionNewParams, yield func(*model.LLMResponse, error) bool) {
-	completion, err := m.Client.Chat.Completions.New(ctx, params)
+	completion, err := m.Client.Chat.Completions.New(ctx, params, openAIPassthroughOpts(ctx, m)...)
 	if err != nil {
 		yield(nil, fmt.Errorf("OpenAI chat completion request failed: %w", err))
 		return

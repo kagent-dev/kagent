@@ -1,5 +1,6 @@
 """Tests for EmbeddingClient without litellm."""
 
+import json
 from unittest import mock
 
 import numpy as np
@@ -176,6 +177,43 @@ class TestEmbeddingDispatch:
             mock_cls.return_value = instance
             result = await client.generate("test")
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_bedrock_embed(self):
+        """Happy path: Bedrock embedding generation."""
+        client = make_client(provider="bedrock", model="amazon.titan-embed-text-v2:0")
+        vec = [0.1] * 1024  # Titan models do not return 768 dim, they return 512, 1024, or higher.
+        mock_response = mock.MagicMock()
+        mock_response.__getitem__.return_value.read.return_value = json.dumps({"embedding": vec})
+        mock_boto_client = mock.MagicMock()
+        mock_boto_client.invoke_model.return_value = mock_response
+
+        with mock.patch("boto3.client") as mock_boto:
+            mock_boto.return_value = mock_boto_client
+            result = await client.generate("hello world")
+
+        # check that the result is a list of 768 floats and is normalized
+        assert len(result) == 768
+        assert abs(np.linalg.norm(result) - 1.0) < 1e-6
+
+    @pytest.mark.asyncio
+    async def test_bedrock_region_selection(self):
+        """Region selection: uses AWS_REGION env var."""
+        client = make_client(provider="bedrock", model="amazon.titan-embed-text-v2:0")
+        vec = [0.1] * 768
+        mock_response = mock.MagicMock()
+        mock_response.__getitem__.return_value.read.return_value = json.dumps({"embedding": vec})
+        mock_boto_client = mock.MagicMock()
+        mock_boto_client.invoke_model.return_value = mock_response
+
+        with (
+            mock.patch.dict("os.environ", {"AWS_REGION": "eu-west-1"}),
+            mock.patch("boto3.client") as mock_boto,
+        ):
+            mock_boto.return_value = mock_boto_client
+            await client.generate("test")
+
+        mock_boto.assert_called_once_with("bedrock-runtime", region_name="eu-west-1")
 
 
 class TestEmbeddingNormalization:

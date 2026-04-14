@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -112,33 +113,25 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		apiVersion = "2024-02-15-preview"
 	}
 
-	// Handle API key - use placeholder for passthrough
-	apiKey := "passthrough" // placeholder; real auth set per-request by transport
-	azureEndpoint := ""
+	azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
+	if azureEndpoint == "" {
+		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
+	}
+
+	opts := []option.RequestOption{
+		option.WithBaseURL(strings.TrimSuffix(azureEndpoint, "/") + "/"),
+		option.WithQueryAdd("api-version", apiVersion),
+		option.WithMiddleware(azurePathRewriteMiddleware()),
+	}
+
 	if !config.APIKeyPassthrough {
-		apiKey = os.Getenv("AZURE_OPENAI_API_KEY")
-		azureEndpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+		apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
 		if apiKey == "" {
 			return nil, fmt.Errorf("AZURE_OPENAI_API_KEY environment variable is not set")
 		}
-		if azureEndpoint == "" {
-			return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
-		}
-	} else {
-		// For passthrough mode, we still need the endpoint
-		azureEndpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
-		if azureEndpoint == "" {
-			return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
-		}
+		opts = append(opts, option.WithHeader("Api-Key", apiKey))
 	}
 
-	baseURL := strings.TrimSuffix(azureEndpoint, "/") + "/"
-	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
-		option.WithQueryAdd("api-version", apiVersion),
-		option.WithHeader("Api-Key", apiKey),
-		option.WithMiddleware(azurePathRewriteMiddleware()),
-	}
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
@@ -155,6 +148,22 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		IsAzure: true,
 		Logger:  logger,
 	}, nil
+}
+
+// openAIPassthroughOpts returns a per-request option that injects the bearer token from ctx
+// For OpenAI the SDK sends this as "Authorization: Bearer <token>".
+// For Azure the SDK sends this as "Api-Key: <token>" via option.WithHeader.
+func openAIPassthroughOpts(ctx context.Context, m *OpenAIModel) []option.RequestOption {
+	if m.Config == nil || !m.Config.APIKeyPassthrough {
+		return nil
+	}
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		if m.IsAzure {
+			return []option.RequestOption{option.WithHeader("Api-Key", token)}
+		}
+		return []option.RequestOption{option.WithAPIKey(token)}
+	}
+	return nil
 }
 
 // azurePathRewriteMiddleware rewrites .../chat/completions to .../openai/deployments/{model}/chat/completions

@@ -13,7 +13,7 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import AliasChoices, BaseModel, Field
 
-from kagent.adk._approval import make_approval_callback
+from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
@@ -405,6 +405,7 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+        before_model_callback = strip_confirmation_parts_callback if tools_requiring_approval else None
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
@@ -415,6 +416,7 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
+            before_model_callback=before_model_callback,
         )
 
         # Configure memory if enabled

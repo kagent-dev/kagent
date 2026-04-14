@@ -13,6 +13,19 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key
+// from the bearer token in ctx when APIKeyPassthrough is enabled. The Anthropic SDK sends
+// this as the x-api-key header, which is the correct auth mechanism for Anthropic.
+func anthropicPassthroughOpts(ctx context.Context, cfg *AnthropicConfig) []option.RequestOption {
+	if !cfg.APIKeyPassthrough {
+		return nil
+	}
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		return []option.RequestOption{option.WithAPIKey(token)}
+	}
+	return nil
+}
+
 // AnthropicConfig holds Anthropic configuration
 type AnthropicConfig struct {
 	TransportConfig
@@ -53,7 +66,7 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
 
-	// Create HTTP client with timeout, custom headers, TLS, and passthrough
+	// Create HTTP client with TLS, custom headers, and timeout.
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err

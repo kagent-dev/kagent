@@ -7,6 +7,7 @@ import (
 	"google.golang.org/adk/agent/llmagent"
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/adk/tool"
+	"google.golang.org/genai"
 )
 
 // stripConfirmationPartsCallback is a BeforeModelCallback that removes
@@ -16,12 +17,12 @@ import (
 // The session still stores them so ADK's resume machinery can find them.
 func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
 	return func(_ agent.CallbackContext, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
-		out := req.Contents[:0]
+		out := make([]*genai.Content, 0, len(req.Contents))
 		for _, c := range req.Contents {
 			if c == nil {
 				continue
 			}
-			filtered := c.Parts[:0]
+			filtered := make([]*genai.Part, 0, len(c.Parts))
 			for _, p := range c.Parts {
 				if p == nil {
 					continue
@@ -37,8 +38,11 @@ func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
 			if len(filtered) == 0 {
 				continue
 			}
-			c.Parts = filtered
-			out = append(out, c)
+			newContent := &genai.Content{
+				Role:  c.Role,
+				Parts: filtered,
+			}
+			out = append(out, newContent)
 		}
 		req.Contents = out
 		return nil, nil

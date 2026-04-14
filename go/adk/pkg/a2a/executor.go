@@ -120,9 +120,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
 		if meta := callCtx.RequestMeta(); meta != nil {
 			if vals, ok := meta.Get("authorization"); ok && len(vals) > 0 && vals[0] != "" {
-				auth := vals[0]
-				if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
-					ctx = context.WithValue(ctx, models.BearerTokenKey, token)
+				auth := strings.TrimSpace(vals[0])
+				parts := strings.Fields(auth)
+				if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+					ctx = context.WithValue(ctx, models.BearerTokenKey, parts[1])
 				}
 			}
 		}

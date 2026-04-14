@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -28,6 +29,14 @@ const (
 type Client struct {
 	config     *adk.EmbeddingConfig
 	httpClient *http.Client
+
+	bedrockClient *bedrockruntime.Client
+	bedrockOnce   sync.Once
+	bedrockErr    error
+
+	geminiClient *genai.Client
+	geminiOnce   sync.Once
+	geminiErr    error
 }
 
 // Config for creating an embedding client.
@@ -298,16 +307,23 @@ func (c *Client) generateOllama(ctx context.Context, texts []string) ([][]float3
 func (c *Client) generateGemini(ctx context.Context, texts []string) ([][]float32, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	// Create genai client
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey: os.Getenv("GOOGLE_API_KEY"),
+	// Lazy-initialize the Gemini client once and reuse across calls.
+	c.geminiOnce.Do(func() {
+		client, err := genai.NewClient(ctx, &genai.ClientConfig{
+			APIKey: os.Getenv("GOOGLE_API_KEY"),
+		})
+		if err != nil {
+			c.geminiErr = fmt.Errorf("failed to create genai client: %w", err)
+			return
+		}
+		c.geminiClient = client
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	if c.geminiErr != nil {
+		return nil, c.geminiErr
 	}
+	client := c.geminiClient
 
 	// Call the embedding API with dimensionality parameter
-	// Note: This uses the same approach as Python - calling EmbedContent with OutputDimensionality
 	targetDim := int32(TargetDimension)
 	embeddingResults := make([][]float32, len(texts))
 
@@ -350,12 +366,19 @@ func (c *Client) generateBedrock(ctx context.Context, texts []string) ([][]float
 		region = "us-east-1"
 	}
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	// Lazy-initialize the Bedrock client once and reuse across calls.
+	c.bedrockOnce.Do(func() {
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+		if err != nil {
+			c.bedrockErr = fmt.Errorf("failed to load AWS config: %w", err)
+			return
+		}
+		c.bedrockClient = bedrockruntime.NewFromConfig(awsCfg)
+	})
+	if c.bedrockErr != nil {
+		return nil, c.bedrockErr
 	}
-
-	client := bedrockruntime.NewFromConfig(awsCfg)
+	client := c.bedrockClient
 
 	embeddings := make([][]float32, 0, len(texts))
 	for i, text := range texts {

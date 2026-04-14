@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
@@ -151,32 +150,5 @@ func TestBuildHTTPClient_HeadersInjected(t *testing.T) {
 	get(t, client, srv.URL)
 	if got != "hello" {
 		t.Errorf("expected X-Test 'hello', got %q", got)
-	}
-}
-
-// Should inject bearer token if API key passthrough is enabled
-func TestBuildHTTPClient_PassthroughInjectsBearer(t *testing.T) {
-	var got string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-
-	client, err := BuildHTTPClient(TransportConfig{APIKeyPassthrough: true})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	ctx := context.WithValue(context.Background(), BearerTokenKey, "tok-123")
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	resp.Body.Close()
-
-	if got != "Bearer tok-123" {
-		t.Errorf("expected 'Bearer tok-123', got %q", got)
 	}
 }
