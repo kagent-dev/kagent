@@ -3,7 +3,15 @@
  */
 
 export type MentionItem =
-  | { kind: "include"; configMapName: string; key: string; label: string }
+  | {
+      kind: "include";
+      /** Kubernetes ConfigMap name (for grouping and registration). */
+      configMapName: string;
+      /** First segment in `{{include "…/key"}}` — alias when set on the agent, else same as configMapName. */
+      includeSourceId: string;
+      key: string;
+      label: string;
+    }
   | { kind: "variable"; insert: string; label: string; hint: string };
 
 /** Available in systemMessage when prompt sources / template processing applies (see docs/architecture/prompt-templates.md). */
@@ -70,28 +78,40 @@ export function matchesMentionQuery(it: MentionItem, rawQuery: string): boolean 
   }
 
   const cmLower = it.configMapName.toLowerCase();
+  const idLower = it.includeSourceId.toLowerCase();
   const keyLower = it.key.toLowerCase();
   const labelLower = it.label.toLowerCase();
   const combined = `${cmLower}/${keyLower}`;
+  const idCombined = `${idLower}/${keyLower}`;
 
   const slash = q.indexOf("/");
   if (slash >= 0) {
     const cmPart = q.slice(0, slash).trim();
     const keyPart = q.slice(slash + 1).trim();
-    const cmOk = !cmPart || cmLower.includes(cmPart);
+    const cmOk = !cmPart || cmLower.includes(cmPart) || idLower.includes(cmPart);
     const keyOk = !keyPart || keyLower.includes(keyPart);
     return cmOk && keyOk;
   }
 
   const tokens = q.split(/\s+/).filter(Boolean);
   if (tokens.length > 1) {
-    return tokens.every((t) => combined.includes(t) || labelLower.includes(t) || cmLower.includes(t) || keyLower.includes(t));
+    return tokens.every(
+      (t) =>
+        combined.includes(t) ||
+        idCombined.includes(t) ||
+        labelLower.includes(t) ||
+        cmLower.includes(t) ||
+        idLower.includes(t) ||
+        keyLower.includes(t),
+    );
   }
 
   return (
     combined.includes(q) ||
+    idCombined.includes(q) ||
     labelLower.includes(q) ||
     cmLower.includes(q) ||
+    idLower.includes(q) ||
     keyLower.includes(q)
   );
 }
@@ -123,13 +143,16 @@ export function scoreMentionMatch(it: MentionItem, rawQuery: string): number {
   }
 
   const cm = it.configMapName.toLowerCase();
+  const id = it.includeSourceId.toLowerCase();
   const key = it.key.toLowerCase();
   let s = 0;
   const slash = q.indexOf("/");
   if (slash >= 0) {
     const cmPart = q.slice(0, slash).trim();
     const keyPart = q.slice(slash + 1).trim();
-    if (cmPart && cm.startsWith(cmPart)) {
+    if (cmPart && id.startsWith(cmPart)) {
+      s += 90;
+    } else if (cmPart && cm.startsWith(cmPart)) {
       s += 80;
     }
     if (keyPart && key.startsWith(keyPart)) {
@@ -139,11 +162,17 @@ export function scoreMentionMatch(it: MentionItem, rawQuery: string): number {
   if (key.startsWith(q)) {
     s += 100;
   }
+  if (id.startsWith(q)) {
+    s += 65;
+  }
   if (cm.startsWith(q)) {
     s += 60;
   }
   if (key.includes(q)) {
     s += 25;
+  }
+  if (id.includes(q)) {
+    s += 20;
   }
   if (cm.includes(q)) {
     s += 15;

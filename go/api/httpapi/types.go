@@ -233,7 +233,6 @@ type PromptTemplateSummary struct {
 	Name      string   `json:"name"`
 	KeyCount  int      `json:"keyCount"`
 	Keys      []string `json:"keys,omitempty"`
-	ReadOnly  bool     `json:"readOnly"`
 }
 
 // PromptTemplateDetail includes all string keys for editing.
@@ -241,7 +240,6 @@ type PromptTemplateDetail struct {
 	Namespace string            `json:"namespace"`
 	Name      string            `json:"name"`
 	Data      map[string]string `json:"data"`
-	ReadOnly  bool              `json:"readOnly"`
 }
 
 // CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.

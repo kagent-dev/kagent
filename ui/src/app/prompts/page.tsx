@@ -8,8 +8,10 @@ import { listPromptTemplates } from "@/app/actions/promptTemplates";
 import type { PromptTemplateSummary } from "@/types";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/LoadingState";
-import { ScrollText, Plus, Lock, ChevronRight } from "lucide-react";
+import { ScrollText, Plus, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+
+const DEFAULT_PROMPTS_NAMESPACE = "kagent";
 
 export default function PromptsPage() {
   const router = useRouter();
@@ -17,6 +19,15 @@ export default function PromptsPage() {
   const namespace = searchParams.get("namespace") ?? "";
   const [items, setItems] = useState<PromptTemplateSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (searchParams.get("namespace")) {
+      return;
+    }
+    const q = new URLSearchParams(searchParams.toString());
+    q.set("namespace", DEFAULT_PROMPTS_NAMESPACE);
+    router.replace(`/prompts?${q.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   const syncNsToUrl = useCallback(
     (ns: string) => {
@@ -70,8 +81,7 @@ export default function PromptsPage() {
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs" translate="no">
                 {`{{include "name/key"}}`}
               </code>{" "}
-              or type <kbd className="font-mono text-xs">@</kbd> in agent instructions to pick a key. Built-in and
-              UI-created libraries are marked when applicable.
+              or type <kbd className="font-mono text-xs">@</kbd> in agent instructions to pick a key.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -132,17 +142,10 @@ export default function PromptsPage() {
                         <span className="tabular-nums">{cm.keyCount}</span> keys
                       </p>
                     </div>
-                    {cm.readOnly ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground shrink-0">
-                        <Lock className="h-3 w-3" aria-hidden />
-                        Read-only
-                      </span>
-                    ) : (
-                      <ChevronRight
-                        className="h-5 w-5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 motion-reduce:opacity-100"
-                        aria-hidden
-                      />
-                    )}
+                    <ChevronRight
+                      className="h-5 w-5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 motion-reduce:opacity-100"
+                      aria-hidden
+                    />
                   </div>
                 </Link>
               </li>

@@ -17,7 +17,6 @@ const mockCatalog: PromptTemplateSummary[] = [
     name: "team-prompts",
     keyCount: 2,
     keys: ["system", "tools"],
-    readOnly: false,
   },
 ];
 

@@ -172,6 +172,7 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 		}
 	}
 
+	// TODO: create different translations with different owned objects
 	allOwnedTypes := a.adkTranslator.GetOwnedResourceTypes()
 	ownedTypes, err := sandboxbackend.FilterTranslatorOwnedTypesForList(a.kube, agent, allOwnedTypes, a.sandboxBackend)
 	if err != nil {

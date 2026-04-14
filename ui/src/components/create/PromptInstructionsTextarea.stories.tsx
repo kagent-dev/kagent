@@ -9,14 +9,12 @@ const sampleCatalog: PromptTemplateSummary[] = [
     name: "team-prompts",
     keyCount: 2,
     keys: ["system", "router"],
-    readOnly: false,
   },
   {
     namespace: "demo",
     name: "kagent-builtin-prompts",
     keyCount: 1,
     keys: ["default"],
-    readOnly: true,
   },
 ];
 
@@ -33,6 +31,9 @@ function StatefulPromptArea(props: {
         disabled={false}
         namespace={props.namespace}
         onPickInclude={() => {}}
+        includeSourceIdForConfigMap={(name) =>
+          name === "kagent-builtin-prompts" ? "builtin" : name
+        }
         catalogOverride={props.catalogOverride}
       />
     </div>

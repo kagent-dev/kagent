@@ -318,7 +318,7 @@ func TestBuildTemplateContext(t *testing.T) {
 	}
 }
 
-func TestResolvePromptSources_AliasAndConfigMapNameBothResolve(t *testing.T) {
+func TestResolvePromptSources_AliasUsesAliasOnlyInLookup(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -346,9 +346,30 @@ func TestResolvePromptSources_AliasAndConfigMapNameBothResolve(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "be safe", lookup["builtin/safety-guardrails"])
-	assert.Equal(t, "be safe", lookup["kagent-builtin-prompts/safety-guardrails"], "include by ConfigMap name must work when alias is set")
+	_, byName := lookup["kagent-builtin-prompts/safety-guardrails"]
+	assert.False(t, byName, "when alias is set, include paths must use alias/key, not ConfigMap name")
 
-	out, err := executeSystemMessageTemplate(`{{include "kagent-builtin-prompts/safety-guardrails"}}`, lookup, PromptTemplateContext{})
+	out, err := executeSystemMessageTemplate(`{{include "builtin/safety-guardrails"}}`, lookup, PromptTemplateContext{})
 	require.NoError(t, err)
 	assert.Equal(t, "be safe", out)
+}
+
+func TestResolvePromptSources_NoAliasUsesConfigMapNameInLookup(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-lib", Namespace: "ns"},
+		Data:         map[string]string{"k": "v"},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+	lookup, err := resolvePromptSources(ctx, cl, "ns", []v1alpha2.PromptSource{
+		{
+			TypedLocalReference: v1alpha2.TypedLocalReference{Kind: "ConfigMap", ApiGroup: "", Name: "my-lib"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "v", lookup["my-lib/k"])
 }

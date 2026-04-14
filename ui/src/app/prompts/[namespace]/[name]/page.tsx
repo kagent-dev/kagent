@@ -20,7 +20,6 @@ export default function PromptDetailPage({
   const { namespace, name } = use(params);
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [readOnly, setReadOnly] = useState(false);
   const [rows, setRows] = useState<FragmentRow[]>(() => rowsFromData({}));
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -38,7 +37,6 @@ export default function PromptDetailPage({
         setLoading(false);
         return;
       }
-      setReadOnly(res.data.readOnly);
       setRows(rowsFromData(res.data.data));
       setLoading(false);
     })();
@@ -48,9 +46,6 @@ export default function PromptDetailPage({
   }, [namespace, name]);
 
   const handleSave = async () => {
-    if (readOnly) {
-      return;
-    }
     const data = dataFromRows(rows);
     if (Object.keys(data).length === 0) {
       toast.error("At least one key is required");
@@ -107,25 +102,17 @@ export default function PromptDetailPage({
             <p className="text-sm text-muted-foreground">
               Namespace <span className="font-mono text-foreground">{namespace}</span>
             </p>
-            {readOnly && (
-              <p className="text-sm text-amber-700 dark:text-amber-400" role="status">
-                This prompt library is read-only in the UI (for example the cluster built-in bundle). Copy content into
-                your own library to edit.
-              </p>
-            )}
           </div>
-          {!readOnly && (
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 self-start"
-              onClick={() => setConfirmOpen(true)}
-              disabled={saving}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-              Delete
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 self-start"
+            onClick={() => setConfirmOpen(true)}
+            disabled={saving}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+            Delete
+          </Button>
         </div>
 
         <Card>
@@ -136,14 +123,12 @@ export default function PromptDetailPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <FragmentEntriesEditor rows={rows} onRowsChange={setRows} readOnly={readOnly} disabled={saving} />
-            {!readOnly && (
-              <div className="flex gap-3">
-                <Button type="button" onClick={handleSave} disabled={saving}>
-                  {saving ? "Saving…" : "Save changes"}
-                </Button>
-              </div>
-            )}
+            <FragmentEntriesEditor rows={rows} onRowsChange={setRows} disabled={saving} />
+            <div className="flex gap-3">
+              <Button type="button" onClick={handleSave} disabled={saving}>
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

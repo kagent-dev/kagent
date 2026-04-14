@@ -17,7 +17,15 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const builtinPromptsCMName = "kagent-builtin-prompts"
+const (
+	// kagent.dev/prompt-library=true marks a ConfigMap as a prompt library for list/@-picker APIs.
+	promptLibraryLabelKey = "kagent.dev/prompt-library"
+	promptLibraryLabelVal = "true"
+)
+
+func promptLibraryLabelSelector() map[string]string {
+	return map[string]string{promptLibraryLabelKey: promptLibraryLabelVal}
+}
 
 // PromptTemplatesHandler manages ConfigMaps used as prompt template libraries.
 type PromptTemplatesHandler struct {
@@ -42,15 +50,16 @@ func (h *PromptTemplatesHandler) HandleListPromptTemplates(w ErrorResponseWriter
 		w.RespondWithError(errors.NewBadRequestError("namespace query parameter is required", nil))
 		return
 	}
+
 	byName := make(map[string]corev1.ConfigMap)
 
-	allInNamespace := &corev1.ConfigMapList{}
-	if err := h.KubeClient.List(r.Context(), allInNamespace, client.InNamespace(ns)); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list ConfigMaps in namespace", err))
+	list := &corev1.ConfigMapList{}
+	if err := h.KubeClient.List(r.Context(), list, client.InNamespace(ns), client.MatchingLabels(promptLibraryLabelSelector())); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list prompt template ConfigMaps", err))
 		return
 	}
-	for i := range allInNamespace.Items {
-		cm := allInNamespace.Items[i]
+	for i := range list.Items {
+		cm := list.Items[i]
 		byName[cm.Name] = cm
 	}
 
@@ -103,7 +112,6 @@ func (h *PromptTemplatesHandler) HandleGetPromptTemplate(w ErrorResponseWriter, 
 		Namespace: cm.Namespace,
 		Name:      cm.Name,
 		Data:      cloneStringMap(cm.Data),
-		ReadOnly:  isBuiltinPromptCMName(cm.Name),
 	}
 	log.Info("Retrieved prompt template library")
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(detail, "Successfully retrieved prompt template library", false))
@@ -131,6 +139,7 @@ func (h *PromptTemplatesHandler) HandleCreatePromptTemplate(w ErrorResponseWrite
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: req.Namespace,
 			Name:      req.Name,
+			Labels:    promptLibraryLabelSelector(),
 		},
 		Data: cloneStringMap(req.Data),
 	}
@@ -149,7 +158,6 @@ func (h *PromptTemplatesHandler) HandleCreatePromptTemplate(w ErrorResponseWrite
 		Namespace: cm.Namespace,
 		Name:      cm.Name,
 		Data:      cloneStringMap(cm.Data),
-		ReadOnly:  false,
 	}
 	RespondWithJSON(w, http.StatusCreated, api.NewResponse(detail, "Successfully created prompt template library", false))
 }
@@ -170,11 +178,6 @@ func (h *PromptTemplatesHandler) HandleUpdatePromptTemplate(w ErrorResponseWrite
 
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "PromptTemplate", Name: namespace + "/" + name}); err != nil {
 		w.RespondWithError(err)
-		return
-	}
-
-	if isBuiltinPromptCMName(name) {
-		w.RespondWithError(errors.NewForbiddenError("Built-in prompt library cannot be edited from the UI", nil))
 		return
 	}
 
@@ -209,7 +212,6 @@ func (h *PromptTemplatesHandler) HandleUpdatePromptTemplate(w ErrorResponseWrite
 		Namespace: cm.Namespace,
 		Name:      cm.Name,
 		Data:      cloneStringMap(cm.Data),
-		ReadOnly:  false,
 	}
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(detail, "Successfully updated prompt template library", false))
 }
@@ -230,11 +232,6 @@ func (h *PromptTemplatesHandler) HandleDeletePromptTemplate(w ErrorResponseWrite
 
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "PromptTemplate", Name: namespace + "/" + name}); err != nil {
 		w.RespondWithError(err)
-		return
-	}
-
-	if isBuiltinPromptCMName(name) {
-		w.RespondWithError(errors.NewForbiddenError("Built-in prompt library cannot be deleted", nil))
 		return
 	}
 
@@ -272,12 +269,7 @@ func summarizePromptCM(cm *corev1.ConfigMap) api.PromptTemplateSummary {
 		Name:      cm.Name,
 		KeyCount:  keyCount,
 		Keys:      keys,
-		ReadOnly:  isBuiltinPromptCMName(cm.Name),
 	}
-}
-
-func isBuiltinPromptCMName(name string) bool {
-	return name == builtinPromptsCMName
 }
 
 func cloneStringMap(m map[string]string) map[string]string {

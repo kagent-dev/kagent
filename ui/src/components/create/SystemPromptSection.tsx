@@ -11,6 +11,8 @@ interface SystemPromptSectionProps {
   /** When set with onPickInclude, typing @ opens a fragment picker (prompt libraries in the namespace). */
   mentionNamespace?: string;
   onPickInclude?: (pick: IncludePick) => void;
+  /** Maps ConfigMap name to include path prefix (alias when set on a prompt source row, else name). */
+  includeSourceIdForConfigMap?: (configMapName: string) => string;
   /** Passed through to PromptInstructionsTextarea for Storybook/tests. */
   promptLibraryCatalogOverride?: PromptTemplateSummary[];
 }
@@ -23,6 +25,7 @@ export const SystemPromptSection = ({
   disabled,
   mentionNamespace,
   onPickInclude,
+  includeSourceIdForConfigMap,
   promptLibraryCatalogOverride,
 }: SystemPromptSectionProps) => {
   const useMentions = Boolean(mentionNamespace?.trim() && onPickInclude);
@@ -52,6 +55,7 @@ export const SystemPromptSection = ({
             disabled={disabled}
             namespace={mentionNamespace!.trim()}
             onPickInclude={onPickInclude!}
+            includeSourceIdForConfigMap={includeSourceIdForConfigMap}
             catalogOverride={promptLibraryCatalogOverride}
           />
         ) : (

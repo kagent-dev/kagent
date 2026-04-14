@@ -142,6 +142,15 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     });
   }, []);
 
+  const includeSourceIdForConfigMap = useCallback(
+    (cmName: string) => {
+      const row = state.promptSourceRows.find((r) => r.name.trim() === cmName);
+      const a = row?.alias?.trim();
+      return a || cmName;
+    },
+    [state.promptSourceRows],
+  );
+
   // Fetch existing agent data if in edit mode
   useEffect(() => {
     const fetchAgentData = async () => {
@@ -541,6 +550,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       disabled={state.isSubmitting || state.isLoading}
                       mentionNamespace={state.namespace}
                       onPickInclude={(pick) => ensureConfigMapSource(pick.configMapName)}
+                      includeSourceIdForConfigMap={includeSourceIdForConfigMap}
                     />
 
                     <ModelSelectionSection

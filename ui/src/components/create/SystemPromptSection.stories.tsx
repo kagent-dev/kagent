@@ -9,7 +9,6 @@ const catalog: PromptTemplateSummary[] = [
     name: "shared-lib",
     keyCount: 1,
     keys: ["base"],
-    readOnly: false,
   },
 ];
 

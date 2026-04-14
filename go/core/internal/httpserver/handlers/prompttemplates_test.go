@@ -37,19 +37,28 @@ func TestPromptTemplatesHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("HandleListPromptTemplates lists all ConfigMaps in namespace", func(t *testing.T) {
-		custom := &corev1.ConfigMap{
+	t.Run("HandleListPromptTemplates lists labeled prompt libraries only", func(t *testing.T) {
+		labeled := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "ns1",
 				Name:      "team-prompts",
+				Labels:    map[string]string{"kagent.dev/prompt-library": "true"},
 			},
 			Data: map[string]string{"rules": "be nice"},
 		}
-		builtin := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "kagent-builtin-prompts"},
-			Data:       map[string]string{"skills-usage": "skills"},
+		noise := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "kube-root-ca.crt"},
+			Data:       map[string]string{"ca.crt": "-----BEGIN"},
 		}
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(custom, builtin).Build()
+		builtin := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name:      "kagent-builtin-prompts",
+				Labels:    map[string]string{"kagent.dev/prompt-library": "true"},
+			},
+			Data: map[string]string{"skills-usage": "skills"},
+		}
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(labeled, noise, builtin).Build()
 		base := &handlers.Base{KubeClient: kubeClient, Authorizer: &auth.NoopAuthorizer{}}
 		h := handlers.NewPromptTemplatesHandler(base)
 		w := newMockErrorResponseWriter()
@@ -95,25 +104,7 @@ func TestPromptTemplatesHandler(t *testing.T) {
 		var cm corev1.ConfigMap
 		require.NoError(t, kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "ns1", Name: "my-lib"}, &cm))
 		assert.Equal(t, "updated", cm.Data["intro"])
+		assert.Equal(t, "true", cm.Labels["kagent.dev/prompt-library"])
 	})
 
-	t.Run("cannot update builtin", func(t *testing.T) {
-		builtin := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "kagent-builtin-prompts"},
-			Data:       map[string]string{"k": "v"},
-		}
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(builtin).Build()
-		base := &handlers.Base{KubeClient: kubeClient, Authorizer: &auth.NoopAuthorizer{}}
-		h := handlers.NewPromptTemplatesHandler(base)
-		up := api.UpdatePromptTemplateRequest{Data: map[string]string{"k": "x"}}
-		ub, err := json.Marshal(up)
-		require.NoError(t, err)
-		req := httptest.NewRequest(http.MethodPut, "/api/prompttemplates/ns1/kagent-builtin-prompts", bytes.NewReader(ub))
-		req.Header.Set("Content-Type", "application/json")
-		req = mux.SetURLVars(req, map[string]string{"namespace": "ns1", "name": "kagent-builtin-prompts"})
-		req = setUser(req, "u1")
-		w := newMockErrorResponseWriter()
-		h.HandleUpdatePromptTemplate(w, req)
-		assert.Equal(t, http.StatusForbidden, w.Code)
-	})
 }

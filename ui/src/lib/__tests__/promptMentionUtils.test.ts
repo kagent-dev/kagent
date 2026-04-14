@@ -33,6 +33,7 @@ describe("matchesMentionQuery", () => {
   const include: MentionItem = {
     kind: "include",
     configMapName: "my-lib",
+    includeSourceId: "my-lib",
     key: "system",
     label: "my-lib / system",
   };
@@ -51,6 +52,18 @@ describe("matchesMentionQuery", () => {
   it("matches include by name/key path", () => {
     expect(matchesMentionQuery(include, "my-lib/system")).toBe(true);
     expect(matchesMentionQuery(include, "system")).toBe(true);
+  });
+
+  it("matches include by alias path when includeSourceId differs from ConfigMap name", () => {
+    const aliased: MentionItem = {
+      kind: "include",
+      configMapName: "kagent-builtin-prompts",
+      includeSourceId: "builtin",
+      key: "safety",
+      label: "builtin / safety (kagent-builtin-prompts)",
+    };
+    expect(matchesMentionQuery(aliased, "builtin/safety")).toBe(true);
+    expect(matchesMentionQuery(aliased, "builtin")).toBe(true);
   });
 
   it("matches variable by field name", () => {
@@ -81,6 +94,7 @@ describe("scoreMentionMatch", () => {
     const include: MentionItem = {
       kind: "include",
       configMapName: "lib",
+      includeSourceId: "lib",
       key: "k",
       label: "lib / k",
     };
@@ -91,12 +105,14 @@ describe("scoreMentionMatch", () => {
     const a: MentionItem = {
       kind: "include",
       configMapName: "team",
+      includeSourceId: "team",
       key: "prompts",
       label: "team / prompts",
     };
     const b: MentionItem = {
       kind: "include",
       configMapName: "other",
+      includeSourceId: "other",
       key: "x",
       label: "other / x",
     };

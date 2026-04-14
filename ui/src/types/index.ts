@@ -275,14 +275,12 @@ export interface PromptTemplateSummary {
   keyCount: number;
   /** Fragment keys per library (for @ include picker). */
   keys?: string[];
-  readOnly: boolean;
 }
 
 export interface PromptTemplateDetail {
   namespace: string;
   name: string;
   data: Record<string, string>;
-  readOnly: boolean;
 }
 
 export interface DeclarativeAgentSpec {

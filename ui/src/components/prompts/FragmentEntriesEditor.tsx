@@ -39,12 +39,10 @@ export function dataFromRows(rows: FragmentRow[]): Record<string, string> {
 export function FragmentEntriesEditor({
   rows,
   onRowsChange,
-  readOnly,
   disabled,
 }: {
   rows: FragmentRow[];
   onRowsChange: (rows: FragmentRow[]) => void;
-  readOnly?: boolean;
   disabled?: boolean;
 }) {
   const updateRow = (id: string, patch: Partial<FragmentRow>) => {
@@ -76,7 +74,7 @@ export function FragmentEntriesEditor({
               value={row.key}
               onChange={(e) => updateRow(row.id, { key: e.target.value })}
               placeholder="e.g. safety-rules…"
-              disabled={disabled || readOnly}
+              disabled={disabled}
               spellCheck={false}
               autoComplete="off"
               className="font-mono text-sm"
@@ -91,7 +89,7 @@ export function FragmentEntriesEditor({
               value={row.value}
               onChange={(e) => updateRow(row.id, { value: e.target.value })}
               placeholder="Prompt fragment text…"
-              disabled={disabled || readOnly}
+              disabled={disabled}
               className="min-h-[120px] font-mono text-sm"
             />
           </div>
@@ -102,7 +100,7 @@ export function FragmentEntriesEditor({
               size="icon"
               className="shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => removeRow(row.id)}
-              disabled={disabled || readOnly || rows.length <= 1}
+              disabled={disabled || rows.length <= 1}
               aria-label="Remove fragment"
             >
               <Trash2 className="h-4 w-4" aria-hidden />
@@ -110,12 +108,10 @@ export function FragmentEntriesEditor({
           </div>
         </div>
       ))}
-      {!readOnly && (
-        <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={disabled} className="gap-2">
-          <Plus className="h-4 w-4" aria-hidden />
-          Add fragment
-        </Button>
-      )}
+      <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={disabled} className="gap-2">
+        <Plus className="h-4 w-4" aria-hidden />
+        Add fragment
+      </Button>
     </div>
   );
 }

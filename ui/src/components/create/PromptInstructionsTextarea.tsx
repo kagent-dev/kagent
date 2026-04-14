@@ -28,6 +28,11 @@ export interface PromptInstructionsTextareaProps {
   namespace: string;
   onPickInclude: (pick: IncludePick) => void;
   /**
+   * Maps ConfigMap name to the first segment of `{{include "…/key"}}` (non-empty alias from the form, else the name).
+   * Must match controller lookup: alias in CRD when set, otherwise ConfigMap name.
+   */
+  includeSourceIdForConfigMap?: (configMapName: string) => string;
+  /**
    * When set, uses this catalog instead of fetching prompt libraries (Storybook/tests).
    * Omit for normal production behavior.
    */
@@ -42,6 +47,7 @@ export function PromptInstructionsTextarea({
   disabled,
   namespace,
   onPickInclude,
+  includeSourceIdForConfigMap,
   catalogOverride,
 }: PromptInstructionsTextareaProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -96,17 +102,23 @@ export function PromptInstructionsTextarea({
     const cms = namespace.trim() ? catalog : [];
     for (const cm of cms) {
       const keys = cm.keys?.length ? cm.keys : [];
+      const includeSourceId =
+        includeSourceIdForConfigMap?.(cm.name)?.trim() || cm.name;
       for (const key of keys) {
         out.push({
           kind: "include",
           configMapName: cm.name,
+          includeSourceId,
           key,
-          label: `${cm.name} / ${key}`,
+          label:
+            includeSourceId !== cm.name
+              ? `${includeSourceId} / ${key} (${cm.name})`
+              : `${cm.name} / ${key}`,
         });
       }
     }
     return out;
-  }, [catalog, namespace]);
+  }, [catalog, namespace, includeSourceIdForConfigMap]);
 
   const filtered = useMemo(
     () => allMentionItems.filter((it) => matchesMentionQuery(it, mentionQuery)),
@@ -237,7 +249,10 @@ export function PromptInstructionsTextarea({
       if (!m) {
         return;
       }
-      const insert = item.kind === "variable" ? item.insert : `{{include "${item.configMapName}/${item.key}"}}`;
+      const insert =
+        item.kind === "variable"
+          ? item.insert
+          : `{{include "${item.includeSourceId}/${item.key}"}}`;
       const next = value.slice(0, m.start) + insert + value.slice(pos);
       onChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
       if (item.kind === "include") {
@@ -415,7 +430,7 @@ export function PromptInstructionsTextarea({
                             ) : (
                               <>
                                 <span className="block truncate text-sm font-medium text-foreground">{it.key}</span>
-                                <span className="block truncate font-mono text-[11px] text-muted-foreground" translate="no">{`{{include "${it.configMapName}/${it.key}"}}`}</span>
+                                <span className="block truncate font-mono text-[11px] text-muted-foreground" translate="no">{`{{include "${it.includeSourceId}/${it.key}"}}`}</span>
                               </>
                             )}
                           </span>
