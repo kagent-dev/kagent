@@ -199,8 +199,6 @@ jobs:
 
   ui-tests:
     runs-on: ubuntu-latest
-    env:
-      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
     permissions:
       contents: read
       pull-requests: write
@@ -244,13 +242,8 @@ jobs:
         run: npm run build-storybook
 
       - name: Publish to Chromatic
-        # Requires repo secret CHROMATIC_PROJECT_TOKEN. Skipped when unset, or on fork PRs (no token access).
-        if: ${{ env.CHROMATIC_PROJECT_TOKEN != '' && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: chromaui/action@v16.1.0
-        with:
-          projectToken: ${{ env.CHROMATIC_PROJECT_TOKEN }}
-          workingDir: ui
-          storybookBuildDir: storybook-static
+        working-directory: ./ui
+        run: npm run chromatic
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
   build:
