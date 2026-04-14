@@ -1,0 +1,12 @@
+{{- if .Values.ui.nginxConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui-nginx
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    {{- .Values.ui.nginxConfig | nindent 4 }}
+{{- end }}

@@ -110,6 +110,10 @@ var DefaultServiceAccountName string
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string
 
+// DefaultAgentBindHost is the host address agent pods bind to.
+// Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
+var DefaultAgentBindHost = "0.0.0.0"
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
