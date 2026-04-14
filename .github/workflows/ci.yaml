@@ -205,8 +205,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -236,14 +234,6 @@ jobs:
       - name: Run Storybook tests (Vitest + Playwright)
         working-directory: ./ui
         run: npm run test:vitest
-
-      - name: Build Storybook
-        working-directory: ./ui
-        run: npm run build-storybook
-
-      - name: Publish to Chromatic
-        working-directory: ./ui
-        run: npm run chromatic
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
   build:

@@ -1,0 +1,48 @@
+name: UI Storybook & Chromatic
+
+# Storybook static build + Chromatic only when the UI package changes.
+# Kept separate from CI so the main workflow does not need paths-filter or conditional steps.
+
+on:
+  push:
+    branches: [main, release/v0.7.x]
+    paths:
+      - "ui/**"
+  pull_request:
+    branches: [main, release/v0.7.x]
+    paths:
+      - "ui/**"
+  workflow_dispatch:
+
+jobs:
+  chromatic:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./ui
+        env:
+          CYPRESS_INSTALL_BINARY: 0
+        run: npm ci
+
+      - name: Build Storybook
+        working-directory: ./ui
+        run: npm run build-storybook
+
+      - name: Publish to Chromatic
+        working-directory: ./ui
+        run: npm run chromatic
