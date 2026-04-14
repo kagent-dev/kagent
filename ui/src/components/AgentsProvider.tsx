@@ -31,6 +31,7 @@ export interface ValidationErrors {
   memoryModel?: string;
   memoryTtl?: string;
   serviceAccountName?: string;
+  promptSources?: string;
 }
 
 export interface AgentFormData {
@@ -52,6 +53,7 @@ export interface AgentFormData {
   };
   // Context management
   context?: ContextConfig;
+  promptSources?: Array<{ name: string; alias: string }>;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -205,6 +207,21 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       const trimmedSA = data.serviceAccountName.trim();
       if (trimmedSA && !isResourceNameValid(trimmedSA)) {
         errors.serviceAccountName = `Service account name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
+      }
+    }
+
+    if (formUsesDeclarativeSections(type, byoImage)) {
+      const sources = (data.promptSources || []).filter((s) => s.name.trim());
+      for (const s of sources) {
+        if (!isResourceNameValid(s.name.trim())) {
+          errors.promptSources = `Prompt library name is invalid: ${s.name}`;
+          break;
+        }
+        const al = s.alias.trim();
+        if (al && !isResourceNameValid(al)) {
+          errors.promptSources = `Alias is invalid: ${s.alias}`;
+          break;
+        }
       }
     }
 

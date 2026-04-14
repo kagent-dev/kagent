@@ -172,7 +172,13 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 		}
 	}
 
-	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.GetUID(), agent.GetNamespace(), a.adkTranslator.GetOwnedResourceTypes())
+	// TODO: create different translations with different owned objects
+	allOwnedTypes := a.adkTranslator.GetOwnedResourceTypes()
+	ownedTypes, err := sandboxbackend.FilterTranslatorOwnedTypesForList(a.kube, agent, allOwnedTypes, a.sandboxBackend)
+	if err != nil {
+		return fmt.Errorf("filter owned types for list: %w", err)
+	}
+	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, agent.GetUID(), agent.GetNamespace(), ownedTypes)
 	if err != nil {
 		return err
 	}
