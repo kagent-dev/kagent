@@ -1,5 +1,6 @@
 """Token source implementations for dynamic bearer token acquisition."""
 
+import datetime
 import logging
 import time
 
@@ -25,13 +26,11 @@ class GDCHTokenSource:
         now = time.monotonic()
         if self._token and now < self._expiry - 30:  # 30 s buffer
             return self._token
+        self._expiry = now + 3600  # fallback when creds do not expose expiry
         self._token = self._exchange()
-        self._expiry = now + 3600  # fallback; overridden below if creds carry expiry
         return self._token
 
     def _exchange(self) -> str:
-        import datetime
-
         import google.auth
         import requests
         from google.auth.transport import requests as google_requests
@@ -44,7 +43,11 @@ class GDCHTokenSource:
             session.verify = self._ca_cert_path
         creds.refresh(google_requests.Request(session=session))
         if creds.expiry:
+            expiry = creds.expiry
+            # If the expiry is not timezone-aware, set it to UTC
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=datetime.timezone.utc)
             self._expiry = (
-                time.monotonic() + (creds.expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+                time.monotonic() + (expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
             )
         return creds.token
