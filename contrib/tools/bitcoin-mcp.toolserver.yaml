@@ -1,0 +1,20 @@
+apiVersion: kagent.dev/v1alpha1
+kind: ToolServer
+metadata:
+  name: bitcoin-mcp
+  namespace: kagent
+spec:
+  config:
+    stdio:
+      command: uvx
+      args:
+        - bitcoin-mcp
+      env:
+        BITCOIN_RPC_HOST: ""
+        BITCOIN_RPC_PORT: "8332"
+  description: >-
+    Bitcoin network analysis via MCP — 49 tools for fee estimation,
+    mempool analysis, block inspection, transaction decoding, mining
+    stats, address lookups, and PSBT security analysis. Zero-config:
+    works with a local Bitcoin Core node or the free Satoshi API.
+    https://github.com/Bortlesboat/bitcoin-mcp
