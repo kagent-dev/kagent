@@ -144,6 +144,42 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
+  - it: should not mount supervisord config by default
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: supervisord-config
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: supervisord-config
+          any: true
+
+  - it: should mount custom supervisord config when provided
+    template: ui-deployment.yaml
+    set:
+      ui:
+        supervisordConfig: |
+          [supervisord]
+          nodaemon=true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: supervisord-config
+            configMap:
+              name: RELEASE-NAME-ui-supervisord
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: supervisord-config
+            mountPath: /etc/supervisor/conf.d/supervisord.conf
+            subPath: supervisord.conf
+            readOnly: true
+
   - it: should not mount nginx config by default
     template: ui-deployment.yaml
     asserts:
