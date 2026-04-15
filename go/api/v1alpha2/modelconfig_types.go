@@ -179,7 +179,7 @@ type OpenAIConfig struct {
 	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
 
 	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
-	// Mutually exclusive with apiKeySecret and apiKeyPassthrough.
+	// Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
 	// +optional
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }

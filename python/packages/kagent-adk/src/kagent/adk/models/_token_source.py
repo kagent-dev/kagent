@@ -1,5 +1,6 @@
 """Token source implementations for dynamic bearer token acquisition."""
 
+import asyncio
 import datetime
 import logging
 import time
@@ -15,20 +16,33 @@ class GDCHTokenSource:
     when connecting to the GDCH token endpoint.
     """
 
-    def __init__(self, service_account_path: str, audience: str, ca_cert_path: str | None = None) -> None:
+    def __init__(
+        self,
+        service_account_path: str,
+        audience: str,
+        ca_cert_path: str | None = None,
+        tls_disable_verify: bool = False,
+    ) -> None:
         self._sa_path = service_account_path
         self._audience = audience
         self._ca_cert_path = ca_cert_path
+        self._tls_disable_verify = tls_disable_verify
         self._token: str | None = None
         self._expiry: float = 0.0
+        self._lock = asyncio.Lock()
 
     async def get_token(self) -> str:
         now = time.monotonic()
         if self._token and now < self._expiry - 30:  # 30 s buffer
             return self._token
-        self._expiry = now + 3600  # fallback when creds do not expose expiry
-        self._token = self._exchange()
-        return self._token
+        async with self._lock:
+            # Re-check after acquiring the lock (another coroutine may have refreshed).
+            now = time.monotonic()
+            if self._token and now < self._expiry - 30:
+                return self._token
+            self._expiry = now + 3600  # fallback when creds do not expose expiry
+            self._token = await asyncio.to_thread(self._exchange)
+            return self._token
 
     def _exchange(self) -> str:
         import google.auth
@@ -38,7 +52,9 @@ class GDCHTokenSource:
         creds, _ = google.auth.load_credentials_from_file(self._sa_path)
         creds = creds.with_gdch_audience(self._audience)
         session = requests.Session()
-        if self._ca_cert_path:
+        if self._tls_disable_verify:
+            session.verify = False
+        elif self._ca_cert_path:
             # Replaces the REQUESTS_CA_BUNDLE environment variable
             session.verify = self._ca_cert_path
         creds.refresh(google_requests.Request(session=session))

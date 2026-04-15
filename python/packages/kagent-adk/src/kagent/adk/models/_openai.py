@@ -464,7 +464,13 @@ class BaseOpenAI(BaseLlm):
 
         # Refresh token-exchange credential before every call (no-op when not configured).
         if self.token_exchange is not None:
-            self.set_passthrough_key(await self.token_exchange.get_token())
+            try:
+                self.set_passthrough_key(await self.token_exchange.get_token())
+            except Exception as exc:
+                yield LlmResponse(
+                    error_message=f"Failed to refresh token-exchange credential: {exc}"
+                )
+                return
 
         # Convert messages
         system_instruction = None

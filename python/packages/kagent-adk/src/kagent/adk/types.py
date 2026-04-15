@@ -489,12 +489,22 @@ def _create_llm_from_model_config(model_config: ModelUnion):
 
         token_exchange = None
         te = model_config.token_exchange
-        if te is not None and te.type == "GDCHServiceAccount" and te.gdch_service_account is not None:
-            token_exchange = GDCHTokenSource(
-                service_account_path=te.gdch_service_account.service_account_path,
-                audience=te.gdch_service_account.audience,
-                ca_cert_path=model_config.tls_ca_cert_path,
-            )
+        if te is not None:
+            if te.type == "GDCHServiceAccount":
+                if te.gdch_service_account is None:
+                    raise ValueError(
+                        "Invalid token_exchange configuration: "
+                        "gdch_service_account is required when token_exchange.type "
+                        "is 'GDCHServiceAccount'"
+                    )
+                token_exchange = GDCHTokenSource(
+                    service_account_path=te.gdch_service_account.service_account_path,
+                    audience=te.gdch_service_account.audience,
+                    ca_cert_path=model_config.tls_ca_cert_path,
+                    tls_disable_verify=model_config.tls_disable_verify or False,
+                )
+            else:
+                raise ValueError(f"Unsupported token_exchange type: {te.type}")
 
         return OpenAINative(
             type="openai",
