@@ -467,9 +467,7 @@ class BaseOpenAI(BaseLlm):
             try:
                 self.set_passthrough_key(await self.token_exchange.get_token())
             except Exception as exc:
-                yield LlmResponse(
-                    error_message=f"Failed to refresh token-exchange credential: {exc}"
-                )
+                yield LlmResponse(error_message=f"Failed to refresh token-exchange credential: {exc}")
                 return
 
         # Convert messages

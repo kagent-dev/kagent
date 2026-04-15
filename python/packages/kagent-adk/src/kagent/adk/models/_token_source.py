@@ -63,7 +63,5 @@ class GDCHTokenSource:
             # If the expiry is not timezone-aware, set it to UTC
             if expiry.tzinfo is None:
                 expiry = expiry.replace(tzinfo=datetime.timezone.utc)
-            self._expiry = (
-                time.monotonic() + (expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-            )
+            self._expiry = time.monotonic() + (expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
         return creds.token
