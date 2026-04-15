@@ -22,6 +22,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/utils"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -87,6 +88,9 @@ func (a *AllowedNamespaces) AllowsNamespace(ctx context.Context, c client.Client
 		// Get the source namespace to check its labels
 		ns := &corev1.Namespace{}
 		if err := c.Get(ctx, types.NamespacedName{Name: sourceNamespace}, ns); err != nil {
+			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+				return false, fmt.Errorf("allowedNamespaces.from=Selector requires namespace read access: %w", err)
+			}
 			return false, fmt.Errorf("failed to get namespace %s: %w", sourceNamespace, err)
 		}
 

@@ -8,7 +8,8 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	corev1 "k8s.io/api/core/v1"
-	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -59,31 +60,37 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 		return
 	}
 
-	// Filter to only show watched namespaces that exist in the cluster
-	log.Info("Listing watched namespaces only", "watchedNamespaces", h.WatchedNamespaces)
-	var namespaces []api.NamespaceResponse
-
+	// In reduced-scope mode, avoid Namespace reads entirely and return the configured
+	// watch set as the namespace source of truth.
+	log.Info("Listing configured watched namespaces only", "watchedNamespaces", h.WatchedNamespaces)
+	namespaces := make([]api.NamespaceResponse, 0, len(h.WatchedNamespaces))
 	for _, watchedNS := range h.WatchedNamespaces {
 		namespace := &corev1.Namespace{}
-		if err := h.KubeClient.Get(r.Context(), ctrl_client.ObjectKey{Name: watchedNS}, namespace); err != nil {
-			if ctrl_client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to get namespace", "namespace", watchedNS)
-				continue // Skip this namespace
+		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Name: watchedNS}, namespace); err != nil {
+			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+				namespaces = namespaceResponsesFromNames(h.WatchedNamespaces)
+				break
 			}
-			log.Info("Watched namespace not found", "namespace", watchedNS)
+			log.Error(err, "Failed to get namespace", "namespace", watchedNS)
 			continue
 		}
-
 		namespaces = append(namespaces, api.NamespaceResponse{
 			Name:   namespace.Name,
 			Status: string(namespace.Status.Phase),
 		})
 	}
-
 	slices.SortStableFunc(namespaces, func(i, j api.NamespaceResponse) int {
 		return strings.Compare(strings.ToLower(i.Name), strings.ToLower(j.Name))
 	})
 
 	data := api.NewResponse(namespaces, "Successfully listed namespaces", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+func namespaceResponsesFromNames(names []string) []api.NamespaceResponse {
+	responses := make([]api.NamespaceResponse, 0, len(names))
+	for _, name := range names {
+		responses = append(responses, api.NamespaceResponse{Name: name})
+	}
+	return responses
 }
