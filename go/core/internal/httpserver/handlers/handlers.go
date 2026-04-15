@@ -38,6 +38,7 @@ type Base struct {
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
 	ProxyURL           string
+	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
 }
 
@@ -49,6 +50,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		DatabaseService:    dbService,
 		Authorizer:         authorizer,
 		ProxyURL:           proxyURL,
+		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
 	}
 
