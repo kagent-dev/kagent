@@ -1,0 +1,12 @@
+{{- if .Values.ui.supervisordConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui-supervisord
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+data:
+  supervisord.conf: |
+    {{- .Values.ui.supervisordConfig | nindent 4 }}
+{{- end }}

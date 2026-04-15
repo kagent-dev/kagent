@@ -311,6 +311,12 @@ ui:
   # or to customize proxy behavior.
   # @default -- "" (uses the nginx.conf baked into the container image)
   nginxConfig: ""
+  # -- Custom supervisord.conf content for the UI container.
+  # When set, a ConfigMap is created and mounted over /etc/supervisor/conf.d/supervisord.conf.
+  # The default config sets HOSTNAME="0.0.0.0" for the Next.js server, which only affects
+  # the internal proxy target (nginx connects via 127.0.0.1:8001), not external reachability.
+  # @default -- "" (uses the supervisord.conf baked into the container image)
+  supervisordConfig: ""
   # Example for IPv6-first clusters:
   #   nginxConfig: |
   #     pid /tmp/nginx.pid;

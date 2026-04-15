@@ -16,6 +16,9 @@ spec:
         {{- if .Values.ui.nginxConfig }}
         checksum/nginx-config: {{ .Values.ui.nginxConfig | sha256sum }}
         {{- end }}
+        {{- if .Values.ui.supervisordConfig }}
+        checksum/supervisord-config: {{ .Values.ui.supervisordConfig | sha256sum }}
+        {{- end }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -42,6 +45,11 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "kagent.fullname" . }}-ui-nginx
+        {{- end }}
+        {{- if .Values.ui.supervisordConfig }}
+        - name: supervisord-config
+          configMap:
+            name: {{ include "kagent.fullname" . }}-ui-supervisord
         {{- end }}
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
@@ -82,6 +90,12 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+              readOnly: true
+            {{- end }}
+            {{- if .Values.ui.supervisordConfig }}
+            - name: supervisord-config
+              mountPath: /etc/supervisor/conf.d/supervisord.conf
+              subPath: supervisord.conf
               readOnly: true
             {{- end }}
           resources:
