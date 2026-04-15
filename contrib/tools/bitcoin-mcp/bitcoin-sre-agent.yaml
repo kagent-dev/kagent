@@ -81,9 +81,6 @@ spec:
 
       # Safety Rules
 
-      - NEVER call send_raw_transaction without explicit operator approval.
-      - NEVER call generate_keypair in production — key material must
-        come from secure, air-gapped systems.
       - Always state confidence level: HIGH, MEDIUM, or LOW.
       - If unsure, recommend escalation to a human operator.
       - Prefer waiting over acting when stakes are high.
@@ -92,7 +89,7 @@ spec:
       - type: McpServer
         mcpServer:
           apiGroup: kagent.dev
-          kind: ToolServer
+          kind: MCPServer
           name: bitcoin-mcp
           toolNames:
             - get_node_status

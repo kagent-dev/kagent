@@ -1,5 +1,5 @@
 apiVersion: kagent.dev/v1alpha1
-kind: ToolServer
+kind: MCPServer
 metadata:
   name: bitcoin-mcp
   namespace: kagent
