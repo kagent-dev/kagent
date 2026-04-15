@@ -211,6 +211,8 @@ const (
 	googleCredsVolumeName = "google-creds"
 	tlsCACertVolumeName   = "tls-ca-cert"
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	gdchCredsVolumeName   = "gdch-creds"
+	gdchCredsMountPath    = "/gdch-creds"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -262,6 +264,46 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 	}
 }
 
+// addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
+// model and mounts the service account secret (referenced by the top-level
+// apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
+// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
+		return
+	}
+	tokenExchange := spec.OpenAI.TokenExchange
+	switch tokenExchange.Type {
+	case v1alpha2.TokenExchangeTypeGDCH:
+		cfg := tokenExchange.GDCHServiceAccount
+		if cfg == nil {
+			return
+		}
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
+		openai.TokenExchange = &adk.TokenExchangeConfig{
+			Type: string(tokenExchange.Type),
+			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
+				ServiceAccountPath: saPath,
+				Audience:           cfg.Audience,
+			},
+		}
+		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
+			Name: gdchCredsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  spec.APIKeySecret,
+					DefaultMode: new(int32(0444)),
+				},
+			},
+		})
+		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
+			Name:      gdchCredsVolumeName,
+			MountPath: gdchCredsMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
+
 // translateEmbeddingConfig resolves the embedding ModelConfig and returns the
 // EmbeddingConfig for the Python config JSON, the deployment data for the
 // embedding model, and the raw secret hash bytes (caller decides whether to
@@ -300,7 +342,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
+		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -321,6 +364,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		// Populate TokenExchange fields (OpenAI-specific)
+		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {

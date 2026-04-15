@@ -63,6 +63,20 @@ type BaseModel struct {
 	APIKeyPassthrough bool `json:"api_key_passthrough,omitempty"`
 }
 
+// GDCHTokenExchangeConfig holds the GDCH-specific token exchange fields
+// serialised into the agent config JSON consumed by the Python runtime.
+type GDCHTokenExchangeConfig struct {
+	ServiceAccountPath string `json:"service_account_path"`
+	Audience           string `json:"audience"`
+}
+
+// TokenExchangeConfig is the discriminated union serialised into the agent
+// config JSON. Type is always "GDCHServiceAccount" for now.
+type TokenExchangeConfig struct {
+	Type               string                   `json:"type"`
+	GDCHServiceAccount *GDCHTokenExchangeConfig `json:"gdch_service_account,omitempty"`
+}
+
 type OpenAI struct {
 	BaseModel
 	BaseUrl          string   `json:"base_url"`
@@ -75,6 +89,9 @@ type OpenAI struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	Timeout          *int     `json:"timeout,omitempty"`
 	TopP             *float64 `json:"top_p,omitempty"`
+
+	// TokenExchange configures dynamic bearer token acquisition
+	TokenExchange *TokenExchangeConfig `json:"token_exchange,omitempty"`
 }
 
 const (

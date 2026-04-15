@@ -8,9 +8,6 @@ from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_C
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types as genai_types
-
-from kagent.adk._agent_executor import A2aAgentExecutor
-from kagent.adk._approval import make_approval_callback
 from kagent.core.a2a import (
     KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -20,6 +17,9 @@ from kagent.core.a2a import (
     KAGENT_HITL_DECISIONS_KEY,
     KAGENT_HITL_REJECTION_REASONS_KEY,
 )
+
+from kagent.adk._agent_executor import A2aAgentExecutor
+from kagent.adk._approval import make_approval_callback
 
 
 class MockState(dict):
