@@ -1,0 +1,27 @@
+suite: test ui supervisord configmap
+templates:
+  - ui-supervisord-configmap.yaml
+tests:
+  - it: should not render ConfigMap when supervisordConfig is empty
+    template: ui-supervisord-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render ConfigMap when supervisordConfig is set
+    template: ui-supervisord-configmap.yaml
+    set:
+      ui:
+        supervisordConfig: |
+          [supervisord]
+          nodaemon=true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui-supervisord
+      - exists:
+          path: data["supervisord.conf"]
