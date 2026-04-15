@@ -279,25 +279,27 @@ ui:
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
   # -- Custom startup probe for the UI container.
-  # Override for IPv6-first clusters where httpGet probes to the pod IP fail.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
   startupProbe: {}
-  # Example for IPv6 clusters using exec probe:
+  # Example:
   #   startupProbe:
-  #     exec:
-  #       command: ["curl", "-sf", "http://[::1]:8080/health"]
-  #     initialDelaySeconds: 5
-  #     periodSeconds: 3
-  #     failureThreshold: 30
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     initialDelaySeconds: 10
+  #     periodSeconds: 5
+  #     failureThreshold: 20
   # -- Custom readiness probe for the UI container.
-  # Override for IPv6-first clusters where httpGet probes to the pod IP fail.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
-  # Example for IPv6 clusters using exec probe:
+  # Example:
   #   readinessProbe:
-  #     exec:
-  #       command: ["curl", "-sf", "http://[::1]:8080/health"]
-  #     periodSeconds: 10
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     periodSeconds: 15
   # -- Custom nginx.conf content for the UI container.
   # When set, a ConfigMap is created and mounted over /etc/nginx/nginx.conf.
   # Use this to enable dual-stack (IPv6+IPv4) listening on IPv6-first clusters,
