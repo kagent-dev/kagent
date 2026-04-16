@@ -13,13 +13,13 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+
 from langgraph.graph.state import CompiledStateGraph
 
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig

@@ -21,6 +21,16 @@ if (typeof Headers === 'undefined') {
   global.Headers = class Headers {} as unknown as typeof Headers;
 }
 
+// cmdk / Radix use ResizeObserver
+global.ResizeObserver = class ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} as unknown as typeof ResizeObserver;
+
+// jsdom: cmdk scrolls selected items into view
+Element.prototype.scrollIntoView = function scrollIntoView() {};
+
 // Mock next/router
 jest.mock('next/router', () => ({
   useRouter() {

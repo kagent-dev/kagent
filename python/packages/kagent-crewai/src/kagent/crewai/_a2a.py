@@ -9,15 +9,15 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
-
-from crewai import Crew, Flow
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
+
+from crewai import Crew, Flow
 
 from ._executor import CrewAIAgentExecutor, CrewAIAgentExecutorConfig
 
