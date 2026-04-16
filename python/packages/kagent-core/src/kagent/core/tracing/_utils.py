@@ -22,11 +22,12 @@ def _resolve_otlp_protocol(signal: str) -> str:
     Follows the OpenTelemetry specification precedence:
     signal-specific (e.g. OTEL_EXPORTER_OTLP_TRACES_PROTOCOL) > general > default (grpc).
     """
-    return (
+    raw = (
         os.getenv(f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL")
         or os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
         or "grpc"
     )
+    return raw.strip().lower()
 
 
 def _create_span_exporter(**kwargs):
