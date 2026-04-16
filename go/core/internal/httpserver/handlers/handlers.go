@@ -66,7 +66,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ToolServerTypes:     NewToolServerTypesHandler(base),
 		Memory:              NewMemoryHandler(base),
 		Feedback:            NewFeedbackHandler(base),
-		Namespaces:          NewNamespacesHandler(base, watchedNamespaces),
+		Namespaces:          NewNamespacesHandler(base),
 		PromptTemplates:     NewPromptTemplatesHandler(base),
 		Tasks:               NewTasksHandler(base),
 		Checkpoints:         NewCheckpointsHandler(base),
