@@ -2,6 +2,7 @@ apiVersion: kagent.dev/v1alpha1
 kind: ToolServer
 metadata:
   name: bitcoin-mcp
+  namespace: kagent
 spec:
   config:
     stdio:
