@@ -227,6 +227,33 @@ type UpdateMemoryRequest struct {
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
 }
 
+// PromptTemplateSummary is a lightweight entry for listing prompt ConfigMaps.
+type PromptTemplateSummary struct {
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
+	KeyCount  int      `json:"keyCount"`
+	Keys      []string `json:"keys,omitempty"`
+}
+
+// PromptTemplateDetail includes all string keys for editing.
+type PromptTemplateDetail struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.
+type CreatePromptTemplateRequest struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// UpdatePromptTemplateRequest replaces the data map of an existing ConfigMap.
+type UpdatePromptTemplateRequest struct {
+	Data map[string]string `json:"data"`
+}
+
 // Namespace types
 
 // NamespaceResponse represents a namespace response

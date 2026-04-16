@@ -5,6 +5,7 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
+    kagent.dev/prompt-library: "true"
 data:
   skills-usage: |
     ## Skills
