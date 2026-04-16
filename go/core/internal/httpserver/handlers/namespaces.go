@@ -16,17 +16,11 @@ import (
 // NamespacesHandler handles namespace-related requests
 type NamespacesHandler struct {
 	*Base
-	// List of namespaces being watched, empty means watch all. Used for listing namespaces.
-	// Can be moved to the base handler if any other handlers need it
-	WatchedNamespaces []string
 }
 
 // NewNamespacesHandler creates a new NamespacesHandler
-func NewNamespacesHandler(base *Base, watchedNamespaces []string) *NamespacesHandler {
-	return &NamespacesHandler{
-		Base:              base,
-		WatchedNamespaces: watchedNamespaces,
-	}
+func NewNamespacesHandler(base *Base) *NamespacesHandler {
+	return &NamespacesHandler{Base: base}
 }
 
 // HandleListNamespaces returns a list of namespaces based on the watch configuration
@@ -60,8 +54,9 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 		return
 	}
 
-	// In reduced-scope mode, avoid Namespace reads entirely and return the configured
-	// watch set as the namespace source of truth.
+	// Enrich each watched namespace with live status from the API server when
+	// namespace reads are permitted. If reads are forbidden or unauthorized,
+	// fall back to the configured watch list without status information.
 	log.Info("Listing configured watched namespaces only", "watchedNamespaces", h.WatchedNamespaces)
 	namespaces := make([]api.NamespaceResponse, 0, len(h.WatchedNamespaces))
 	for _, watchedNS := range h.WatchedNamespaces {
@@ -70,6 +65,10 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
 				namespaces = namespaceResponsesFromNames(h.WatchedNamespaces)
 				break
+			}
+			if apierrors.IsNotFound(err) {
+				log.Info("Skipping watched namespace that was not found", "namespace", watchedNS)
+				continue
 			}
 			log.Error(err, "Failed to get namespace", "namespace", watchedNS)
 			continue

@@ -421,7 +421,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 				// Prevent the cached client from starting a cluster-scoped
 				// Namespace informer. In namespaced RBAC mode a Role cannot
 				// grant access to cluster-scoped resources, so an informer
-				// list/watch would crash keep crashing and cannot be handled.
+				// list/watch would keep crashing and cannot be handled.
 				DisableFor: []client.Object{&corev1.Namespace{}},
 			},
 		},

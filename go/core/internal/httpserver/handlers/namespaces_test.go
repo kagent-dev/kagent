@@ -37,8 +37,9 @@ func TestNamespacesHandler(t *testing.T) {
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
+			WatchedNamespaces:  watchedNamespaces,
 		}
-		handler := handlers.NewNamespacesHandler(base, watchedNamespaces)
+		handler := handlers.NewNamespacesHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, kubeClient, responseRecorder
 	}
@@ -258,7 +259,7 @@ func TestNamespacesHandler(t *testing.T) {
 
 			// Replace kubeClient with one that returns Forbidden for Namespace reads,
 			// simulating namespaced RBAC where the controller cannot list/get Namespaces.
-			handler.Base.KubeClient = fake.NewClientBuilder().
+			handler.KubeClient = fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Get: func(ctx context.Context, c ctrl_client.WithWatch, key ctrl_client.ObjectKey, obj ctrl_client.Object, opts ...ctrl_client.GetOption) error {
