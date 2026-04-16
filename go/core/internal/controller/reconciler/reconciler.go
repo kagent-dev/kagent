@@ -807,6 +807,11 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) s
 		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
 	}
 
+	// AskUser: Not yet implemented in Go runtime
+	if spec.AskUser != nil && spec.AskUser.Enabled {
+		unsupported = append(unsupported, "ask user (not implemented in Go runtime)")
+	}
+
 	if len(unsupported) == 0 {
 		return ""
 	}

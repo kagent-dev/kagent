@@ -273,6 +273,12 @@ class NetworkConfig(BaseModel):
     allowed_domains: list[str] = Field(default_factory=list)
 
 
+class AskUserConfig(BaseModel):
+    """Ask user tool configuration."""
+
+    enabled: bool
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -285,6 +291,7 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
+    ask_user: AskUserConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
@@ -400,8 +407,8 @@ class AgentConfig(BaseModel):
         code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
-        # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
-        tools.append(AskUserTool())
+        if self.ask_user and self.ask_user.enabled:
+            tools.append(AskUserTool())
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None

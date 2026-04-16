@@ -1413,3 +1413,84 @@ func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 	require.False(t, sawDeploy)
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }
+
+func Test_AdkApiTranslator_AskUser(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "default",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	makeAgent := func(askUser *v1alpha2.AskUserSpec) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Description: "Test agent",
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a test agent",
+					ModelConfig:   "test-model",
+				},
+				AskUser: askUser,
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		agent        *v1alpha2.Agent
+		assertConfig func(t *testing.T, cfg *adk.AgentConfig)
+	}{
+		{
+			name:  "ask user disabled",
+			agent: makeAgent(&v1alpha2.AskUserSpec{Enabled: false}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.AskUser)
+				assert.False(t, cfg.AskUser.Enabled)
+			},
+		},
+		{
+			name:  "ask user enabled",
+			agent: makeAgent(&v1alpha2.AskUserSpec{Enabled: true}),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				require.NotNil(t, cfg.AskUser)
+				assert.True(t, cfg.AskUser.Enabled)
+			},
+		},
+		{
+			name:  "ask user not specified",
+			agent: makeAgent(nil),
+			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
+				assert.Nil(t, cfg.AskUser)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig.DeepCopy()).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+			if tt.assertConfig != nil {
+				tt.assertConfig(t, outputs.Config)
+			}
+		})
+	}
+}

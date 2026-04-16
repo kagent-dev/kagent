@@ -82,6 +82,18 @@ type AgentSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+
+	// AskUser configures the "ask user" tool for this agent.
+	// When enabled, the agent can pause execution and ask the user for input.
+	// +optional
+	AskUser *AskUserSpec `json:"askUser,omitempty"`
+}
+
+// AskUserSpec configures the "ask user" tool for an agent.
+type AskUserSpec struct {
+	// Enabled indicates whether the "ask user" tool should be enabled for this agent.
+	// +kubebuilder:validation:Required
+	Enabled bool `json:"enabled"`
 }
 
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs

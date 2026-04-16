@@ -176,6 +176,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		Stream:      new(spec.Declarative.Stream),
 	}
 
+	if spec.AskUser != nil {
+		cfg.AskUser = &adk.AskUserConfig{
+			Enabled: spec.AskUser.Enabled,
+		}
+	}
+
 	if spec.Sandbox != nil && spec.Sandbox.Network != nil {
 		cfg.Network = &adk.NetworkConfig{
 			AllowedDomains: append([]string(nil), spec.Sandbox.Network.AllowedDomains...),
