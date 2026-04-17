@@ -21,7 +21,7 @@ env:
   BUILDX_VERSION: v0.23.0
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
@@ -37,7 +37,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -155,7 +155,7 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller
 
   go-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -175,7 +175,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -198,7 +198,7 @@ jobs:
           helm unittest helm/kagent
 
   ui-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
     permissions:
@@ -267,7 +267,7 @@ jobs:
           - golang-adk
           - golang-adk-full
           - skills-init
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       registry:
         image: registry:2
@@ -303,7 +303,7 @@ jobs:
         working-directory: ./
 
   go-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -323,7 +323,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
@@ -350,7 +350,7 @@ jobs:
         run: make test
 
   python-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -378,7 +378,7 @@ jobs:
           fi
 
   manifests-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
