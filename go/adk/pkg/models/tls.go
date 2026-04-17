@@ -59,30 +59,11 @@ func BuildTLSTransport(
 	}
 
 	// Try to clone the base transport to preserve its settings
-	if baseTransport, ok := base.(*http.Transport); ok {
-		cloned := baseTransport.Clone()
-		cloned.TLSClientConfig = tlsConfig
-		return cloned, nil
+	baseTransport, ok := base.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("BuildTLSTransport: base must be *http.Transport, got %T", base)
 	}
-
-	// If base is not an *http.Transport, wrap it with a transport that has TLS config
-	// This handles cases where base is already a custom RoundTripper
-	return &tlsTransport{
-		base:      base,
-		tlsConfig: tlsConfig,
-	}, nil
-}
-
-// tlsTransport wraps a RoundTripper and applies TLS config
-type tlsTransport struct {
-	base      http.RoundTripper
-	tlsConfig *tls.Config
-}
-
-func (t *tlsTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// If the request's TLS config needs to be modified, we would need to
-	// create a new client for each request, which is inefficient.
-	// Instead, we rely on the base transport having the TLS config set.
-	// This wrapper is primarily for when base is not an *http.Transport.
-	return t.base.RoundTrip(req)
+	cloned := baseTransport.Clone()
+	cloned.TLSClientConfig = tlsConfig
+	return cloned, nil
 }
