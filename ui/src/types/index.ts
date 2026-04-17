@@ -122,6 +122,12 @@ export interface AnthropicVertexAIConfigPayload {
   topK?: number;
 }
 
+export interface SAPAICoreConfigPayload {
+  baseUrl: string;
+  resourceGroup?: string;
+  authUrl?: string;
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   provider: Pick<Provider, "name" | "type">;
@@ -134,6 +140,7 @@ export interface CreateModelConfigRequest {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  sapAICore?: SAPAICoreConfigPayload;
 }
 
 export interface UpdateModelConfigPayload {
@@ -147,6 +154,7 @@ export interface UpdateModelConfigPayload {
   gemini?: GeminiConfigPayload;
   geminiVertexAI?: GeminiVertexAIConfigPayload;
   anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  sapAICore?: SAPAICoreConfigPayload;
 }
 
 /**

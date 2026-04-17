@@ -11,6 +11,7 @@ import { Anthropic } from './icons/Anthropic';
 import { Ollama } from './icons/Ollama';
 import { Azure } from './icons/Azure';
 import { Gemini } from './icons/Gemini';
+import { SAPAICore } from './icons/SAPAICore';
 
 interface ComboboxOption {
     label: string; // e.g., "OpenAI - gpt-4o"
@@ -64,6 +65,7 @@ export function ModelProviderCombobox({
             'Gemini': Gemini,
             'GeminiVertexAI': Gemini,
             'AnthropicVertexAI': Anthropic,
+            'SAPAICore': SAPAICore,
         };
         if (!providerKey || !PROVIDER_ICONS[providerKey]) {
             return null;
