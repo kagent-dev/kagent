@@ -180,6 +180,8 @@ controller:
   #  - watch-ns-1
   #  - watch-ns-2
 
+  podAnnotations: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -268,6 +270,9 @@ ui:
   #   - ALL
   # runAsNonRoot: true
   # runAsUser: 1000
+
+  podAnnotations: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
