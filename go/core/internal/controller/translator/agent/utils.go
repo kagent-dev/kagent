@@ -12,10 +12,12 @@ import (
 
 func GetA2AAgentCard(agent v1alpha2.AgentObject) *server.AgentCard {
 	spec := agent.GetAgentSpec()
+	preferredTransport := "JSONRPC"
 	card := server.AgentCard{
-		Name:        strings.ReplaceAll(agent.GetName(), "-", "_"),
-		Description: spec.Description,
-		URL:         fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
+		Name:               strings.ReplaceAll(agent.GetName(), "-", "_"),
+		Description:        spec.Description,
+		URL:                fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
+		PreferredTransport: &preferredTransport,
 		Capabilities: server.AgentCapabilities{
 			Streaming:              new(true),
 			PushNotifications:      new(false),

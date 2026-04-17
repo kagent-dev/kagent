@@ -110,6 +110,9 @@ func TestGetA2AAgentCard(t *testing.T) {
 			assert.Equal(t, tt.wantSkills, card.Skills)
 			assert.Equal(t, []string{"text"}, card.DefaultInputModes)
 			assert.Equal(t, []string{"text"}, card.DefaultOutputModes)
+			if assert.NotNil(t, card.PreferredTransport) {
+				assert.Equal(t, "JSONRPC", *card.PreferredTransport)
+			}
 			assert.True(t, *card.Capabilities.Streaming)
 			assert.False(t, *card.Capabilities.PushNotifications)
 			assert.True(t, *card.Capabilities.StateTransitionHistory)
