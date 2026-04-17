@@ -1,6 +1,6 @@
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:52e71f61c6afd1f8d2625cff4465d8ecee156668ca665f7e9c582d1cc914eb6a AS base-os
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 # Build arg to control SSL verification (set DISABLE_SSL_VERIFY=1 to skip SSL checks)
 ARG DISABLE_SSL_VERIFY=0

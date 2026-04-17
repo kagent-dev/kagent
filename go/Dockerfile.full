@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:52e71f61c6afd1f8d2625cff4465d8ecee156668ca665f7e9c582d1cc914eb6a AS srt-builder
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm run build && \
     npm prune --omit=dev
 
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@sha256:52e71f61c6afd1f8d2625cff4465d8ecee156668ca665f7e9c582d1cc914eb6a
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
 ARG TOOLS_PYTHON_VERSION=3.13
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
