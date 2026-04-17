@@ -15,6 +15,7 @@ import (
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,11 +35,14 @@ const (
 	APIPathToolServers          = "/api/toolservers"
 	APIPathToolServerTypes      = "/api/toolservertypes"
 	APIPathAgents               = "/api/agents"
+	APIPathSandboxAgents        = "/api/sandboxagents"
 	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
 	APIPathModels               = "/api/models"
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
+	APIPathPromptTemplates      = "/api/prompttemplates"
 	APIPathA2A                  = "/api/a2a"
+	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
 	APIPathMCP                  = "/mcp"
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
@@ -63,6 +67,7 @@ type ServerConfig struct {
 	Authorizer        auth.Authorizer
 	ProxyURL          string
 	Reconciler        reconciler.KagentReconciler
+	SandboxBackend    sandboxbackend.Backend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -81,7 +86,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -242,6 +247,12 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
+	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
+
 	// Model Provider Configs
 	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathModelProviderConfigs+"/memories", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
@@ -260,6 +271,13 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Prompt template libraries (ConfigMaps)
+	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleCreatePromptTemplate)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleGetPromptTemplate)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleUpdatePromptTemplate)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleDeletePromptTemplate)).Methods(http.MethodDelete)
 
 	// Feedback - using database handlers
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
@@ -280,6 +298,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
+	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 
 	// MCP
 	if s.config.MCPHandler != nil {

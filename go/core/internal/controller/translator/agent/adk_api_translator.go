@@ -7,7 +7,6 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -22,21 +21,17 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 const (
@@ -119,9 +114,14 @@ var DefaultAgentPodLabels map[string]string
 type AgentOutputs = translator.AgentOutputs
 
 type AdkApiTranslator interface {
-	TranslateAgent(
+	CompileAgent(
 		ctx context.Context,
-		agent *v1alpha2.Agent,
+		agent v1alpha2.AgentObject,
+	) (*AgentManifestInputs, error)
+	BuildManifest(
+		ctx context.Context,
+		agent v1alpha2.AgentObject,
+		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
 }
@@ -160,12 +160,13 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 
 type TranslatorPlugin = translator.TranslatorPlugin
 
-func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string) AdkApiTranslator {
+func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
 		defaultModelConfig: defaultModelConfig,
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
+		sandboxBackend:     sandboxBackend,
 	}
 }
 
@@ -174,72 +175,7 @@ type adkApiTranslator struct {
 	defaultModelConfig types.NamespacedName
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
-}
-
-const MAX_DEPTH = 10
-
-type tState struct {
-	// used to prevent infinite loops
-	// The recursion limit is 10
-	depth uint8
-	// used to enforce DAG
-	// The final member of the list will be the "parent" agent
-	visitedAgents []string
-}
-
-func (s *tState) with(agent *v1alpha2.Agent) *tState {
-	visited := make([]string, len(s.visitedAgents), len(s.visitedAgents)+1)
-	copy(visited, s.visitedAgents)
-	visited = append(visited, utils.GetObjectRef(agent))
-	return &tState{
-		depth:         s.depth + 1,
-		visitedAgents: visited,
-	}
-}
-
-func (t *tState) isVisited(agentName string) bool {
-	return slices.Contains(t.visitedAgents, agentName)
-}
-
-func (a *adkApiTranslator) TranslateAgent(
-	ctx context.Context,
-	agent *v1alpha2.Agent,
-) (*AgentOutputs, error) {
-	err := a.validateAgent(ctx, agent, &tState{})
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg *adk.AgentConfig
-	var dep *resolvedDeployment
-	var secretHashBytes []byte
-
-	switch agent.Spec.Type {
-	case v1alpha2.AgentType_Declarative:
-		var mdd *modelDeploymentData
-		cfg, mdd, secretHashBytes, err = a.translateInlineAgent(ctx, agent)
-		if err != nil {
-			return nil, err
-		}
-		dep, err = resolveInlineDeployment(agent, mdd)
-		if err != nil {
-			return nil, err
-		}
-
-	case v1alpha2.AgentType_BYO:
-
-		dep, err = resolveByoDeployment(agent)
-		if err != nil {
-			return nil, err
-		}
-
-	default:
-		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
-	}
-
-	card := GetA2AAgentCard(agent)
-
-	return a.buildManifest(ctx, agent, dep, cfg, card, secretHashBytes)
+	sandboxBackend     sandboxbackend.Backend
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
@@ -258,554 +194,21 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 		ownedResources = append(ownedResources, plugin.GetOwnedResourceTypes()...)
 	}
 
+	// Startup watch/index setup already skips NoMatch resources, so return sandbox-owned
+	// types whenever sandbox support is configured rather than probing the API too early.
+	if r.sandboxBackend != nil {
+		ownedResources = append(ownedResources, r.sandboxBackend.GetOwnedResourceTypes()...)
+	}
+
 	return ownedResources
-}
-
-func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha2.Agent, state *tState) error {
-	agentRef := utils.GetObjectRef(agent)
-
-	if state.isVisited(agentRef) {
-		return fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef)
-	}
-
-	if state.depth > MAX_DEPTH {
-		return fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef)
-	}
-
-	if agent.Spec.Type != v1alpha2.AgentType_Declarative {
-		// We only need to validate loops in declarative agents
-		return nil
-	}
-
-	for _, tool := range agent.Spec.Declarative.Tools {
-		switch tool.Type {
-		case v1alpha2.ToolProviderType_Agent:
-			if tool.Agent == nil {
-				return fmt.Errorf("tool must have an agent reference")
-			}
-
-			agentRef := tool.Agent.NamespacedName(agent.Namespace)
-
-			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
-			}
-
-			toolAgent := &v1alpha2.Agent{}
-			err := a.kube.Get(ctx, agentRef, toolAgent)
-			if err != nil {
-				return err
-			}
-
-			err = a.validateAgent(ctx, toolAgent, state.with(agent))
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (a *adkApiTranslator) buildManifest(
-	ctx context.Context,
-	agent *v1alpha2.Agent,
-	dep *resolvedDeployment,
-	cfg *adk.AgentConfig, // nil for BYO
-	card *server.AgentCard, // nil for BYO
-	modelConfigSecretHashBytes []byte, // nil for BYO
-) (*AgentOutputs, error) {
-	outputs := &AgentOutputs{}
-
-	// Optional config/card for Inline
-	var cfgHash uint64
-	var secretVol []corev1.Volume
-	var secretMounts []corev1.VolumeMount
-	var cfgJson string
-	var agentCard string
-	if cfg != nil && card != nil {
-		bCfg, err := json.Marshal(cfg)
-		if err != nil {
-			return nil, err
-		}
-		bCard, err := json.Marshal(card)
-		if err != nil {
-			return nil, err
-		}
-		// Include secret hash bytes in config hash to trigger redeployment on secret changes
-		secretData := modelConfigSecretHashBytes
-		if secretData == nil {
-			secretData = []byte{}
-		}
-		cfgHash = computeConfigHash(bCfg, bCard, secretData)
-
-		cfgJson = string(bCfg)
-		agentCard = string(bCard)
-
-		secretVol = []corev1.Volume{{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: agent.Name,
-				},
-			},
-		}}
-		secretMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
-	}
-
-	selectorLabels := map[string]string{
-		"app":    labels.ManagedByKagent,
-		"kagent": agent.Name,
-	}
-	podLabels := func() map[string]string {
-		l := maps.Clone(selectorLabels)
-		if dep.Labels != nil {
-			maps.Copy(l, dep.Labels)
-		}
-		return l
-	}
-
-	objMeta := func() metav1.ObjectMeta {
-		return metav1.ObjectMeta{
-			Name:        agent.Name,
-			Namespace:   agent.Namespace,
-			Annotations: agent.Annotations,
-			Labels:      podLabels(),
-		}
-	}
-
-	// Secret
-	outputs.Manifest = append(outputs.Manifest, &corev1.Secret{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: objMeta(),
-		StringData: map[string]string{
-			"config.json":     cfgJson,
-			"agent-card.json": agentCard,
-		},
-	})
-
-	// Service Account - only created if using the default name
-	if *dep.ServiceAccountName == agent.Name {
-		sa := &corev1.ServiceAccount{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ServiceAccount",
-			},
-			ObjectMeta: objMeta(),
-		}
-		if dep.ServiceAccountConfig != nil {
-			if dep.ServiceAccountConfig.Labels != nil {
-				if sa.Labels == nil {
-					sa.Labels = make(map[string]string)
-				}
-				maps.Copy(sa.Labels, dep.ServiceAccountConfig.Labels)
-			}
-			if dep.ServiceAccountConfig.Annotations != nil {
-				if sa.Annotations == nil {
-					sa.Annotations = make(map[string]string)
-				}
-				maps.Copy(sa.Annotations, dep.ServiceAccountConfig.Annotations)
-			}
-		}
-		outputs.Manifest = append(outputs.Manifest, sa)
-	}
-
-	// Base env for both types
-	sharedEnv := make([]corev1.EnvVar, 0, 8)
-	sharedEnv = append(sharedEnv, collectOtelEnvFromProcess()...)
-	sharedEnv = append(sharedEnv,
-		corev1.EnvVar{
-			Name: env.KagentNamespace.Name(),
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
-			},
-		},
-		corev1.EnvVar{
-			Name:  env.KagentName.Name(),
-			Value: agent.Name,
-		},
-		corev1.EnvVar{
-			Name:  env.KagentURL.Name(),
-			Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace()),
-		},
-	)
-
-	var skills []string
-	var gitRefs []v1alpha2.GitRepo
-	var gitAuthSecretRef *corev1.LocalObjectReference
-	if agent.Spec.Skills != nil {
-		skills = agent.Spec.Skills.Refs
-		gitRefs = agent.Spec.Skills.GitRefs
-		gitAuthSecretRef = agent.Spec.Skills.GitAuthSecretRef
-	}
-	hasSkills := len(skills) > 0 || len(gitRefs) > 0
-
-	// Build Deployment
-	volumes := append(secretVol, dep.Volumes...)
-	volumeMounts := append(secretMounts, dep.VolumeMounts...)
-	needSandbox := cfg != nil && cfg.GetExecuteCode()
-
-	var initContainers []corev1.Container
-
-	// Add shared skills volume and env var when any skills (OCI or git) are present
-	if hasSkills {
-		skillsEnv := corev1.EnvVar{
-			Name:  env.KagentSkillsFolder.Name(),
-			Value: "/skills",
-		}
-		// Skills use the BashTool which calls srt (Anthropic Sandbox Runtime) → bubblewrap.
-		// Mark that a sandbox is needed so Privileged is set when possible.
-		// Exception: if the user explicitly set AllowPrivilegeEscalation=false (PSS Restricted),
-		// we respect their security context and let srt fall back to user-namespace sandboxing.
-		needSandbox = true
-		volumes = append(volumes, corev1.Volume{
-			Name: "kagent-skills",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "kagent-skills",
-			MountPath: "/skills",
-			ReadOnly:  true,
-		})
-		sharedEnv = append(sharedEnv, skillsEnv)
-
-		insecure := agent.Spec.Skills != nil && agent.Spec.Skills.InsecureSkipVerify
-
-		var initResources *corev1.ResourceRequirements
-		var initEnv []corev1.EnvVar
-		if agent.Spec.Skills.InitContainer != nil {
-			if agent.Spec.Skills.InitContainer.Resources != nil {
-				initResources = agent.Spec.Skills.InitContainer.Resources.DeepCopy()
-			}
-			initEnv = append(initEnv, agent.Spec.Skills.InitContainer.Env...)
-		}
-
-		container, skillsVolumes, err := buildSkillsInitContainer(gitRefs, gitAuthSecretRef, skills, insecure, dep.SecurityContext, initEnv, getDefaultResources(initResources))
-		if err != nil {
-			return nil, fmt.Errorf("failed to build skills init container: %w", err)
-		}
-		initContainers = append(initContainers, container)
-		volumes = append(volumes, skillsVolumes...)
-	}
-
-	// Token volume
-	volumes = append(volumes, corev1.Volume{
-		Name: "kagent-token",
-		VolumeSource: corev1.VolumeSource{
-			Projected: &corev1.ProjectedVolumeSource{
-				Sources: []corev1.VolumeProjection{
-					{
-						ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
-							Audience:          "kagent",
-							ExpirationSeconds: new(int64(3600)),
-							Path:              "kagent-token",
-						},
-					},
-				},
-			},
-		},
-	})
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		Name:      "kagent-token",
-		MountPath: "/var/run/secrets/tokens",
-	})
-	env := append(dep.Env, sharedEnv...)
-
-	var cmd []string
-	if len(dep.Cmd) != 0 {
-		cmd = []string{dep.Cmd}
-	}
-
-	podTemplateAnnotations := dep.Annotations
-	if podTemplateAnnotations == nil {
-		podTemplateAnnotations = map[string]string{}
-	}
-	// Add hash annotations to pod template to force rollout on agent config or model config secret changes
-	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", cfgHash)
-
-	// Merge container security context: start with user-provided, then apply sandbox requirements
-	var securityContext *corev1.SecurityContext
-	if dep.SecurityContext != nil {
-		// Deep copy the user-provided security context
-		securityContext = dep.SecurityContext.DeepCopy()
-		// Set Privileged for sandbox ONLY if it won't create an invalid securityContext.
-		// Kubernetes rejects {Privileged:true, AllowPrivilegeEscalation:false} as contradictory.
-		// When the user explicitly sets AllowPrivilegeEscalation=false (PSS Restricted namespace),
-		// we respect their choice: srt will use unprivileged user-namespace sandboxing instead.
-		// On modern kernels (EKS, GKE) unprivileged_userns_clone is enabled by default.
-		if needSandbox && !allowPrivilegeEscalationExplicitlyFalse(securityContext) {
-			securityContext.Privileged = new(true)
-		}
-	} else if needSandbox {
-		// No user-provided securityContext: create one with Privileged for full sandbox
-		securityContext = &corev1.SecurityContext{
-			Privileged: new(true),
-		}
-	}
-	// If neither user-provided securityContext nor sandbox is needed, securityContext remains nil
-
-	// Determine runtime for probe configuration
-	runtime := v1alpha2.DeclarativeRuntime_Python
-	if agent.Spec.Type == v1alpha2.AgentType_Declarative && agent.Spec.Declarative.Runtime != "" {
-		runtime = agent.Spec.Declarative.Runtime
-	}
-	probeConf := getRuntimeProbeConfig(runtime)
-
-	deployment := &appsv1.Deployment{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: objMeta(),
-		Spec: appsv1.DeploymentSpec{
-			Replicas: dep.Replicas,
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RollingUpdateDeploymentStrategyType,
-				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-				},
-			},
-			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(), Annotations: podTemplateAnnotations},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: *dep.ServiceAccountName,
-					ImagePullSecrets:   dep.ImagePullSecrets,
-					SecurityContext:    dep.PodSecurityContext,
-					InitContainers:     initContainers,
-					Containers: []corev1.Container{{
-						Name:            "kagent",
-						Image:           dep.Image,
-						ImagePullPolicy: dep.ImagePullPolicy,
-						Command:         cmd,
-						Args:            dep.Args,
-						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
-						Resources:       dep.Resources,
-						Env:             env,
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{Path: "/.well-known/agent-card.json", Port: intstr.FromString("http")},
-							},
-							InitialDelaySeconds: probeConf.InitialDelaySeconds,
-							TimeoutSeconds:      probeConf.TimeoutSeconds,
-							PeriodSeconds:       probeConf.PeriodSeconds,
-						},
-						SecurityContext: securityContext,
-						VolumeMounts:    volumeMounts,
-					}},
-					Volumes:      volumes,
-					Tolerations:  dep.Tolerations,
-					Affinity:     dep.Affinity,
-					NodeSelector: dep.NodeSelector,
-				},
-			},
-		},
-	}
-	outputs.Manifest = append(outputs.Manifest, deployment)
-
-	// Service
-	outputs.Manifest = append(outputs.Manifest, &corev1.Service{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-		ObjectMeta: objMeta(),
-		Spec: corev1.ServiceSpec{
-			Selector: selectorLabels,
-			Ports: []corev1.ServicePort{{
-				Name:       "http",
-				Port:       dep.Port,
-				TargetPort: intstr.FromInt(int(dep.Port)),
-			}},
-			Type: corev1.ServiceTypeClusterIP,
-		},
-	})
-
-	// Owner refs
-	for _, obj := range outputs.Manifest {
-		if err := controllerutil.SetControllerReference(agent, obj, a.kube.Scheme()); err != nil {
-			return nil, err
-		}
-	}
-
-	// Inline-only return values
-	outputs.Config = cfg
-	if card != nil {
-		outputs.AgentCard = *card
-	}
-
-	return outputs, a.runPlugins(ctx, agent, outputs)
-}
-
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
-	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	// Resolve the raw system message (template processing happens after tools are translated).
-	rawSystemMessage, err := a.resolveRawSystemMessage(ctx, agent)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	cfg := &adk.AgentConfig{
-		Description: agent.Spec.Description,
-		Instruction: rawSystemMessage,
-		Model:       model,
-		ExecuteCode: agent.Spec.Declarative.ExecuteCodeBlocks,
-		Stream:      new(agent.Spec.Declarative.Stream),
-	}
-
-	// Translate context management configuration
-	if agent.Spec.Declarative.Context != nil {
-		contextCfg := &adk.AgentContextConfig{}
-
-		if agent.Spec.Declarative.Context.Compaction != nil {
-			comp := agent.Spec.Declarative.Context.Compaction
-			compCfg := &adk.AgentCompressionConfig{
-				CompactionInterval: comp.CompactionInterval,
-				OverlapSize:        comp.OverlapSize,
-				TokenThreshold:     comp.TokenThreshold,
-				EventRetentionSize: comp.EventRetentionSize,
-			}
-
-			if comp.Summarizer != nil {
-				if comp.Summarizer.PromptTemplate != nil {
-					compCfg.PromptTemplate = *comp.Summarizer.PromptTemplate
-				}
-
-				summarizerModelName := ""
-				if comp.Summarizer.ModelConfig != nil {
-					summarizerModelName = *comp.Summarizer.ModelConfig
-				}
-
-				if summarizerModelName == "" || summarizerModelName == agent.Spec.Declarative.ModelConfig {
-					compCfg.SummarizerModel = model
-				} else {
-					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.Namespace, summarizerModelName)
-					if err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
-					}
-					compCfg.SummarizerModel = summarizerModel
-					mergeDeploymentData(mdd, summarizerMdd)
-					if len(summarizerSecretHash) > 0 {
-						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
-					}
-				}
-			}
-
-			contextCfg.Compaction = compCfg
-		}
-
-		cfg.ContextConfig = contextCfg
-	}
-
-	// Handle Memory Configuration: presence of Memory field enables it.
-	if agent.Spec.Declarative.Memory != nil {
-		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.Namespace, agent.Spec.Declarative.Memory.ModelConfig)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
-		}
-
-		cfg.Memory = &adk.MemoryConfig{
-			TTLDays:   agent.Spec.Declarative.Memory.TTLDays,
-			Embedding: embCfg,
-		}
-
-		mergeDeploymentData(mdd, embMdd)
-		if agent.Spec.Declarative.Memory.ModelConfig != agent.Spec.Declarative.ModelConfig {
-			secretHashBytes = append(secretHashBytes, embHash...)
-		}
-	}
-
-	for _, tool := range agent.Spec.Declarative.Tools {
-		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		// Skip tools that are not applicable to the model provider
-		switch {
-		case tool.McpServer != nil:
-			// Use proxy for MCP server/tool communication
-			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, headers, a.globalProxyURL)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-		case tool.Agent != nil:
-			agentRef := tool.Agent.NamespacedName(agent.Namespace)
-
-			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
-			}
-
-			toolAgent := &v1alpha2.Agent{}
-			err := a.kube.Get(ctx, agentRef, toolAgent)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-
-			switch toolAgent.Spec.Type {
-			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
-				originalURL := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
-
-				// If proxy is configured, use proxy URL and set header for Gateway API routing
-				targetURL := originalURL
-				if a.globalProxyURL != "" {
-					targetURL, headers, err = applyProxyURL(originalURL, a.globalProxyURL, headers)
-					if err != nil {
-						return nil, nil, nil, err
-					}
-				}
-
-				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
-					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
-					Url:         targetURL,
-					Headers:     headers,
-					Description: toolAgent.Spec.Description,
-				})
-			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
-			}
-
-		default:
-			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
-		}
-	}
-
-	// Apply prompt template processing after tools are translated, so tool names
-	// from the config are available as template variables.
-	if agent.Spec.Declarative.PromptTemplate != nil && len(agent.Spec.Declarative.PromptTemplate.DataSources) > 0 {
-		lookup, err := resolvePromptSources(ctx, a.kube, agent.Namespace, agent.Spec.Declarative.PromptTemplate.DataSources)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to resolve prompt sources: %w", err)
-		}
-
-		tplCtx := buildTemplateContext(agent, cfg)
-
-		resolved, err := executeSystemMessageTemplate(cfg.Instruction, lookup, tplCtx)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
-		}
-		cfg.Instruction = resolved
-	}
-
-	return cfg, mdd, secretHashBytes, nil
-}
-
-// resolveRawSystemMessage gets the raw system message string from the agent spec
-// without applying any template processing.
-func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
-	if agent.Spec.Declarative.SystemMessageFrom != nil {
-		return agent.Spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.Namespace)
-	}
-	if agent.Spec.Declarative.SystemMessage != "" {
-		return agent.Spec.Declarative.SystemMessage, nil
-	}
-	return "", fmt.Errorf("at least one system message source (SystemMessage or SystemMessageFrom) must be specified")
 }
 
 const (
 	googleCredsVolumeName = "google-creds"
 	tlsCACertVolumeName   = "tls-ca-cert"
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	gdchCredsVolumeName   = "gdch-creds"
+	gdchCredsMountPath    = "/gdch-creds"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -857,6 +260,46 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 	}
 }
 
+// addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
+// model and mounts the service account secret (referenced by the top-level
+// apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
+// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
+		return
+	}
+	tokenExchange := spec.OpenAI.TokenExchange
+	switch tokenExchange.Type {
+	case v1alpha2.TokenExchangeTypeGDCH:
+		cfg := tokenExchange.GDCHServiceAccount
+		if cfg == nil {
+			return
+		}
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
+		openai.TokenExchange = &adk.TokenExchangeConfig{
+			Type: string(tokenExchange.Type),
+			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
+				ServiceAccountPath: saPath,
+				Audience:           cfg.Audience,
+			},
+		}
+		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
+			Name: gdchCredsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  spec.APIKeySecret,
+					DefaultMode: new(int32(0444)),
+				},
+			},
+		})
+		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
+			Name:      gdchCredsVolumeName,
+			MountPath: gdchCredsMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
+
 // translateEmbeddingConfig resolves the embedding ModelConfig and returns the
 // EmbeddingConfig for the Python config JSON, the deployment data for the
 // embedding model, and the raw secret hash bytes (caller decides whether to
@@ -895,7 +338,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
+		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -916,6 +360,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		// Populate TokenExchange fields (OpenAI-specific)
+		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
@@ -1812,7 +1258,7 @@ func buildSkillsInitContainer(
 	return container, volumes, nil
 }
 
-func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.Agent, outputs *AgentOutputs) error {
+func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
 		if err := plugin.ProcessAgent(ctx, agent, outputs); err != nil {

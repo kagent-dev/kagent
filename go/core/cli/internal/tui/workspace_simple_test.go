@@ -190,11 +190,11 @@ func TestWorkspaceModel_AgentsLoadedUpdate(t *testing.T) {
 	agents := []api.AgentResponse{
 		{
 			ID:    "agent-1",
-			Agent: testutil.CreateTestAgent("default", "agent-1"),
+			Agent: api.AgentResourceFrom(testutil.CreateTestAgent("default", "agent-1")),
 		},
 		{
 			ID:    "agent-2",
-			Agent: testutil.CreateTestAgent("default", "agent-2"),
+			Agent: api.AgentResourceFrom(testutil.CreateTestAgent("default", "agent-2")),
 		},
 	}
 

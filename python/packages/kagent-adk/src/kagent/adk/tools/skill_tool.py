@@ -8,7 +8,6 @@ from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
-
 from kagent.skills import (
     discover_skills,
     generate_skills_tool_description,

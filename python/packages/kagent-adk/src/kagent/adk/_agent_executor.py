@@ -34,9 +34,6 @@ from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.utils.context_utils import Aclosing
 from google.genai import types as genai_types
-from pydantic import BaseModel
-from typing_extensions import override
-
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
@@ -51,6 +48,8 @@ from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
+from pydantic import BaseModel
+from typing_extensions import override
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._remote_a2a_tool import SubagentSessionProvider
