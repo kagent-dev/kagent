@@ -43,17 +43,21 @@ helm unittest -f "tests/*deployment*" helm/kagent
 
 The tests are organized as follows:
 
-```
+```text
 helm/
 ├── kagent/
 │   └── tests/
-│       ├── deployment_test.yaml      # Tests for deployment template
-│       ├── service_test.yaml         # Tests for service template
-│       ├── rbac_test.yaml           # Tests for RBAC resources
-│       ├── secret_test.yaml         # Tests for secret template
-│       ├── modelconfig_test.yaml    # Tests for modelconfig template
-│       └── integration_test.yaml    # Integration tests
-└── README-testing.md                # This file
+│       ├── controller-deployment_test.yaml  # Tests for controller deployment
+│       ├── controller-service_test.yaml     # Tests for controller service
+│       ├── modelconfig_test.yaml            # Tests for modelconfig template
+│       ├── modelconfig-secret_test.yaml     # Tests for modelconfig secret
+│       ├── postgresql_test.yaml             # Tests for PostgreSQL resources
+│       ├── rbac_test.yaml                   # Tests for RBAC resources
+│       ├── security-context_test.yaml       # Tests for security contexts
+│       ├── toolserver_test.yaml             # Tests for toolserver resources
+│       ├── ui-deployment_test.yaml          # Tests for UI deployment
+│       └── ui-service_test.yaml             # Tests for UI service
+└── README-testing.md                        # This file
 ```
 
 ## Test Coverage
@@ -61,12 +65,17 @@ helm/
 Our test suite covers:
 
 ### Main kagent Chart
-- **Deployment Tests**: Container configuration, resource limits, environment variables, image tags
-- **Service Tests**: Port configuration, service type, selector labels
+
+- **Controller Deployment Tests**: Container configuration, resource limits, environment variables, image tags
+- **Controller Service Tests**: Port configuration, service type, selector labels
 - **RBAC Tests**: ServiceAccount, ClusterRole, ClusterRoleBinding configuration
-- **Secret Tests**: Provider-specific API key secrets (OpenAI, Anthropic, Azure OpenAI)
+- **ModelConfig Secret Tests**: Provider-specific API key secrets (OpenAI, Anthropic, Azure OpenAI)
 - **ModelConfig Tests**: AI model configuration for different providers
-- **Integration Tests**: End-to-end chart rendering with various configurations
+- **PostgreSQL Tests**: Database resource configuration
+- **Security Context Tests**: Pod and container security context settings
+- **Toolserver Tests**: Toolserver resource configuration
+- **UI Deployment Tests**: UI container configuration and deployment settings
+- **UI Service Tests**: UI service port and type configuration
 
 ## Example Test Scenarios
 
@@ -74,10 +83,7 @@ Our test suite covers:
 
 ```bash
 # Test with custom values file
-helm unittest -f values-production.yaml helm/kagent
-
-# Test with inline value overrides
-helm unittest --set replicaCount=3 --set global.tag=v2.0.0 helm/kagent
+helm unittest --values values-production.yaml helm/kagent
 ```
 
 ## Writing New Tests
@@ -190,4 +196,4 @@ helm lint helm/kagent
 - **Subcharts**: Agent subcharts require parent chart context and are best tested as part of the main chart
 - **Template Dependencies**: Charts that heavily depend on helper templates from parent charts may need special handling
 
-For more information, see the [helm-unittest documentation](https://github.com/helm-unittest/helm-unittest). 
+For more information, see the [helm-unittest documentation](https://github.com/helm-unittest/helm-unittest).
