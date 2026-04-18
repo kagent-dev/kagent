@@ -64,6 +64,10 @@ func main() {
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
+	installCmd.Flags().StringVar(&installCfg.Provider, "provider", "", "LLM provider to use (openAI, anthropic, azureOpenAI, ollama). Overrides KAGENT_DEFAULT_MODEL_PROVIDER.")
+	_ = installCmd.RegisterFlagCompletionFunc("provider", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return cli.ValidProviders(), cobra.ShellCompDirectiveNoFileComp
+	})
 
 	uninstallCmd := &cobra.Command{
 		Use:   "uninstall",
