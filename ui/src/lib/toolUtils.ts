@@ -66,6 +66,7 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
   }
 
   const mcpToolsByServer = new Map<string, Set<string>>();
+  const mcpApprovalsByServer = new Map<string, Set<string>>();
   const nonMcpTools: Tool[] = [];
   const errors: string[] = [];
 
@@ -74,11 +75,20 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
       const mcpServer = (tool as Tool).mcpServer;
       const serverNameRef = mcpServer?.name || "";
       const toolNames = mcpServer?.toolNames || [];
+      const requireApproval = mcpServer?.requireApproval || [];
 
       // Get existing set or create new one
       const existingNames = mcpToolsByServer.get(serverNameRef) || new Set<string>();
       toolNames.forEach(name => existingNames.add(name));
       mcpToolsByServer.set(serverNameRef, existingNames);
+
+      const approvalSet = mcpApprovalsByServer.get(serverNameRef) || new Set<string>();
+      requireApproval.forEach((name) => {
+        if (toolNames.includes(name)) {
+          approvalSet.add(name);
+        }
+      });
+      mcpApprovalsByServer.set(serverNameRef, approvalSet);
     } else if (isAgentTool(tool)) {
       nonMcpTools.push(tool);
     } else {
@@ -95,7 +105,9 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
     );
     
     const originalMcpServer = originalTool?.mcpServer;
-    
+    const rawApprovals = mcpApprovalsByServer.get(serverNameRef) || new Set<string>();
+    const mergedApprovals = Array.from(rawApprovals).filter((n) => toolNamesSet.has(n));
+
     return {
       type: MCP_SERVER_TYPE,
       mcpServer: {
@@ -103,7 +115,8 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
         namespace: originalMcpServer?.namespace,
         apiGroup: originalMcpServer?.apiGroup ?? DEFAULT_API_GROUP,
         kind: originalMcpServer?.kind || DEFAULT_MCP_KIND,
-        toolNames: Array.from(toolNamesSet)
+        toolNames: Array.from(toolNamesSet),
+        ...(mergedApprovals.length > 0 ? { requireApproval: mergedApprovals } : {}),
       }
     };
   });

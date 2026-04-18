@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Plus, FunctionSquare, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect } from "react";
@@ -64,6 +66,35 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
     }
   };
 
+  const setRequireApprovalForMcpTool = (
+    parentToolIdentifier: string,
+    mcpToolName: string,
+    requireApproval: boolean
+  ) => {
+    setSelectedTools(
+      selectedTools.map((tool) => {
+        if (getToolIdentifier(tool) !== parentToolIdentifier || !isMcpTool(tool)) {
+          return tool;
+        }
+        const mcp = tool.mcpServer!;
+        const names = new Set(mcp.requireApproval || []);
+        if (requireApproval) {
+          names.add(mcpToolName);
+        } else {
+          names.delete(mcpToolName);
+        }
+        const next = Array.from(names);
+        return {
+          ...tool,
+          mcpServer: {
+            ...mcp,
+            ...(next.length > 0 ? { requireApproval: next } : { requireApproval: undefined }),
+          },
+        };
+      })
+    );
+  };
+
   const handleRemoveTool = (parentToolIdentifier: string, mcpToolNameToRemove?: string) => {
     let updatedTools: Tool[];
 
@@ -75,11 +106,16 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           if (newToolNames.length === 0) {
             return null; 
           }
+          const prevApproval = mcpTool.mcpServer?.requireApproval || [];
+          const newRequireApproval = prevApproval.filter((n) => n !== mcpToolNameToRemove);
           return {
             ...mcpTool,
             mcpServer: {
               ...mcpTool.mcpServer,
               toolNames: newToolNames,
+              ...(newRequireApproval.length > 0
+                ? { requireApproval: newRequireApproval }
+                : { requireApproval: undefined }),
             },
           };
         }
@@ -124,25 +160,54 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
             const Icon = FunctionSquare;
             const iconColor = "text-blue-400";
+            const approvalSet = new Set(mcpTool.mcpServer?.requireApproval || []);
+            const requiresApproval = approvalSet.has(mcpToolName);
+            const approvalFieldId = `require-approval-${toolIdentifierForDisplay}`.replace(
+              /[^a-zA-Z0-9_-]/g,
+              "_"
+            );
 
             return (
               <Card key={toolIdentifierForDisplay}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center text-xs">
-                      <div className="inline-flex space-x-2 items-center">
-                        <Icon className={`h-4 w-4 ${iconColor}`} />
-                        <div className="inline-flex flex-col space-y-1">
-                          <span className="">{displayName}</span>
-                          <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
-                        </div>
-                      </div>
+                <CardContent className="space-y-1.5 p-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} />
+                    <div className="min-w-0 flex-1 text-xs">
+                      <p className="font-medium leading-tight" title={displayName}>
+                        <span className="line-clamp-2 break-words">{displayName}</span>
+                      </p>
+                      <p
+                        className="mt-0.5 text-muted-foreground line-clamp-1 break-words leading-snug"
+                        title={displayDescription}
+                      >
+                        {displayDescription}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)} disabled={isSubmitting}>
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 shrink-0 p-0"
+                      onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)}
+                      disabled={isSubmitting}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
+                    <Switch
+                      id={approvalFieldId}
+                      checked={requiresApproval}
+                      disabled={isSubmitting}
+                      onCheckedChange={(checked) =>
+                        setRequireApprovalForMcpTool(parentToolIdentifier, mcpToolName, checked)
+                      }
+                    />
+                    <Label
+                      htmlFor={approvalFieldId}
+                      className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
+                    >
+                      <span className="line-clamp-2 sm:line-clamp-1">Require approval before this tool runs</span>
+                    </Label>
                   </div>
                 </CardContent>
               </Card>
@@ -166,13 +231,13 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           return [( // flatMap expects an array
             <Card key={parentToolIdentifier}>
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center text-xs">
-                    <div className="inline-flex space-x-2 items-center">
-                      <CurrentIcon className={`h-4 w-4 ${currentIconColor}`} />
-                      <div className="inline-flex flex-col space-y-1">
-                        <span className="">{displayName}</span>
-                        <span className="text-muted-foreground max-w-2xl">{displayDescription}</span>
+                <div className="flex min-w-0 w-full items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 items-center text-xs">
+                    <div className="inline-flex min-w-0 flex-1 space-x-2 items-start">
+                      <CurrentIcon className={`h-4 w-4 mt-0.5 shrink-0 ${currentIconColor}`} />
+                      <div className="inline-flex min-w-0 flex-1 flex-col space-y-1">
+                        <span className="truncate">{displayName}</span>
+                        <span className="text-muted-foreground line-clamp-2 break-words">{displayDescription}</span>
                       </div>
                     </div>
                   </div>
@@ -192,6 +257,10 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        <span className="font-medium text-foreground">Require approval</span> appears for each{" "}
+        <span className="font-medium text-foreground">MCP tool</span> (blue icon). It is not shown for agents used as tools (green icon); configure those sub-agents separately if they expose MCP tools.
+      </p>
       {selectedTools.length > 0 && (
         <div className="flex justify-between items-center">
           <h3 className="text-sm font-medium">Selected Tools and Agents</h3>

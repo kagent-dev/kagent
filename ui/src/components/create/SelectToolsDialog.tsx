@@ -2,13 +2,15 @@ import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, getToolIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -279,6 +281,32 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
     setLocalSelectedTools(prev => prev.filter(tool => tool !== toolToRemove));
   };
 
+  const setRequireApprovalForMcpTool = (target: Tool, mcpToolName: string, requireApproval: boolean) => {
+    const targetId = getToolIdentifier(target);
+    setLocalSelectedTools((prev) =>
+      prev.map((t) => {
+        if (getToolIdentifier(t) !== targetId || !isMcpTool(t)) {
+          return t;
+        }
+        const mcp = t.mcpServer!;
+        const names = new Set(mcp.requireApproval || []);
+        if (requireApproval) {
+          names.add(mcpToolName);
+        } else {
+          names.delete(mcpToolName);
+        }
+        const next = Array.from(names);
+        return {
+          ...t,
+          mcpServer: {
+            ...mcp,
+            ...(next.length > 0 ? { requireApproval: next } : { requireApproval: undefined }),
+          },
+        };
+      })
+    );
+  };
+
   const handleSave = () => {
     const { groupedTools, errors } = groupMcpToolsByServer(localSelectedTools);
     
@@ -336,9 +364,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {/* Left Panel: Available Tools */}
-          <div className="w-1/2 border-r flex flex-col p-4 space-y-4">
+          <div className="w-1/2 min-w-0 border-r flex flex-col p-4 space-y-4">
             {/* Search and Filter Area */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -476,8 +504,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           </div>
 
           {/* Right Panel: Selected Tools */}
-          <div className="w-1/2 flex flex-col p-4 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="w-1/2 min-w-0 flex flex-col p-4 space-y-4">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})</h3>
               <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={actualSelectedCount === 0}>
                 Clear All
@@ -493,9 +521,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
               </div>
             )}
 
-            <ScrollArea className="flex-1 -mr-4 pr-4">
+            <ScrollArea className="min-w-0 flex-1 -mr-4 pr-4">
               {localSelectedTools.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0 w-full max-w-full">
                   {localSelectedTools.flatMap((tool) => {
                     if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
                       return tool.mcpServer.toolNames.map((toolName: string) => {
@@ -509,40 +537,77 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         const serverNamespace = tool.mcpServer?.namespace || currentAgentNamespace;
                         const serverDisplayName = `${serverNamespace}/${serverName}`;
                         const displayName = `${toolName} (${serverDisplayName})`;
-                        
+                        const approvalSet = new Set(tool.mcpServer?.requireApproval || []);
+                        const requiresApproval = approvalSet.has(toolName);
+
+                        const approvalFieldId = `dialog-req-${getToolIdentifier(tool)}-${toolName}`.replace(
+                          /[^a-zA-Z0-9_-]/g,
+                          "_"
+                        );
+
                         return (
-                        <div key={`${tool.mcpServer?.name}-${toolName}`} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
-                          <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                            <FunctionSquare className="h-4 w-4 flex-shrink-0 text-blue-400" />
-                            <div className="flex-1 overflow-hidden">
-                              <p className="text-sm font-medium truncate">{displayName}</p>
-                              <p className="text-xs text-muted-foreground truncate">{specificDescription}</p>
+                        <div
+                          key={`${tool.mcpServer?.name}-${toolName}`}
+                          className="flex w-full min-w-0 max-w-full flex-col gap-1.5 rounded-md border bg-muted/30 px-2.5 py-2"
+                        >
+                          <div className="flex min-w-0 items-start gap-2">
+                            <FunctionSquare className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium leading-tight" title={displayName}>
+                                <span className="line-clamp-2 break-words">{displayName}</span>
+                              </p>
+                              <p
+                                className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
+                                title={specificDescription}
+                              >
+                                {specificDescription}
+                              </p>
                             </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 ml-2 flex-shrink-0"
-                            onClick={() => {
-                              const updatedTool = {
-                                ...tool,
-                                mcpServer: {
-                                  ...tool.mcpServer!,
-                                  toolNames: tool.mcpServer!.toolNames!.filter(name => name !== toolName)
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
+                              onClick={() => {
+                                const prevApproval = tool.mcpServer?.requireApproval || [];
+                                const newRequireApproval = prevApproval.filter((n) => n !== toolName);
+                                const updatedTool = {
+                                  ...tool,
+                                  mcpServer: {
+                                    ...tool.mcpServer!,
+                                    toolNames: tool.mcpServer!.toolNames!.filter((name) => name !== toolName),
+                                    ...(newRequireApproval.length > 0
+                                      ? { requireApproval: newRequireApproval }
+                                      : { requireApproval: undefined }),
+                                  },
+                                };
+
+                                if (updatedTool.mcpServer.toolNames.length === 0) {
+                                  handleRemoveTool(tool);
+                                } else {
+                                  setLocalSelectedTools((prev) =>
+                                    prev.map((t) => (t === tool ? updatedTool : t))
+                                  );
                                 }
-                              };
-                              
-                              if (updatedTool.mcpServer.toolNames.length === 0) {
-                                handleRemoveTool(tool);
-                              } else {
-                                setLocalSelectedTools((prev) => 
-                                  prev.map(t => t === tool ? updatedTool : t)
-                                );
+                              }}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
+                            <Switch
+                              id={approvalFieldId}
+                              checked={requiresApproval}
+                              onCheckedChange={(checked) =>
+                                setRequireApprovalForMcpTool(tool, toolName, checked)
                               }
-                            }}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
+                            />
+                            <Label
+                              htmlFor={approvalFieldId}
+                              className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
+                            >
+                              <span className="line-clamp-2 sm:line-clamp-1">Require approval before this tool runs</span>
+                            </Label>
+                          </div>
                         </div>
                         );
                       });
@@ -571,18 +636,25 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                       );
                       
                       return [( 
-                        <div key={displayName} className="flex items-center justify-between p-3 border rounded-md bg-muted/30 min-w-0">
-                          <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                            <Icon className={`h-4 w-4 flex-shrink-0 ${iconColor}`} />
-                            <div className="flex-1 overflow-hidden">
-                              <p className="text-sm font-medium truncate">{displayName}</p>
-                              {description && <p className="text-xs text-muted-foreground truncate">{description}</p>}
-                            </div>
+                        <div key={displayName} className="flex w-full min-w-0 max-w-full items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2">
+                          <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium leading-tight" title={displayName}>
+                              <span className="line-clamp-2 break-words">{displayName}</span>
+                            </p>
+                            {description && (
+                              <p
+                                className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
+                                title={description}
+                              >
+                                {description}
+                              </p>
+                            )}
                           </div>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 ml-2 flex-shrink-0"
+                            className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
                             onClick={() => handleRemoveTool(tool)}
                           >
                             <XCircle className="h-4 w-4" />

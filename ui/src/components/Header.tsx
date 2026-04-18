@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import {
@@ -83,6 +83,12 @@ export function Header() {
                     New MCP Server
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/prompts/new" className="gap-2 cursor-pointer w-full">
+                    <ScrollText className="h-4 w-4" />
+                    New prompt library
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             
@@ -117,6 +123,12 @@ export function Header() {
                   <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     MCP Servers
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/prompts" className="gap-2 cursor-pointer w-full">
+                    <ScrollText className="h-4 w-4" />
+                    Prompt Library
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -182,6 +194,12 @@ export function Header() {
                       MCP Servers
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/prompts" className="gap-2 cursor-pointer w-full">
+                      <ScrollText className="h-4 w-4" />
+                      Prompt Library
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -211,6 +229,12 @@ export function Header() {
                     <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New MCP Server
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/prompts/new" className="gap-2 cursor-pointer w-full">
+                      <ScrollText className="h-4 w-4" />
+                      New prompt library
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
