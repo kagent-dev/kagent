@@ -62,6 +62,30 @@ func Init() error {
 	return nil
 }
 
+// BindFlags binds cobra persistent flags to viper keys so that config file
+// values are used as defaults when the corresponding CLI flag is not explicitly
+// set. Flag names use dashes (e.g. "kagent-url") while config file keys use
+// underscores (e.g. "kagent_url"), so each binding is explicit.
+func BindFlags(flags *pflag.FlagSet) {
+	viper.BindPFlag("kagent_url", flags.Lookup("kagent-url"))     //nolint:errcheck
+	viper.BindPFlag("namespace", flags.Lookup("namespace"))        //nolint:errcheck
+	viper.BindPFlag("output_format", flags.Lookup("output-format")) //nolint:errcheck
+	viper.BindPFlag("verbose", flags.Lookup("verbose"))            //nolint:errcheck
+	viper.BindPFlag("timeout", flags.Lookup("timeout"))            //nolint:errcheck
+}
+
+// Apply populates the given Config from the merged viper state (config file +
+// env + CLI flags). Call this after flag parsing to ensure cfg reflects all
+// sources with the correct precedence: CLI flag > env > config file > default.
+func Apply(cfg *Config) error {
+	merged, err := Get()
+	if err != nil {
+		return err
+	}
+	*cfg = *merged
+	return nil
+}
+
 func Get() (*Config, error) {
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
