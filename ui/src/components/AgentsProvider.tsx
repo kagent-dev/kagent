@@ -313,6 +313,57 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     fetchModels();
   }, [fetchAgents, fetchTools, fetchModels]);
 
+  // Poll every 5 s while any agent is not yet ready. Stops automatically once
+  // all agents report deploymentReady=true, avoiding unnecessary API calls
+  // during steady-state operation.
+  //
+  // Uses a derived boolean (hasNotReady) as the dependency instead of the full
+  // agents array so the effect only starts/stops — never tears down mid-poll.
+  // Self-scheduling setTimeout avoids overlapping requests when getAgents() is
+  // slow, and errors are surfaced via setError with a stop after 3 consecutive
+  // failures to prevent infinite silent polling.
+  const hasNotReady = React.useMemo(
+    () => !loading && agents.length > 0 && agents.some(a => !a.deploymentReady),
+    [agents, loading],
+  );
+
+  useEffect(() => {
+    if (!hasNotReady) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let consecutiveErrors = 0;
+
+    const poll = async () => {
+      const result = await getAgents();
+      if (cancelled) return;
+
+      if (result.error || !result.data) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 3) {
+          setError(result.error || "Failed to refresh agents");
+          return; // stop polling after repeated failures
+        }
+        timeoutId = setTimeout(poll, 5000);
+        return;
+      }
+
+      consecutiveErrors = 0;
+      setAgents(result.data);
+
+      if (!result.data.every(a => a.deploymentReady)) {
+        timeoutId = setTimeout(poll, 5000);
+      }
+    };
+
+    timeoutId = setTimeout(poll, 5000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [hasNotReady]);
+
   const value = {
     agents,
     models,
