@@ -129,6 +129,14 @@ rbac:
 controller:
   replicas: 1
   loglevel: "info"
+  # Authentication mode: "unsecure" (default) or "trusted-proxy"
+  # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
+  # - trusted-proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
+  auth:
+    mode: unsecure
+    # JWT claim for user identity (default: "sub")
+    # Override only if your OIDC provider uses a different claim
+    userIdClaim: ""
   # -- Global deployment defaults applied to all agent pods.
   # Per-agent settings in the Agent CRD take precedence over these defaults.
   agentDeployment:
@@ -235,6 +243,12 @@ ui:
       port: 8080
       targetPort: 8080
     annotations: {}
+  # Authentication redirect configuration
+  # Change this if using a different auth proxy (e.g., Pomerium, Authelia)
+  auth:
+    # Path to redirect users to when they click "Sign in with SSO" on the login page
+    # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
+    ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
@@ -486,6 +500,101 @@ querydoc:
       memory: 512Mi
   openai:
     apiKey: ""
+
+# ==============================================================================
+# OAUTH2-PROXY CONFIGURATION (Optional)
+# ==============================================================================
+# Enable oauth2-proxy subchart for OIDC authentication
+# Requires controller.auth.mode: trusted-proxy
+
+oauth2-proxy:
+  enabled: false
+
+  # Disable Redis - use cookie-based sessions
+  redis:
+    enabled: false
+  sessionStorage:
+    type: cookie
+
+  # Mount custom templates for branded login redirect
+  # The ConfigMap is created by templates/oauth2-proxy-templates.yaml
+  extraVolumes:
+    - name: custom-templates
+      configMap:
+        name: kagent-oauth2-proxy-templates
+
+  extraVolumeMounts:
+    - name: custom-templates
+      mountPath: /templates
+      readOnly: true
+
+  # Mount custom CA certificate for TLS verification (if needed)
+  # Add to extraVolumes:
+  #   - name: custom-ca-cert
+  #     secret:
+  #       secretName: my-ca-cert
+  #       items:
+  #         - key: ca.crt
+  #           path: ca.crt
+  # Add to extraVolumeMounts:
+  #   - name: custom-ca-cert
+  #     mountPath: /etc/ssl/certs/custom-ca.crt
+  #     subPath: ca.crt
+  #     readOnly: true
+  # Add to extraEnv:
+  #   - name: SSL_CERT_FILE
+  #     value: /etc/ssl/certs/custom-ca.crt
+
+  config:
+    # Option 1: Reference existing secret (recommended for production)
+    # Secret must contain: client-id, client-secret, cookie-secret
+    existingSecret: ""
+
+    # Option 2: Inline values (for dev/testing only, chart creates secret)
+    clientID: ""
+    clientSecret: ""
+    cookieSecret: ""
+
+  # Cluster-specific OIDC settings - override these per deployment
+  # These are set as env vars and referenced in args for easy patching
+  extraEnv:
+    - name: OIDC_ISSUER_URL
+      value: ""
+    - name: OIDC_REDIRECT_URL
+      value: ""
+    # IMPORTANT: This must match the UI service name, which is templated as
+    # "<release-name>-ui" (or "<fullnameOverride>-ui"). Override this value
+    # if your release name is not "kagent" or you set fullnameOverride.
+    - name: UPSTREAM_URL
+      value: "http://kagent-ui:8080"
+
+  # extraArgs as a map - each key becomes --key=value in container args
+  # Uses $(VAR_NAME) syntax to reference env vars set above
+  extraArgs:
+    provider: oidc
+    oidc-issuer-url: "$(OIDC_ISSUER_URL)"
+    redirect-url: "$(OIDC_REDIRECT_URL)"
+    upstream: "$(UPSTREAM_URL)"
+    email-domain: "*"
+    pass-authorization-header: true
+    set-authorization-header: true
+    approval-prompt: "auto"
+    scope: "openid profile email groups"
+    # Cookie security settings
+    cookie-secure: true
+    cookie-samesite: "lax"
+    # Allow API clients with valid JWT tokens to bypass OIDC flow
+    skip-jwt-bearer-tokens: true
+    # Skip authentication for kagent's branded login page, health checks, and static assets
+    # This allows unauthenticated users to see the landing page and k8s probes to work
+    skip-auth-route: "^/(health|login)$"
+    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico).*$"
+    # Use custom templates that redirect to kagent's branded /login page
+    custom-templates-dir: "/templates"
+
+  service:
+    type: ClusterIP
+    portNumber: 4180
 
 # ==============================================================================
 # OBSERVABILITY

@@ -481,6 +481,7 @@ func TestBuildResumeHITLMessage(t *testing.T) {
 	resume := BuildResumeHITLMessage(storedTask, incoming)
 	if resume == nil {
 		t.Fatal("BuildResumeHITLMessage() returned nil")
+		return
 	}
 	if len(resume.Parts) != 1 {
 		t.Fatalf("resume parts len = %d, want 1", len(resume.Parts))
@@ -488,6 +489,7 @@ func TestBuildResumeHITLMessage(t *testing.T) {
 	dp := asDataPart(resume.Parts[0])
 	if dp == nil {
 		t.Fatal("resume part is not a DataPart")
+		return
 	}
 	if dp.Data[PartKeyName] != "adk_request_confirmation" {
 		t.Fatalf("resume FunctionResponse name = %#v", dp.Data[PartKeyName])
@@ -516,6 +518,7 @@ func TestProcessHitlDecision(t *testing.T) {
 		dp := asDataPart(parts[0])
 		if dp == nil {
 			t.Fatal("part is not DataPart")
+			return
 		}
 		if dp.Data[PartKeyName] != "adk_request_confirmation" {
 			t.Errorf("name = %v", dp.Data[PartKeyName])

@@ -37,11 +37,20 @@ func (t *SkillsTool) Execute(ctx context.Context, command string) (string, error
 // BashTool provides shell command execution in skills context
 type BashTool struct {
 	SkillsDirectory string
+	executor        *CommandExecutor
 }
 
 // NewBashTool creates a new BashTool
-func NewBashTool(skillsDirectory string) *BashTool {
-	return &BashTool{SkillsDirectory: skillsDirectory}
+func NewBashTool(skillsDirectory string) (*BashTool, error) {
+	executor, err := NewCommandExecutorFromEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	return &BashTool{
+		SkillsDirectory: skillsDirectory,
+		executor:        executor,
+	}, nil
 }
 
 // Execute executes a bash command in the skills context
@@ -52,7 +61,7 @@ func (t *BashTool) Execute(ctx context.Context, command string, sessionID string
 		return "", fmt.Errorf("failed to get session path: %w", err)
 	}
 
-	return ExecuteCommand(ctx, command, sessionPath)
+	return t.executor.ExecuteCommand(ctx, command, sessionPath)
 }
 
 // FileTools provides file operation tools

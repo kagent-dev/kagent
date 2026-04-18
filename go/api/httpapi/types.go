@@ -4,6 +4,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Common types
@@ -83,9 +84,68 @@ type UpdateModelConfigRequest struct {
 
 // Agent types
 
+type AgentResource struct {
+	APIVersion string               `json:"apiVersion,omitempty"`
+	Kind       string               `json:"kind,omitempty"`
+	Metadata   metav1.ObjectMeta    `json:"metadata,omitempty"`
+	Spec       v1alpha2.AgentSpec   `json:"spec,omitempty"`
+	Status     v1alpha2.AgentStatus `json:"status,omitempty"`
+}
+
+func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
+	if agent == nil {
+		return nil
+	}
+
+	spec := agent.GetAgentSpec()
+	status := agent.GetAgentStatus()
+	gvk := agent.GetObjectKind().GroupVersionKind()
+	apiVersion := gvk.GroupVersion().String()
+	kind := gvk.Kind
+	var metadata metav1.ObjectMeta
+	if apiVersion == "" {
+		apiVersion = v1alpha2.GroupVersion.String()
+	}
+	if kind == "" {
+		if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+			kind = "SandboxAgent"
+		} else {
+			kind = "Agent"
+		}
+	}
+	switch typed := agent.(type) {
+	case *v1alpha2.Agent:
+		metadata = *typed.ObjectMeta.DeepCopy()
+	case *v1alpha2.SandboxAgent:
+		metadata = *typed.ObjectMeta.DeepCopy()
+	default:
+		metadata = metav1.ObjectMeta{
+			Name:            agent.GetName(),
+			Namespace:       agent.GetNamespace(),
+			Labels:          agent.GetLabels(),
+			Annotations:     agent.GetAnnotations(),
+			ResourceVersion: agent.GetResourceVersion(),
+			Generation:      agent.GetGeneration(),
+		}
+	}
+
+	res := &AgentResource{
+		APIVersion: apiVersion,
+		Kind:       kind,
+		Metadata:   metadata,
+	}
+	if spec != nil {
+		res.Spec = *spec.DeepCopy()
+	}
+	if status != nil {
+		res.Status = *status.DeepCopy()
+	}
+	return res
+}
+
 type AgentResponse struct {
-	ID    string          `json:"id"`
-	Agent *v1alpha2.Agent `json:"agent"`
+	ID    string         `json:"id"`
+	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
 	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
 	Model           string                 `json:"model"`
@@ -94,6 +154,7 @@ type AgentResponse struct {
 	Tools           []*v1alpha2.Tool       `json:"tools"`
 	DeploymentReady bool                   `json:"deploymentReady"`
 	Accepted        bool                   `json:"accepted"`
+	WorkloadMode    v1alpha2.WorkloadMode  `json:"workloadMode,omitempty"`
 }
 
 // Session types
@@ -164,6 +225,33 @@ type CreateMemoryRequest struct {
 // UpdateMemoryRequest represents a request to update a memory
 type UpdateMemoryRequest struct {
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
+}
+
+// PromptTemplateSummary is a lightweight entry for listing prompt ConfigMaps.
+type PromptTemplateSummary struct {
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
+	KeyCount  int      `json:"keyCount"`
+	Keys      []string `json:"keys,omitempty"`
+}
+
+// PromptTemplateDetail includes all string keys for editing.
+type PromptTemplateDetail struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.
+type CreatePromptTemplateRequest struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// UpdatePromptTemplateRequest replaces the data map of an existing ConfigMap.
+type UpdatePromptTemplateRequest struct {
+	Data map[string]string `json:"data"`
 }
 
 // Namespace types

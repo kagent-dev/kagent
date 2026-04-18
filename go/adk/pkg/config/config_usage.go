@@ -35,6 +35,10 @@ import (
 //   - Currently disabled in Go controller (see adk_api_translator.go:533)
 //   - Would enable SandboxedLocalCodeExecutor if true
 //
+// Agent.Spec.Sandbox.Network -> AgentConfig.Network
+//   - Translated into the mounted srt-settings.json consumed by sandboxed execution
+//   - When omitted, sandboxed execution remains deny-by-default for outbound network access
+//
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
 //   - Skills are added via SkillsPlugin in Python
 //   - In go-adk, skills are handled via KAGENT_SKILLS_FOLDER env var
@@ -72,6 +76,7 @@ func ValidateAgentConfigUsageWithLogger(config *adk.AgentConfig, logger logr.Log
 			"modelType", config.Model.GetType(),
 			"stream", config.Stream,
 			"executeCode", config.ExecuteCode,
+			"hasNetworkConfig", config.Network != nil,
 			"httpToolsCount", len(config.HttpTools),
 			"sseToolsCount", len(config.SseTools),
 			"remoteAgentsCount", len(config.RemoteAgents))
@@ -116,6 +121,7 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	summary += fmt.Sprintf("  Instruction: %d chars\n", len(config.Instruction))
 	summary += fmt.Sprintf("  Stream: %v\n", config.Stream)
 	summary += fmt.Sprintf("  ExecuteCode: %v\n", config.ExecuteCode)
+	summary += fmt.Sprintf("  HasNetworkConfig: %v\n", config.Network != nil)
 	summary += fmt.Sprintf("  HttpTools: %d\n", len(config.HttpTools))
 	summary += fmt.Sprintf("  SseTools: %d\n", len(config.SseTools))
 	summary += fmt.Sprintf("  RemoteAgents: %d\n", len(config.RemoteAgents))

@@ -31,7 +31,7 @@ go/
 │   ├── v1alpha1/         # Legacy CRD types
 │   ├── v1alpha2/         # Current CRD types
 │   ├── adk/              # ADK config & model types
-│   ├── database/         # GORM model structs & Client interface
+│   ├── database/         # database model structs & Client interface
 │   ├── httpapi/          # HTTP API request/response types
 │   ├── client/           # REST HTTP client SDK
 │   ├── utils/            # Shared utility functions

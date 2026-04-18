@@ -11,8 +11,8 @@ import (
 
 type AgentItem struct{ api.AgentResponse }
 
-func (i AgentItem) Title() string       { return i.Agent.Name }
-func (i AgentItem) Namespace() string   { return i.Agent.Namespace }
+func (i AgentItem) Title() string       { return i.Agent.Metadata.Name }
+func (i AgentItem) Namespace() string   { return i.Agent.Metadata.Namespace }
 func (i AgentItem) Description() string { return i.Agent.Spec.Description }
 func (i AgentItem) FilterValue() string { return i.ID }
 

@@ -6,7 +6,6 @@ This test ensures the values match the upstream definitions.
 
 import pytest
 from google.adk.a2a.converters import part_converter as upstream
-
 from kagent.core.a2a import _consts as local
 
 # Each tuple is (constant_name, local_value, upstream_value).

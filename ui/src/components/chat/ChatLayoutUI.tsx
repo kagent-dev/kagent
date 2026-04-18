@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
+import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
 
 interface ChatLayoutUIProps {
   agentName: string;
@@ -24,6 +26,7 @@ export default function ChatLayoutUI({
   allTools,
   children
 }: ChatLayoutUIProps) {
+  const pathname = usePathname();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
 
@@ -66,7 +69,8 @@ export default function ChatLayoutUI({
       }
     };
     refreshSessions();
-  }, [agentName, namespace]);
+    // Same agent may navigate /chat → /chat/:id (e.g. Sandbox); refetch so the sidebar lists the session.
+  }, [agentName, namespace, pathname]);
 
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -102,7 +106,12 @@ export default function ChatLayoutUI({
         isLoadingSessions={isLoadingSessions}
       />
       <main className="w-full max-w-6xl mx-auto px-4">
-        {children}
+        <ChatAgentProvider
+          agentType={currentAgent.agent.spec.type}
+          runInSandbox={currentAgent.workloadMode === "sandbox"}
+        >
+          {children}
+        </ChatAgentProvider>
       </main>
       <AgentDetailsSidebar
         selectedAgentName={agentName}
