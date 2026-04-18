@@ -313,6 +313,27 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     fetchModels();
   }, [fetchAgents, fetchTools, fetchModels]);
 
+  // Poll every 5 s while any agent is not yet ready. Stops automatically once
+  // all agents report deploymentReady=true, avoiding unnecessary API calls
+  // during steady-state operation.
+  useEffect(() => {
+    if (loading) return;
+    const hasNotReady = agents.some(a => !a.deploymentReady);
+    if (!hasNotReady) return;
+
+    const id = setInterval(async () => {
+      const result = await getAgents();
+      if (result.data) {
+        setAgents(result.data);
+        if (result.data.every(a => a.deploymentReady)) {
+          clearInterval(id);
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(id);
+  }, [agents, loading]);
+
   const value = {
     agents,
     models,
