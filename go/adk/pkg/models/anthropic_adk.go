@@ -187,7 +187,7 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 			for _, fc := range functionCalls {
 				contentStr := "No response available for this function call."
 				if fr := functionResponses[fc.ID]; fr != nil {
-					contentStr = functionResponseContentString(fr.Response)
+					contentStr = extractFunctionResponseContent(fr.Response)
 				}
 				toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(fc.ID, contentStr, false))
 			}
@@ -236,7 +236,7 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 				Properties: make(map[string]any),
 			}
 			if fd.ParametersJsonSchema != nil {
-				if m, ok := fd.ParametersJsonSchema.(map[string]any); ok {
+				if m := parametersJsonSchemaToMap(fd.ParametersJsonSchema); m != nil {
 					if props, ok := m["properties"].(map[string]any); ok {
 						inputSchema.Properties = props
 					}
@@ -264,7 +264,7 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 }
 
 func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	stream := m.Client.Messages.NewStreaming(ctx, params)
+	stream := m.Client.Messages.NewStreaming(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	defer stream.Close()
 
 	var aggregatedText string
@@ -366,7 +366,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 }
 
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	message, err := m.Client.Messages.New(ctx, params)
+	message, err := m.Client.Messages.New(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	if err != nil {
 		yield(nil, fmt.Errorf("anthropic API error: %w", err))
 		return
