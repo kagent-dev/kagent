@@ -39,7 +39,16 @@ export function ToolSelectionStep({
         if (tool.type === "Agent" && tool.agent) {
             return false; // Agents don't match ToolResponse objects
         } else if (tool.type === "McpServer" && tool.mcpServer) {
-            return tool.mcpServer.name === toolResponse.server_name && 
+            // toolResponseToAgentTool parses server_name as a k8s ref (namespace/name) and stores
+            // only the name part in mcpServer.name. Normalise server_name the same way before
+            // comparing, otherwise the checkbox always compares "kagent-tool-server" against
+            // "kagent/kagent-tool-server" and the controlled <Checkbox> snaps back to unchecked
+            // on every click — making tool selection appear broken.
+            const serverName = toolResponse.server_name ?? "";
+            const normalizedServerName = serverName.includes("/")
+                ? serverName.split("/").pop()!
+                : serverName;
+            return tool.mcpServer.name === normalizedServerName &&
                    tool.mcpServer.toolNames.includes(toolResponse.id);
         }
         return false;
