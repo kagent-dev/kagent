@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
-import { useChatAgentType, useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
+import { useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder } from "@/lib/statusUtils";
 import { Message, DataPart } from "@a2a-js/sdk";

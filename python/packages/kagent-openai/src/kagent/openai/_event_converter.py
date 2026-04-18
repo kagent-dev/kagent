@@ -35,7 +35,6 @@ from agents.stream_events import (
     RunItemStreamEvent,
     StreamEvent,
 )
-
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
