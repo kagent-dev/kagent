@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/klauspost/compress/zstd"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,11 @@ const (
 	// ConfigMap are expected to be base64-encoded compressed data and will be
 	// transparently decompressed when read via GetConfigMapData.
 	CompressionAnnotation = "kagent.dev/compression"
+
+	// maxDecompressedSize is the upper bound on decompressed output (10 MB).
+	// This prevents a small compressed payload from expanding into an
+	// arbitrarily large allocation that could OOM the controller.
+	maxDecompressedSize = 10 << 20 // 10 MiB
 )
 
 // GetConfigMapData fetches all data from a ConfigMap. If the ConfigMap carries
@@ -27,10 +33,10 @@ const (
 func GetConfigMapData(ctx context.Context, c client.Client, ref client.ObjectKey) (map[string]string, error) {
 	configMap := &corev1.ConfigMap{}
 	if err := c.Get(ctx, ref, configMap); err != nil {
-		return nil, fmt.Errorf("failed to find ConfigMap %s: %v", ref.String(), err)
+		return nil, fmt.Errorf("failed to find ConfigMap %s: %w", ref.String(), err)
 	}
 
-	algo := configMap.Annotations[CompressionAnnotation]
+	algo := strings.ToLower(strings.TrimSpace(configMap.Annotations[CompressionAnnotation]))
 	if algo == "" {
 		return configMap.Data, nil
 	}
@@ -47,8 +53,18 @@ func GetConfigMapData(ctx context.Context, c client.Client, ref client.ObjectKey
 }
 
 // decompress decodes base64 data and decompresses it with the given algorithm.
+// The encoded payload is whitespace-tolerant (newlines and spaces are stripped
+// before decoding) and decompressed output is capped at maxDecompressedSize.
 func decompress(encoded string, algo string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(encoded)
+	// Strip whitespace/newlines that commonly appear in pasted base64
+	cleaned := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+			return -1
+		}
+		return r
+	}, encoded)
+
+	raw, err := base64.StdEncoding.DecodeString(cleaned)
 	if err != nil {
 		return "", fmt.Errorf("base64 decode: %w", err)
 	}
@@ -60,9 +76,12 @@ func decompress(encoded string, algo string) (string, error) {
 			return "", fmt.Errorf("gzip reader: %w", err)
 		}
 		defer r.Close()
-		out, err := io.ReadAll(r)
+		out, err := io.ReadAll(io.LimitReader(r, maxDecompressedSize+1))
 		if err != nil {
 			return "", fmt.Errorf("gzip read: %w", err)
+		}
+		if len(out) > maxDecompressedSize {
+			return "", fmt.Errorf("decompressed output exceeds %d bytes limit", maxDecompressedSize)
 		}
 		return string(out), nil
 
@@ -72,9 +91,12 @@ func decompress(encoded string, algo string) (string, error) {
 			return "", fmt.Errorf("zstd reader: %w", err)
 		}
 		defer r.Close()
-		out, err := io.ReadAll(r)
+		out, err := io.ReadAll(io.LimitReader(r, maxDecompressedSize+1))
 		if err != nil {
 			return "", fmt.Errorf("zstd read: %w", err)
+		}
+		if len(out) > maxDecompressedSize {
+			return "", fmt.Errorf("decompressed output exceeds %d bytes limit", maxDecompressedSize)
 		}
 		return string(out), nil
 
@@ -88,7 +110,7 @@ func GetConfigMapValue(ctx context.Context, c client.Client, ref client.ObjectKe
 	configMap := &corev1.ConfigMap{}
 	err := c.Get(ctx, ref, configMap)
 	if err != nil {
-		return "", fmt.Errorf("failed to find ConfigMap for %s: %v", ref.String(), err)
+		return "", fmt.Errorf("failed to find ConfigMap for %s: %w", ref.String(), err)
 	}
 
 	value, exists := configMap.Data[key]
