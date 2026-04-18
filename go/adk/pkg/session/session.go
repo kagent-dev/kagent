@@ -14,7 +14,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	adksession "google.golang.org/adk/session"
-	"google.golang.org/genai"
 )
 
 const (
@@ -168,7 +167,6 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 		if e.Content == nil && e.Author == "" && e.InvocationID == "" && e.FinishReason == "" && !e.Partial {
 			continue
 		}
-		normalizeConfirmationEventRole(e)
 		adkEvents = append(adkEvents, e)
 	}
 
@@ -223,8 +221,6 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, adkSess adksessi
 	}
 
 	log := logr.FromContextOrDiscard(ctx)
-
-	normalizeConfirmationEventRole(event)
 
 	// Use a detached context so a client disconnect does not cancel the write.
 	persistCtx, cancel := context.WithTimeout(context.Background(), eventPersistTimeout)
@@ -308,28 +304,6 @@ func (s *KAgentSessionService) CreateSession(ctx context.Context, appName, userI
 		SessionID: sessionID,
 	})
 	return err
-}
-
-// normalizeConfirmationEventRole fixes the role on adk_request_confirmation
-// functionCall events from "model" to "user".
-//
-// The upstream Go ADK (generateRequestConfirmationEvent in functions.go) sets
-// role="model" on these events. Python sets role="user", resulting in inconsistencies
-// and breaking some model provider's APIs.
-func normalizeConfirmationEventRole(event *adksession.Event) {
-	if event == nil || event.Content == nil || len(event.Content.Parts) == 0 {
-		return
-	}
-	if event.Content.Role != string(genai.RoleModel) {
-		return
-	}
-	// Check if ALL parts are adk_request_confirmation functionCalls.
-	for _, part := range event.Content.Parts {
-		if part.FunctionCall == nil || part.FunctionCall.Name != "adk_request_confirmation" {
-			return
-		}
-	}
-	event.Content.Role = string(genai.RoleUser)
 }
 
 // unwrapEventJSON handles the two wire formats the backend may use:
