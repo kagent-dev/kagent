@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -113,6 +115,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		}
 	}
 	sessionID := reqCtx.ContextID
+
+	ctx = withBearerToken(ctx)
 
 	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
@@ -406,6 +410,28 @@ func extractSessionName(message *a2atype.Message) string {
 		}
 	}
 	return ""
+}
+
+// withBearerToken extracts the Bearer token from the incoming A2A request's
+// Authorization header and stores it in ctx for API key passthrough.
+func withBearerToken(ctx context.Context) context.Context {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ctx
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ctx
+	}
+	vals, ok := meta.Get("authorization")
+	if !ok || len(vals) == 0 || vals[0] == "" {
+		return ctx
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return context.WithValue(ctx, models.BearerTokenKey, parts[1])
+	}
+	return ctx
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision

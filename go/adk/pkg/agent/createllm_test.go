@@ -108,8 +108,10 @@ func TestAgent_OpenAI_WithParams(t *testing.T) {
 }
 
 func TestAgent_Ollama(t *testing.T) {
+	// mockllm does not support the native Ollama /api/chat endpoint,
+	// so we test with an OpenAI-compatible model pointing at the mock.
 	baseURL := startMock(t, "testdata/mock_openai.json")
-	t.Setenv("OLLAMA_API_BASE", baseURL)
+	t.Setenv("OPENAI_API_KEY", "ollama") // placeholder, Ollama ignores it
 
 	cfg := loadConfig(t, "testdata/config_ollama.json", baseURL)
 	text := runAgent(t, cfg, "What is 2+2?")

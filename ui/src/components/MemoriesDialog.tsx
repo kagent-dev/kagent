@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { clearAgentMemory, listAgentMemories } from "@/app/actions/memories";
 import { AgentMemory } from "@/types";
+import { useUserStore } from "@/lib/userStore";
 
 interface MemoriesDialogProps {
   agentName: string;
@@ -39,6 +40,7 @@ function formatDateOnly(iso: string): string {
 }
 
 export function MemoriesDialog({ agentName, namespace, open, onOpenChange }: MemoriesDialogProps) {
+  const { userId } = useUserStore();
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,14 +50,14 @@ export function MemoriesDialog({ agentName, namespace, open, onOpenChange }: Mem
   const fetchMemories = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error: fetchError } = await listAgentMemories(agentName, namespace);
+    const { data, error: fetchError } = await listAgentMemories(agentName, namespace, userId);
     if (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Failed to load memories");
     } else {
       setMemories(data ?? []);
     }
     setLoading(false);
-  }, [agentName, namespace]);
+  }, [agentName, namespace, userId]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +67,7 @@ export function MemoriesDialog({ agentName, namespace, open, onOpenChange }: Mem
   const handleClearMemories = async () => {
     setDeleting(true);
     try {
-      const { error: deleteError } = await clearAgentMemory(agentName, namespace);
+      const { error: deleteError } = await clearAgentMemory(agentName, namespace, userId);
       if (deleteError) {
         setError(deleteError instanceof Error ? deleteError.message : "Failed to delete memories");
       } else {
