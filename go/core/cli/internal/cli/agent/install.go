@@ -20,8 +20,9 @@ import (
 )
 
 type InstallCfg struct {
-	Config  *config.Config
-	Profile string
+	Config   *config.Config
+	Profile  string
+	Provider string
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -76,16 +77,28 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 		return nil
 	}
 
+	// --provider flag takes precedence over KAGENT_DEFAULT_MODEL_PROVIDER env var
+	if cfg.Provider != "" {
+		if err := applyProviderFlag(cfg.Provider); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return nil
+		}
+	}
+
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	// If model provider is openai, check if the API key is set
+	// Check if the required API key is set for this provider
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
 
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
+		if cfg.Provider == "" && modelProvider == DefaultModelProvider && apiKeyName == env.OpenAIAPIKey.Name() {
+			fmt.Fprintf(os.Stderr, "Tip: use --provider to select a different LLM provider (e.g. --provider anthropic)\n")
+			fmt.Fprintf(os.Stderr, "     or set %s=%s before running install\n", env.KagentDefaultModelProvider.Name(), GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAnthropic))
+		}
 		return nil
 	}
 
@@ -120,13 +133,16 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	// if model provider is openai, check if the api key is set
+	// Check if the required API key is set for this provider
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
 
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
+		fmt.Fprintf(os.Stderr, "Tip: set %s to select a different provider (e.g. %s=%s)\n",
+			env.KagentDefaultModelProvider.Name(), env.KagentDefaultModelProvider.Name(),
+			GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAnthropic))
 		return nil
 	}
 

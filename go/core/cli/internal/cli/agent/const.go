@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -62,4 +63,26 @@ func GetEnvVarWithDefault(envVar, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// ValidProviders returns the accepted --provider flag values (helm key format).
+func ValidProviders() []string {
+	return []string{
+		GetModelProviderHelmValuesKey(v1alpha2.ModelProviderOpenAI),
+		GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAnthropic),
+		GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAzureOpenAI),
+		GetModelProviderHelmValuesKey(v1alpha2.ModelProviderOllama),
+	}
+}
+
+// applyProviderFlag validates the --provider value and sets KAGENT_DEFAULT_MODEL_PROVIDER so
+// that GetModelProvider() picks it up. This lets users avoid setting the env var manually.
+func applyProviderFlag(provider string) error {
+	valid := ValidProviders()
+	for _, v := range valid {
+		if provider == v {
+			return os.Setenv(env.KagentDefaultModelProvider.Name(), provider)
+		}
+	}
+	return fmt.Errorf("unknown provider %q: valid values: %s", provider, strings.Join(valid, ", "))
 }
