@@ -1,7 +1,8 @@
 {
   "model": {
-    "type": "ollama",
-    "model": "llama3.2"
+    "type": "openai",
+    "model": "llama3.2",
+    "base_url": "{{BASE_URL}}/v1"
   },
   "description": "test",
   "instruction": "Answer concisely."
