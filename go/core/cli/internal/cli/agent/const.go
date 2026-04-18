@@ -84,5 +84,5 @@ func applyProviderFlag(provider string) error {
 			return os.Setenv(env.KagentDefaultModelProvider.Name(), provider)
 		}
 	}
-	return fmt.Errorf("unknown provider %q — valid values: %s", provider, strings.Join(valid, ", "))
+	return fmt.Errorf("unknown provider %q: valid values: %s", provider, strings.Join(valid, ", "))
 }

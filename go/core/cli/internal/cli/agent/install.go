@@ -95,7 +95,7 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
-		if cfg.Provider == "" {
+		if cfg.Provider == "" && modelProvider == DefaultModelProvider && apiKeyName == env.OpenAIAPIKey.Name() {
 			fmt.Fprintf(os.Stderr, "Tip: use --provider to select a different LLM provider (e.g. --provider anthropic)\n")
 			fmt.Fprintf(os.Stderr, "     or set %s=%s before running install\n", env.KagentDefaultModelProvider.Name(), GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAnthropic))
 		}

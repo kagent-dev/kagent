@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -64,7 +65,7 @@ func main() {
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
-	installCmd.Flags().StringVar(&installCfg.Provider, "provider", "", "LLM provider to use (openAI, anthropic, azureOpenAI, ollama). Overrides KAGENT_DEFAULT_MODEL_PROVIDER.")
+	installCmd.Flags().StringVar(&installCfg.Provider, "provider", "", fmt.Sprintf("LLM provider to use (%s). Overrides KAGENT_DEFAULT_MODEL_PROVIDER.", strings.Join(cli.ValidProviders(), ", ")))
 	_ = installCmd.RegisterFlagCompletionFunc("provider", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return cli.ValidProviders(), cobra.ShellCompDirectiveNoFileComp
 	})
