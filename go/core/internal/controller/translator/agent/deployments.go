@@ -111,7 +111,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	port := int32(8080)
 	args := []string{
 		"--host",
-		"0.0.0.0",
+		DefaultAgentBindHost,
 		"--port",
 		fmt.Sprintf("%d", port),
 		"--filepath",

@@ -155,6 +155,11 @@ controller:
     #   podLabels:
     #     team: platform
     #     environment: production
+    # -- Default host address for agent pods to bind to.
+    # Leave empty to use the controller's default fallback of "0.0.0.0".
+    # Set to "::" for dual-stack (IPv4+IPv6) support or IPv6-first clusters.
+    # @default -- "" (controller falls back to "0.0.0.0")
+    host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""
@@ -273,6 +278,53 @@ ui:
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+  # -- Custom startup probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
+  startupProbe: {}
+  # Example:
+  #   startupProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     initialDelaySeconds: 10
+  #     periodSeconds: 5
+  #     failureThreshold: 20
+  # -- Custom readiness probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=30
+  readinessProbe: {}
+  # Example:
+  #   readinessProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     periodSeconds: 15
+  # -- Custom nginx.conf content for the UI container.
+  # When set, a ConfigMap is created and mounted over /etc/nginx/nginx.conf.
+  # Use this to enable dual-stack (IPv6+IPv4) listening on IPv6-first clusters,
+  # or to customize proxy behavior.
+  # @default -- "" (uses the nginx.conf baked into the container image)
+  nginxConfig: ""
+  # -- Custom supervisord.conf content for the UI container.
+  # When set, a ConfigMap is created and mounted over /etc/supervisor/conf.d/supervisord.conf.
+  # The default config sets HOSTNAME="0.0.0.0" for the Next.js server, which only affects
+  # the internal proxy target (nginx connects via 127.0.0.1:8001), not external reachability.
+  # @default -- "" (uses the supervisord.conf baked into the container image)
+  supervisordConfig: ""
+  # Example for IPv6-first clusters:
+  #   nginxConfig: |
+  #     pid /tmp/nginx.pid;
+  #     error_log /dev/stderr;
+  #     events { worker_connections 1024; }
+  #     http {
+  #       server {
+  #         listen 8080;
+  #         listen [::]:8080;
+  #         location /health { return 200 'OK'; }
+  #         location / { proxy_pass http://127.0.0.1:8001; }
+  #       }
+  #     }
 
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
