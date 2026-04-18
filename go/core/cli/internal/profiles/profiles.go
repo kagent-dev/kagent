@@ -25,3 +25,12 @@ func GetProfileYaml(profile string) string {
 		return DemoProfileYaml
 	}
 }
+
+func InstallsDefaultModelConfig(profile string) bool {
+	switch profile {
+	case ProfileMinimal:
+		return false
+	default:
+		return true
+	}
+}

@@ -24,6 +24,24 @@ type InstallCfg struct {
 	Profile string
 }
 
+func resolveInstallProfile(profile string) string {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return ""
+	}
+
+	if slices.Contains(profiles.Profiles, profile) {
+		return profile
+	}
+
+	fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", profile)
+	return profiles.ProfileDemo
+}
+
+func shouldRequireProviderCredentials(profile string, modelProvider v1alpha2.ModelProvider) bool {
+	return profiles.InstallsDefaultModelConfig(profile) && GetProviderAPIKey(modelProvider) != ""
+}
+
 // installChart installs or upgrades a Helm chart with the given parameters
 func installChart(ctx context.Context, chartName string, namespace string, registry string, version string, setValues []string, inlineValues string) (string, error) {
 	args := []string{
@@ -78,27 +96,23 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
+	selectedProfile := resolveInstallProfile(cfg.Profile)
 
-	// If model provider is openai, check if the API key is set
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
 
-	if apiKeyName != "" && apiKeyValue == "" {
+	if shouldRequireProviderCredentials(selectedProfile, modelProvider) && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
 		return nil
 	}
 
-	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
+	helmConfig := setupHelmConfig(modelProvider, apiKeyValue, profiles.InstallsDefaultModelConfig(selectedProfile))
 
 	// setup profile if provided
-	if cfg.Profile = strings.TrimSpace(cfg.Profile); cfg.Profile != "" {
-		if !slices.Contains(profiles.Profiles, cfg.Profile) {
-			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", cfg.Profile)
-			cfg.Profile = profiles.ProfileDemo
-		}
-
-		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
+	if selectedProfile != "" {
+		cfg.Profile = selectedProfile
+		helmConfig.inlineValues = profiles.GetProfileYaml(selectedProfile)
 	}
 
 	return install(ctx, cfg.Config, helmConfig, modelProvider)
@@ -120,22 +134,19 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
 	modelProvider := GetModelProvider()
 
-	// if model provider is openai, check if the api key is set
+	// Add profile selection
+	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
+	selectedProfile := profiles.Profiles[profileIdx]
+
 	apiKeyName := GetProviderAPIKey(modelProvider)
 	apiKeyValue := os.Getenv(apiKeyName)
-
-	if apiKeyName != "" && apiKeyValue == "" {
+	if shouldRequireProviderCredentials(selectedProfile, modelProvider) && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
 		return nil
 	}
 
-	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
-
-	// Add profile selection
-	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
-	selectedProfile := profiles.Profiles[profileIdx]
-
+	helmConfig := setupHelmConfig(modelProvider, apiKeyValue, profiles.InstallsDefaultModelConfig(selectedProfile))
 	helmConfig.inlineValues = profiles.GetProfileYaml(selectedProfile)
 
 	return install(ctx, cfg, helmConfig, modelProvider)
@@ -153,12 +164,14 @@ type helmConfig struct {
 
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
-func setupHelmConfig(modelProvider v1alpha2.ModelProvider, apiKeyValue string) helmConfig {
-	// Build Helm values
-	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
-	values := []string{
-		fmt.Sprintf("providers.default=%s", helmProviderKey),
-		fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue),
+func setupHelmConfig(modelProvider v1alpha2.ModelProvider, apiKeyValue string, installDefaultModelConfig bool) helmConfig {
+	values := []string{}
+	if installDefaultModelConfig {
+		helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
+		values = append(values, fmt.Sprintf("providers.default=%s", helmProviderKey))
+		if apiKeyValue != "" {
+			values = append(values, fmt.Sprintf("providers.%s.apiKey=%s", helmProviderKey, apiKeyValue))
+		}
 	}
 
 	// allow user to set the helm registry and version

@@ -113,4 +113,12 @@ tests:
     asserts:
       - equal:
           path: metadata.namespace
-          value: custom-namespace 
+          value: custom-namespace
+
+  - it: should not render modelconfig when disabled
+    set:
+      providers:
+        createDefaultModelConfig: false
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -280,6 +280,8 @@ ui:
 # https://kagent.dev/docs/getting-started/configuring-providers
 
 providers:
+  # -- Create the default ModelConfig resource during installation.
+  createDefaultModelConfig: true
   default: openAI
   openAI:
     provider: OpenAI
