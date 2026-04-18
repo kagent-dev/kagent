@@ -13,17 +13,16 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import AliasChoices, BaseModel, Field
 
-from kagent.adk._approval import make_approval_callback
+from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._ollama import create_ollama_llm
+from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
+from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
-
-from .models import AzureOpenAI as OpenAIAzure
-from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
 
@@ -406,6 +405,7 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+        before_model_callback = strip_confirmation_parts_callback if tools_requiring_approval else None
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
@@ -416,6 +416,7 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
+            before_model_callback=before_model_callback,
         )
 
         # Configure memory if enabled
