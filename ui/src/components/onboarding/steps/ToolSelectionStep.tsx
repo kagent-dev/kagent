@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, ChevronDown, ChevronRight, FunctionSquare, Search } from 'lucide-react';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool, serverNamesMatch } from "@/lib/toolUtils";
 import type { Tool, ToolsResponse } from "@/types";
 import { Input } from "@/components/ui/input";
 
@@ -39,7 +39,11 @@ export function ToolSelectionStep({
         if (tool.type === "Agent" && tool.agent) {
             return false; // Agents don't match ToolResponse objects
         } else if (tool.type === "McpServer" && tool.mcpServer) {
-            return tool.mcpServer.name === toolResponse.server_name && 
+            // toolResponseToAgentTool stores only the name part of a k8s ref in
+            // mcpServer.name, so normalize both sides via serverNamesMatch to avoid
+            // "kagent-tool-server" vs "kagent/kagent-tool-server" mismatches that
+            // cause the controlled <Checkbox> to snap back to unchecked on every click.
+            return serverNamesMatch(tool.mcpServer.name, toolResponse.server_name ?? "") &&
                    tool.mcpServer.toolNames.includes(toolResponse.id);
         }
         return false;
