@@ -407,112 +407,103 @@ proxy:
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
 
-# ==============================================================================
-# AGENTS
-# ==============================================================================
-agents:
-  k8s-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  kgateway-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  istio-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  promql-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  observability-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  argo-rollouts-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  helm-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  cilium-policy-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  cilium-manager-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
-  cilium-debug-agent:
-    enabled: true
-    runtime: go
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        memory: 256Mi
+k8s-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+kgateway-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+istio-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+promql-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+observability-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+argo-rollouts-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+helm-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-policy-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-manager-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-debug-agent:
+  enabled: true
+  runtime: go
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS
 # ==============================================================================
 
-tools:
-  grafana-mcp:
-    enabled: true
-  querydoc:
-    enabled: true
-
 grafana-mcp:
+  enabled: true
   grafana:
     url: "grafana.kagent:3000/api"
     serviceAccountToken: ""
@@ -527,6 +518,7 @@ grafana-mcp:
       memory: 512Mi
 
 querydoc:
+  enabled: true
   replicas: 1
   image:
     registry: ghcr.io
