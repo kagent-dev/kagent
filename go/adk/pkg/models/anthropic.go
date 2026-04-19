@@ -3,9 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
@@ -15,16 +13,28 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key
+// from the bearer token in ctx when APIKeyPassthrough is enabled. The Anthropic SDK sends
+// this as the x-api-key header, which is the correct auth mechanism for Anthropic.
+func anthropicPassthroughOpts(ctx context.Context, cfg *AnthropicConfig) []option.RequestOption {
+	if !cfg.APIKeyPassthrough {
+		return nil
+	}
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		return []option.RequestOption{option.WithAPIKey(token)}
+	}
+	return nil
+}
+
 // AnthropicConfig holds Anthropic configuration
 type AnthropicConfig struct {
+	TransportConfig
 	Model       string
-	BaseUrl     string            // Optional: override API base URL
-	Headers     map[string]string // Default headers to pass to Anthropic API
+	BaseUrl     string // Optional: override API base URL
 	MaxTokens   *int
 	Temperature *float64
 	TopP        *float64
 	TopK        *int
-	Timeout     *int
 }
 
 // AnthropicModel implements model.LLM for Anthropic Claude models.
@@ -34,30 +44,14 @@ type AnthropicModel struct {
 	Logger logr.Logger
 }
 
-// createAnthropicHTTPClient creates an HTTP client with timeout and custom headers.
-// This is shared across all Anthropic model constructors to avoid duplication.
-func createAnthropicHTTPClient(config *AnthropicConfig) *http.Client {
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
-	}
-	httpClient := &http.Client{Timeout: timeout}
-
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-		}
-	}
-
-	return httpClient
-}
-
 // NewAnthropicModelWithLogger creates a new Anthropic model instance with a logger
 func NewAnthropicModelWithLogger(config *AnthropicConfig, logger logr.Logger) (*AnthropicModel, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
+	apiKey := "passthrough" // placeholder; real auth set per-request by transport
+	if !config.APIKeyPassthrough {
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
+		}
 	}
 	return newAnthropicModelFromConfig(config, apiKey, logger)
 }
@@ -72,8 +66,11 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
 
-	// Create HTTP client with timeout and custom headers
-	httpClient := createAnthropicHTTPClient(config)
+	// Create HTTP client with TLS, custom headers, and timeout.
+	httpClient, err := BuildHTTPClient(config.TransportConfig)
+	if err != nil {
+		return nil, err
+	}
 	if len(config.Headers) > 0 && logger.GetSink() != nil {
 		logger.Info("Setting default headers for Anthropic client", "headersCount", len(config.Headers))
 	}
@@ -99,8 +96,11 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 		vertex.WithGoogleAuth(ctx, region, projectID),
 	}
 
-	// Create HTTP client with timeout and custom headers
-	httpClient := createAnthropicHTTPClient(config)
+	// Create HTTP client with timeout, custom headers, TLS, and passthrough
+	httpClient, err := BuildHTTPClient(config.TransportConfig)
+	if err != nil {
+		return nil, err
+	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
@@ -127,8 +127,11 @@ func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicCo
 		),
 	}
 
-	// Create HTTP client with timeout and custom headers
-	httpClient := createAnthropicHTTPClient(config)
+	// Create HTTP client with timeout, custom headers, TLS, and passthrough
+	httpClient, err := BuildHTTPClient(config.TransportConfig)
+	if err != nil {
+		return nil, err
+	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
