@@ -64,6 +64,7 @@ func main() {
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})
+	installCmd.Flags().BoolVar(&installCfg.NoDefaultAgents, "no-default-agents", false, "Disable all default agents for a minimal installation")
 
 	uninstallCmd := &cobra.Command{
 		Use:   "uninstall",
