@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent.test:8080",
     "version": ""
@@ -69,7 +70,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent\",\"description\":\"\",\"url\":\"http://agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"http_tools\":[{\"params\":{\"url\":\"http://mcp-server.test:8080/mcp\",\"headers\":{}},\"tools\":[\"tool1\",\"tool2\"],\"allowed_headers\":[\"x-user-email\",\"x-tenant-id\"]}],\"stream\":false}"
       }
     },
@@ -139,7 +140,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "3163633853400579791"
+              "kagent.dev/config-hash": "5387783918115122395"
             },
             "labels": {
               "app": "kagent",

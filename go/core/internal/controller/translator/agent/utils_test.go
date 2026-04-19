@@ -3,7 +3,9 @@ package agent_test
 import (
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 
@@ -110,9 +112,8 @@ func TestGetA2AAgentCard(t *testing.T) {
 			assert.Equal(t, tt.wantSkills, card.Skills)
 			assert.Equal(t, []string{"text"}, card.DefaultInputModes)
 			assert.Equal(t, []string{"text"}, card.DefaultOutputModes)
-			if assert.NotNil(t, card.PreferredTransport) {
-				assert.Equal(t, "JSONRPC", *card.PreferredTransport)
-			}
+			require.NotNil(t, card.PreferredTransport)
+			assert.Equal(t, string(a2atype.TransportProtocolJSONRPC), *card.PreferredTransport)
 			assert.True(t, *card.Capabilities.Streaming)
 			assert.False(t, *card.Capabilities.PushNotifications)
 			assert.True(t, *card.Capabilities.StateTransitionHistory)
