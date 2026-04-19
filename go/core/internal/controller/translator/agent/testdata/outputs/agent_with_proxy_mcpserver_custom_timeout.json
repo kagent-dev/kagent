@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent_with_proxy_mcpserver_timeout",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent-with-proxy-mcpserver-timeout.test:8080",
     "version": ""
@@ -67,7 +68,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_proxy_mcpserver_timeout\",\"description\":\"\",\"url\":\"http://agent-with-proxy-mcpserver-timeout.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent_with_proxy_mcpserver_timeout\",\"description\":\"\",\"url\":\"http://agent-with-proxy-mcpserver-timeout.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"test-mcp-server.test\"},\"timeout\":60},\"tools\":[\"test-tool\"]}],\"stream\":false}"
       }
     },
@@ -137,7 +138,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "7842483727446387727"
+              "kagent.dev/config-hash": "7011830610500130414"
             },
             "labels": {
               "app": "kagent",
