@@ -8,6 +8,7 @@ metadata:
 spec:
   description: An Kubernetes Expert AI Agent specializing in cluster operations, troubleshooting, and maintenance.
   type: Declarative
+  runtime: {{ .Values.runtime | default "python" }}
   declarative:
     systemMessage: |
       # Kubernetes AI Agent System Prompt

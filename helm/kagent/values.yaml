@@ -383,11 +383,10 @@ kagent-tools:
   replicaCount: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m
+      memory: 128Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      memory: 256Mi
   tools:
     loglevel: "debug"
     metrics:
@@ -414,94 +413,94 @@ proxy:
 agents:
   k8s-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   kgateway-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   istio-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   promql-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   observability-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   argo-rollouts-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   helm-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   cilium-policy-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   cilium-manager-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
   cilium-debug-agent:
     enabled: true
+    runtime: go
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS

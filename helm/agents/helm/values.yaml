@@ -1,6 +1,8 @@
+# -- Configure the runtime for the agent. Defaults to python, but can also be configured as go.
+runtime: ""
+
 modelConfigRef: ""
 imagePullSecrets: []
-
 
 resources:
   requests:
@@ -9,3 +11,4 @@ resources:
   limits:
     cpu: 1000m
     memory: 1Gi
+
