@@ -65,7 +65,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
 
-  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  type SelectedModelType = ModelConfig;
 
   interface FormState {
     name: string;
@@ -194,10 +194,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   systemPrompt: decl?.systemMessage || "",
                   promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
                   selectedTools: (decl?.tools && agentResponse.tools) ? agentResponse.tools : [],
-                  selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
+                  selectedModel: agentResponse.modelConfigRef ? { ref: agentResponse.modelConfigRef, spec: { model: agentResponse.model || "", provider: "" } } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
                   stream: decl?.stream ?? false,
-                  selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
+                  selectedMemoryModel: memoryModelConfig ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
                   contextConfig: decl?.context,
                   serviceAccountName: decl?.deployment?.serviceAccountName || "",
@@ -557,7 +557,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       allModels={models}
                       selectedModel={state.selectedModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
+                        setState(prev => ({ ...prev, selectedModel: model as ModelConfig | null }));
                       }}
                       error={state.errors.model}
                       isSubmitting={state.isSubmitting || state.isLoading}
@@ -790,8 +790,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       allModels={models}
                       selectedModel={state.selectedMemoryModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedMemoryModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
-                        validateField("memoryModel", (model as Pick<ModelConfig, 'ref' | 'model'> | null)?.ref || "");
+                        setState(prev => ({ ...prev, selectedMemoryModel: model as ModelConfig | null }));
+                        validateField("memoryModel", (model as ModelConfig | null)?.ref || "");
                       }}
                       agentNamespace={state.namespace}
                       ttlDays={state.memoryTtlDays}
