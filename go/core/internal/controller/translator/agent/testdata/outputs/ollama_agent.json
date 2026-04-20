@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "ollama_agent",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://ollama-agent.test:8080",
     "version": ""
@@ -60,7 +61,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"ollama\",\"model\":\"llama3.2:latest\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"}},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"stream\":false}"
       }
     },
@@ -130,7 +131,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "6821530982436445347"
+              "kagent.dev/config-hash": "1298797653455180865"
             },
             "labels": {
               "app": "kagent",

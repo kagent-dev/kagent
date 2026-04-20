@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent_with_configmap_system_message",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent-with-configmap-system-message.test:8080",
     "version": ""
@@ -53,7 +54,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_configmap_system_message\",\"description\":\"\",\"url\":\"http://agent-with-configmap-system-message.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent_with_configmap_system_message\",\"description\":\"\",\"url\":\"http://agent-with-configmap-system-message.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"Speak in the style of Shakespeare.\",\"stream\":false}"
       }
     },
@@ -123,7 +124,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "15254651913286798412"
+              "kagent.dev/config-hash": "6732733949178246074"
             },
             "labels": {
               "app": "kagent",
