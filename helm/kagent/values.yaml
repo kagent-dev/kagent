@@ -180,13 +180,14 @@ controller:
   #  - watch-ns-1
   #  - watch-ns-2
 
-  podAnnotations: {}
-
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+
+  # -- Annotations to add to the controller pod. Falls back to the global podAnnotations when unset or empty.
+  podAnnotations: {}
 
   image:
     registry: ""
@@ -251,6 +252,8 @@ ui:
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  # -- Annotations to add to the UI pod. Falls back to the global podAnnotations when unset or empty.
+  podAnnotations: {}
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -270,8 +273,6 @@ ui:
   #   - ALL
   # runAsNonRoot: true
   # runAsUser: 1000
-
-  podAnnotations: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []

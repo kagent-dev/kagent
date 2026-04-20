@@ -126,3 +126,16 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: ui.podAnnotations should take precedence over global podAnnotations
+    template: ui-deployment.yaml
+    set:
+      podAnnotations:
+        custom/annotation: "global"
+      ui:
+        podAnnotations:
+          custom/annotation: "ui"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["custom/annotation"]
+          value: "ui"

@@ -420,3 +420,16 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
+
+  - it: controller.podAnnotations should take precedence over global podAnnotations
+    template: controller-deployment.yaml
+    set:
+      podAnnotations:
+        custom/annotation: "global"
+      controller:
+        podAnnotations:
+          custom/annotation: "controller"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["custom/annotation"]
+          value: "controller"
