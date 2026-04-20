@@ -75,6 +75,29 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
 
+  - it: should set podAnnotations
+    template: ui-deployment.yaml
+    set:
+      ui:
+        podAnnotations:
+          role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
+
+  - it: should fallback to top-level podAnnotations
+    template: ui-deployment.yaml
+    set:
+      podAnnotations:
+        role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
+
   - it: should set nodeSelector
     set:
       ui:

@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,14 +45,15 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 		name  string
 		agent *v1alpha2.Agent
 		// assertions
-		wantSkillsInit      bool
-		wantSkillsVolume    bool
-		wantContainsBranch  string
-		wantContainsCommit  string
-		wantContainsPath    string
-		wantContainsKrane   bool
-		wantAuthVolume      bool
-		wantSSHKeyscanHosts []string // substrings expected in the ssh-keyscan lines
+		wantSkillsInit     bool
+		wantSkillsVolume   bool
+		wantContainsBranch string
+		wantContainsCommit string
+		wantContainsPath   string
+		wantContainsKrane  bool
+		wantAuthVolume     bool
+		wantAuthSecretName string
+		wantScriptContains []string
 	}{
 		{
 			name: "no skills - no init containers",
@@ -214,14 +214,18 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 					},
 				},
 			},
-			wantSkillsInit:   true,
-			wantSkillsVolume: true,
-			wantAuthVolume:   true,
+			wantSkillsInit:     true,
+			wantSkillsVolume:   true,
+			wantAuthVolume:     true,
+			wantAuthSecretName: "github-token",
+			wantScriptContains: []string{
+				"credential.helper",
+			},
 		},
 		{
 			name: "git skills with SSH URL and auth secret scans custom host",
 			agent: &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "agent-ssh", Namespace: namespace},
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-ssh-auth", Namespace: namespace},
 				Spec: v1alpha2.AgentSpec{
 					Type: v1alpha2.AgentType_Declarative,
 					Declarative: &v1alpha2.DeclarativeAgentSpec{
@@ -234,17 +238,22 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 						},
 						GitRefs: []v1alpha2.GitRepo{
 							{
-								URL: "ssh://git@gitea-ssh.gitea:22/gitops/ssh-skills-repo.git",
-								Ref: "main",
+								URL:  "ssh://git@gitea-ssh.gitea:22/gitops/ssh-skills-repo.git",
+								Ref:  "main",
+								Name: "ssh-skill",
 							},
 						},
 					},
 				},
 			},
-			wantSkillsInit:      true,
-			wantSkillsVolume:    true,
-			wantAuthVolume:      true,
-			wantSSHKeyscanHosts: []string{"gitea-ssh.gitea"},
+			wantSkillsInit:     true,
+			wantSkillsVolume:   true,
+			wantAuthVolume:     true,
+			wantAuthSecretName: "gitea-ssh-credentials",
+			wantScriptContains: []string{
+				"ssh-keyscan",
+				"gitea-ssh.gitea",
+			},
 		},
 		{
 			name: "git skill with custom name",
@@ -354,6 +363,10 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 					assert.Contains(t, script, "krane export")
 				}
 
+				for _, want := range tt.wantScriptContains {
+					assert.Contains(t, script, want)
+				}
+
 				// Verify /skills volume mount exists
 				hasSkillsMount := false
 				for _, vm := range skillsInitContainer.VolumeMounts {
@@ -389,7 +402,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				for _, v := range deployment.Spec.Template.Spec.Volumes {
 					if v.Secret != nil && v.Name == "git-auth" {
 						hasAuthVolume = true
-						assert.Equal(t, tt.agent.Spec.Skills.GitAuthSecretRef.Name, v.Secret.SecretName, "auth volume should reference the correct secret")
+						assert.Equal(t, tt.wantAuthSecretName, v.Secret.SecretName, "auth volume should reference the correct secret")
 					}
 				}
 				assert.True(t, hasAuthVolume, "git-auth volume should exist")
@@ -403,20 +416,6 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 					}
 				}
 				assert.True(t, hasAuthMount, "skills-init container should mount auth secret")
-
-				// Verify script contains credential helper setup
-				script := skillsInitContainer.Command[2]
-				assert.Contains(t, script, "credential.helper")
-			}
-
-			// Verify custom SSH hosts are scanned
-			if len(tt.wantSSHKeyscanHosts) > 0 {
-				require.NotNil(t, skillsInitContainer)
-				script := skillsInitContainer.Command[2]
-				for _, host := range tt.wantSSHKeyscanHosts {
-					expected := fmt.Sprintf("ssh-keyscan %s", host)
-					assert.Contains(t, script, expected, "script should ssh-keyscan custom host %q", host)
-				}
 			}
 
 			// Verify insecure flag for OCI skills

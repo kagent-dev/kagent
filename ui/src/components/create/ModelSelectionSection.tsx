@@ -75,7 +75,7 @@ export const ModelSelectionSection = ({
                 className={!selectable ? "opacity-50 cursor-not-allowed" : ""}
               >
                 <div className="flex flex-col">
-                  <span>{model.model} ({model.ref})</span>
+                  <span>{model.spec.model} ({model.ref})</span>
                   {isDifferentNamespace && (
                     <span className="text-xs text-muted-foreground">
                       Change agent namespace to &quot;{modelNamespace}&quot; to use this model
