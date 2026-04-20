@@ -410,21 +410,23 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
 	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
 
+	clientOpts := client.Options{}
+	if len(watchNamespacesList) > 0 {
+		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
+		// resources, so prevent the cached client from starting a cluster-scoped
+		// Namespace informer whose list/watch would keep crashing.
+		clientOpts.Cache = &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Namespace{}},
+		}
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
-		Client: client.Options{
-			Cache: &client.CacheOptions{
-				// Prevent the cached client from starting a cluster-scoped
-				// Namespace informer. In namespaced RBAC mode a Role cannot
-				// grant access to cluster-scoped resources, so an informer
-				// list/watch would keep crashing and cannot be handled.
-				DisableFor: []client.Object{&corev1.Namespace{}},
-			},
-		},
+		Client:                 clientOpts,
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
