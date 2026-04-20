@@ -4,5 +4,5 @@ version = "0.1"
 description = "Kebab agent"
 readme = "README.md"
 dependencies = [
-  "google-adk>=1.8.0",
+  "google-adk>=1.28.1",
 ]

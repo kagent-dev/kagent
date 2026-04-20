@@ -77,6 +77,7 @@ RUN --mount=type=cache,target=/root/.npm \
     cd opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
+    npm pkg set overrides.lodash-es=4.18.0 && \
     npm install && \
     npm run build && \
     # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev

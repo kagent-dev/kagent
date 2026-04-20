@@ -75,7 +75,7 @@ jobs:
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
+          image-ref: ${{ matrix.image == 'golang-adk-full' && format('localhost:5001/kagent-dev/kagent/golang-adk:{0}-full', steps.vars.outputs.version) || format('localhost:5001/kagent-dev/kagent/{0}:{1}', matrix.image, steps.vars.outputs.version) }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
