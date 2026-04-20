@@ -297,7 +297,7 @@ providers:
 
   anthropic:
     provider: Anthropic
-    model: "claude-3-5-haiku-20241022"
+    model: "claude-haiku-4-5"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
