@@ -10,7 +10,7 @@ dependencies = [
     "langchain-core>=0.3.0",
     "langchain-openai>=0.3.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
-    "langsmith[otel]>=0.4.30",
+    "langsmith[otel]>=0.7.33",
 ]
 
 [build-system]
