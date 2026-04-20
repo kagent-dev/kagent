@@ -60,15 +60,26 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		if config.Spec.Ollama != nil {
 			FlattenStructToMap(config.Spec.Ollama, modelParams)
 		}
+		if config.Spec.GeminiVertexAI != nil {
+			FlattenStructToMap(config.Spec.GeminiVertexAI, modelParams)
+		}
+		if config.Spec.AnthropicVertexAI != nil {
+			FlattenStructToMap(config.Spec.AnthropicVertexAI, modelParams)
+		}
+		if config.Spec.Bedrock != nil {
+			FlattenStructToMap(config.Spec.Bedrock, modelParams)
+		}
 
 		responseItem := api.ModelConfigResponse{
-			Ref:             common.GetObjectRef(&config),
-			ProviderName:    string(config.Spec.Provider),
-			Model:           config.Spec.Model,
-			APIKeySecret:    config.Spec.APIKeySecret,
-			APIKeySecretKey: config.Spec.APIKeySecretKey,
-			ModelParams:     modelParams,
-			TLS:             config.Spec.TLS,
+			Ref:               common.GetObjectRef(&config),
+			ProviderName:      string(config.Spec.Provider),
+			Model:             config.Spec.Model,
+			APIKeySecret:      config.Spec.APIKeySecret,
+			APIKeySecretKey:   config.Spec.APIKeySecretKey,
+			APIKeyPassthrough: config.Spec.APIKeyPassthrough,
+			ModelParams:       modelParams,
+			TLS:               config.Spec.TLS,
+			DefaultHeaders:    config.Spec.DefaultHeaders,
 		}
 		configs = append(configs, responseItem)
 	}
@@ -143,15 +154,26 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
+	if modelConfig.Spec.GeminiVertexAI != nil {
+		FlattenStructToMap(modelConfig.Spec.GeminiVertexAI, modelParams)
+	}
+	if modelConfig.Spec.AnthropicVertexAI != nil {
+		FlattenStructToMap(modelConfig.Spec.AnthropicVertexAI, modelParams)
+	}
+	if modelConfig.Spec.Bedrock != nil {
+		FlattenStructToMap(modelConfig.Spec.Bedrock, modelParams)
+	}
 
 	responseItem := api.ModelConfigResponse{
-		Ref:             common.GetObjectRef(modelConfig),
-		ProviderName:    string(modelConfig.Spec.Provider),
-		Model:           modelConfig.Spec.Model,
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
-		ModelParams:     modelParams,
-		TLS:             modelConfig.Spec.TLS,
+		Ref:               common.GetObjectRef(modelConfig),
+		ProviderName:      string(modelConfig.Spec.Provider),
+		Model:             modelConfig.Spec.Model,
+		APIKeySecret:      modelConfig.Spec.APIKeySecret,
+		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
+		APIKeyPassthrough: modelConfig.Spec.APIKeyPassthrough,
+		ModelParams:       modelParams,
+		TLS:               modelConfig.Spec.TLS,
+		DefaultHeaders:    modelConfig.Spec.DefaultHeaders,
 	}
 
 	log.Info("Successfully retrieved and formatted ModelConfig")
@@ -234,12 +256,17 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	// --- ModelConfig Creation First ---
 	providerTypeEnum := v1alpha2.ModelProvider(req.Provider.Type)
 	modelConfigSpec := v1alpha2.ModelConfigSpec{
-		Model:    req.Model,
-		Provider: providerTypeEnum,
+		Model:          req.Model,
+		Provider:       providerTypeEnum,
+		TLS:            req.TLS,
+		DefaultHeaders: req.DefaultHeaders,
 	}
 
-	// Set secret references if needed, but don't create secret yet
-	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
+	// Set secret references: prefer explicit secret ref, fall back to inline API key
+	if req.APIKeySecret != "" {
+		modelConfigSpec.APIKeySecret = req.APIKeySecret
+		modelConfigSpec.APIKeySecretKey = req.APIKeySecretKey
+	} else if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
 		modelConfigSpec.APIKeySecret = secretName
@@ -311,6 +338,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in create.")
 		}
+	case v1alpha2.ModelProviderBedrock:
+		if req.BedrockParams != nil {
+			modelConfig.Spec.Bedrock = req.BedrockParams
+			log.V(1).Info("Assigned Bedrock params to spec")
+		} else {
+			log.V(1).Info("No Bedrock params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -328,7 +362,8 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 	log.V(1).Info("Successfully created ModelConfig")
 
-	if providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
+	// Only create a secret when the caller provided an inline API key (not when referencing an existing secret)
+	if req.APIKeySecret == "" && providerTypeEnum != v1alpha2.ModelProviderOllama && req.APIKey != "" {
 		secretName := modelConfigRef.Name
 		secretNamespace := modelConfigRef.Namespace
 		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
@@ -419,11 +454,21 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
+	// Resolve secret ref: explicit ref from request takes precedence, otherwise keep existing
+	apiKeySecret := modelConfig.Spec.APIKeySecret
+	apiKeySecretKey := modelConfig.Spec.APIKeySecretKey
+	if req.APIKeySecret != "" {
+		apiKeySecret = req.APIKeySecret
+		apiKeySecretKey = req.APIKeySecretKey
+	}
+
 	modelConfig.Spec = v1alpha2.ModelConfigSpec{
 		Model:             req.Model,
 		Provider:          v1alpha2.ModelProvider(req.Provider.Type),
-		APIKeySecret:      modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
+		APIKeySecret:      apiKeySecret,
+		APIKeySecretKey:   apiKeySecretKey,
+		TLS:               req.TLS,
+		DefaultHeaders:    req.DefaultHeaders,
 		OpenAI:            nil,
 		Anthropic:         nil,
 		AzureOpenAI:       nil,
@@ -431,10 +476,11 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Gemini:            nil,
 		GeminiVertexAI:    nil,
 		AnthropicVertexAI: nil,
+		Bedrock:           nil,
 	}
 
-	// --- Update Secret if API Key is provided (and not Ollama) ---
-	shouldUpdateSecret := req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha2.ModelProviderOllama
+	// Update inline API key secret only when not using an explicit secret ref
+	shouldUpdateSecret := req.APIKeySecret == "" && req.APIKey != nil && *req.APIKey != "" && modelConfig.Spec.Provider != v1alpha2.ModelProviderOllama
 	if shouldUpdateSecret {
 		log.V(1).Info("Updating API key secret")
 
@@ -510,6 +556,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No AnthropicVertexAI params provided in update.")
 		}
+	case v1alpha2.ModelProviderBedrock:
+		if req.BedrockParams != nil {
+			modelConfig.Spec.Bedrock = req.BedrockParams
+			log.V(1).Info("Assigned updated Bedrock params to spec")
+		} else {
+			log.V(1).Info("No Bedrock params provided in update.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -529,22 +582,36 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	updatedParams := make(map[string]any)
 	if modelConfig.Spec.OpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.OpenAI, updatedParams)
-	} else if modelConfig.Spec.Anthropic != nil {
+	}
+	if modelConfig.Spec.Anthropic != nil {
 		FlattenStructToMap(modelConfig.Spec.Anthropic, updatedParams)
-	} else if modelConfig.Spec.AzureOpenAI != nil {
+	}
+	if modelConfig.Spec.AzureOpenAI != nil {
 		FlattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
-	} else if modelConfig.Spec.Ollama != nil {
+	}
+	if modelConfig.Spec.Ollama != nil {
 		FlattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+	}
+	if modelConfig.Spec.GeminiVertexAI != nil {
+		FlattenStructToMap(modelConfig.Spec.GeminiVertexAI, updatedParams)
+	}
+	if modelConfig.Spec.AnthropicVertexAI != nil {
+		FlattenStructToMap(modelConfig.Spec.AnthropicVertexAI, updatedParams)
+	}
+	if modelConfig.Spec.Bedrock != nil {
+		FlattenStructToMap(modelConfig.Spec.Bedrock, updatedParams)
 	}
 
 	responseItem := api.ModelConfigResponse{
-		Ref:             common.GetObjectRef(modelConfig),
-		ProviderName:    string(modelConfig.Spec.Provider),
-		APIKeySecret:    modelConfig.Spec.APIKeySecret,
-		APIKeySecretKey: modelConfig.Spec.APIKeySecretKey,
-		Model:           modelConfig.Spec.Model,
-		ModelParams:     updatedParams,
-		TLS:             modelConfig.Spec.TLS,
+		Ref:               common.GetObjectRef(modelConfig),
+		ProviderName:      string(modelConfig.Spec.Provider),
+		APIKeySecret:      modelConfig.Spec.APIKeySecret,
+		APIKeySecretKey:   modelConfig.Spec.APIKeySecretKey,
+		APIKeyPassthrough: modelConfig.Spec.APIKeyPassthrough,
+		Model:             modelConfig.Spec.Model,
+		ModelParams:       updatedParams,
+		TLS:               modelConfig.Spec.TLS,
+		DefaultHeaders:    modelConfig.Spec.DefaultHeaders,
 	}
 
 	log.V(1).Info("Successfully updated ModelConfig")

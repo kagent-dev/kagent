@@ -44,13 +44,15 @@ type VersionResponse struct {
 
 // ModelConfigResponse represents a model configuration response
 type ModelConfigResponse struct {
-	Ref             string              `json:"ref"`
-	ProviderName    string              `json:"providerName"`
-	Model           string              `json:"model"`
-	APIKeySecret    string              `json:"apiKeySecret"`
-	APIKeySecretKey string              `json:"apiKeySecretKey"`
-	ModelParams     map[string]any      `json:"modelParams"`
-	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
+	Ref               string              `json:"ref"`
+	ProviderName      string              `json:"providerName"`
+	Model             string              `json:"model"`
+	APIKeySecret      string              `json:"apiKeySecret"`
+	APIKeySecretKey   string              `json:"apiKeySecretKey"`
+	APIKeyPassthrough bool                `json:"apiKeyPassthrough,omitempty"`
+	ModelParams       map[string]any      `json:"modelParams"`
+	TLS               *v1alpha2.TLSConfig `json:"tls,omitempty"`
+	DefaultHeaders    map[string]string   `json:"defaultHeaders,omitempty"`
 }
 
 // CreateModelConfigRequest represents a request to create a model configuration
@@ -58,7 +60,11 @@ type CreateModelConfigRequest struct {
 	Ref                     string                            `json:"ref"`
 	Provider                Provider                          `json:"provider"`
 	Model                   string                            `json:"model"`
-	APIKey                  string                            `json:"apiKey"`
+	APIKey                  string                            `json:"apiKey,omitempty"`
+	APIKeySecret            string                            `json:"apiKeySecret,omitempty"`
+	APIKeySecretKey         string                            `json:"apiKeySecretKey,omitempty"`
+	TLS                     *v1alpha2.TLSConfig               `json:"tls,omitempty"`
+	DefaultHeaders          map[string]string                 `json:"defaultHeaders,omitempty"`
 	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
 	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
 	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
@@ -66,6 +72,7 @@ type CreateModelConfigRequest struct {
 	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
 	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
 	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	BedrockParams           *v1alpha2.BedrockConfig           `json:"bedrock,omitempty"`
 }
 
 // UpdateModelConfigRequest represents a request to update a model configuration
@@ -73,6 +80,10 @@ type UpdateModelConfigRequest struct {
 	Provider                Provider                          `json:"provider"`
 	Model                   string                            `json:"model"`
 	APIKey                  *string                           `json:"apiKey,omitempty"`
+	APIKeySecret            string                            `json:"apiKeySecret,omitempty"`
+	APIKeySecretKey         string                            `json:"apiKeySecretKey,omitempty"`
+	TLS                     *v1alpha2.TLSConfig               `json:"tls,omitempty"`
+	DefaultHeaders          map[string]string                 `json:"defaultHeaders,omitempty"`
 	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
 	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
 	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
@@ -80,6 +91,7 @@ type UpdateModelConfigRequest struct {
 	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
 	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
 	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	BedrockParams           *v1alpha2.BedrockConfig           `json:"bedrock,omitempty"`
 }
 
 // Agent types
