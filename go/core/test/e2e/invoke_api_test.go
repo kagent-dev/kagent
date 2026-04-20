@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
@@ -82,6 +83,8 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 		require.NoError(t, err)
 	}
 	err = corev1.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = appsv1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	cli, err := client.New(cfg, client.Options{
@@ -1143,6 +1146,66 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
+	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+}
+
+func TestE2ESkillImagePullSecrets(t *testing.T) {
+	// Setup mock server
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_skill.json")
+	defer stopServer()
+
+	// Setup Kubernetes client
+	cli := setupK8sClient(t, false)
+
+	// Create a dummy dockerconfigjson secret.
+	// The kind-registry is unauthenticated, so credentials don't matter —
+	// we're testing that the controller wires up the docker-auth-init container.
+	dockerConfigJSON := `{"auths":{"kind-registry:5000":{"username":"user","password":"pass","auth":"dXNlcjpwYXNz"}}}`
+	pullSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "test-pull-secret-",
+			Namespace:    "kagent",
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			corev1.DockerConfigJsonKey: []byte(dockerConfigJSON),
+		},
+	}
+	require.NoError(t, cli.Create(t.Context(), pullSecret))
+	cleanup(t, cli, pullSecret)
+
+	// Setup model config and agent with imagePullSecrets
+	modelCfg := setupModelConfig(t, cli, baseURL)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		Skills: &v1alpha2.SkillForAgent{
+			InsecureSkipVerify: true,
+			Refs:               []string{"kind-registry:5000/kebab-maker:latest"},
+			ImagePullSecrets: []corev1.LocalObjectReference{
+				{Name: pullSecret.Name},
+			},
+		},
+	})
+
+	// Verify the Deployment has the docker-auth-init init container
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: agent.Name, Namespace: agent.Namespace}, deployment))
+	initContainers := deployment.Spec.Template.Spec.InitContainers
+	require.Len(t, initContainers, 2, "expected docker-auth-init + skills-init init containers")
+	require.Equal(t, "docker-auth-init", initContainers[0].Name)
+	require.Equal(t, "skills-init", initContainers[1].Name)
+
+	// Verify docker-auth-init mounts all pull secrets
+	var foundSecretMount bool
+	for _, vol := range initContainers[0].VolumeMounts {
+		if strings.Contains(vol.Name, "pull-secret") {
+			foundSecretMount = true
+			break
+		}
+	}
+	require.True(t, foundSecretMount, "docker-auth-init should mount the pull secret volume")
+
+	// Verify the agent works end-to-end with the skill
+	a2aClient := setupA2AClient(t, agent)
 	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
 }
 

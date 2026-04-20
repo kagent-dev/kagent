@@ -1324,6 +1324,9 @@ func prepareSkillsInitData(
 // buildSkillsInitContainer creates the unified init container and associated volumes
 // for fetching skills from both Git repositories and OCI registries.
 // If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
+// If imagePullSecrets is non-empty, a docker-auth-init container is prepended that merges
+// all kubernetes.io/dockerconfigjson secrets into /.kagent/.docker/config.json; krane
+// reads the directory via the DOCKER_CONFIG env var and uses those credentials automatically.
 func buildSkillsInitContainer(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
@@ -1332,14 +1335,15 @@ func buildSkillsInitContainer(
 	securityContext *corev1.SecurityContext,
 	env []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
-) (container corev1.Container, volumes []corev1.Volume, err error) {
+	imagePullSecrets []corev1.LocalObjectReference,
+) (containers []corev1.Container, volumes []corev1.Volume, err error) {
 	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	script, err := buildSkillsScript(data)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	initSecCtx := securityContext
 	if initSecCtx != nil {
@@ -1367,7 +1371,57 @@ func buildSkillsInitContainer(
 		})
 	}
 
-	container = corev1.Container{
+	// If imagePullSecrets are specified, build a docker-auth-init container that merges all
+	// kubernetes.io/dockerconfigjson secrets into a single config.json using jq, then mount
+	// the result into the skills-init container so krane can authenticate to private registries.
+	if len(imagePullSecrets) > 0 {
+		// Shared EmptyDir volume for the merged Docker config.
+		volumes = append(volumes, corev1.Volume{
+			Name: "kagent-docker-config",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+
+		// Mount each imagePullSecret as a read-only directory under /docker-secrets/<name>.
+		authInitVolumeMounts := []corev1.VolumeMount{
+			{Name: "kagent-docker-config", MountPath: "/docker-config-out"},
+		}
+		for _, secret := range imagePullSecrets {
+			volName := "pull-secret-" + secret.Name
+			volumes = append(volumes, corev1.Volume{
+				Name: volName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: secret.Name,
+					},
+				},
+			})
+			authInitVolumeMounts = append(authInitVolumeMounts, corev1.VolumeMount{
+				Name:      volName,
+				MountPath: "/docker-secrets/" + secret.Name,
+				ReadOnly:  true,
+			})
+		}
+
+		mergeScript := buildDockerAuthMergeScript(imagePullSecrets)
+		dockerAuthInitContainer := corev1.Container{
+			Name:         "docker-auth-init",
+			Image:        DefaultSkillsInitImageConfig.Image(),
+			Command:      []string{"/bin/sh", "-c", mergeScript},
+			VolumeMounts: authInitVolumeMounts,
+		}
+		containers = append(containers, dockerAuthInitContainer)
+
+		// Mount the merged config into skills-init so krane picks it up via DOCKER_CONFIG.
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "kagent-docker-config",
+			MountPath: "/.kagent/.docker",
+			ReadOnly:  true,
+		})
+	}
+
+	skillsInitContainer := corev1.Container{
 		Name:            "skills-init",
 		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
@@ -1377,7 +1431,36 @@ func buildSkillsInitContainer(
 		Resources:       resources,
 	}
 
-	return container, volumes, nil
+	// If a merged Docker config is available, point krane to it via DOCKER_CONFIG.
+	if len(imagePullSecrets) > 0 {
+		skillsInitContainer.Env = append(skillsInitContainer.Env, corev1.EnvVar{
+			Name:  "DOCKER_CONFIG",
+			Value: "/.kagent/.docker",
+		})
+	}
+
+	containers = append(containers, skillsInitContainer)
+	return containers, volumes, nil
+}
+
+// buildDockerAuthMergeScript generates a shell script that merges the .auths sections from
+// all kubernetes.io/dockerconfigjson secrets (mounted under /docker-secrets/<name>/) into a
+// single Docker config.json at /docker-config-out/config.json using jq.
+func buildDockerAuthMergeScript(imagePullSecrets []corev1.LocalObjectReference) string {
+	var sb strings.Builder
+	sb.WriteString(`set -e
+mkdir -p /docker-config-out
+merged='{"auths":{}}'
+`)
+	for _, secret := range imagePullSecrets {
+		sb.WriteString(`if [ -f /docker-secrets/` + secret.Name + `/.dockerconfigjson ]; then
+  merged="$(printf '%s\n%s\n' "$merged" "$(cat /docker-secrets/` + secret.Name + `/.dockerconfigjson)" | jq -s '.[0].auths * .[1].auths | {"auths": .}')"
+fi
+`)
+	}
+	sb.WriteString(`printf '%s' "$merged" > /docker-config-out/config.json
+`)
+	return sb.String()
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {
