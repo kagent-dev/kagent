@@ -1,6 +1,6 @@
 # Kagent Go
 
-This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing three packages that make up the Go components of Kagent.
+This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing three top-level package trees that make up the Go components of Kagent.
 
 ## Packages
 
