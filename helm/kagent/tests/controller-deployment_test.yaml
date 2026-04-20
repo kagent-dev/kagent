@@ -192,6 +192,29 @@ tests:
           path: data.WATCH_NAMESPACES
           value: "namespace-1,namespace-2"
 
+  - it: should set podAnnotations
+    template: controller-deployment.yaml
+    set:
+      controller:
+        podAnnotations:
+          role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
+
+  - it: should fallback to top-level podAnnotations
+    template: controller-deployment.yaml
+    set:
+      podAnnotations:
+        role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
+
   - it: should set nodeSelector
     template: controller-deployment.yaml
     set:
@@ -397,4 +420,3 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
-
