@@ -87,7 +87,7 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "chromatic": "^16.2.0",
     "cypress": "^15.13.1",
-    "eslint": "^9.39.2",
+    "eslint": "^10.2.1",
     "eslint-config-next": "16.2.3",
     "eslint-plugin-storybook": "^10.3.5",
     "jest": "^30.2.0",
