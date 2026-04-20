@@ -42,44 +42,24 @@ type VersionResponse struct {
 	BuildDate     string `json:"build_date"`
 }
 
-// ModelConfigResponse represents a model configuration response
-type ModelConfigResponse struct {
-	Ref             string              `json:"ref"`
-	ProviderName    string              `json:"providerName"`
-	Model           string              `json:"model"`
-	APIKeySecret    string              `json:"apiKeySecret"`
-	APIKeySecretKey string              `json:"apiKeySecretKey"`
-	ModelParams     map[string]any      `json:"modelParams"`
-	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
+// ModelConfigResource is the HTTP response for a ModelConfig: ref + raw CRD spec/status.
+type ModelConfigResource struct {
+	Ref    string                     `json:"ref"`
+	Spec   v1alpha2.ModelConfigSpec   `json:"spec"`
+	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
 }
 
-// CreateModelConfigRequest represents a request to create a model configuration
+// CreateModelConfigRequest is a thin wrapper: ref + optional inline apiKey + full CRD spec.
 type CreateModelConfigRequest struct {
-	Ref                     string                            `json:"ref"`
-	Provider                Provider                          `json:"provider"`
-	Model                   string                            `json:"model"`
-	APIKey                  string                            `json:"apiKey"`
-	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
-	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	Ref    string                   `json:"ref"`
+	APIKey string                   `json:"apiKey,omitempty"`
+	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
-// UpdateModelConfigRequest represents a request to update a model configuration
+// UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
-	Provider                Provider                          `json:"provider"`
-	Model                   string                            `json:"model"`
-	APIKey                  *string                           `json:"apiKey,omitempty"`
-	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
-	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	APIKey *string                  `json:"apiKey,omitempty"`
+	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
 // Agent types

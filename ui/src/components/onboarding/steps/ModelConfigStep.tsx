@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import type { CreateModelConfigRequest, ModelConfig, Provider, ProviderModelsResponse } from '@/types';
+import type { CreateModelConfigRequest, ModelConfig, ModelConfigSpec, Provider, ProviderModelsResponse } from '@/types';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -178,30 +178,32 @@ export function ModelConfigStep({
             return;
         }
         const providerInfo = PROVIDERS_INFO[values.providerName];
-        const payload: CreateModelConfigRequest = {
-            ref: k8sRefUtils.toRef(values.configNamespace || "", values.configName),
-            provider: { name: providerInfo.name, type: providerInfo.type },
+        const spec: ModelConfigSpec = {
             model: values.modelName,
-            apiKey: values.apiKey || "",
+            provider: providerInfo.type,
         };
         switch (values.providerName) {
             case 'AzureOpenAI':
-                payload.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
-            case 'OpenAI': payload.openAI = {}; break;
-            case 'Anthropic': payload.anthropic = {}; break;
-            case 'Gemini': payload.gemini = {}; break;
-            case 'GeminiVertexAI': payload.geminiVertexAI = {}; break;
-            case 'AnthropicVertexAI': payload.anthropicVertexAI = {}; break;
-            case 'Ollama':
+                spec.azureOpenAI = { azureEndpoint: values.azureEndpoint || "", apiVersion: values.azureApiVersion || "" }; break;
+            case 'OpenAI': spec.openAI = {}; break;
+            case 'Anthropic': spec.anthropic = {}; break;
+            case 'Gemini': spec.gemini = {}; break;
+            case 'GeminiVertexAI': spec.geminiVertexAI = {}; break;
+            case 'AnthropicVertexAI': spec.anthropicVertexAI = {}; break;
+            case 'Ollama': {
                 const modelTag = values.modelTag?.trim() || "";
                 if (modelTag && modelTag !== OLLAMA_DEFAULT_TAG) {
-                    payload.model = `${values.modelName}:${modelTag}`;
+                    spec.model = `${values.modelName}:${modelTag}`;
                 }
-                payload.ollama = {
-                    host: values.ollamaBaseUrl || "",
-                };
-            break;
+                spec.ollama = { host: values.ollamaBaseUrl || "" };
+                break;
+            }
         }
+        const payload: CreateModelConfigRequest = {
+            ref: k8sRefUtils.toRef(values.configNamespace || "", values.configName),
+            apiKey: values.apiKey || undefined,
+            spec,
+        };
 
         try {
             const result = await createModelConfig(payload);
@@ -223,7 +225,7 @@ export function ModelConfigStep({
     function onSubmitStep1Select(values: SelectModelFormData) {
         const selectedModel = existingModels?.find(m => m.ref === values.selectedModelName);
         if (selectedModel) {
-            onNext(selectedModel.ref, selectedModel.model); // Pass data to parent
+            onNext(selectedModel.ref, selectedModel.spec.model); // Pass data to parent
         } else {
             toast.error("Selected model configuration not found. Please try again.");
         }
@@ -286,7 +288,7 @@ export function ModelConfigStep({
                                             <SelectContent>
                                                 {existingModels?.map(model => (
                                                     <SelectItem key={model.ref} value={model.ref}>
-                                                        {model.ref} ({model.providerName}: {model.model})
+                                                        {model.ref} ({model.spec.provider}: {model.spec.model})
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
