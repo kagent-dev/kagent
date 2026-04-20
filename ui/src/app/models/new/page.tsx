@@ -11,14 +11,15 @@ import type {
     CreateModelConfigRequest,
     UpdateModelConfigPayload,
     Provider,
-    OpenAIConfigPayload,
-    AzureOpenAIConfigPayload,
-    AnthropicConfigPayload,
-    OllamaConfigPayload,
+    ModelConfigSpec,
+    OpenAIConfig,
+    AzureOpenAIConfig,
+    AnthropicConfig,
+    OllamaConfig,
+    GeminiConfig,
+    GeminiVertexAIConfig,
+    AnthropicVertexAIConfig,
     ProviderModelsResponse,
-    GeminiConfigPayload,
-    GeminiVertexAIConfigPayload,
-    AnthropicVertexAIConfigPayload
 } from "@/types";
 import { toast } from "sonner";
 import { isResourceNameValid, createRFC1123ValidName } from "@/lib/utils";
@@ -129,6 +130,8 @@ function ModelPageContent() {
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [existingApiKeySecret, setExistingApiKeySecret] = useState("");
+  const [existingApiKeySecretKey, setExistingApiKeySecretKey] = useState("");
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -210,34 +213,41 @@ function ModelPageContent() {
           setName(modelRef.name);
           setNamespace(modelRef.namespace);
 
-          const provider = providers.find(p => p.type === modelData.providerName);
+          const provider = providers.find(p => p.type === modelData.spec.provider);
           setSelectedProvider(provider || null);
 
           setApiKey("");
 
           const providerFormKey = provider ? getProviderFormKey(provider.type as BackendModelProviderType) : undefined;
-          let modelName = modelData.model;
+          let modelName = modelData.spec.model;
           let extractedTag;
 
-          if (modelData.providerName === 'Ollama' && modelName.includes(':')) {
-            const [name, tag] = modelName.split(':');
-            modelName = name;
+          if (modelData.spec.provider === 'Ollama' && modelName.includes(':')) {
+            const [baseName, tag] = modelName.split(':');
+            modelName = baseName;
             extractedTag = tag;
           }
 
-          if (providerFormKey && modelData.model) {
+          if (providerFormKey && modelData.spec.model) {
             setSelectedCombinedModel(`${providerFormKey}::${modelName}`);
           }
 
-          if (!modelData.apiKeySecretRef) {
+          if (!modelData.spec.apiKeySecret) {
             setIsApiKeyNeeded(false);
           } else {
             setIsApiKeyNeeded(true);
           }
 
-          const fetchedParams = modelData.modelParams || {};
+          setExistingApiKeySecret(modelData.spec.apiKeySecret || "");
+          setExistingApiKeySecretKey(modelData.spec.apiKeySecretKey || "");
+
+          const spec = modelData.spec;
+          const fetchedParams: Record<string, unknown> =
+            (spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
+             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? {}) as Record<string, unknown>;
+
           if (provider?.type === 'Ollama') {
-            setModelTag(fetchedParams.modelTag || extractedTag || 'latest');
+            setModelTag(extractedTag || 'latest');
           }
 
           const requiredKeys = provider?.requiredParams || [];
@@ -557,40 +567,40 @@ function ModelPageContent() {
       }
     }
 
-    const payload: CreateModelConfigRequest = {
-      ref: k8sRefUtils.toRef(namespace, name),
-      provider: {
-        name: finalSelectedProvider.name,
-        type: finalSelectedProvider.type,
-      },
+    const providerParams = processModelParams(requiredParams, optionalParams);
+
+    const spec: ModelConfigSpec = {
       model: finalModelName,
-      apiKey: finalApiKey,
+      provider: finalSelectedProvider.type,
     };
 
-    const providerParams = processModelParams(requiredParams, optionalParams);
+    if (isEditMode) {
+      if (existingApiKeySecret) spec.apiKeySecret = existingApiKeySecret;
+      if (existingApiKeySecretKey) spec.apiKeySecretKey = existingApiKeySecretKey;
+    }
 
     const providerType = finalSelectedProvider.type;
     switch (providerType) {
       case 'OpenAI':
-        payload.openAI = providerParams as OpenAIConfigPayload;
+        spec.openAI = providerParams as OpenAIConfig;
         break;
       case 'Anthropic':
-        payload.anthropic = providerParams as AnthropicConfigPayload;
+        spec.anthropic = providerParams as AnthropicConfig;
         break;
       case 'AzureOpenAI':
-        payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
+        spec.azureOpenAI = providerParams as AzureOpenAIConfig;
         break;
       case 'Ollama':
-        payload.ollama = providerParams as OllamaConfigPayload;
+        spec.ollama = providerParams as OllamaConfig;
         break;
       case 'Gemini':
-        payload.gemini = providerParams as GeminiConfigPayload;
+        spec.gemini = providerParams as GeminiConfig;
         break;
       case 'GeminiVertexAI':
-        payload.geminiVertexAI = providerParams as GeminiVertexAIConfigPayload;
+        spec.geminiVertexAI = providerParams as GeminiVertexAIConfig;
         break;
       case 'AnthropicVertexAI':
-        payload.anthropicVertexAI = providerParams as AnthropicVertexAIConfigPayload;
+        spec.anthropicVertexAI = providerParams as AnthropicVertexAIConfig;
         break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
@@ -603,18 +613,18 @@ function ModelPageContent() {
       let response;
       if (isEditMode && modelConfigName) {
         const updatePayload: UpdateModelConfigPayload = {
-          provider: payload.provider,
-          model: payload.model,
           apiKey: finalApiKey ? finalApiKey : null,
-          openAI: payload.openAI,
-          anthropic: payload.anthropic,
-          azureOpenAI: payload.azureOpenAI,
-          ollama: payload.ollama,
+          spec,
         };
         const modelConfigRef = k8sRefUtils.toRef(modelConfigNamespace || '', modelConfigName);
         response = await updateModelConfig(modelConfigRef, updatePayload);
       } else {
-        response = await createModelConfig(payload);
+        const createPayload: CreateModelConfigRequest = {
+          ref: k8sRefUtils.toRef(namespace, name),
+          apiKey: finalApiKey || undefined,
+          spec,
+        };
+        response = await createModelConfig(createPayload);
       }
 
       if (!response.error) {

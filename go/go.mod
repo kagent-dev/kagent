@@ -7,10 +7,10 @@ require (
 	dario.cat/mergo v1.0.2
 
 	// adk dependencies
-	github.com/a2aproject/a2a-go v0.3.13
+	github.com/a2aproject/a2a-go v0.3.15
 	github.com/abiosoft/ishell/v2 v2.0.2
-	github.com/anthropics/anthropic-sdk-go v1.35.0
-	github.com/aws/aws-sdk-go-v2/config v1.32.14
+	github.com/anthropics/anthropic-sdk-go v1.37.0
+	github.com/aws/aws-sdk-go-v2/config v1.32.16
 	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -29,7 +29,7 @@ require (
 	github.com/lib/pq v1.11.2 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/muesli/reflow v0.3.0
-	github.com/openai/openai-go/v3 v3.31.0
+	github.com/openai/openai-go/v3 v3.32.0
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/afero v1.15.0
@@ -47,12 +47,12 @@ require (
 	go.uber.org/zap v1.27.1
 	golang.org/x/text v0.36.0
 	google.golang.org/adk v1.1.0
-	google.golang.org/genai v1.53.0
+	google.golang.org/genai v1.54.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.35.3
-	k8s.io/apimachinery v0.35.3
-	k8s.io/client-go v0.35.3
+	k8s.io/api v0.35.4
+	k8s.io/apimachinery v0.35.4
+	k8s.io/client-go v0.35.4
 	sigs.k8s.io/agent-sandbox v0.3.10
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/yaml v1.6.0
@@ -60,10 +60,11 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.41.5
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.4
-	github.com/jackc/pgx/v5 v5.9.1
-	github.com/ollama/ollama v0.20.5
+	github.com/aws/aws-sdk-go-v2 v1.41.6
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.5
+	github.com/google/jsonschema-go v0.4.2
+	github.com/jackc/pgx/v5 v5.9.2
+	github.com/ollama/ollama v0.21.0
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.19.0
@@ -84,19 +85,19 @@ require (
 	github.com/abiosoft/readline v0.0.0-20180607040430-155bce2042db // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.14 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
-	github.com/aws/smithy-go v1.24.2 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.9 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.15 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.22 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.23 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.10 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.16 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.42.0 // indirect
+	github.com/aws/smithy-go v1.25.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -154,7 +155,6 @@ require (
 	github.com/google/cel-go v0.26.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/safehtml v0.1.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
