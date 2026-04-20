@@ -1036,6 +1036,58 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 	return path.Base(u)
 }
 
+var (
+	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
+
+	// validHostPattern and validPortPattern are the security boundary that prevents
+	// shell injection when host/port values are interpolated into the ssh-keyscan
+	// commands in skills-init.sh.tmpl. Do NOT relax these patterns without auditing
+	// every template site that references .Host or .Port.
+	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
+	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
+)
+
+func gitSSHHost(rawURL string) (sshHostData, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		switch parsed.Scheme {
+		case "ssh", "git+ssh":
+			host := parsed.Hostname()
+			if host == "" || !validHostPattern.MatchString(host) {
+				return sshHostData{}, false
+			}
+			port := parsed.Port()
+			if port == "22" {
+				port = "" // 22 is the SSH default; omit to avoid redundant -p flag
+			}
+			if port != "" && !validPortPattern.MatchString(port) {
+				return sshHostData{}, false
+			}
+			return sshHostData{
+				Host: host,
+				Port: port,
+			}, true
+		case "http", "https":
+			return sshHostData{}, false
+		}
+	}
+
+	if strings.Contains(rawURL, "://") {
+		return sshHostData{}, false
+	}
+
+	matches := scpLikeGitURLRegex.FindStringSubmatch(rawURL)
+	if len(matches) != 2 {
+		return sshHostData{}, false
+	}
+	host := matches[1]
+	if !validHostPattern.MatchString(host) {
+		return sshHostData{}, false
+	}
+
+	return sshHostData{Host: host}, true
+}
+
 // validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
 func validateSubPath(p string) error {
 	if p == "" {
@@ -1126,35 +1178,10 @@ func prepareSkillsInitData(
 
 	if authSecretRef != nil {
 		data.AuthMountPath = "/git-auth"
-		seenHosts := make(map[string]bool)
-		hostPattern := regexp.MustCompile(`^[A-Za-z0-9\.\-:]+$`)
-		portPattern := regexp.MustCompile(`^[0-9]+$`)
-		for _, ref := range gitRefs {
-			u, err := url.Parse(ref.URL)
-			if err != nil || u.Scheme != "ssh" {
-				continue
-			}
-			host := u.Hostname()
-			if host == "" || !hostPattern.MatchString(host) {
-				continue
-			}
-			port := u.Port()
-			if port == "22" {
-				port = "" // 22 is the SSH default; omit to avoid -p flag
-			}
-			if port != "" && !portPattern.MatchString(port) {
-				continue
-			}
-			key := host + ":" + port
-			if seenHosts[key] {
-				continue
-			}
-			seenHosts[key] = true
-			data.SSHHosts = append(data.SSHHosts, sshHostData{Host: host, Port: port})
-		}
 	}
 
 	seen := make(map[string]bool)
+	seenSSHHosts := make(map[string]bool)
 
 	for _, ref := range gitRefs {
 		subPath := strings.TrimSuffix(ref.Path, "/")
@@ -1173,6 +1200,18 @@ func prepareSkillsInitData(
 			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
 		seen[name] = true
+
+		// SSH host collection is separate from the AuthMountPath block above
+		// because it runs per-ref inside the loop, not once at the top level.
+		if authSecretRef != nil {
+			if sshHost, ok := gitSSHHost(ref.URL); ok {
+				key := sshHost.Host + ":" + sshHost.Port
+				if !seenSSHHosts[key] {
+					seenSSHHosts[key] = true
+					data.SSHHosts = append(data.SSHHosts, sshHost)
+				}
+			}
+		}
 
 		data.GitRefs = append(data.GitRefs, gitRefData{
 			URL:      ref.URL,
@@ -1195,6 +1234,13 @@ func prepareSkillsInitData(
 			Dest:  "/skills/" + name,
 		})
 	}
+
+	slices.SortFunc(data.SSHHosts, func(a, b sshHostData) int {
+		if cmp := strings.Compare(a.Host, b.Host); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.Port, b.Port)
+	})
 
 	return data, nil
 }
