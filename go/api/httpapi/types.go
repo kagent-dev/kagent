@@ -63,6 +63,7 @@ type CreateModelConfigRequest struct {
 	APIKey                  string                            `json:"apiKey,omitempty"`
 	APIKeySecret            string                            `json:"apiKeySecret,omitempty"`
 	APIKeySecretKey         string                            `json:"apiKeySecretKey,omitempty"`
+	APIKeyPassthrough       bool                              `json:"apiKeyPassthrough,omitempty"`
 	TLS                     *v1alpha2.TLSConfig               `json:"tls,omitempty"`
 	DefaultHeaders          map[string]string                 `json:"defaultHeaders,omitempty"`
 	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
@@ -82,6 +83,7 @@ type UpdateModelConfigRequest struct {
 	APIKey                  *string                           `json:"apiKey,omitempty"`
 	APIKeySecret            string                            `json:"apiKeySecret,omitempty"`
 	APIKeySecretKey         string                            `json:"apiKeySecretKey,omitempty"`
+	APIKeyPassthrough       bool                              `json:"apiKeyPassthrough,omitempty"`
 	TLS                     *v1alpha2.TLSConfig               `json:"tls,omitempty"`
 	DefaultHeaders          map[string]string                 `json:"defaultHeaders,omitempty"`
 	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`

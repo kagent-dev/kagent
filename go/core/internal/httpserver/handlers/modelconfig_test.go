@@ -323,6 +323,84 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 
+		t.Run("Success_Bedrock", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			reqBody := api.CreateModelConfigRequest{
+				Ref:      "default/test-bedrock",
+				Provider: api.Provider{Type: "Bedrock"},
+				Model:    "anthropic.claude-3-sonnet-20240229-v1:0",
+				BedrockParams: &v1alpha2.BedrockConfig{
+					Region: "us-east-1",
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			handler.HandleCreateModelConfig(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code, responseRecorder.Body.String())
+
+			var config api.StandardResponse[v1alpha2.ModelConfig]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
+			require.NoError(t, err)
+			assert.Equal(t, v1alpha2.ModelProviderBedrock, config.Data.Spec.Provider)
+			assert.NotNil(t, config.Data.Spec.Bedrock)
+			assert.Equal(t, "us-east-1", config.Data.Spec.Bedrock.Region)
+		})
+
+		t.Run("Success_ExistingSecret", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			reqBody := api.CreateModelConfigRequest{
+				Ref:             "default/test-existing-secret",
+				Provider:        api.Provider{Type: "OpenAI"},
+				Model:           "gpt-4",
+				APIKeySecret:    "my-existing-secret",
+				APIKeySecretKey: "OPENAI_API_KEY",
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			handler.HandleCreateModelConfig(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code, responseRecorder.Body.String())
+
+			var config api.StandardResponse[v1alpha2.ModelConfig]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &config)
+			require.NoError(t, err)
+			assert.Equal(t, "my-existing-secret", config.Data.Spec.APIKeySecret)
+			assert.Equal(t, "OPENAI_API_KEY", config.Data.Spec.APIKeySecretKey)
+		})
+
+		t.Run("APIKeySecret_MissingKey_Returns400", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			reqBody := api.CreateModelConfigRequest{
+				Ref:          "default/test-missing-key",
+				Provider:     api.Provider{Type: "OpenAI"},
+				Model:        "gpt-4",
+				APIKeySecret: "my-existing-secret",
+				// APIKeySecretKey intentionally omitted
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			handler.HandleCreateModelConfig(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
 		t.Run("UnsupportedProvider", func(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 

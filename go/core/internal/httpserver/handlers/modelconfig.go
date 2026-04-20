@@ -255,11 +255,18 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	// --- ModelConfig Creation First ---
 	providerTypeEnum := v1alpha2.ModelProvider(req.Provider.Type)
+
+	if req.APIKeySecret != "" && req.APIKeySecretKey == "" && providerTypeEnum != v1alpha2.ModelProviderBedrock {
+		w.RespondWithError(errors.NewBadRequestError("apiKeySecretKey is required when apiKeySecret is set", nil))
+		return
+	}
+
 	modelConfigSpec := v1alpha2.ModelConfigSpec{
-		Model:          req.Model,
-		Provider:       providerTypeEnum,
-		TLS:            req.TLS,
-		DefaultHeaders: req.DefaultHeaders,
+		Model:             req.Model,
+		Provider:          providerTypeEnum,
+		APIKeyPassthrough: req.APIKeyPassthrough,
+		TLS:               req.TLS,
+		DefaultHeaders:    req.DefaultHeaders,
 	}
 
 	// Set secret references: prefer explicit secret ref, fall back to inline API key
@@ -433,6 +440,11 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
+	if req.APIKeySecret != "" && req.APIKeySecretKey == "" && v1alpha2.ModelProvider(req.Provider.Type) != v1alpha2.ModelProviderBedrock {
+		w.RespondWithError(errors.NewBadRequestError("apiKeySecretKey is required when apiKeySecret is set", nil))
+		return
+	}
+
 	log.V(1).Info("Getting existing ModelConfig")
 	modelConfig := &v1alpha2.ModelConfig{}
 	err = h.KubeClient.Get(
@@ -467,6 +479,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		Provider:          v1alpha2.ModelProvider(req.Provider.Type),
 		APIKeySecret:      apiKeySecret,
 		APIKeySecretKey:   apiKeySecretKey,
+		APIKeyPassthrough: req.APIKeyPassthrough,
 		TLS:               req.TLS,
 		DefaultHeaders:    req.DefaultHeaders,
 		OpenAI:            nil,
