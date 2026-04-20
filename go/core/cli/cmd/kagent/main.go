@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -63,6 +64,10 @@ func main() {
 	installCmd.Flags().StringVar(&installCfg.Profile, "profile", "", "Installation profile (minimal|demo)")
 	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
+	})
+	installCmd.Flags().StringVar(&installCfg.Provider, "provider", "", fmt.Sprintf("LLM provider to use (%s). Overrides KAGENT_DEFAULT_MODEL_PROVIDER.", strings.Join(cli.ValidProviders(), ", ")))
+	_ = installCmd.RegisterFlagCompletionFunc("provider", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return cli.ValidProviders(), cobra.ShellCompDirectiveNoFileComp
 	})
 
 	uninstallCmd := &cobra.Command{
