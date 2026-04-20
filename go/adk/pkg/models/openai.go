@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/openai/openai-go/v3"
@@ -18,9 +18,9 @@ import (
 
 // OpenAIConfig holds OpenAI configuration
 type OpenAIConfig struct {
+	TransportConfig
 	Model            string
 	BaseUrl          string
-	Headers          map[string]string // Default headers to pass to OpenAI API (matching Python default_headers)
 	FrequencyPenalty *float64
 	MaxTokens        *int
 	N                *int
@@ -28,15 +28,13 @@ type OpenAIConfig struct {
 	ReasoningEffort  *string
 	Seed             *int
 	Temperature      *float64
-	Timeout          *int
 	TopP             *float64
 }
 
 // AzureOpenAIConfig holds Azure OpenAI configuration
 type AzureOpenAIConfig struct {
-	Model   string
-	Headers map[string]string // Default headers to pass to Azure OpenAI API (matching Python default_headers)
-	Timeout *int
+	TransportConfig
+	Model string
 }
 
 // OpenAIModel implements model.LLM (see openai_adk.go) for OpenAI/Azure OpenAI.
@@ -49,9 +47,12 @@ type OpenAIModel struct {
 
 // NewOpenAIModelWithLogger creates a new OpenAI model instance with a logger
 func NewOpenAIModelWithLogger(config *OpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+	apiKey := "passthrough" // placeholder; real auth set per-request by transport
+	if !config.APIKeyPassthrough {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+		}
 	}
 	return newOpenAIModelFromConfig(config, apiKey, logger)
 }
@@ -67,9 +68,9 @@ func NewOpenAICompatibleModelWithLogger(baseURL, modelName string, headers map[s
 		apiKey = "ollama" // placeholder for Ollama and similar endpoints that ignore key
 	}
 	config := &OpenAIConfig{
-		Model:   modelName,
-		BaseUrl: baseURL,
-		Headers: headers,
+		TransportConfig: TransportConfig{Headers: headers},
+		Model:           modelName,
+		BaseUrl:         baseURL,
 	}
 	return newOpenAIModelFromConfig(config, apiKey, logger)
 }
@@ -83,19 +84,12 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	if config.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
+	httpClient, err := BuildHTTPClient(config.TransportConfig)
+	if err != nil {
+		return nil, err
 	}
-	httpClient := &http.Client{Timeout: timeout}
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
-		}
-		if logger.GetSink() != nil {
-			logger.Info("Setting default headers for OpenAI client", "headersCount", len(config.Headers), "headers", config.Headers)
-		}
+	if logger.GetSink() != nil && len(config.Headers) > 0 {
+		logger.Info("Setting default headers for OpenAI client", "headersCount", len(config.Headers), "headers", config.Headers)
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
@@ -114,37 +108,33 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 // NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger.
 // Uses Azure-style base URL, Api-Key header, and path rewriting so we do not depend on the azure package.
 func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
-	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
-	azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
 	apiVersion := os.Getenv("OPENAI_API_VERSION")
 	if apiVersion == "" {
 		apiVersion = "2024-02-15-preview"
 	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("AZURE_OPENAI_API_KEY environment variable is not set")
-	}
+
+	azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
 	if azureEndpoint == "" {
 		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
 	}
 
-	baseURL := strings.TrimSuffix(azureEndpoint, "/") + "/"
 	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
+		option.WithBaseURL(strings.TrimSuffix(azureEndpoint, "/") + "/"),
 		option.WithQueryAdd("api-version", apiVersion),
-		option.WithHeader("Api-Key", apiKey),
 		option.WithMiddleware(azurePathRewriteMiddleware()),
 	}
-	timeout := defaultTimeout
-	if config.Timeout != nil {
-		timeout = time.Duration(*config.Timeout) * time.Second
-	}
-	opts = append(opts, option.WithRequestTimeout(timeout))
-	httpClient := &http.Client{Timeout: timeout}
-	if len(config.Headers) > 0 {
-		httpClient.Transport = &headerTransport{
-			base:    http.DefaultTransport,
-			headers: config.Headers,
+
+	if !config.APIKeyPassthrough {
+		apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("AZURE_OPENAI_API_KEY environment variable is not set")
 		}
+		opts = append(opts, option.WithHeader("Api-Key", apiKey))
+	}
+
+	httpClient, err := BuildHTTPClient(config.TransportConfig)
+	if err != nil {
+		return nil, err
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
@@ -158,6 +148,22 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		IsAzure: true,
 		Logger:  logger,
 	}, nil
+}
+
+// openAIPassthroughOpts returns a per-request option that injects the bearer token from ctx
+// For OpenAI the SDK sends this as "Authorization: Bearer <token>".
+// For Azure the SDK sends this as "Api-Key: <token>" via option.WithHeader.
+func openAIPassthroughOpts(ctx context.Context, m *OpenAIModel) []option.RequestOption {
+	if m.Config == nil || !m.Config.APIKeyPassthrough {
+		return nil
+	}
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		if m.IsAzure {
+			return []option.RequestOption{option.WithHeader("Api-Key", token)}
+		}
+		return []option.RequestOption{option.WithAPIKey(token)}
+	}
+	return nil
 }
 
 // azurePathRewriteMiddleware rewrites .../chat/completions to .../openai/deployments/{model}/chat/completions
@@ -200,18 +206,4 @@ func azurePathRewriteMiddleware() option.Middleware {
 		r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
 		return next(r)
 	}
-}
-
-// headerTransport wraps an http.RoundTripper and adds custom headers to all requests
-type headerTransport struct {
-	base    http.RoundTripper
-	headers map[string]string
-}
-
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	for k, v := range t.headers {
-		req.Header.Set(k, v)
-	}
-	return t.base.RoundTrip(req)
 }

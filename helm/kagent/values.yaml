@@ -76,7 +76,7 @@ database:
         # -- Bundled PostgreSQL image name
         name: postgres
         # -- Bundled PostgreSQL image tag
-        tag: "18"
+        tag: "18.3-alpine"
         # -- Bundled PostgreSQL image pull policy
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
