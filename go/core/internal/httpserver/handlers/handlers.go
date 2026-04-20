@@ -24,6 +24,7 @@ type Handlers struct {
 	Memory              *MemoryHandler
 	Feedback            *FeedbackHandler
 	Namespaces          *NamespacesHandler
+	PromptTemplates     *PromptTemplatesHandler
 	Tasks               *TasksHandler
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
@@ -64,6 +65,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Memory:              NewMemoryHandler(base),
 		Feedback:            NewFeedbackHandler(base),
 		Namespaces:          NewNamespacesHandler(base, watchedNamespaces),
+		PromptTemplates:     NewPromptTemplatesHandler(base),
 		Tasks:               NewTasksHandler(base),
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),

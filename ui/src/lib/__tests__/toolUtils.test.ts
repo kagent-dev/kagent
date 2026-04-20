@@ -126,6 +126,47 @@ describe('Tool Utility Functions', () => {
         "create_repository",
         "fork_repository"
       ]);
+      expect(result.groupedTools[0].mcpServer?.requireApproval).toBeUndefined();
+    });
+
+    it('should merge requireApproval for MCP tools on the same server', () => {
+      const githubServerRef = k8sRefUtils.toRef("default", "github-server");
+      const tools: Tool[] = [
+        {
+          type: "McpServer",
+          mcpServer: {
+            name: githubServerRef,
+            namespace: "kagent",
+            apiGroup: "kagent.dev",
+            kind: "MCPServer",
+            toolNames: ["create_pull_request", "create_repository"],
+            requireApproval: ["create_pull_request"],
+          },
+        },
+        {
+          type: "McpServer",
+          mcpServer: {
+            name: githubServerRef,
+            namespace: "kagent",
+            apiGroup: "kagent.dev",
+            kind: "MCPServer",
+            toolNames: ["fork_repository"],
+            requireApproval: ["fork_repository", "not_in_tool_names"],
+          },
+        },
+      ];
+
+      const result = groupMcpToolsByServer(tools);
+
+      expect(result.errors).toEqual([]);
+      expect(result.groupedTools).toHaveLength(1);
+      expect(result.groupedTools[0].mcpServer?.toolNames).toEqual([
+        "create_pull_request",
+        "create_repository",
+        "fork_repository",
+      ]);
+      const approvals = (result.groupedTools[0].mcpServer?.requireApproval || []).slice().sort();
+      expect(approvals).toEqual(["create_pull_request", "fork_repository"]);
     });
 
     it('should keep MCP tools from different servers separate', () => {

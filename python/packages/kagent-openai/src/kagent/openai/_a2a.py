@@ -19,14 +19,14 @@ from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
-
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+
 from openai import AsyncOpenAI
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig

@@ -38,9 +38,6 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
-
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
@@ -58,6 +55,9 @@ from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
 )
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel
+
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 

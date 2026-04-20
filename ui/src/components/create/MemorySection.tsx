@@ -12,8 +12,8 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface MemorySectionProps {
   allModels: ModelConfig[];
-  selectedModel: Pick<ModelConfig, "ref" | "model"> | null;
-  setSelectedModel: (model: Pick<ModelConfig, "ref" | "model"> | null) => void;
+  selectedModel: ModelConfig | null;
+  setSelectedModel: (model: ModelConfig | null) => void;
   agentNamespace?: string;
   ttlDays: string;
   onTtlChange: (value: string) => void;
@@ -87,7 +87,7 @@ export function MemorySection({
                 >
                   <div className="flex flex-col">
                     <span>
-                      {model.model} ({model.ref})
+                      {model.spec.model} ({model.ref})
                     </span>
                     {isDifferentNamespace && (
                       <span className="text-xs text-muted-foreground">

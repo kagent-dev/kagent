@@ -40,6 +40,7 @@ const (
 	APIPathModels               = "/api/models"
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
+	APIPathPromptTemplates      = "/api/prompttemplates"
 	APIPathA2A                  = "/api/a2a"
 	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
 	APIPathMCP                  = "/mcp"
@@ -270,6 +271,13 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Prompt template libraries (ConfigMaps)
+	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleCreatePromptTemplate)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleGetPromptTemplate)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleUpdatePromptTemplate)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleDeletePromptTemplate)).Methods(http.MethodDelete)
 
 	// Feedback - using database handlers
 	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
