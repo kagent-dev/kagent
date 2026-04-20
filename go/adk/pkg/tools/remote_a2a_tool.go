@@ -13,8 +13,9 @@ import (
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"google.golang.org/adk/model"
 	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/genai"
 )
 
 // userIDContextKey is the context key for passing the session user_id to the subagent.
@@ -32,9 +33,87 @@ func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient
 	return ctx, nil
 }
 
-// remoteA2AInput is the typed argument for the remote A2A function tool.
-type remoteA2AInput struct {
-	Request string `json:"request"`
+// remoteA2ATool implements tool.Tool (and the ADK-internal FunctionTool and
+// RequestProcessor interfaces) for delegating requests to a remote A2A agent.
+//
+// Unlike functiontool.New, this type populates Declaration().Parameters with a
+// genai.Schema value rather than ParametersJsonSchema.  Anthropic and AWS
+// Bedrock model adapters inside the ADK read the Parameters field; they ignore
+// ParametersJsonSchema, so using functiontool.New causes those adapters to omit
+// the "request" parameter from the tool schema sent to the LLM.  When the LLM
+// receives no schema it guesses field names (e.g. "$task") and the call fails
+// with "missing properties: [request]".
+type remoteA2ATool struct {
+	state *remoteA2AState
+}
+
+// Name implements tool.Tool.
+func (t *remoteA2ATool) Name() string { return t.state.name }
+
+// Description implements tool.Tool.
+func (t *remoteA2ATool) Description() string { return t.state.description }
+
+// IsLongRunning implements tool.Tool.
+func (t *remoteA2ATool) IsLongRunning() bool { return false }
+
+// Declaration returns an explicit genai.Schema so Anthropic/Bedrock adapters
+// include "request" in the function schema they send to the LLM.
+func (t *remoteA2ATool) Declaration() *genai.FunctionDeclaration {
+	return &genai.FunctionDeclaration{
+		Name:        t.state.name,
+		Description: t.state.description,
+		Parameters: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"request": {
+					Type:        genai.TypeString,
+					Description: "The request to send to the agent.",
+				},
+			},
+			Required: []string{"request"},
+		},
+	}
+}
+
+// Run implements the ADK-internal FunctionTool interface.
+func (t *remoteA2ATool) Run(ctx tool.Context, args any) (map[string]any, error) {
+	margs, ok := args.(map[string]any)
+	if !ok {
+		return map[string]any{"error": "unexpected argument type"}, nil
+	}
+	request, _ := margs["request"].(string)
+	return t.state.run(ctx, request)
+}
+
+// ProcessRequest implements the ADK-internal RequestProcessor interface.
+// It replicates the logic of toolutils.PackTool (which lives in an internal ADK
+// package and cannot be imported from outside the module).
+func (t *remoteA2ATool) ProcessRequest(_ tool.Context, req *model.LLMRequest) error {
+	if req.Tools == nil {
+		req.Tools = make(map[string]any)
+	}
+	if _, ok := req.Tools[t.Name()]; ok {
+		return fmt.Errorf("duplicate tool: %q", t.Name())
+	}
+	req.Tools[t.Name()] = t
+
+	if req.Config == nil {
+		req.Config = &genai.GenerateContentConfig{}
+	}
+	decl := t.Declaration()
+	if decl == nil {
+		return nil
+	}
+	for _, gt := range req.Config.Tools {
+		if gt != nil && gt.FunctionDeclarations != nil {
+			gt.FunctionDeclarations = append(gt.FunctionDeclarations, decl)
+			return nil
+		}
+	}
+	req.Config.Tools = append(req.Config.Tools, &genai.Tool{
+		FunctionDeclarations: []*genai.FunctionDeclaration{decl},
+	})
+	return nil
 }
 
 // remoteA2AState holds the mutable state for one remote A2A agent connection.
@@ -75,16 +154,7 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 		extraHeaders:  extraHeaders,
 		lastContextID: a2atype.NewContextID(),
 	}
-	ft, err := functiontool.New(functiontool.Config{
-		Name:        name,
-		Description: description,
-	}, func(ctx tool.Context, in remoteA2AInput) (map[string]any, error) {
-		return state.run(ctx, in.Request)
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create remote A2A function tool for %s: %w", name, err)
-	}
-	return ft, state.lastContextID, nil
+	return &remoteA2ATool{state: state}, state.lastContextID, nil
 }
 
 // ensureClient lazily resolves the agent card and initialises the A2A client.
