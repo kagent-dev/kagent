@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import asyncio
 import faulthandler
 import logging
 import os
@@ -169,6 +170,7 @@ class KAgentApp:
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
+
         a2a_app.add_routes_to_app(app)
 
         return app
