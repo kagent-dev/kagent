@@ -13,6 +13,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -35,6 +36,9 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.ui.volumes.tmp }}
+        - name: ui-config
+          configMap:
+            name: {{ include "kagent.fullname" . }}-ui-config
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -70,16 +74,34 @@ spec:
               mountPath: /app/ui/.next/cache
             - name: tmp
               mountPath: /tmp
+            - name: ui-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: ui-config
+              mountPath: /etc/supervisor/conf.d/supervisord.conf
+              subPath: supervisord.conf
+              readOnly: true
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+          {{- if .Values.ui.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.ui.startupProbe | nindent 12 }}
+          {{- else }}
           startupProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 1
             initialDelaySeconds: 1
+          {{- end }}
+          {{- if .Values.ui.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.ui.readinessProbe | nindent 12 }}
+          {{- else }}
           readinessProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 30
+          {{- end }}

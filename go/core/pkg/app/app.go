@@ -193,6 +193,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+
+	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
