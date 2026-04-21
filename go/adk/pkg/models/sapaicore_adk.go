@@ -235,7 +235,7 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 
 				respContent := "No response available."
 				if fr := functionResponses[fc.ID]; fr != nil {
-					respContent = functionResponseContentString(fr.Response)
+					respContent = extractFunctionResponseContent(fr.Response)
 				}
 				toolResponses = append(toolResponses, map[string]any{
 					"role":         "tool",

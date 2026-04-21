@@ -666,15 +666,13 @@ class TestGenerateContentAsyncRetry:
             call_count += 1
             if call_count == 1:
                 raise http_error
-            return (await _make_real_non_stream(url, headers, body))
+            return await _make_real_non_stream(url, headers, body)
 
         from google.adk.models.llm_response import LlmResponse
         from google.genai import types as gtypes
 
         async def _make_real_non_stream(url, headers, body):
-            return LlmResponse(
-                content=gtypes.Content(role="model", parts=[gtypes.Part.from_text(text="retry ok")])
-            )
+            return LlmResponse(content=gtypes.Content(role="model", parts=[gtypes.Part.from_text(text="retry ok")]))
 
         with (
             patch.object(llm, "_resolve_deployment_url", new_callable=AsyncMock, return_value="https://dep/"),
