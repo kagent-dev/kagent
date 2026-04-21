@@ -49,7 +49,7 @@ _subpath="$(cat <<'ENDVAL'
 ENDVAL
 )"
 _tmp="$(mktemp -d)"
-cp -a "${_dest}/${_subpath}/." "$_tmp/"
+cp -rL "${_dest}/${_subpath}/." "$_tmp/"
 rm -rf "$_dest"
 mv "$_tmp" "$_dest"
 {{- end }}
