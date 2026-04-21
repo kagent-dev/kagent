@@ -377,6 +377,10 @@ type SharedDeploymentSpec struct {
 	// is created, and this config will be applied to it.
 	// +optional
 	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+	// ExtraContainers is a list of additional containers to run alongside the main agent container.
+	// Useful for sidecars such as token proxies, log shippers, or security agents.
+	// +optional
+	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
 }
 
 type ServiceAccountConfig struct {

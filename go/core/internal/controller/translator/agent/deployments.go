@@ -46,6 +46,7 @@ type resolvedDeployment struct {
 	PodSecurityContext   *corev1.PodSecurityContext
 	ServiceAccountName   *string
 	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
+	ExtraContainers      []corev1.Container
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -181,6 +182,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
+		ExtraContainers:      slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -262,6 +264,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
+		ExtraContainers:      slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
