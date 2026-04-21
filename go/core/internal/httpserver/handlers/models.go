@@ -98,7 +98,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 		v1alpha2.ModelProviderAnthropicVertexAI: {
 			{Name: "claude-opus-4-1@20250805", FunctionCalling: true},
 			{Name: "claude-sonnet-4@20250514", FunctionCalling: true},
-			{Name: "claude-3-5-haiku@20241022", FunctionCalling: true},
+			{Name: "claude-haiku-4-5@20251001", FunctionCalling: true},
 		},
 		v1alpha2.ModelProviderBedrock: {
 			{Name: "anthropic.claude-3-sonnet-20240229-v1:0", FunctionCalling: true},
