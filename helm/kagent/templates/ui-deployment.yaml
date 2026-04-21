@@ -13,8 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
-        checksum/supervisord-config: {{ include (print $.Template.BasePath "/ui-supervisord-configmap.yaml") . | sha256sum }}
+        checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -37,12 +36,9 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.ui.volumes.tmp }}
-        - name: nginx-config
+        - name: ui-config
           configMap:
-            name: {{ include "kagent.fullname" . }}-ui-nginx
-        - name: supervisord-config
-          configMap:
-            name: {{ include "kagent.fullname" . }}-ui-supervisord
+            name: {{ include "kagent.fullname" . }}-ui-config
       {{- with .Values.ui.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -78,11 +74,11 @@ spec:
               mountPath: /app/ui/.next/cache
             - name: tmp
               mountPath: /tmp
-            - name: nginx-config
+            - name: ui-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
-            - name: supervisord-config
+            - name: ui-config
               mountPath: /etc/supervisor/conf.d/supervisord.conf
               subPath: supervisord.conf
               readOnly: true

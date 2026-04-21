@@ -2,7 +2,6 @@ suite: test ui deployment
 templates:
   - ui-deployment.yaml
   - ui-nginx-configmap.yaml
-  - ui-supervisord-configmap.yaml
 tests:
   - it: should render ui deployment with default values
     template: ui-deployment.yaml
@@ -170,43 +169,35 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
-  - it: should always mount nginx and supervisord ConfigMaps
+  - it: should mount unified ui-config ConfigMap for nginx and supervisord
     template: ui-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: nginx-config
+            name: ui-config
             configMap:
-              name: RELEASE-NAME-ui-nginx
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: supervisord-config
-            configMap:
-              name: RELEASE-NAME-ui-supervisord
+              name: RELEASE-NAME-ui-config
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: nginx-config
+            name: ui-config
             mountPath: /etc/nginx/nginx.conf
             subPath: nginx.conf
             readOnly: true
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: supervisord-config
+            name: ui-config
             mountPath: /etc/supervisor/conf.d/supervisord.conf
             subPath: supervisord.conf
             readOnly: true
 
-  - it: should include config checksums in pod annotations
+  - it: should include config checksum in pod annotations
     template: ui-deployment.yaml
     asserts:
       - exists:
-          path: spec.template.metadata.annotations["checksum/nginx-config"]
-      - exists:
-          path: spec.template.metadata.annotations["checksum/supervisord-config"]
+          path: spec.template.metadata.annotations["checksum/ui-config"]
 
   - it: should set tolerations
     template: ui-deployment.yaml
