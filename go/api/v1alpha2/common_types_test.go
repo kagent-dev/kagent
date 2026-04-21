@@ -23,9 +23,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
@@ -344,4 +348,29 @@ func TestAllowedNamespaces_AllowsNamespace(t *testing.T) {
 			assert.Equal(t, tt.wantAllowed, allowed)
 		})
 	}
+
+	t.Run("From=Selector returns error when namespace read is forbidden", func(t *testing.T) {
+		forbiddenClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			// Simulates namespaced RBAC where the controller cannot read Namespace objects.
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrl_client.WithWatch, key ctrl_client.ObjectKey, obj ctrl_client.Object, opts ...ctrl_client.GetOption) error {
+					if _, ok := obj.(*corev1.Namespace); ok {
+						return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, key.Name, nil)
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			}).
+			Build()
+
+		allowedNs := &AllowedNamespaces{
+			From: NamespacesFromSelector,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"shared-access": "true"},
+			},
+		}
+		_, err := allowedNs.AllowsNamespace(ctx, forbiddenClient, "source-ns", "target-ns")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "allowedNamespaces.from=Selector requires namespace read access")
+	})
 }
