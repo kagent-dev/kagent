@@ -1,4 +1,3 @@
-{{- if .Values.ui.supervisordConfig }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,5 +7,44 @@ metadata:
     {{- include "kagent.labels" . | nindent 4 }}
 data:
   supervisord.conf: |
-    {{- .Values.ui.supervisordConfig | nindent 4 }}
-{{- end }}
+    [supervisord]
+    nodaemon=true
+    logfile=/dev/stdout
+    logfile_maxbytes=0
+    loglevel=debug
+
+    [program:nginx]
+    command=/usr/sbin/nginx -g "daemon off;"
+    autostart=true
+    autorestart=true
+    startretries=5
+    numprocs=1
+    startsecs=0
+    priority=20
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+    stdout_events_enabled=true
+    stderr_events_enabled=true
+
+    [program:nextjs]
+    command=node /app/ui/server.js
+    directory=/app/ui
+    {{- if .Values.ipv6.enabled }}
+    environment=PORT=8001,HOSTNAME="::",NODE_ENV=production,PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    {{- else }}
+    environment=PORT=8001,HOSTNAME="0.0.0.0",NODE_ENV=production,PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    {{- end }}
+    autostart=true
+    autorestart=true
+    startretries=5
+    numprocs=1
+    startsecs=0
+    priority=10
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+    stdout_events_enabled=true
+    stderr_events_enabled=true

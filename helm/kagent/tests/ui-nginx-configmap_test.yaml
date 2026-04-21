@@ -2,26 +2,8 @@ suite: test ui nginx configmap
 templates:
   - ui-nginx-configmap.yaml
 tests:
-  - it: should not render ConfigMap when nginxConfig is empty
+  - it: should always render the nginx ConfigMap
     template: ui-nginx-configmap.yaml
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should render ConfigMap when nginxConfig is set
-    template: ui-nginx-configmap.yaml
-    set:
-      ui:
-        nginxConfig: |
-          pid /tmp/nginx.pid;
-          events { worker_connections 1024; }
-          http {
-            server {
-              listen 8080;
-              listen [::]:8080;
-              location /health { return 200 'OK'; }
-            }
-          }
     asserts:
       - hasDocuments:
           count: 1
@@ -32,3 +14,26 @@ tests:
           value: RELEASE-NAME-ui-nginx
       - exists:
           path: data["nginx.conf"]
+
+  - it: should only have IPv4 listen by default
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen 8080;"
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen \\[::\\]:8080;"
+
+  - it: should add IPv6 listen when ipv6 is enabled
+    template: ui-nginx-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen 8080;"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen \\[::\\]:8080;"

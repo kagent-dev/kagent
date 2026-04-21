@@ -2,19 +2,8 @@ suite: test ui supervisord configmap
 templates:
   - ui-supervisord-configmap.yaml
 tests:
-  - it: should not render ConfigMap when supervisordConfig is empty
+  - it: should always render the supervisord ConfigMap
     template: ui-supervisord-configmap.yaml
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should render ConfigMap when supervisordConfig is set
-    template: ui-supervisord-configmap.yaml
-    set:
-      ui:
-        supervisordConfig: |
-          [supervisord]
-          nodaemon=true
     asserts:
       - hasDocuments:
           count: 1
@@ -25,3 +14,26 @@ tests:
           value: RELEASE-NAME-ui-supervisord
       - exists:
           path: data["supervisord.conf"]
+
+  - it: should use IPv4 HOSTNAME by default
+    template: ui-supervisord-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="0\.0\.0\.0"'
+      - notMatchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="::"'
+
+  - it: should use dual-stack HOSTNAME when ipv6 is enabled
+    template: ui-supervisord-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="::"'
+      - notMatchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="0\.0\.0\.0"'

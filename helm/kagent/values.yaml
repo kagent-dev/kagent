@@ -4,6 +4,16 @@
 # GLOBAL CONFIGURATION
 # ==============================================================================
 
+# -- Enable IPv6/dual-stack support.
+# When true, configures all components for dual-stack (IPv4+IPv6) networking:
+#   - nginx listens on both IPv4 and IPv6 (adds `listen [::]:8080`)
+#   - Next.js binds to `::` instead of `0.0.0.0`
+#   - Agent pods bind to `::` for dual-stack reachability
+# Leave disabled on clusters where IPv6 is disabled at the kernel level.
+# @default -- false
+ipv6:
+  enabled: false
+
 tag: ""
 registry: "cr.kagent.dev"
 
@@ -157,8 +167,9 @@ controller:
     #     environment: production
     # -- Default host address for agent pods to bind to.
     # Leave empty to use the controller's default fallback of "0.0.0.0".
-    # Set to "::" for dual-stack (IPv4+IPv6) support or IPv6-first clusters.
-    # @default -- "" (controller falls back to "0.0.0.0")
+    # Automatically set to "::" when ipv6.enabled is true.
+    # Can be explicitly overridden here regardless of the ipv6 flag.
+    # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
     host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
@@ -305,32 +316,6 @@ ui:
   #       path: /health
   #       port: http
   #     periodSeconds: 15
-  # -- Custom nginx.conf content for the UI container.
-  # When set, a ConfigMap is created and mounted over /etc/nginx/nginx.conf.
-  # Use this to enable dual-stack (IPv6+IPv4) listening on IPv6-first clusters,
-  # or to customize proxy behavior.
-  # @default -- "" (uses the nginx.conf baked into the container image)
-  nginxConfig: ""
-  # -- Custom supervisord.conf content for the UI container.
-  # When set, a ConfigMap is created and mounted over /etc/supervisor/conf.d/supervisord.conf.
-  # The default config sets HOSTNAME="0.0.0.0" for the Next.js server, which only affects
-  # the internal proxy target (nginx connects via 127.0.0.1:8001), not external reachability.
-  # @default -- "" (uses the supervisord.conf baked into the container image)
-  supervisordConfig: ""
-  # Example for IPv6-first clusters:
-  #   nginxConfig: |
-  #     pid /tmp/nginx.pid;
-  #     error_log /dev/stderr;
-  #     events { worker_connections 1024; }
-  #     http {
-  #       server {
-  #         listen 8080;
-  #         listen [::]:8080;
-  #         location /health { return 200 'OK'; }
-  #         location / { proxy_pass http://127.0.0.1:8001; }
-  #       }
-  #     }
-
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================

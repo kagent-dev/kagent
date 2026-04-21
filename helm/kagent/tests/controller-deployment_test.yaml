@@ -207,6 +207,29 @@ tests:
       - notExists:
           path: data.DEFAULT_AGENT_BIND_HOST
 
+  - it: should set DEFAULT_AGENT_BIND_HOST to dual-stack when ipv6 is enabled
+    template: controller-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_BIND_HOST
+          value: "::"
+
+  - it: should prefer explicit host over ipv6 flag
+    template: controller-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+      controller:
+        agentDeployment:
+          host: "0.0.0.0"
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_BIND_HOST
+          value: "0.0.0.0"
+
   - it: should configure watch namespaces
     template: controller-configmap.yaml
     set:

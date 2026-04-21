@@ -1,6 +1,8 @@
 suite: test ui deployment
 templates:
   - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
+  - ui-supervisord-configmap.yaml
 tests:
   - it: should render ui deployment with default values
     template: ui-deployment.yaml
@@ -99,6 +101,7 @@ tests:
             role: AI
 
   - it: should set nodeSelector
+    template: ui-deployment.yaml
     set:
       ui:
         nodeSelector:
@@ -129,7 +132,7 @@ tests:
           path: spec.template.spec.containers[0].readinessProbe.periodSeconds
           value: 30
 
-  - it: should allow overriding startup probe for IPv6 clusters
+  - it: should allow overriding startup probe
     template: ui-deployment.yaml
     set:
       ui:
@@ -149,7 +152,7 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].startupProbe.httpGet
 
-  - it: should allow overriding readiness probe for IPv6 clusters
+  - it: should allow overriding readiness probe
     template: ui-deployment.yaml
     set:
       ui:
@@ -167,28 +170,15 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
-  - it: should not mount supervisord config by default
+  - it: should always mount nginx and supervisord ConfigMaps
     template: ui-deployment.yaml
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.volumes
           content:
-            name: supervisord-config
-          any: true
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: supervisord-config
-          any: true
-
-  - it: should mount custom supervisord config when provided
-    template: ui-deployment.yaml
-    set:
-      ui:
-        supervisordConfig: |
-          [supervisord]
-          nodaemon=true
-    asserts:
+            name: nginx-config
+            configMap:
+              name: RELEASE-NAME-ui-nginx
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -198,55 +188,28 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
+            name: nginx-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
             name: supervisord-config
             mountPath: /etc/supervisor/conf.d/supervisord.conf
             subPath: supervisord.conf
             readOnly: true
 
-  - it: should not mount nginx config by default
+  - it: should include config checksums in pod annotations
     template: ui-deployment.yaml
     asserts:
-      - notContains:
-          path: spec.template.spec.volumes
-          content:
-            name: nginx-config
-          any: true
-      - notContains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: nginx-config
-          any: true
-
-  - it: should mount custom nginx config when provided
-    template: ui-deployment.yaml
-    set:
-      ui:
-        nginxConfig: |
-          pid /tmp/nginx.pid;
-          events { worker_connections 1024; }
-          http {
-            server {
-              listen 8080;
-              listen [::]:8080;
-              location /health { return 200 'OK'; }
-            }
-          }
-    asserts:
-      - contains:
-          path: spec.template.spec.volumes
-          content:
-            name: nginx-config
-            configMap:
-              name: RELEASE-NAME-ui-nginx
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: nginx-config
-            mountPath: /etc/nginx/nginx.conf
-            subPath: nginx.conf
-            readOnly: true
+      - exists:
+          path: spec.template.metadata.annotations["checksum/nginx-config"]
+      - exists:
+          path: spec.template.metadata.annotations["checksum/supervisord-config"]
 
   - it: should set tolerations
+    template: ui-deployment.yaml
     set:
       ui:
         tolerations:
