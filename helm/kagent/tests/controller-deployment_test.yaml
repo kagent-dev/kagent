@@ -398,3 +398,20 @@ tests:
           content:
             name: POSTGRES_PASSWORD
 
+
+  - it: should not set DEFAULT_AGENT_HOST when host is not configured
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_HOST
+
+  - it: should set DEFAULT_AGENT_HOST when host is configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          host: "::"
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_HOST
+          value: "::"

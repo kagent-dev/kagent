@@ -151,6 +151,10 @@ controller:
     # Per-agent labels in the Agent CRD take precedence over these defaults.
     # @default -- {} (no extra labels)
     podLabels: {}
+    # -- Bind address passed as --host to agent pods.
+    # Default is 0.0.0.0 (IPv4 only). Set to :: to support IPv6-only or dual-stack clusters.
+    # @default -- "0.0.0.0"
+    host: ""
     # Example:
     #   podLabels:
     #     team: platform
