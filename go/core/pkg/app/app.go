@@ -76,7 +76,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -408,12 +410,23 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
 	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
 
+	clientOpts := client.Options{}
+	if len(watchNamespacesList) > 0 {
+		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
+		// resources, so prevent the cached client from starting a cluster-scoped
+		// Namespace informer whose list/watch would keep crashing.
+		clientOpts.Cache = &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Namespace{}},
+		}
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
+		Client:                 clientOpts,
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
@@ -481,8 +494,9 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	apiTranslator := agent_translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
+		watchNamespacesList,
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
