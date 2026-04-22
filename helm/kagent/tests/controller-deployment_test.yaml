@@ -242,6 +242,32 @@ tests:
           path: data.WATCH_NAMESPACES
           value: "namespace-1,namespace-2"
 
+  - it: should derive watch namespaces from rbac.namespaces when controller.watchNamespaces is unset
+    template: controller-configmap.yaml
+    set:
+      rbac:
+        namespaces:
+          - NAMESPACE
+          - ns2
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "NAMESPACE,ns2"
+
+  - it: controller.watchNamespaces should override rbac.namespaces for WATCH_NAMESPACES
+    template: controller-configmap.yaml
+    set:
+      controller:
+        watchNamespaces:
+          - explicit-ns
+      rbac:
+        namespaces:
+          - NAMESPACE
+    asserts:
+      - equal:
+          path: data.WATCH_NAMESPACES
+          value: "explicit-ns"
+
   - it: should set podAnnotations
     template: controller-deployment.yaml
     set:

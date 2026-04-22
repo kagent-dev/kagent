@@ -121,7 +121,6 @@ jobs:
         env:
           OPENAI_API_KEY: fake
           KAGENT_HELM_EXTRA_ARGS: >-
-            --set rbac.clusterScoped=false
             --set 'rbac.namespaces={kagent}'
         run: |
           # Upgrade helm to use namespace-scoped RBAC

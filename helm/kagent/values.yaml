@@ -125,11 +125,12 @@ database:
 # ==============================================================================
 
 rbac:
-  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
-  # If false, creates Role and RoleBinding resources instead.
-  clusterScoped: true
-  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
-  # If empty, defaults to the release namespace.
+  # -- Namespaces in which to create Role and RoleBinding resources.
+  # If empty (default), the chart creates cluster-scoped ClusterRole and ClusterRoleBinding
+  # resources and the controller watches all namespaces.
+  # If set, the chart creates a Role + RoleBinding per listed namespace and the controller's
+  # WATCH_NAMESPACES is derived from this list (unless controller.watchNamespaces is set
+  # explicitly, which always takes precedence).
   namespaces: []
 
 # ==============================================================================
