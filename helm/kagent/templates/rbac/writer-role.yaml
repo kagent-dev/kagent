@@ -77,7 +77,8 @@
 
 {{- include "kagent.rbac.validate" . -}}
 {{- if .Values.rbac.namespaces }}
-{{- range $namespace := .Values.rbac.namespaces }}
+{{- $namespaces := .Values.rbac.namespaces | uniq | sortAlpha }}
+{{- range $namespace := $namespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
