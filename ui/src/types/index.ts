@@ -67,6 +67,12 @@ export interface AnthropicVertexAIConfig {
   maxTokens?: number;
 }
 
+export interface SAPAICoreConfigPayload {
+  baseUrl: string;
+  resourceGroup?: string;
+  authUrl?: string;
+}
+
 export interface BedrockConfig {
   region: string;
 }
@@ -94,6 +100,7 @@ export interface ModelConfigSpec {
   geminiVertexAI?: GeminiVertexAIConfig;
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
+  sapAICore?: SAPAICoreConfigPayload;
 }
 
 export interface ModelConfig {
