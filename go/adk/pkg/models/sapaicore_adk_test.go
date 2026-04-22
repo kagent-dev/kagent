@@ -630,14 +630,12 @@ func TestEnsureToken_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			if _, err := m.ensureToken(ctx); err != nil {
 				t.Errorf("ensureToken concurrent: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

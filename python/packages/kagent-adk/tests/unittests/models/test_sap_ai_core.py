@@ -107,9 +107,7 @@ class TestBuildOrchestrationTemplate:
         assert json.loads(tool_calls[0]["function"]["arguments"]) == {"city": "Berlin"}
 
     def test_function_response_message(self):
-        fr_part = types.Part.from_function_response(
-            name="get_weather", response={"temp": "20C"}
-        )
+        fr_part = types.Part.from_function_response(name="get_weather", response={"temp": "20C"})
         fr_part.function_response.id = "call_1"
         content = types.Content(role="user", parts=[fr_part])
         result = _build_orchestration_template([content])
@@ -334,7 +332,7 @@ class TestResolveDeploymentURL:
                 "scenarioId": "orchestration",
                 "status": "RUNNING",
                 "deploymentUrl": u,
-                "createdAt": f"2024-01-{i+1:02d}T00:00:00Z",
+                "createdAt": f"2024-01-{i + 1:02d}T00:00:00Z",
             }
             for i, u in enumerate(urls)
         ]
@@ -371,8 +369,8 @@ class TestResolveDeploymentURL:
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = self._dep_response(
-            "https://older.example.com",   # createdAt 2024-01-01
-            "https://newer.example.com",   # createdAt 2024-01-02
+            "https://older.example.com",  # createdAt 2024-01-01
+            "https://newer.example.com",  # createdAt 2024-01-02
         )
 
         with (
@@ -391,9 +389,9 @@ class TestResolveDeploymentURL:
 
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"resources": [
-            {"scenarioId": "other", "status": "RUNNING", "deploymentUrl": "https://x.example.com"}
-        ]}
+        mock_resp.json.return_value = {
+            "resources": [{"scenarioId": "other", "status": "RUNNING", "deploymentUrl": "https://x.example.com"}]
+        }
 
         with (
             patch.object(llm, "_ensure_token", new_callable=AsyncMock, return_value="tok"),
@@ -461,17 +459,21 @@ class TestNonStreamRequest:
     async def test_tool_call_response(self):
         llm = _make_llm()
         data = {
-            "choices": [{
-                "finish_reason": "tool_calls",
-                "message": {
-                    "content": "",
-                    "tool_calls": [{
-                        "id": "call_99",
-                        "type": "function",
-                        "function": {"name": "get_pods", "arguments": '{"ns":"default"}'},
-                    }],
-                },
-            }]
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_99",
+                                "type": "function",
+                                "function": {"name": "get_pods", "arguments": '{"ns":"default"}'},
+                            }
+                        ],
+                    },
+                }
+            ]
         }
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
@@ -551,12 +553,25 @@ class TestStreamRequest:
     async def test_tool_call_assembled_across_chunks(self):
         llm = _make_llm()
         payloads = [
-            self._orch_chunk([{"delta": {"tool_calls": [
-                {"index": 0, "id": "call_5", "function": {"name": "list_pods", "arguments": '{"ns":'}}
-            ]}}]),
-            self._orch_chunk([{"delta": {"tool_calls": [
-                {"index": 0, "function": {"arguments": '"default"}'}}
-            ]}, "finish_reason": "tool_calls"}]),
+            self._orch_chunk(
+                [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "id": "call_5", "function": {"name": "list_pods", "arguments": '{"ns":'}}
+                            ]
+                        }
+                    }
+                ]
+            ),
+            self._orch_chunk(
+                [
+                    {
+                        "delta": {"tool_calls": [{"index": 0, "function": {"arguments": '"default"}'}}]},
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            ),
         ]
         mock_resp = _sse_body(*payloads)
 
@@ -579,10 +594,12 @@ class TestStreamRequest:
         llm = _make_llm()
         payloads = [
             self._orch_chunk([self._text_delta("hi")]),
-            {"final_result": {
-                "choices": [self._finish_delta("stop")],
-                "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11},
-            }},
+            {
+                "final_result": {
+                    "choices": [self._finish_delta("stop")],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 3, "total_tokens": 11},
+                }
+            },
         ]
         mock_resp = _sse_body(*payloads)
 
@@ -651,9 +668,7 @@ class TestGenerateContentAsyncRetry:
 
         ok_resp = MagicMock()
         ok_resp.raise_for_status = MagicMock()
-        ok_resp.json.return_value = {
-            "choices": [{"finish_reason": "stop", "message": {"content": "retry ok"}}]
-        }
+        ok_resp.json.return_value = {"choices": [{"finish_reason": "stop", "message": {"content": "retry ok"}}]}
 
         error_resp = MagicMock()
         error_resp.status_code = 401

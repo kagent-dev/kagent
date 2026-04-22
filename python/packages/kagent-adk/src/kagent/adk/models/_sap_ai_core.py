@@ -334,7 +334,9 @@ class KAgentSAPAICoreLlm(BaseLlm):
                 if status in (401, 403):
                     self._invalidate_token()
                 self._invalidate_deployment_url()
-                logger.warning("SAP AI Core returned %d from %s, invalidated caches. Retrying once.", status, e.response.url)
+                logger.warning(
+                    "SAP AI Core returned %d from %s, invalidated caches. Retrying once.", status, e.response.url
+                )
                 try:
                     headers = await self._get_headers()
                     deployment_url = await self._resolve_deployment_url()
