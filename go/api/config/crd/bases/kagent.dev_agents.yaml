@@ -2472,18 +2472,6 @@ spec:
                 x-kubernetes-validations:
                 - message: selector must be specified when from is Selector
                   rule: '!(self.from == ''Selector'' && !has(self.selector))'
-              askUser:
-                description: |-
-                  AskUser configures the "ask user" tool for this agent.
-                  When enabled, the agent can pause execution and ask the user for input.
-                properties:
-                  enabled:
-                    description: Enabled indicates whether the "ask user" tool should
-                      be enabled for this agent.
-                    type: boolean
-                required:
-                - enabled
-                type: object
               byo:
                 properties:
                   deployment:
@@ -6211,6 +6199,16 @@ spec:
                           type: object
                         minItems: 1
                         type: array
+                    type: object
+                  builtinTools:
+                    description: BuiltinTools configures the built-in tools available
+                      to this agent.
+                    properties:
+                      askUser:
+                        description: |-
+                          AskUser enables the "ask user" tool.
+                          When true, the agent can pause execution and ask the user for input.
+                        type: boolean
                     type: object
                   context:
                     description: |-

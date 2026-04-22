@@ -176,9 +176,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		Stream:      new(spec.Declarative.Stream),
 	}
 
-	if spec.AskUser != nil {
+	if spec.Declarative.BuiltinTools != nil {
 		cfg.AskUser = &adk.AskUserConfig{
-			Enabled: spec.AskUser.Enabled,
+			Enabled: spec.Declarative.BuiltinTools.AskUser,
 		}
 	}
 

@@ -808,7 +808,7 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) s
 	}
 
 	// AskUser: Not yet implemented in Go runtime
-	if spec.AskUser != nil && spec.AskUser.Enabled {
+	if decl.BuiltinTools != nil && decl.BuiltinTools.AskUser {
 		unsupported = append(unsupported, "ask user (not implemented in Go runtime)")
 	}
 

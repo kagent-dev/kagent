@@ -1429,7 +1429,7 @@ func Test_AdkApiTranslator_AskUser(t *testing.T) {
 		},
 	}
 
-	makeAgent := func(askUser *v1alpha2.AskUserSpec) *v1alpha2.Agent {
+	makeAgent := func(builtinTools *v1alpha2.BuiltinToolsSpec) *v1alpha2.Agent {
 		return &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
 			Spec: v1alpha2.AgentSpec{
@@ -1438,8 +1438,8 @@ func Test_AdkApiTranslator_AskUser(t *testing.T) {
 				Declarative: &v1alpha2.DeclarativeAgentSpec{
 					SystemMessage: "You are a test agent",
 					ModelConfig:   "test-model",
+					BuiltinTools:  builtinTools,
 				},
-				AskUser: askUser,
 			},
 		}
 	}
@@ -1451,7 +1451,7 @@ func Test_AdkApiTranslator_AskUser(t *testing.T) {
 	}{
 		{
 			name:  "ask user disabled",
-			agent: makeAgent(&v1alpha2.AskUserSpec{Enabled: false}),
+			agent: makeAgent(&v1alpha2.BuiltinToolsSpec{AskUser: false}),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.AskUser)
 				assert.False(t, cfg.AskUser.Enabled)
@@ -1459,14 +1459,14 @@ func Test_AdkApiTranslator_AskUser(t *testing.T) {
 		},
 		{
 			name:  "ask user enabled",
-			agent: makeAgent(&v1alpha2.AskUserSpec{Enabled: true}),
+			agent: makeAgent(&v1alpha2.BuiltinToolsSpec{AskUser: true}),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				require.NotNil(t, cfg.AskUser)
 				assert.True(t, cfg.AskUser.Enabled)
 			},
 		},
 		{
-			name:  "ask user not specified",
+			name:  "builtin tools not specified",
 			agent: makeAgent(nil),
 			assertConfig: func(t *testing.T, cfg *adk.AgentConfig) {
 				assert.Nil(t, cfg.AskUser)

@@ -82,18 +82,14 @@ type AgentSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
-
-	// AskUser configures the "ask user" tool for this agent.
-	// When enabled, the agent can pause execution and ask the user for input.
-	// +optional
-	AskUser *AskUserSpec `json:"askUser,omitempty"`
 }
 
-// AskUserSpec configures the "ask user" tool for an agent.
-type AskUserSpec struct {
-	// Enabled indicates whether the "ask user" tool should be enabled for this agent.
-	// +kubebuilder:validation:Required
-	Enabled bool `json:"enabled"`
+// BuiltinToolsSpec configures the built-in tools available to a declarative agent.
+type BuiltinToolsSpec struct {
+	// AskUser enables the "ask user" tool.
+	// When true, the agent can pause execution and ask the user for input.
+	// +optional
+	AskUser bool `json:"askUser,omitempty"`
 }
 
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
@@ -221,6 +217,10 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// BuiltinTools configures the built-in tools available to this agent.
+	// +optional
+	BuiltinTools *BuiltinToolsSpec `json:"builtinTools,omitempty"`
 }
 
 // SandboxConfig configures sandboxed execution behavior.
