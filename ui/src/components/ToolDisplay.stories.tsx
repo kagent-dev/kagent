@@ -73,22 +73,6 @@ export const VeryLongUrl: Story = {
   },
 };
 
-export const VeryLongToolId: Story = {
-  args: {
-    call: {
-      id: "call_super_duper_long_tool_identifier_that_goes_on_and_on_and_on_and_will_surely_overflow_if_not_truncated_properly_abc123_def456_ghi789",
-      name: "some_function",
-      args: {
-        path: "/src/components/App.tsx",
-      },
-    },
-    result: {
-      content: "Result text here",
-    },
-    status: "completed",
-  },
-};
-
 export const LongUnbreakableString: Story = {
   args: {
     call: {
@@ -147,13 +131,6 @@ export const InChatLayoutLongUrl: Story = {
   decorators: [ChatLayoutDecorator],
   args: {
     ...VeryLongUrl.args,
-  },
-};
-
-export const InChatLayoutLongToolId: Story = {
-  decorators: [ChatLayoutDecorator],
-  args: {
-    ...VeryLongToolId.args,
   },
 };
 
