@@ -52,17 +52,28 @@ Allows overriding it for multi-namespace deployments in combined charts.
 
 {{/*
 Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
-Precedence: controller.watchNamespaces > rbac.namespaces (when clusterScoped=false) > empty (watch all).
+Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
 */}}
 {{- define "kagent.watchNamespaces" -}}
 {{- if .Values.controller.watchNamespaces -}}
   {{- .Values.controller.watchNamespaces | uniq | join "," -}}
-{{- else if and .Values.rbac (not .Values.rbac.clusterScoped) -}}
-  {{- if .Values.rbac.namespaces -}}
-    {{- .Values.rbac.namespaces | uniq | join "," -}}
-  {{- else -}}
-    {{- .Release.Namespace -}}
-  {{- end -}}
+{{- else if and .Values.rbac .Values.rbac.namespaces -}}
+  {{- .Values.rbac.namespaces | uniq | join "," -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Guards on the rbac block
+*/}}
+{{- define "kagent.rbac.validate" -}}
+{{- if and .Values.rbac (hasKey .Values.rbac "clusterScoped") -}}
+{{- fail "rbac.clusterScoped has been removed. Leave rbac.namespaces empty for cluster-scoped RBAC, or set rbac.namespaces=[<ns>, ...] for namespaced RBAC." -}}
+{{- end -}}
+{{- if and .Values.rbac .Values.rbac.namespaces -}}
+{{- $installNs := include "kagent.namespace" . -}}
+{{- if not (has $installNs .Values.rbac.namespaces) -}}
+{{- fail (printf "rbac.namespaces is set but does not include the install namespace %q" $installNs) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
