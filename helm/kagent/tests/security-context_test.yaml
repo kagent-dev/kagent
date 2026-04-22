@@ -5,6 +5,7 @@ templates:
   - controller-deployment.yaml
   - postgresql-secret.yaml
   - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
 tests:
   # =============================================================================
   # Controller Security Context Tests

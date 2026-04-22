@@ -265,6 +265,23 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
+func TestDefaultAgentBindHostFlag(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	f := fs.Lookup("default-agent-bind-host")
+	assert.NotNil(t, f, "default-agent-bind-host flag should be registered")
+	assert.Equal(t, "0.0.0.0", f.DefValue, "default should be 0.0.0.0")
+
+	t.Setenv("DEFAULT_AGENT_BIND_HOST", "::")
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+
+	got := fs.Lookup("default-agent-bind-host").Value.String()
+	assert.Equal(t, "::", got)
+}
+
 func TestMapValue(t *testing.T) {
 	tests := []struct {
 		name    string

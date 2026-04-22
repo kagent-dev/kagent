@@ -1,6 +1,7 @@
 suite: test ui deployment
 templates:
   - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
 tests:
   - it: should render ui deployment with default values
     template: ui-deployment.yaml
@@ -99,6 +100,7 @@ tests:
             role: AI
 
   - it: should set nodeSelector
+    template: ui-deployment.yaml
     set:
       ui:
         nodeSelector:
@@ -109,7 +111,96 @@ tests:
           value:
             role: AI
 
+  - it: should use default httpGet startup probe
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 1
+
+  - it: should use default httpGet readiness probe
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 30
+
+  - it: should allow overriding startup probe
+    template: ui-deployment.yaml
+    set:
+      ui:
+        startupProbe:
+          exec:
+            command: ["curl", "-sf", "http://[::1]:8080/health"]
+          initialDelaySeconds: 5
+          periodSeconds: 3
+          failureThreshold: 30
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.exec.command
+          value: ["curl", "-sf", "http://[::1]:8080/health"]
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 3
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe.httpGet
+
+  - it: should allow overriding readiness probe
+    template: ui-deployment.yaml
+    set:
+      ui:
+        readinessProbe:
+          exec:
+            command: ["curl", "-sf", "http://[::1]:8080/health"]
+          periodSeconds: 10
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          value: ["curl", "-sf", "http://[::1]:8080/health"]
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 10
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+
+  - it: should mount unified ui-config ConfigMap for nginx and supervisord
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: ui-config
+            configMap:
+              name: RELEASE-NAME-ui-config
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: ui-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: ui-config
+            mountPath: /etc/supervisor/conf.d/supervisord.conf
+            subPath: supervisord.conf
+            readOnly: true
+
+  - it: should include config checksum in pod annotations
+    template: ui-deployment.yaml
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/ui-config"]
+
   - it: should set tolerations
+    template: ui-deployment.yaml
     set:
       ui:
         tolerations:

@@ -29,6 +29,7 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,6 +111,10 @@ var DefaultServiceAccountName string
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string
 
+// DefaultAgentBindHost is the host address agent pods bind to.
+// Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
+var DefaultAgentBindHost = "0.0.0.0"
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
@@ -161,8 +166,13 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 type TranslatorPlugin = translator.TranslatorPlugin
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
+	return NewAdkApiTranslatorWithWatchedNamespaces(kube, nil, defaultModelConfig, plugins, globalProxyURL, sandboxBackend)
+}
+
+func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
+		watchedNamespaces:  watchedNamespaces,
 		defaultModelConfig: defaultModelConfig,
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
@@ -172,6 +182,7 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 
 type adkApiTranslator struct {
 	kube               client.Client
+	watchedNamespaces  []string
 	defaultModelConfig types.NamespacedName
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
@@ -902,6 +913,10 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 		if err == nil {
 			// Namespace exists, so this is an internal k8s URL
 			return true
+		}
+		// Controller is using namespaced RBAC, so check if the namespace is watched
+		if (apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err)) && len(a.watchedNamespaces) > 0 {
+			return slices.Contains(a.watchedNamespaces, potentialNamespace)
 		}
 		// If namespace doesn't exist, it's likely a TLD or external domain
 	}

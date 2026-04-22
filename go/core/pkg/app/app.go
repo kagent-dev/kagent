@@ -76,7 +76,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -191,6 +193,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+
+	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -408,12 +412,23 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
 	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
 
+	clientOpts := client.Options{}
+	if len(watchNamespacesList) > 0 {
+		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
+		// resources, so prevent the cached client from starting a cluster-scoped
+		// Namespace informer whose list/watch would keep crashing.
+		clientOpts.Cache = &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Namespace{}},
+		}
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
+		Client:                 clientOpts,
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
@@ -481,8 +496,9 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	apiTranslator := agent_translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
+		watchNamespacesList,
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,

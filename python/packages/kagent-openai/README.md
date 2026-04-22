@@ -28,7 +28,7 @@ app = KAgentApp(
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"]
     },
-    kagent_url="http://localhost:8080",
+    kagent_url="http://localhost:8083",
     app_name="my-agent"
 )
 
@@ -71,7 +71,7 @@ from agents.run import Runner
 from kagent.openai.agent._session_service import KAgentSession
 import httpx
 
-client = httpx.AsyncClient(base_url="http://localhost:8080")
+client = httpx.AsyncClient(base_url="http://localhost:8083")
 session = KAgentSession(
     session_id="conversation_123",
     client=client,
@@ -92,7 +92,7 @@ Test without KAgent backend using in-memory mode:
 app = KAgentApp(
     agent=agent,
     agent_card=agent_card,
-    kagent_url="http://localhost:8080",
+    kagent_url="http://localhost:8083",
     app_name="test-agent"
 )
 
@@ -130,7 +130,7 @@ Set `KAGENT_URL` environment variable to connect to KAgent backend.
 
 ## Environment Variables
 
-- `KAGENT_URL` - KAgent backend URL (default: http://localhost:8080)
+- `KAGENT_URL` - KAgent backend URL (default: http://localhost:8083)
 - `LOG_LEVEL` - Logging level (default: INFO)
 
 ---
