@@ -88,6 +88,6 @@ The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for LLM access
 - `SERPER_API_KEY`: Required for web search functionality
-- `KAGENT_URL`: KAgent server URL (default: http://localhost:8083)
+- `KAGENT_URL`: Required KAgent server URL (typically `http://localhost:8083` for a local controller)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
