@@ -72,7 +72,7 @@ Guards on the rbac block
 {{- if and .Values.rbac .Values.rbac.namespaces -}}
 {{- $installNs := include "kagent.namespace" . -}}
 {{- if not (has $installNs .Values.rbac.namespaces) -}}
-{{- fail "rbac.namespaces is set but does not include the install namespace" -}}
+{{- fail (printf "rbac.namespaces is set but does not include the install namespace %q" $installNs) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

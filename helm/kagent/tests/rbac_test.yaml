@@ -232,7 +232,7 @@ tests:
     template: rbac/writer-rolebinding.yaml
     asserts:
       - failedTemplate:
-          errorMessage: "rbac.namespaces is set but does not include the install namespace \"NAMESPACE\". Add \"NAMESPACE\" to rbac.namespaces explicitly (kagent's controller, bundled DB, and tools live in the install namespace and require RBAC there). If you intentionally want to exclude it, please open an issue so we can relax this validation."
+          errorMessage: "rbac.namespaces is set but does not include the install namespace \"NAMESPACE\""
 
   - it: should accept a custom install namespace when listed in rbac.namespaces
     set:
