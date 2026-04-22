@@ -1,9 +1,5 @@
 import { getBackendUrl } from "@/lib/utils";
-
-export async function getCurrentUserId() {
-  // TODO: this should come from login state
-  return "admin@kagent.dev";
-}
+import { getAuthHeadersFromContext } from "@/lib/auth";
 
 type ApiOptions = RequestInit & {
   method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -17,19 +13,21 @@ type ApiOptions = RequestInit & {
  * @throws Error with a descriptive message if the request fails
  */
 export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const userId = await getCurrentUserId();
   // Ensure path starts with a slash
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const url = `${getBackendUrl()}${cleanPath}`;
-  const urlWithUser = url.includes("?") ? `${url}&user_id=${userId}` : `${url}?user_id=${userId}`;
-  
+
+  // Get auth headers from incoming request (set by proxy)
+  const authHeaders = await getAuthHeadersFromContext();
+
   try {
-    const response = await fetch(urlWithUser, {
+    const response = await fetch(url, {
       ...options,
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        ...authHeaders,
         ...options.headers,
       },
       signal: AbortSignal.timeout(30000), // 30 second timeout
@@ -52,7 +50,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
         // If we can't parse the error response, use the default error message
         console.warn("Could not parse error response:", parseError);
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -93,8 +91,8 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
  * @param defaultMessage Default error message if the error doesn't have a message
  * @returns A BaseResponse object with error information
  */
-export function createErrorResponse<T>(error: unknown, defaultMessage: string): { message: string; data?: T } {
+export function createErrorResponse<T>(error: unknown, defaultMessage: string): { message: string; error: string; data?: T } {
   const errorMessage = error instanceof Error ? error.message : defaultMessage;
   console.error(defaultMessage, error);
-  return { message: errorMessage };
+  return { message: errorMessage, error: errorMessage };
 }

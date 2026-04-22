@@ -6,7 +6,6 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
-import numpy as np
 from google.adk.memory import BaseMemoryService
 from google.adk.memory.base_memory_service import SearchMemoryResponse
 from google.adk.memory.memory_entry import MemoryEntry
@@ -14,6 +13,7 @@ from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
 
+from kagent.adk.models import KAgentEmbedding
 from kagent.adk.types import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ class KagentMemoryService(BaseMemoryService):
         self.client = http_client
         self.embedding_config = embedding_config
         self.ttl_days = ttl_days
+        self._embedding_client = KAgentEmbedding(embedding_config) if embedding_config else None
 
     async def add_session_to_memory(self, session: Session, model: Optional[Any] = None) -> None:
         """Add a session's content to long-term memory (non-blocking).
@@ -92,14 +93,13 @@ class KagentMemoryService(BaseMemoryService):
             logger.debug("Generating embeddings for %d content items", len(valid_contents))
 
             # Batch generate embeddings
-            vectors = await self._generate_embedding_async(valid_contents)
+            if not self._embedding_client:
+                logger.warning("No embedding client available for session %s", session.id)
+                return
+            vectors = await self._embedding_client.generate(valid_contents)
             if not vectors:
                 logger.warning("Failed to generate embeddings for session %s", session.id)
                 return
-
-            if not isinstance(vectors[0], (list, np.ndarray)):
-                # vectors is a flat list of floats (single vector); wrap it
-                vectors = [vectors]
 
             # Prepare batch items
             batch_items = []
@@ -152,7 +152,10 @@ class KagentMemoryService(BaseMemoryService):
         logger.debug("Adding specific content to memory for user %s", user_id)
 
         # Generate embedding
-        vector = await self._generate_embedding_async(content)
+        if not self._embedding_client:
+            logger.warning("No embedding client available")
+            return
+        vector = await self._embedding_client.generate(content)
         if not vector:
             logger.warning("Failed to generate embedding for memory content")
             return
@@ -195,7 +198,10 @@ class KagentMemoryService(BaseMemoryService):
             SearchMemoryResponse containing matching MemoryEntry objects
         """
         # Generate embedding for the query
-        vector = await self._generate_embedding_async(query)
+        if not self._embedding_client:
+            logger.warning("No embedding client available for search")
+            return SearchMemoryResponse(memories=[])
+        vector = await self._embedding_client.generate(query)
         if not vector:
             logger.warning("Failed to generate embedding for search query")
             return SearchMemoryResponse(memories=[])
@@ -287,155 +293,6 @@ class KagentMemoryService(BaseMemoryService):
                         parts.append(f"{role}: {text_content}")
 
         return "\n".join(parts)
-
-    def _normalize_l2(self, x):
-        x = np.array(x)
-        if x.ndim == 1:
-            norm = np.linalg.norm(x)
-            if norm == 0:
-                return x
-            return x / norm
-        else:
-            norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
-            return np.where(norm == 0, x, x / norm)
-
-    async def _generate_embedding_async(
-        self, input_data: Union[str, List[str]]
-    ) -> Union[List[float], List[List[float]]]:
-        """Generate embedding vector(s) using provider-specific SDK clients.
-
-        Args:
-            input_data: Single string or list of strings to embed.
-
-        Returns:
-            Single vector (List[float]) if input is string,
-            or List of vectors (List[List[float]]) if input is list.
-            Returns empty list on failure.
-        """
-        if not self.embedding_config:
-            logger.warning("No embedding configuration found")
-            return []
-
-        model_name = self.embedding_config.model
-        provider = self.embedding_config.provider
-
-        if not model_name:
-            logger.warning("No embedding model specified in config")
-            return []
-
-        is_batch = isinstance(input_data, list)
-        texts = input_data if is_batch else [input_data]
-        api_base = self.embedding_config.base_url or None
-
-        try:
-            raw_embeddings = await self._call_embedding_provider(provider, model_name, texts, api_base)
-        except Exception as e:
-            logger.error("Error generating embedding with provider=%s model=%s: %s", provider, model_name, e)
-            return []
-
-        # Most Matryoshka Representation Learning embedding models produce embeddings that still have
-        # meaning when truncated to specific sizes: https://huggingface.co/blog/matryoshka
-        # We must ensure embeddings have consistent dimensions for the vector storage backend.
-        embeddings = []
-        for embedding in raw_embeddings:
-            dim = len(embedding)
-            if dim > 768:
-                embedding = embedding[:768]
-                embedding = self._normalize_l2(embedding).tolist()
-            elif dim < 768:
-                logger.error(
-                    "Embedding dimension %d is smaller than required 768; rejecting embeddings batch",
-                    dim,
-                )
-                return []
-            embeddings.append(embedding)
-
-        if is_batch:
-            return embeddings
-        return embeddings[0] if embeddings else []
-
-    async def _call_embedding_provider(
-        self,
-        provider: str,
-        model_name: str,
-        texts: List[str],
-        api_base: Optional[str],
-    ) -> List[List[float]]:
-        """Dispatch to the correct provider SDK for embedding generation."""
-        if provider in ("openai", "azure_openai"):
-            return await self._embed_openai(provider, model_name, texts, api_base)
-        if provider == "ollama":
-            return await self._embed_ollama(model_name, texts, api_base)
-        if provider in ("vertex_ai", "gemini"):
-            return await self._embed_google(provider, model_name, texts)
-        # Unknown provider — try OpenAI-compatible as a fallback
-        logger.warning("Unknown embedding provider '%s'; attempting OpenAI-compatible call.", provider)
-        return await self._embed_openai("openai", model_name, texts, api_base)
-
-    async def _embed_openai(
-        self,
-        provider: str,
-        model_name: str,
-        texts: List[str],
-        api_base: Optional[str],
-    ) -> List[List[float]]:
-        """Embed using the OpenAI or Azure OpenAI SDK."""
-        import os
-
-        if provider == "azure_openai":
-            from openai import AsyncAzureOpenAI
-
-            api_version = os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
-            azure_endpoint = api_base or os.environ.get("AZURE_OPENAI_ENDPOINT")
-            if not azure_endpoint:
-                raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
-            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=azure_endpoint)
-        else:
-            from openai import AsyncOpenAI
-
-            client = AsyncOpenAI(base_url=api_base or None)
-
-        response = await client.embeddings.create(model=model_name, input=texts, dimensions=768)
-        return [item.embedding for item in response.data]
-
-    async def _embed_ollama(
-        self,
-        model_name: str,
-        texts: List[str],
-        api_base: Optional[str],
-    ) -> List[List[float]]:
-        """Embed using the Ollama SDK."""
-        import os
-
-        import ollama
-
-        host = api_base or os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
-        client = ollama.AsyncClient(host=host)
-        result = await client.embed(model=model_name, input=texts)
-        return list(result.embeddings)
-
-    async def _embed_google(
-        self,
-        provider: str,
-        model_name: str,
-        texts: List[str],
-    ) -> List[List[float]]:
-        """Embed using google-genai (Gemini or Vertex AI)."""
-        from google import genai
-        from google.genai import types as genai_types
-
-        if provider == "vertex_ai":
-            client = genai.Client(vertexai=True)
-        else:
-            client = genai.Client()
-
-        response = await asyncio.to_thread(
-            client.models.embed_content,
-            model=model_name,
-            contents=texts,
-            config=genai_types.EmbedContentConfig(output_dimensionality=768),
-        )
-        return [list(emb.values) for emb in response.embeddings]
 
     async def _summarize_session_content_async(
         self,

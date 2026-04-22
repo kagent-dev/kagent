@@ -8,7 +8,6 @@ from typing import Any, Dict
 
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
-
 from kagent.skills import execute_command, get_bash_description, get_session_path
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -65,7 +64,11 @@ class BashTool(BaseTool):
 
         try:
             working_dir = get_session_path(session_id=tool_context.session.id)
-            result = await execute_command(command, working_dir, self.skills_directory)
+            result = await execute_command(
+                command,
+                working_dir,
+                self.skills_directory,
+            )
             logger.info(f"Executed bash command: {command}, description: {description}")
             return result
         except Exception as e:

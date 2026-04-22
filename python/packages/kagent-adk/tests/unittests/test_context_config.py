@@ -109,6 +109,22 @@ class TestContextConfigParsing:
         assert parsed.compaction.overlap_size == 2
         assert parsed.compaction.token_threshold == 1000
 
+    def test_network_config(self):
+        data = json.loads(_make_agent_config_json())
+        data["network"] = {"allowed_domains": ["api.example.com", "*.example.org"]}
+        config = AgentConfig.model_validate(data)
+        assert config.network is not None
+        assert config.network.allowed_domains == ["api.example.com", "*.example.org"]
+
+    def test_model_accepts_legacy_tls_insecure_skip_verify_field(self):
+        data = json.loads(_make_agent_config_json())
+        data["model"]["tls_insecure_skip_verify"] = True
+
+        config = AgentConfig.model_validate(data)
+
+        assert isinstance(config.model, OpenAI)
+        assert config.model.tls_disable_verify is True
+
 
 class TestBuildAdkContextConfigs:
     def test_compaction_only(self):

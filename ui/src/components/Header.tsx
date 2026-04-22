@@ -4,8 +4,9 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { UserMenu } from "./UserMenu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,6 +83,12 @@ export function Header() {
                     New MCP Server
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/prompts/new" className="gap-2 cursor-pointer w-full">
+                    <ScrollText className="h-4 w-4" />
+                    New prompt library
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             
@@ -118,6 +125,12 @@ export function Header() {
                     MCP Servers
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/prompts" className="gap-2 cursor-pointer w-full">
+                    <ScrollText className="h-4 w-4" />
+                    Prompt Library
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -131,9 +144,10 @@ export function Header() {
             </Button>
             
             <ThemeToggle />
+            <UserMenu />
           </div>
         </div>
-        
+
         {/* Mobile menu */}
         {isMenuOpen && (
           <div className="md:hidden pt-4 pb-2 animate-in fade-in slide-in-from-top duration-300">
@@ -180,6 +194,12 @@ export function Header() {
                       MCP Servers
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/prompts" className="gap-2 cursor-pointer w-full">
+                      <ScrollText className="h-4 w-4" />
+                      Prompt Library
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -211,6 +231,12 @@ export function Header() {
                       New MCP Server
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/prompts/new" className="gap-2 cursor-pointer w-full">
+                      <ScrollText className="h-4 w-4" />
+                      New prompt library
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               
@@ -222,8 +248,9 @@ export function Header() {
                 <Link href="https://discord.gg/Fu3k65f2k3" target="_blank" onClick={handleMobileLinkClick}>Community</Link>
               </Button>
 
-              <div className="flex items-center justify-end py-2">
-                 <ThemeToggle />
+              <div className="flex items-center justify-between py-2">
+                <UserMenu onMobileLinkClick={handleMobileLinkClick} />
+                <ThemeToggle />
               </div>
             </div>
           </div>

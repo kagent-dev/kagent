@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -57,4 +58,20 @@ func StartT(ctx context.Context, t *testing.T) string {
 	t.Cleanup(cleanup)
 
 	return connStr
+}
+
+// Migrate runs the embedded OSS migrations against connStr and returns any error.
+// If vectorEnabled is true the vector pass is also applied.
+// Use MigrateT in tests that have a *testing.T; use Migrate in TestMain where no T is available.
+func Migrate(connStr string, vectorEnabled bool) error {
+	return migrations.RunUp(connStr, migrations.FS, vectorEnabled)
+}
+
+// MigrateT runs the embedded OSS migrations against connStr and calls t.Fatal on error.
+// If vectorEnabled is true the vector pass is also applied.
+func MigrateT(t *testing.T, connStr string, vectorEnabled bool) {
+	t.Helper()
+	if err := Migrate(connStr, vectorEnabled); err != nil {
+		t.Fatalf("dbtest.MigrateT: %v", err)
+	}
 }

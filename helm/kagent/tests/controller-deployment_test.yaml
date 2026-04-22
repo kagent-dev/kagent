@@ -180,6 +180,56 @@ tests:
           path: data.DEFAULT_AGENT_POD_LABELS
           value: "team=platform"
 
+  - it: should set DEFAULT_AGENT_BIND_HOST when host is configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          host: "::"
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_BIND_HOST
+          value: "::"
+
+  - it: should not set DEFAULT_AGENT_BIND_HOST when host is empty
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          host: ""
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_BIND_HOST
+
+  - it: should not set DEFAULT_AGENT_BIND_HOST when host is not configured
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_BIND_HOST
+
+  - it: should set DEFAULT_AGENT_BIND_HOST to dual-stack when ipv6 is enabled
+    template: controller-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_BIND_HOST
+          value: "::"
+
+  - it: should prefer explicit host over ipv6 flag
+    template: controller-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+      controller:
+        agentDeployment:
+          host: "0.0.0.0"
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_BIND_HOST
+          value: "0.0.0.0"
+
   - it: should configure watch namespaces
     template: controller-configmap.yaml
     set:
@@ -191,6 +241,29 @@ tests:
       - equal:
           path: data.WATCH_NAMESPACES
           value: "namespace-1,namespace-2"
+
+  - it: should set podAnnotations
+    template: controller-deployment.yaml
+    set:
+      controller:
+        podAnnotations:
+          role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
+
+  - it: should fallback to top-level podAnnotations
+    template: controller-deployment.yaml
+    set:
+      podAnnotations:
+        role: AI
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            role: AI
 
   - it: should set nodeSelector
     template: controller-deployment.yaml
@@ -397,4 +470,3 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
-

@@ -1,12 +1,14 @@
 "use client";
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import { ModelConfig, AgentType, ContextConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
+import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
@@ -23,7 +25,6 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 interface ValidationErrors {
   name?: string;
   namespace?: string;
@@ -37,6 +38,7 @@ interface ValidationErrors {
   memoryModel?: string;
   memoryTtl?: string;
   serviceAccountName?: string;
+  promptSources?: string;
 }
 
 interface AgentPageContentProps {
@@ -63,7 +65,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
 
-  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  type SelectedModelType = ModelConfig;
 
   interface FormState {
     name: string;
@@ -86,6 +88,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     stream: boolean;
     contextConfig: ContextConfig | undefined;
     serviceAccountName: string;
+    promptSourceRows: PromptSourceRow[];
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -112,10 +115,41 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     stream: false,
     contextConfig: undefined,
     serviceAccountName: "",
+    promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
   });
+
+  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
+  const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+
+  const ensureConfigMapSource = useCallback((cmName: string) => {
+    const t = cmName.trim();
+    if (!t) {
+      return;
+    }
+    setState((prev) => {
+      if (prev.promptSourceRows.some((r) => r.name.trim() === t)) {
+        return { ...prev, errors: { ...prev.errors, promptSources: undefined } };
+      }
+      const nonEmpty = prev.promptSourceRows.filter((r) => r.name.trim() !== "");
+      return {
+        ...prev,
+        errors: { ...prev.errors, promptSources: undefined },
+        promptSourceRows: [...nonEmpty, { id: crypto.randomUUID(), name: t, alias: "" }],
+      };
+    });
+  }, []);
+
+  const includeSourceIdForConfigMap = useCallback(
+    (cmName: string) => {
+      const row = state.promptSourceRows.find((r) => r.name.trim() === cmName);
+      const a = row?.alias?.trim();
+      return a || cmName;
+    },
+    [state.promptSourceRows],
+  );
 
   // Fetch existing agent data if in edit mode
   useEffect(() => {
@@ -138,26 +172,35 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: agent.spec.type,
+                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.workloadMode),
               };
-              // v1alpha2: read type and split specs
-              if (agent.spec.type === "Declarative") {
-                const memorySpec = agent.spec?.memory;
+              const useDeclarativeForm = agent.spec.type === "Declarative";
+              if (useDeclarativeForm) {
+                const decl = agent.spec?.declarative;
+                const memorySpec = decl?.memory ?? agent.spec?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
+                const pt = decl?.promptTemplate;
+                const srcRows: PromptSourceRow[] =
+                  pt?.dataSources?.map((ds) => ({
+                    id: crypto.randomUUID(),
+                    name: ds.name || "",
+                    alias: ds.alias || "",
+                  })) ?? [newPromptSourceRow()];
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
-                  systemPrompt: agent.spec?.declarative?.systemMessage || "",
-                  selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
-                  selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
+                  systemPrompt: decl?.systemMessage || "",
+                  promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
+                  selectedTools: (decl?.tools && agentResponse.tools) ? agentResponse.tools : [],
+                  selectedModel: agentResponse.modelConfigRef ? { ref: agentResponse.modelConfigRef, spec: { model: agentResponse.model || "", provider: "" } } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
-                  stream: agent.spec?.declarative?.stream ?? false,
-                  selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
+                  stream: decl?.stream ?? false,
+                  selectedMemoryModel: memoryModelConfig ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
-                  contextConfig: agent.spec?.declarative?.context,
-                  serviceAccountName: agent.spec?.declarative?.deployment?.serviceAccountName || "",
+                  contextConfig: decl?.context,
+                  serviceAccountName: decl?.deployment?.serviceAccountName || "",
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
@@ -220,6 +263,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       description: state.description,
       type: state.agentType,
       systemPrompt: state.systemPrompt,
+      promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
       modelName: state.selectedModel?.ref || "",
       tools: state.selectedTools,
       byoImage: state.byoImage,
@@ -235,7 +279,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     const newErrors = validateAgentData(formData);
 
-    if (state.agentType === "Declarative" && state.skillRefs && state.skillRefs.length > 0) {
+    if (useDeclarativeAgentFields && state.skillRefs && state.skillRefs.length > 0) {
       // Filter out empty/whitespace entries first - if all are empty, treat as "no skills"
       const nonEmptyRefs = state.skillRefs.filter(ref => ref.trim());
       
@@ -318,8 +362,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     try {
 
       setState(prev => ({ ...prev, isSubmitting: true }));
-      if (state.agentType === "Declarative" && !state.selectedModel) {
-        throw new Error("Model is required to create a declarative agent.");
+      if (useDeclarativeAgentFields && !state.selectedModel) {
+        throw new Error("Model is required for this agent type.");
       }
 
       const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
@@ -330,17 +374,18 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         description: state.description,
         type: state.agentType,
         systemPrompt: state.systemPrompt,
+        promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
         tools: state.selectedTools,
-        skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
-        memory: state.agentType === "Declarative" && memoryEnabled
+        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
+        memory: useDeclarativeAgentFields && memoryEnabled
           ? {
             modelConfig: state.selectedMemoryModel?.ref || "",
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
           : undefined,
-        context: state.agentType === "Declarative" ? state.contextConfig : undefined,
+        context: useDeclarativeAgentFields ? state.contextConfig : undefined,
         // BYO
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -454,13 +499,17 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <div>
                   <Label className="text-base mb-2 block font-bold">Agent Type</Label>
                   <p className="text-xs mb-2 block text-muted-foreground">
-                    Choose declarative (uses a model) or BYO (bring your own containerized agent).
+                    Declarative or Sandbox: model, tools, and prompts below. BYO: your own container image.
                   </p>
                   <Select
                     value={state.agentType}
                     onValueChange={(val) => {
-                      setState(prev => ({ ...prev, agentType: val as AgentType }));
-                      validateField('type', val);
+                      const next = val as AgentType;
+                      setState((prev) => ({
+                        ...prev,
+                        agentType: next,
+                      }));
+                      validateField("type", val);
                     }}
                     disabled={state.isSubmitting || state.isLoading}
                   >
@@ -469,6 +518,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Declarative">Declarative</SelectItem>
+                      <SelectItem value="Sandbox">Sandbox</SelectItem>
                       <SelectItem value="BYO">BYO</SelectItem>
                     </SelectContent>
                   </Select>
@@ -490,7 +540,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   {state.errors.description && <p className="text-red-500 text-sm mt-1">{state.errors.description}</p>}
                 </div>
 
-                {state.agentType === "Declarative" && (
+                {useDeclarativeAgentFields && (
                   <>
                     <SystemPromptSection
                       value={state.systemPrompt}
@@ -498,13 +548,16 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onBlur={() => validateField('systemPrompt', state.systemPrompt)}
                       error={state.errors.systemPrompt}
                       disabled={state.isSubmitting || state.isLoading}
+                      mentionNamespace={state.namespace}
+                      onPickInclude={(pick) => ensureConfigMapSource(pick.configMapName)}
+                      includeSourceIdForConfigMap={includeSourceIdForConfigMap}
                     />
 
                     <ModelSelectionSection
                       allModels={models}
                       selectedModel={state.selectedModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
+                        setState(prev => ({ ...prev, selectedModel: model as ModelConfig | null }));
                       }}
                       error={state.errors.model}
                       isSubmitting={state.isSubmitting || state.isLoading}
@@ -543,7 +596,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
                   </>
                 )}
-                {state.agentType === "BYO" && (
+                {showByoFields && (
                   <div className="space-y-4">
                     <div>
                       <Label className="text-sm mb-2 block">Container image</Label>
@@ -704,7 +757,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 )}
               </CardContent>
             </Card>
-            {state.agentType === "Declarative" && (
+            {useDeclarativeAgentFields && (
               <>
                 <Card>
                   <CardHeader>
@@ -737,8 +790,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       allModels={models}
                       selectedModel={state.selectedMemoryModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedMemoryModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
-                        validateField("memoryModel", (model as Pick<ModelConfig, 'ref' | 'model'> | null)?.ref || "");
+                        setState(prev => ({ ...prev, selectedMemoryModel: model as ModelConfig | null }));
+                        validateField("memoryModel", (model as ModelConfig | null)?.ref || "");
                       }}
                       agentNamespace={state.namespace}
                       ttlDays={state.memoryTtlDays}

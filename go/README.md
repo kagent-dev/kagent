@@ -1,11 +1,11 @@
-# Kagent Go Workspace
+# Kagent Go
 
-This directory is a [Go workspace](https://go.dev/doc/tutorial/workspaces) (`go.work`) containing three modules that make up the Go components of Kagent.
+This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing three top-level package trees that make up the Go components of Kagent.
 
-## Modules
+## Packages
 
-| Module | Path | Description |
-|--------|------|-------------|
+| Package | Path | Description |
+|---------|------|-------------|
 | **api** | `go/api/` | Shared types: CRD definitions, ADK model types, database models, HTTP client SDK |
 | **core** | `go/core/` | Infrastructure: Kubernetes controllers, HTTP server, CLI, database implementation |
 | **adk** | `go/adk/` | Go Agent Development Kit for building and running agents |
@@ -23,7 +23,7 @@ go/core  go/adk
 
 ```
 go/
-├── go.work              # Go workspace file
+├── go.mod               # Single Go module file
 ├── Makefile              # Unified build targets
 ├── Dockerfile            # Shared multi-stage Docker build
 │
@@ -31,7 +31,7 @@ go/
 │   ├── v1alpha1/         # Legacy CRD types
 │   ├── v1alpha2/         # Current CRD types
 │   ├── adk/              # ADK config & model types
-│   ├── database/         # GORM model structs & Client interface
+│   ├── database/         # database model structs & Client interface
 │   ├── httpapi/          # HTTP API request/response types
 │   ├── client/           # REST HTTP client SDK
 │   ├── utils/            # Shared utility functions

@@ -3,11 +3,13 @@
 import { AgentMemory } from "@/types";
 import { fetchApi } from "./utils";
 
-export async function clearAgentMemory(agentName: string, namespace?: string) {
+export async function clearAgentMemory(agentName: string, namespace?: string, userId?: string) {
   try {
     const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
+    const params = new URLSearchParams({ agent_name: fullName });
+    if (userId) params.set("user_id", userId);
     const data = await fetchApi<unknown>(
-      `/memories?agent_name=${encodeURIComponent(fullName)}`,
+      `/memories?${params.toString()}`,
       { method: "DELETE" },
     );
     return { data, error: null };
@@ -16,11 +18,13 @@ export async function clearAgentMemory(agentName: string, namespace?: string) {
   }
 }
 
-export async function listAgentMemories(agentName: string, namespace?: string) {
+export async function listAgentMemories(agentName: string, namespace?: string, userId?: string) {
   try {
     const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
+    const params = new URLSearchParams({ agent_name: fullName });
+    if (userId) params.set("user_id", userId);
     const data = await fetchApi<AgentMemory[]>(
-      `/memories?agent_name=${encodeURIComponent(fullName)}`,
+      `/memories?${params.toString()}`,
       { method: "GET" },
     );
     return { data, error: null };

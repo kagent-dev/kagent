@@ -230,9 +230,9 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
     );
   };
 
-    // Check if agent is BYO type
-  const isDeclarativeAgent = selectedTeam?.agent.spec.type === "Declarative";
-  
+  // Declarative agents (including SandboxAgent with declarative spec) share model-backed config.
+  const isDeclarativeLikeAgent = selectedTeam?.agent.spec.type === "Declarative";
+
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
@@ -258,14 +258,14 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
-            {isDeclarativeAgent &&(
+            {isDeclarativeLikeAgent && (
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
                 {selectedTeam && renderAgentTools(selectedTeam.tools)}
               </SidebarGroup>
             )}
 
-            {isDeclarativeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+            {isDeclarativeLikeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <div className="flex items-center justify-between px-2 mb-2">
                   <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>

@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a"
@@ -113,6 +116,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	}
 	sessionID := reqCtx.ContextID
 
+	ctx = withBearerToken(ctx)
+
 	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
 		"contextID", reqCtx.ContextID,
@@ -130,6 +135,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		spanAttributes["kagent.app_name"] = e.appName
 	}
 	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
+	ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
+	defer invocationSpan.End()
 
 	// 3. Initialize skills session path.
 	if e.skillsDirectory != "" && sessionID != "" {
@@ -189,10 +196,19 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	// 9. Emit initial events.
 	if reqCtx.StoredTask == nil {
-		// New task — emit submitted.
-		submitted := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateSubmitted, nil)
+		// New task — emit submitted with the user's message
+		submitted := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateSubmitted, reqCtx.Message)
 		if err := queue.Write(ctx, submitted); err != nil {
 			return fmt.Errorf("failed to write submitted event: %w", err)
+		}
+	} else if ExtractDecisionFromMessage(reqCtx.Message) != "" {
+		// a2a-go appends incoming message to task history before executor runs.
+		// See https://github.com/a2aproject/a2a-go/blob/v0.3.13/a2asrv/agentexec.go#L188
+		// Remove the pre-appended copy and emit one decision status event.
+		dropPreAppendedDecisionFromHistory(reqCtx.StoredTask, reqCtx.Message)
+		decision := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, reqCtx.Message)
+		if err := queue.Write(ctx, decision); err != nil {
+			return fmt.Errorf("failed to write HITL decision status event: %w", err)
 		}
 	}
 
@@ -217,13 +233,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	// State tracked across the event loop.
 	var (
-		invocationID      string
-		artifactID        a2atype.ArtifactID
-		partialArtifactID a2atype.ArtifactID
-		lastTextParts     a2atype.ContentParts
-		lastTextMeta      map[string]any
-		hitlParts         a2atype.ContentParts
-		runErr            error
+		invocationID        string
+		lastNonPartialParts a2atype.ContentParts
+		hitlParts           a2atype.ContentParts
+		runErr              error
 	)
 
 	for adkEvent, adkErr := range r.Run(ctx, userID, sessionID, content, runConfig) {
@@ -238,6 +251,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		// Track invocation ID from the first event that has one.
 		if adkEvent.InvocationID != "" && invocationID == "" {
 			invocationID = adkEvent.InvocationID
+			invocationSpan.SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", invocationID))
 		}
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
@@ -299,8 +313,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		}
 
 		if adkEvent.Partial {
-			// Partial event: emit as working status (text-only) for UI streaming,
-			// and as partial artifact update.
+			// Partial event: emit as working status (text-only) for UI streaming.
+			// Note: Go ADK executor uses TaskArtifactUpdateEvent for partial events,
+			// so we don't need to emit a separate partial artifact update.
+			// However, this is done here in order to match the Python executor's behavior.
+			// Go ADK executor also uses different A2A response formats than Python ADK.
 			textOnly := filterTextParts(a2aParts)
 			if len(textOnly) > 0 {
 				mirrorMeta := maps.Clone(eventMeta)
@@ -313,28 +330,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 					return fmt.Errorf("failed to write partial status event: %w", err)
 				}
 			}
-
-			// Emit partial artifact update.
-			var partialEv *a2atype.TaskArtifactUpdateEvent
-			if partialArtifactID == "" {
-				partialEv = a2atype.NewArtifactEvent(reqCtx, a2aParts...)
-				partialArtifactID = partialEv.Artifact.ID
-			} else {
-				partialEv = a2atype.NewArtifactUpdateEvent(reqCtx, partialArtifactID, a2aParts...)
-			}
-			if partialEv.Artifact.Metadata == nil {
-				partialEv.Artifact.Metadata = map[string]any{}
-			}
-			partialEv.Artifact.Metadata[adka2a.ToA2AMetaKey("partial")] = true
-			partialEv.Metadata = maps.Clone(eventMeta)
-			partialEv.Metadata[adka2a.ToA2AMetaKey("partial")] = true
-			partialEv.Append = false // discard partial events
-			if err := queue.Write(ctx, partialEv); err != nil {
-				return fmt.Errorf("failed to write partial artifact event: %w", err)
-			}
 		} else {
-			// Non-partial event: emit as artifact + mirror as working status.
-			// Mirror: emit working status with non-empty parts.
 			mirrorParts := a2aParts
 			if len(hitlParts) == 0 {
 				// Only mirror when not accumulating HITL parts (those go into input_required).
@@ -345,27 +341,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 				if err := queue.Write(ctx, statusEv); err != nil {
 					return fmt.Errorf("failed to write mirror status event: %w", err)
 				}
-			}
-
-			// Track last text parts for final status injection.
-			if tp := filterTextParts(a2aParts); len(tp) > 0 {
-				lastTextParts = tp
-				lastTextMeta = eventMeta
-			}
-
-			// Emit artifact.
-			var artifactEv *a2atype.TaskArtifactUpdateEvent
-			if artifactID == "" {
-				artifactEv = a2atype.NewArtifactEvent(reqCtx, a2aParts...)
-				artifactID = artifactEv.Artifact.ID
-			} else {
-				artifactEv = a2atype.NewArtifactUpdateEvent(reqCtx, artifactID, a2aParts...)
-			}
-			// Mark as non-partial so downstream consumers skip their own aggregation.
-			artifactEv.Metadata = maps.Clone(eventMeta)
-			artifactEv.Metadata[adka2a.ToA2AMetaKey("partial")] = false
-			if err := queue.Write(ctx, artifactEv); err != nil {
-				return fmt.Errorf("failed to write artifact event: %w", err)
+				lastNonPartialParts = mirrorParts
 			}
 		}
 
@@ -398,15 +374,16 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		return queue.Write(ctx, inputRequired)
 	}
 
-	// completed: inject last text into final status if no message present.
-	var finalMsg *a2atype.Message
-	if len(lastTextParts) > 0 {
-		finalMsg = a2atype.NewMessage(a2atype.MessageRoleAgent, lastTextParts...)
-		if len(lastTextMeta) > 0 {
-			finalMsg.Metadata = maps.Clone(lastTextMeta)
+	// Final artifact update with lastChunk=true (if we have parts) and final completed status update (no message payload).
+	if len(lastNonPartialParts) > 0 {
+		finalArtifact := a2atype.NewArtifactEvent(reqCtx, lastNonPartialParts...)
+		finalArtifact.LastChunk = true
+		if err := queue.Write(ctx, finalArtifact); err != nil {
+			return fmt.Errorf("failed to write final artifact event: %w", err)
 		}
 	}
-	completed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, finalMsg)
+
+	completed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil)
 	completed.Final = true
 	completed.Metadata = finalMeta
 	return queue.Write(ctx, completed)
@@ -433,4 +410,42 @@ func extractSessionName(message *a2atype.Message) string {
 		}
 	}
 	return ""
+}
+
+// withBearerToken extracts the Bearer token from the incoming A2A request's
+// Authorization header and stores it in ctx for API key passthrough.
+func withBearerToken(ctx context.Context) context.Context {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ctx
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ctx
+	}
+	vals, ok := meta.Get("authorization")
+	if !ok || len(vals) == 0 || vals[0] == "" {
+		return ctx
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return context.WithValue(ctx, models.BearerTokenKey, parts[1])
+	}
+	return ctx
+}
+
+// dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision
+// message inserted by a2a-go before executor invocation.
+func dropPreAppendedDecisionFromHistory(task *a2atype.Task, incoming *a2atype.Message) {
+	if task == nil || incoming == nil || len(task.History) == 0 {
+		return
+	}
+	last := task.History[len(task.History)-1]
+	if last == nil || last.ID != incoming.ID {
+		return
+	}
+	if ExtractDecisionFromMessage(last) == "" {
+		return
+	}
+	task.History = task.History[:len(task.History)-1]
 }

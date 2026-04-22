@@ -51,6 +51,7 @@ type Client interface {
 	ListTasksForSession(ctx context.Context, sessionID string) ([]*protocol.Task, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]Session, error)
+	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
 	ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]Tool, error)

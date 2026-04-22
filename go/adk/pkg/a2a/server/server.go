@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -38,16 +40,33 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	RegisterHealthEndpoints(mux)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
+	// Wrap the whole server mux to enable trace context extraction and an inbound
+	// HTTP server span for each request.
+	instrumentedHandler := otelhttp.NewHandler(
+		mux,
+		"a2a-server",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			switch r.URL.Path {
+			case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
+				return false
+			default:
+				return true
+			}
+		}),
+	)
 
 	addr := ":" + config.Port
 	if config.Host != "" {
-		addr = config.Host + ":" + config.Port
+		addr = net.JoinHostPort(config.Host, config.Port)
 	}
 
 	return &A2AServer{
 		httpServer: &http.Server{
 			Addr:    addr,
-			Handler: mux,
+			Handler: instrumentedHandler,
 		},
 		logger: logger,
 		config: config,

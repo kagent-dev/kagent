@@ -159,6 +159,14 @@ def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
 
 
+def _get_srt_settings_args() -> list[str]:
+    """Return srt settings args using the mounted config path."""
+    settings_path_env = os.environ.get("KAGENT_SRT_SETTINGS_PATH", "").strip()
+    if not settings_path_env:
+        raise ValueError("KAGENT_SRT_SETTINGS_PATH is not set")
+    return ["--settings", settings_path_env]
+
+
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
     if "python " in command or "python3 " in command:
@@ -167,7 +175,11 @@ def _get_command_timeout_seconds(command: str) -> float:
         return 30.0  # 30 seconds for other commands
 
 
-async def execute_command(command: str, working_dir: Path, skills_dir: Path = Path("/skills")) -> str:
+async def execute_command(
+    command: str,
+    working_dir: Path,
+    skills_dir: Path = Path("/skills"),
+) -> str:
     """Executes a shell command in a sandboxed environment."""
     timeout = _get_command_timeout_seconds(command)
 
@@ -187,9 +199,12 @@ async def execute_command(command: str, working_dir: Path, skills_dir: Path = Pa
         env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
         env["VIRTUAL_ENV"] = bash_venv_path
 
+    srt_args = _get_srt_settings_args()
+
     try:
         process = await asyncio.create_subprocess_exec(
             "srt",
+            *srt_args,
             "sh",
             "-c",
             command,

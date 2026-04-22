@@ -7,10 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
+	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -116,9 +120,10 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"http://proxy.kagent.svc.cluster.local:8080",
+			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent)
+		result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -145,9 +150,10 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"", // No proxy
+			nil,
 		)
 
-		result, err := translator.TranslateAgent(ctx, agent)
+		result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
@@ -172,6 +178,91 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			assert.False(t, hasHost, "Proxy header should not be set when no proxy")
 		}
 	})
+}
+
+func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenNamespaceReadsForbidden(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mcp",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			URL:      "http://test-mcp-server.kagent:8084/mcp",
+			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test",
+				ModelConfig:   "default-model",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedReference: v1alpha2.TypedReference{
+								Name: "test-mcp",
+								Kind: "RemoteMCPServer",
+							},
+							ToolNames: []string{"test-tool"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Build a client that has the objects but returns Forbidden for Namespace reads,
+	// simulating namespaced RBAC where the controller cannot read Namespace objects.
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, remoteMcpServer, modelConfig).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c ctrl_client.WithWatch, key ctrl_client.ObjectKey, obj ctrl_client.Object, opts ...ctrl_client.GetOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	translator := agenttranslator.NewAdkApiTranslatorWithWatchedNamespaces(
+		kubeClient,
+		[]string{"test", "kagent"},
+		types.NamespacedName{Name: "default-model", Namespace: "test"},
+		nil,
+		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
+	)
+
+	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
+	require.NoError(t, err)
+	require.Len(t, result.Config.HttpTools, 1)
+	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", result.Config.HttpTools[0].Params.Url)
+	assert.Equal(t, "test-mcp-server.kagent", result.Config.HttpTools[0].Params.Headers[agenttranslator.ProxyHostHeader])
 }
 
 // TestProxyConfiguration_RemoteMCPServer_ExternalURL tests that RemoteMCPServer with external URLs does NOT use proxy
@@ -246,9 +337,10 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -338,9 +430,10 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
@@ -435,9 +528,10 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
+		nil,
 	)
 
-	result, err := translator.TranslateAgent(ctx, agent)
+	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)

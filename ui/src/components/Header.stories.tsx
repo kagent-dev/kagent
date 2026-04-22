@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Header } from "./Header";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 const meta = {
   title: "Components/Header",
@@ -7,6 +8,13 @@ const meta = {
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [
+    (Story) => (
+      <AuthProvider>
+        <Story />
+      </AuthProvider>
+    ),
+  ],
 } satisfies Meta<typeof Header>;
 
 export default meta;

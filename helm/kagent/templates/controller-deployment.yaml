@@ -15,7 +15,7 @@ spec:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
-        {{- with .Values.controller.podAnnotations }}
+        {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
@@ -61,6 +61,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: AUTH_MODE
+              value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
+            {{- if .Values.controller.auth.userIdClaim }}
+            - name: AUTH_USER_ID_CLAIM
+              value: {{ .Values.controller.auth.userIdClaim | quote }}
+            {{- end }}
             {{- if .Values.database.postgres.urlFile }}
             - name: POSTGRES_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}

@@ -4,6 +4,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Common types
@@ -41,51 +42,90 @@ type VersionResponse struct {
 	BuildDate     string `json:"build_date"`
 }
 
-// ModelConfigResponse represents a model configuration response
-type ModelConfigResponse struct {
-	Ref             string              `json:"ref"`
-	ProviderName    string              `json:"providerName"`
-	Model           string              `json:"model"`
-	APIKeySecret    string              `json:"apiKeySecret"`
-	APIKeySecretKey string              `json:"apiKeySecretKey"`
-	ModelParams     map[string]any      `json:"modelParams"`
-	TLS             *v1alpha2.TLSConfig `json:"tls,omitempty"`
+// ModelConfigResource is the HTTP response for a ModelConfig: ref + raw CRD spec/status.
+type ModelConfigResource struct {
+	Ref    string                     `json:"ref"`
+	Spec   v1alpha2.ModelConfigSpec   `json:"spec"`
+	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
 }
 
-// CreateModelConfigRequest represents a request to create a model configuration
+// CreateModelConfigRequest is a thin wrapper: ref + optional inline apiKey + full CRD spec.
 type CreateModelConfigRequest struct {
-	Ref                     string                            `json:"ref"`
-	Provider                Provider                          `json:"provider"`
-	Model                   string                            `json:"model"`
-	APIKey                  string                            `json:"apiKey"`
-	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
-	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	Ref    string                   `json:"ref"`
+	APIKey string                   `json:"apiKey,omitempty"`
+	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
-// UpdateModelConfigRequest represents a request to update a model configuration
+// UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
-	Provider                Provider                          `json:"provider"`
-	Model                   string                            `json:"model"`
-	APIKey                  *string                           `json:"apiKey,omitempty"`
-	OpenAIParams            *v1alpha2.OpenAIConfig            `json:"openAI,omitempty"`
-	AnthropicParams         *v1alpha2.AnthropicConfig         `json:"anthropic,omitempty"`
-	AzureParams             *v1alpha2.AzureOpenAIConfig       `json:"azureOpenAI,omitempty"`
-	OllamaParams            *v1alpha2.OllamaConfig            `json:"ollama,omitempty"`
-	GeminiParams            *v1alpha2.GeminiConfig            `json:"gemini,omitempty"`
-	GeminiVertexAIParams    *v1alpha2.GeminiVertexAIConfig    `json:"geminiVertexAI,omitempty"`
-	AnthropicVertexAIParams *v1alpha2.AnthropicVertexAIConfig `json:"anthropicVertexAI,omitempty"`
+	APIKey *string                  `json:"apiKey,omitempty"`
+	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
 // Agent types
 
+type AgentResource struct {
+	APIVersion string               `json:"apiVersion,omitempty"`
+	Kind       string               `json:"kind,omitempty"`
+	Metadata   metav1.ObjectMeta    `json:"metadata,omitempty"`
+	Spec       v1alpha2.AgentSpec   `json:"spec,omitempty"`
+	Status     v1alpha2.AgentStatus `json:"status,omitempty"`
+}
+
+func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
+	if agent == nil {
+		return nil
+	}
+
+	spec := agent.GetAgentSpec()
+	status := agent.GetAgentStatus()
+	gvk := agent.GetObjectKind().GroupVersionKind()
+	apiVersion := gvk.GroupVersion().String()
+	kind := gvk.Kind
+	var metadata metav1.ObjectMeta
+	if apiVersion == "" {
+		apiVersion = v1alpha2.GroupVersion.String()
+	}
+	if kind == "" {
+		if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+			kind = "SandboxAgent"
+		} else {
+			kind = "Agent"
+		}
+	}
+	switch typed := agent.(type) {
+	case *v1alpha2.Agent:
+		metadata = *typed.ObjectMeta.DeepCopy()
+	case *v1alpha2.SandboxAgent:
+		metadata = *typed.ObjectMeta.DeepCopy()
+	default:
+		metadata = metav1.ObjectMeta{
+			Name:            agent.GetName(),
+			Namespace:       agent.GetNamespace(),
+			Labels:          agent.GetLabels(),
+			Annotations:     agent.GetAnnotations(),
+			ResourceVersion: agent.GetResourceVersion(),
+			Generation:      agent.GetGeneration(),
+		}
+	}
+
+	res := &AgentResource{
+		APIVersion: apiVersion,
+		Kind:       kind,
+		Metadata:   metadata,
+	}
+	if spec != nil {
+		res.Spec = *spec.DeepCopy()
+	}
+	if status != nil {
+		res.Status = *status.DeepCopy()
+	}
+	return res
+}
+
 type AgentResponse struct {
-	ID    string          `json:"id"`
-	Agent *v1alpha2.Agent `json:"agent"`
+	ID    string         `json:"id"`
+	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
 	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
 	Model           string                 `json:"model"`
@@ -94,6 +134,7 @@ type AgentResponse struct {
 	Tools           []*v1alpha2.Tool       `json:"tools"`
 	DeploymentReady bool                   `json:"deploymentReady"`
 	Accepted        bool                   `json:"accepted"`
+	WorkloadMode    v1alpha2.WorkloadMode  `json:"workloadMode,omitempty"`
 }
 
 // Session types
@@ -164,6 +205,33 @@ type CreateMemoryRequest struct {
 // UpdateMemoryRequest represents a request to update a memory
 type UpdateMemoryRequest struct {
 	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
+}
+
+// PromptTemplateSummary is a lightweight entry for listing prompt ConfigMaps.
+type PromptTemplateSummary struct {
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
+	KeyCount  int      `json:"keyCount"`
+	Keys      []string `json:"keys,omitempty"`
+}
+
+// PromptTemplateDetail includes all string keys for editing.
+type PromptTemplateDetail struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.
+type CreatePromptTemplateRequest struct {
+	Namespace string            `json:"namespace"`
+	Name      string            `json:"name"`
+	Data      map[string]string `json:"data"`
+}
+
+// UpdatePromptTemplateRequest replaces the data map of an existing ConfigMap.
+type UpdatePromptTemplateRequest struct {
+	Data map[string]string `json:"data"`
 }
 
 // Namespace types

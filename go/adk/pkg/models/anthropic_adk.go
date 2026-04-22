@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
@@ -48,6 +49,7 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 		if modelName == "" || modelName == "anthropic" {
 			modelName = "claude-sonnet-4-20250514"
 		}
+		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		// Build request parameters
 		params := anthropic.MessageNewParams{
@@ -185,7 +187,7 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 			for _, fc := range functionCalls {
 				contentStr := "No response available for this function call."
 				if fr := functionResponses[fc.ID]; fr != nil {
-					contentStr = functionResponseContentString(fr.Response)
+					contentStr = extractFunctionResponseContent(fr.Response)
 				}
 				toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(fc.ID, contentStr, false))
 			}
@@ -234,7 +236,7 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 				Properties: make(map[string]any),
 			}
 			if fd.ParametersJsonSchema != nil {
-				if m, ok := fd.ParametersJsonSchema.(map[string]any); ok {
+				if m := parametersJsonSchemaToMap(fd.ParametersJsonSchema); m != nil {
 					if props, ok := m["properties"].(map[string]any); ok {
 						inputSchema.Properties = props
 					}
@@ -262,7 +264,7 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 }
 
 func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	stream := m.Client.Messages.NewStreaming(ctx, params)
+	stream := m.Client.Messages.NewStreaming(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	defer stream.Close()
 
 	var aggregatedText string
@@ -352,17 +354,19 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 			CandidatesTokenCount: int32(outputTokens),
 		}
 	}
-	_ = yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(stopReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	_ = yield(resp, nil)
 }
 
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	message, err := m.Client.Messages.New(ctx, params)
+	message, err := m.Client.Messages.New(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	if err != nil {
 		yield(nil, fmt.Errorf("anthropic API error: %w", err))
 		return
@@ -398,11 +402,13 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 		}
 	}
 
-	yield(&model.LLMResponse{
+	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(message.StopReason),
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
-	}, nil)
+	}
+	telemetry.SetLLMResponseAttributes(ctx, resp)
+	yield(resp, nil)
 }

@@ -55,6 +55,8 @@ import (
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -74,6 +76,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -93,6 +98,7 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -115,6 +121,10 @@ type Config struct {
 	}
 	Proxy struct {
 		URL string
+	}
+	Auth struct {
+		Mode        string
+		UserIDClaim string
 	}
 	LeaderElection     bool
 	ProbeAddr          string
@@ -163,9 +173,12 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
 	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
-	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 600*time.Second, "The timeout for the streaming connection.")
+	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
+
+	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
+	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -180,6 +193,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+
+	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -249,6 +264,7 @@ type BootstrapConfig struct {
 	Manager  manager.Manager
 	Router   *mux.Router
 	DbClient dbpkg.Client
+	Config   *Config
 }
 
 type CtrlManagerConfigFunc func(manager.Manager) error
@@ -258,11 +274,23 @@ type ExtensionConfig struct {
 	Authorizer       auth.Authorizer
 	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
+	SandboxBackend   sandboxbackend.Backend
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-func Start(getExtensionConfig GetExtensionConfig) {
+// MigrationRunner applies database migrations given the resolved connection URL.
+// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
+// to conditionally apply vector-specific migrations.
+// Returning a non-nil error causes the app to exit.
+//
+// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
+// Provide a custom runner to take over the migration process entirely — for example,
+// to run additional enterprise migrations alongside or instead of the built-in ones.
+// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
+type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
+
+func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -384,12 +412,23 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
 	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
 
+	clientOpts := client.Options{}
+	if len(watchNamespacesList) > 0 {
+		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
+		// resources, so prevent the cached client from starting a cluster-scoped
+		// Namespace informer whose list/watch would keep crashing.
+		clientOpts.Cache = &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Namespace{}},
+		}
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
 		LeaderElection:         cfg.LeaderElection,
 		LeaderElectionID:       "0e9f6799.kagent.dev",
+		Client:                 clientOpts,
 		Cache: cache.Options{
 			DefaultNamespaces: configureNamespaceWatching(watchNamespacesList),
 		},
@@ -410,43 +449,60 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		os.Exit(1)
 	}
 
-	// Initialize database
-	dbManager, err := database.NewManager(ctx, &database.Config{
-		PostgresConfig: &database.PostgresConfig{
-			URL:           cfg.Database.Url,
-			URLFile:       cfg.Database.UrlFile,
-			VectorEnabled: cfg.Database.VectorEnabled,
-		},
+	// Resolve the database URL once so both the migration runner and the pool
+	// connection use exactly the same value.
+	dbURL, err := database.ResolveURL(cfg.Database.Url, cfg.Database.UrlFile)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve database URL")
+		os.Exit(1)
+	}
+
+	// Use the built-in migration runner when none is provided.
+	if migrationRunner == nil {
+		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
+			return migrations.RunUp(url, migrations.FS, vectorEnabled)
+		}
+	}
+
+	// Run migrations before connecting; schema must exist before queries.
+	setupLog.Info("running database migrations")
+	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
+		setupLog.Error(err, "database migration failed")
+		os.Exit(1)
+	}
+	setupLog.Info("database migrations complete")
+
+	// Connect to database
+	db, err := database.Connect(ctx, &database.PostgresConfig{
+		URL:           dbURL,
+		VectorEnabled: cfg.Database.VectorEnabled,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to initialize database")
+		setupLog.Error(err, "unable to connect to database")
 		os.Exit(1)
 	}
 
-	// Initialize database tables
-	if err := dbManager.Initialize(); err != nil {
-		setupLog.Error(err, "unable to initialize database")
-		os.Exit(1)
-	}
-
-	dbClient := database.NewClient(dbManager)
+	dbClient := database.NewClient(db)
 	router := mux.NewRouter()
 	extensionCfg, err := getExtensionConfig(BootstrapConfig{
 		Ctx:      ctx,
 		Manager:  mgr,
 		Router:   router,
 		DbClient: dbClient,
+		Config:   &cfg,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to get start config")
 		os.Exit(1)
 	}
 
-	apiTranslator := agent_translator.NewAdkApiTranslator(
+	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
+		watchNamespacesList,
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
+		extensionCfg.SandboxBackend,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -455,6 +511,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		dbClient,
 		cfg.DefaultModelConfig,
 		watchNamespacesList,
+		extensionCfg.SandboxBackend,
 	)
 
 	if err := (&controller.ServiceController{
@@ -479,6 +536,15 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		AdkTranslator: apiTranslator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
+		os.Exit(1)
+	}
+
+	if err = (&controller.SandboxAgentController{
+		Scheme:        mgr.GetScheme(),
+		Reconciler:    rcnclr,
+		AdkTranslator: apiTranslator,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
 
@@ -512,13 +578,13 @@ func Start(getExtensionConfig GetExtensionConfig) {
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, extensionCfg.Authenticator)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
 
 	if err := mgr.Add(a2a.NewA2ARegistrar(
 		mgr.GetCache(),
-		apiTranslator,
 		a2aHandler,
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
 		extensionCfg.Authenticator,
 		int(cfg.Streaming.MaxBufSize.Value()),
 		int(cfg.Streaming.InitialBufSize.Value()),
@@ -533,6 +599,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		mgr.GetClient(),
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		extensionCfg.Authenticator,
+		cfg.Streaming.Timeout,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create MCP handler")
@@ -582,6 +649,7 @@ func Start(getExtensionConfig GetExtensionConfig) {
 		Authenticator:     extensionCfg.Authenticator,
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
+		SandboxBackend:    extensionCfg.SandboxBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

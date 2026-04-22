@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent_cross_provider_memory",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent-cross-provider-memory.test:8080",
     "version": ""
@@ -59,7 +60,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent_cross_provider_memory\",\"description\":\"\",\"url\":\"http://agent-cross-provider-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
@@ -129,7 +130,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "13646724703108583778"
+              "kagent.dev/config-hash": "10448813021284432574"
             },
             "labels": {
               "app": "kagent",

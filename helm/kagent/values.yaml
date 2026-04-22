@@ -4,6 +4,16 @@
 # GLOBAL CONFIGURATION
 # ==============================================================================
 
+# -- Enable IPv6/dual-stack support.
+# When true, configures all components for dual-stack (IPv4+IPv6) networking:
+#   - nginx listens on both IPv4 and IPv6 (adds `listen [::]:8080`)
+#   - Next.js binds to `::` instead of `0.0.0.0`
+#   - Agent pods bind to `::` for dual-stack reachability
+# Leave disabled on clusters where IPv6 is disabled at the kernel level.
+# @default -- false
+ipv6:
+  enabled: false
+
 tag: ""
 registry: "cr.kagent.dev"
 
@@ -76,7 +86,7 @@ database:
         # -- Bundled PostgreSQL image name
         name: postgres
         # -- Bundled PostgreSQL image tag
-        tag: "18"
+        tag: "18.3-alpine"
         # -- Bundled PostgreSQL image pull policy
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
@@ -93,6 +103,22 @@ database:
         limits:
           cpu: 500m
           memory: 512Mi
+      # -- Pod-level security context for the bundled PostgreSQL deployment.
+      podSecurityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # -- Container-level security context for the bundled PostgreSQL container.
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
 
 # ==============================================================================
 # RBAC CONFIGURATION
@@ -113,6 +139,14 @@ rbac:
 controller:
   replicas: 1
   loglevel: "info"
+  # Authentication mode: "unsecure" (default) or "trusted-proxy"
+  # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
+  # - trusted-proxy: trusts JWT token from Authorization header (set by oauth2-proxy)
+  auth:
+    mode: unsecure
+    # JWT claim for user identity (default: "sub")
+    # Override only if your OIDC provider uses a different claim
+    userIdClaim: ""
   # -- Global deployment defaults applied to all agent pods.
   # Per-agent settings in the Agent CRD take precedence over these defaults.
   agentDeployment:
@@ -131,6 +165,12 @@ controller:
     #   podLabels:
     #     team: platform
     #     environment: production
+    # -- Default host address for agent pods to bind to.
+    # Leave empty to use the controller's default fallback of "0.0.0.0".
+    # Automatically set to "::" when ipv6.enabled is true.
+    # Can be explicitly overridden here regardless of the ipv6 flag.
+    # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
+    host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""
@@ -155,6 +195,8 @@ controller:
   watchNamespaces: []
   #  - watch-ns-1
   #  - watch-ns-2
+
+  podAnnotations: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
@@ -218,6 +260,12 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
+  # Authentication redirect configuration
+  # Change this if using a different auth proxy (e.g., Pomerium, Authelia)
+  auth:
+    # Path to redirect users to when they click "Sign in with SSO" on the login page
+    # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
+    ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
@@ -238,12 +286,36 @@ ui:
   #   - ALL
   # runAsNonRoot: true
   # runAsUser: 1000
+
+  podAnnotations: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
-
+  # -- Custom startup probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
+  startupProbe: {}
+  # Example:
+  #   startupProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     initialDelaySeconds: 10
+  #     periodSeconds: 5
+  #     failureThreshold: 20
+  # -- Custom readiness probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=30
+  readinessProbe: {}
+  # Example:
+  #   readinessProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     periodSeconds: 15
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -267,7 +339,7 @@ providers:
 
   anthropic:
     provider: Anthropic
-    model: "claude-3-5-haiku-20241022"
+    model: "claude-haiku-4-5"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
@@ -471,6 +543,101 @@ querydoc:
     apiKey: ""
 
 # ==============================================================================
+# OAUTH2-PROXY CONFIGURATION (Optional)
+# ==============================================================================
+# Enable oauth2-proxy subchart for OIDC authentication
+# Requires controller.auth.mode: trusted-proxy
+
+oauth2-proxy:
+  enabled: false
+
+  # Disable Redis - use cookie-based sessions
+  redis:
+    enabled: false
+  sessionStorage:
+    type: cookie
+
+  # Mount custom templates for branded login redirect
+  # The ConfigMap is created by templates/oauth2-proxy-templates.yaml
+  extraVolumes:
+    - name: custom-templates
+      configMap:
+        name: kagent-oauth2-proxy-templates
+
+  extraVolumeMounts:
+    - name: custom-templates
+      mountPath: /templates
+      readOnly: true
+
+  # Mount custom CA certificate for TLS verification (if needed)
+  # Add to extraVolumes:
+  #   - name: custom-ca-cert
+  #     secret:
+  #       secretName: my-ca-cert
+  #       items:
+  #         - key: ca.crt
+  #           path: ca.crt
+  # Add to extraVolumeMounts:
+  #   - name: custom-ca-cert
+  #     mountPath: /etc/ssl/certs/custom-ca.crt
+  #     subPath: ca.crt
+  #     readOnly: true
+  # Add to extraEnv:
+  #   - name: SSL_CERT_FILE
+  #     value: /etc/ssl/certs/custom-ca.crt
+
+  config:
+    # Option 1: Reference existing secret (recommended for production)
+    # Secret must contain: client-id, client-secret, cookie-secret
+    existingSecret: ""
+
+    # Option 2: Inline values (for dev/testing only, chart creates secret)
+    clientID: ""
+    clientSecret: ""
+    cookieSecret: ""
+
+  # Cluster-specific OIDC settings - override these per deployment
+  # These are set as env vars and referenced in args for easy patching
+  extraEnv:
+    - name: OIDC_ISSUER_URL
+      value: ""
+    - name: OIDC_REDIRECT_URL
+      value: ""
+    # IMPORTANT: This must match the UI service name, which is templated as
+    # "<release-name>-ui" (or "<fullnameOverride>-ui"). Override this value
+    # if your release name is not "kagent" or you set fullnameOverride.
+    - name: UPSTREAM_URL
+      value: "http://kagent-ui:8080"
+
+  # extraArgs as a map - each key becomes --key=value in container args
+  # Uses $(VAR_NAME) syntax to reference env vars set above
+  extraArgs:
+    provider: oidc
+    oidc-issuer-url: "$(OIDC_ISSUER_URL)"
+    redirect-url: "$(OIDC_REDIRECT_URL)"
+    upstream: "$(UPSTREAM_URL)"
+    email-domain: "*"
+    pass-authorization-header: true
+    set-authorization-header: true
+    approval-prompt: "auto"
+    scope: "openid profile email groups"
+    # Cookie security settings
+    cookie-secure: true
+    cookie-samesite: "lax"
+    # Allow API clients with valid JWT tokens to bypass OIDC flow
+    skip-jwt-bearer-tokens: true
+    # Skip authentication for kagent's branded login page, health checks, and static assets
+    # This allows unauthenticated users to see the landing page and k8s probes to work
+    skip-auth-route: "^/(health|login)$"
+    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico).*$"
+    # Use custom templates that redirect to kagent's branded /login page
+    custom-templates-dir: "/templates"
+
+  service:
+    type: ClusterIP
+    portNumber: 4180
+
+# ==============================================================================
 # OBSERVABILITY
 # ==============================================================================
 
@@ -481,13 +648,12 @@ otel:
       otlp:
         endpoint: ""
         protocol: "grpc"
-        timeout: 15
+        timeout: 15000 # milliseconds
         insecure: true
   logging:
     enabled: false
     exporter:
       otlp:
         endpoint: ""
-        timeout: 15
+        timeout: 15000 # milliseconds
         insecure: true
-

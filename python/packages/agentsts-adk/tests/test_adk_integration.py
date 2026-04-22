@@ -3,6 +3,8 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agentsts.core import TokenType
+from agentsts.core.client import TokenExchangeResponse
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
@@ -11,8 +13,6 @@ from agentsts.adk._base import HEADERS_KEY
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
-from agentsts.core import TokenType
-from agentsts.core.client import TokenExchangeResponse
 
 
 class TestADKTokenPropagationPlugin:

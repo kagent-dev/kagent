@@ -19,10 +19,11 @@ import subprocess
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.code_executors.base_code_executor import BaseCodeExecutor
 from google.adk.code_executors.code_execution_utils import CodeExecutionInput, CodeExecutionResult
+from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
 from pydantic import Field
 from typing_extensions import override
 
-from kagent.skills.shell import _sanitize_env
+from kagent.adk.artifacts.session_path import get_session_path
 
 
 class SandboxedLocalCodeExecutor(BaseCodeExecutor):
@@ -52,14 +53,17 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
         """Executes the given code in a sandboxed local context. uses the srt command to sandbox"""
         output = ""
         error = ""
+        srt_args = _get_srt_settings_args()
+        working_dir = get_session_path(session_id=invocation_context.session.id)
 
         try:
             # Execute the provided code by piping it to `python -` inside the sandbox.
             proc = subprocess.run(
-                ["srt", "python", "-"],
+                ["srt", *srt_args, "python", "-"],
                 input=code_execution_input.code,
                 capture_output=True,
                 text=True,
+                cwd=working_dir,
                 env=_sanitize_env(),
             )
             output = proc.stdout or ""
@@ -71,7 +75,6 @@ class SandboxedLocalCodeExecutor(BaseCodeExecutor):
         except Exception as e:
             output = ""
             error = f"Unexpected error during execution: {e}"
-
         # Collect the final result.
         return CodeExecutionResult(
             stdout=output,

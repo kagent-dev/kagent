@@ -11,19 +11,18 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
-from kagent.adk._approval import make_approval_callback
+from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._ollama import create_ollama_llm
+from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
+from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
-
-from .models import AzureOpenAI as OpenAIAzure
-from .models import OpenAI as OpenAINative
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +167,25 @@ class BaseLLM(BaseModel):
     headers: dict[str, str] | None = None
 
     # TLS/SSL configuration (applies to all model types)
-    tls_disable_verify: bool | None = None
+    tls_disable_verify: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    )
     tls_ca_cert_path: str | None = None
     tls_disable_system_cas: bool | None = None
 
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: bool | None = None
+
+
+class GDCHTokenExchangeConfig(BaseModel):
+    service_account_path: str
+    audience: str
+
+
+class TokenExchangeConfig(BaseModel):
+    type: Literal["GDCHServiceAccount"]
+    gdch_service_account: GDCHTokenExchangeConfig | None = None
 
 
 class OpenAI(BaseLLM):
@@ -187,6 +199,9 @@ class OpenAI(BaseLLM):
     temperature: float | None = None
     timeout: int | None = None
     top_p: float | None = None
+
+    # Token exchange configuration
+    token_exchange: TokenExchangeConfig | None = None
 
     type: Literal["openai"]
 
@@ -254,6 +269,10 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
 
 
+class NetworkConfig(BaseModel):
+    allowed_domains: list[str] = Field(default_factory=list)
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -264,6 +283,7 @@ class AgentConfig(BaseModel):
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
+    network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
 
     def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
@@ -385,6 +405,7 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+        before_model_callback = strip_confirmation_parts_callback if tools_requiring_approval else None
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
@@ -395,6 +416,7 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
+            before_model_callback=before_model_callback,
         )
 
         # Configure memory if enabled
@@ -464,6 +486,27 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     base_url = getattr(model_config, "base_url", None)
 
     if model_config.type == "openai":
+        from .models._token_source import GDCHTokenSource
+
+        token_exchange = None
+        te = model_config.token_exchange
+        if te is not None:
+            if te.type == "GDCHServiceAccount":
+                if te.gdch_service_account is None:
+                    raise ValueError(
+                        "Invalid token_exchange configuration: "
+                        "gdch_service_account is required when token_exchange.type "
+                        "is 'GDCHServiceAccount'"
+                    )
+                token_exchange = GDCHTokenSource(
+                    service_account_path=te.gdch_service_account.service_account_path,
+                    audience=te.gdch_service_account.audience,
+                    ca_cert_path=model_config.tls_ca_cert_path,
+                    tls_disable_verify=model_config.tls_disable_verify or False,
+                )
+            else:
+                raise ValueError(f"Unsupported token_exchange type: {te.type}")
+
         return OpenAINative(
             type="openai",
             base_url=base_url,
@@ -482,6 +525,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             tls_ca_cert_path=model_config.tls_ca_cert_path,
             tls_disable_system_cas=model_config.tls_disable_system_cas,
             api_key_passthrough=model_config.api_key_passthrough,
+            token_exchange=token_exchange,
         )
     if model_config.type == "anthropic":
         return KAgentAnthropicLlm(

@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "anthropic_agent",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://anthropic-agent.test:8080",
     "version": ""
@@ -52,7 +53,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
       }
     },
@@ -122,7 +123,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "528889185235999010"
+              "kagent.dev/config-hash": "12361184581110359614"
             },
             "labels": {
               "app": "kagent",

@@ -48,7 +48,7 @@ When interacting with the agent, you do not need to provide any input because th
 2. **Set environment variables**:
 
    ```bash
-   export KAGENT_URL=http://localhost:8080
+   export KAGENT_URL=http://localhost:8083
    export OPENAI_API_KEY="..."
    ```
 
@@ -72,6 +72,6 @@ When interacting with the agent, you do not need to provide any input because th
 The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
-- `KAGENT_URL`: KAgent server URL (default: http://localhost:8080)
+- `KAGENT_URL`: Required. KAgent server URL (for local development, you can set it to `http://localhost:8083`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
