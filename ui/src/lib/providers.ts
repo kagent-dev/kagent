@@ -1,6 +1,6 @@
 
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "SAPAICore";
-export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "SAPAICore"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore";
+export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -61,6 +61,13 @@ export const PROVIDERS_INFO: {
         apiKeyLink: "https://cloud.google.com/vertex-ai",
         modelDocsLink: "https://cloud.google.com/vertex-ai/docs",
         help: "Configure your Google Cloud project and credentials for Vertex AI."
+    },
+    Bedrock: {
+        name: "AWS Bedrock",
+        type: "Bedrock",
+        apiKeyLink: "https://console.aws.amazon.com/bedrock/",
+        modelDocsLink: "https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
+        help: "Configure your AWS credentials and region for Amazon Bedrock."
     },
     SAPAICore: {
         name: "SAP AI Core",

@@ -73,6 +73,10 @@ export interface SAPAICoreConfigPayload {
   authUrl?: string;
 }
 
+export interface BedrockConfig {
+  region: string;
+}
+
 export interface TLSConfig {
   disableVerify?: boolean;
   caCertSecretRef?: string;
@@ -95,6 +99,7 @@ export interface ModelConfigSpec {
   gemini?: GeminiConfig;
   geminiVertexAI?: GeminiVertexAIConfig;
   anthropicVertexAI?: AnthropicVertexAIConfig;
+  bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
 }
 
