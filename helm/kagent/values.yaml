@@ -260,6 +260,7 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
+    annotations: {}
   # Authentication redirect configuration
   # Change this if using a different auth proxy (e.g., Pomerium, Authelia)
   auth:
