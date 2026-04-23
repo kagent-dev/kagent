@@ -15,51 +15,51 @@ dependencies:
   - name: grafana-mcp
     version: ${VERSION}
     repository: file://../tools/grafana-mcp
-    condition: tools.grafana-mcp.enabled, agents.observability-agent.enabled
+    condition: grafana-mcp.enabled, observability-agent.enabled
   - name: querydoc
     version: ${VERSION}
     repository: file://../tools/querydoc
-    condition: tools.querydoc.enabled
+    condition: querydoc.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s
-    condition: agents.k8s-agent.enabled
+    condition: k8s-agent.enabled
   - name: kgateway-agent
     version: ${VERSION}
     repository: file://../agents/kgateway
-    condition: agents.kgateway-agent.enabled
+    condition: kgateway-agent.enabled
   - name: istio-agent
     version: ${VERSION}
     repository: file://../agents/istio
-    condition: agents.istio-agent.enabled
+    condition: istio-agent.enabled
   - name: promql-agent
     version: ${VERSION}
     repository: file://../agents/promql
-    condition: agents.promql-agent.enabled
+    condition: promql-agent.enabled
   - name: observability-agent
     version: ${VERSION}
     repository: file://../agents/observability
-    condition: agents.observability-agent.enabled
+    condition: observability-agent.enabled
   - name: argo-rollouts-agent
     version: ${VERSION}
     repository: file://../agents/argo-rollouts
-    condition: agents.argo-rollouts-agent.enabled
+    condition: argo-rollouts-agent.enabled
   - name: helm-agent
     version: ${VERSION}
     repository: file://../agents/helm
-    condition: agents.helm-agent.enabled
+    condition: helm-agent.enabled
   - name: cilium-policy-agent
     version: ${VERSION}
     repository: file://../agents/cilium-policy
-    condition: agents.cilium-policy-agent.enabled
+    condition: cilium-policy-agent.enabled
   - name: cilium-manager-agent
     version: ${VERSION}
     repository: file://../agents/cilium-manager
-    condition: agents.cilium-manager-agent.enabled
+    condition: cilium-manager-agent.enabled
   - name: cilium-debug-agent
     version: ${VERSION}
     repository: file://../agents/cilium-debug
-    condition: agents.cilium-debug-agent.enabled
+    condition: cilium-debug-agent.enabled
   - name: oauth2-proxy
     version: "~7.0.0"
     repository: "https://oauth2-proxy.github.io/manifests"
