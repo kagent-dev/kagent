@@ -1,13 +1,111 @@
 export type ChatStatus = "ready" | "thinking" | "error" | "submitted" | "working" | "input_required" | "auth_required" | "processing_tools" | "generating_response";
 
+export interface OpenAIConfig {
+  baseUrl?: string;
+  organization?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+  frequencyPenalty?: string;
+  presencePenalty?: string;
+  seed?: number;
+  n?: number;
+  timeout?: number;
+  reasoningEffort?: string;
+}
+
+export interface AnthropicConfig {
+  baseUrl?: string;
+  maxTokens?: number;
+  temperature?: string;
+  topP?: string;
+  topK?: number;
+}
+
+export interface AzureOpenAIConfig {
+  azureEndpoint: string;
+  apiVersion: string;
+  azureDeployment?: string;
+  azureAdToken?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+}
+
+export interface OllamaConfig {
+  host?: string;
+  options?: Record<string, string>;
+}
+
+export interface GeminiConfig {
+  baseUrl?: string;
+  temperature?: string;
+  maxTokens?: number;
+  topP?: string;
+  topK?: number;
+}
+
+export interface GeminiVertexAIConfig {
+  projectID?: string;
+  location?: string;
+  temperature?: string;
+  topP?: string;
+  topK?: number;
+  stopSequences?: string[];
+  maxOutputTokens?: number;
+  candidateCount?: number;
+  responseMimeType?: string;
+}
+
+export interface AnthropicVertexAIConfig {
+  projectID?: string;
+  location?: string;
+  temperature?: string;
+  topP?: string;
+  topK?: number;
+  stopSequences?: string[];
+  maxTokens?: number;
+}
+
+export interface SAPAICoreConfigPayload {
+  baseUrl: string;
+  resourceGroup?: string;
+  authUrl?: string;
+}
+
+export interface BedrockConfig {
+  region: string;
+}
+
+export interface TLSConfig {
+  disableVerify?: boolean;
+  caCertSecretRef?: string;
+  caCertSecretKey?: string;
+  disableSystemCAs?: boolean;
+}
+
+export interface ModelConfigSpec {
+  model: string;
+  provider: string;
+  apiKeySecret?: string;
+  apiKeySecretKey?: string;
+  apiKeyPassthrough?: boolean;
+  defaultHeaders?: Record<string, string>;
+  tls?: TLSConfig;
+  openAI?: OpenAIConfig;
+  anthropic?: AnthropicConfig;
+  azureOpenAI?: AzureOpenAIConfig;
+  ollama?: OllamaConfig;
+  gemini?: GeminiConfig;
+  geminiVertexAI?: GeminiVertexAIConfig;
+  anthropicVertexAI?: AnthropicVertexAIConfig;
+  bedrock?: BedrockConfig;
+  sapAICore?: SAPAICoreConfigPayload;
+}
+
 export interface ModelConfig {
   ref: string;
-  providerName: string;
-  model: string;
-  apiKeySecretRef: string;
-  apiKeySecretKey: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  modelParams?: Record<string, any>; // Optional model-specific parameters
+  spec: ModelConfigSpec;
 }
 
 export interface CreateSessionRequest {
@@ -58,95 +156,15 @@ export interface ConfiguredModelProviderModelsResponse {
   models: string[];
 }
 
-// Export OpenAIConfigPayload
-export interface OpenAIConfigPayload {
-  baseUrl?: string;
-  organization?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-  frequencyPenalty?: string;
-  presencePenalty?: string;
-  seed?: number;
-  n?: number;
-  timeout?: number;
-  reasoningEffort?: string;
-}
-
-export interface AnthropicConfigPayload {
-  baseUrl?: string;
-  maxTokens?: number;
-  temperature?: string;
-  topP?: string;
-  topK?: number;
-}
-
-export interface AzureOpenAIConfigPayload {
-  azureEndpoint: string
-  apiVersion: string;
-  azureDeployment?: string;
-  azureAdToken?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-}
-
-export interface OllamaConfigPayload {
-  host?: string;
-  options?: Record<string, string>;
-}
-
-export interface GeminiConfigPayload {
-  baseUrl?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-  topK?: number;
-}
-
-export interface GeminiVertexAIConfigPayload {
-  project?: string;
-  location?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-  topK?: number;
-}
-
-export interface AnthropicVertexAIConfigPayload {
-  project?: string;
-  location?: string;
-  temperature?: string;
-  maxTokens?: number;
-  topP?: string;
-  topK?: number;
-}
-
 export interface CreateModelConfigRequest {
   ref: string;
-  provider: Pick<Provider, "name" | "type">;
-  model: string;
-  apiKey: string;
-  openAI?: OpenAIConfigPayload;
-  anthropic?: AnthropicConfigPayload;
-  azureOpenAI?: AzureOpenAIConfigPayload;
-  ollama?: OllamaConfigPayload;
-  gemini?: GeminiConfigPayload;
-  geminiVertexAI?: GeminiVertexAIConfigPayload;
-  anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  apiKey?: string;
+  spec: ModelConfigSpec;
 }
 
 export interface UpdateModelConfigPayload {
-  provider: Pick<Provider, "name" | "type">;
-  model: string;
   apiKey?: string | null;
-  openAI?: OpenAIConfigPayload;
-  anthropic?: AnthropicConfigPayload;
-  azureOpenAI?: AzureOpenAIConfigPayload;
-  ollama?: OllamaConfigPayload;
-  gemini?: GeminiConfigPayload;
-  geminiVertexAI?: GeminiVertexAIConfigPayload;
-  anthropicVertexAI?: AnthropicVertexAIConfigPayload;
+  spec: ModelConfigSpec;
 }
 
 /**

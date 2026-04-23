@@ -11,6 +11,8 @@ import { Anthropic } from './icons/Anthropic';
 import { Ollama } from './icons/Ollama';
 import { Azure } from './icons/Azure';
 import { Gemini } from './icons/Gemini';
+import { Bedrock } from './icons/Bedrock';
+import { SAPAICore } from './icons/SAPAICore';
 
 const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
   'OpenAI': OpenAI,
@@ -20,6 +22,8 @@ const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?:
   'Gemini': Gemini,
   'GeminiVertexAI': Gemini,
   'AnthropicVertexAI': Anthropic,
+  'Bedrock': Bedrock,
+  'SAPAICore': SAPAICore,
 };
 
 function getProviderIcon(providerType: string | undefined): React.ReactNode | null {

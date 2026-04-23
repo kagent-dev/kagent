@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent_with_default_sa",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent-with-default-sa.test:8080",
     "version": ""
@@ -53,7 +54,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_default_sa\",\"description\":\"\",\"url\":\"http://agent-with-default-sa.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent_with_default_sa\",\"description\":\"\",\"url\":\"http://agent-with-default-sa.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -98,7 +99,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "9686053632527538314"
+              "kagent.dev/config-hash": "8931708887213057908"
             },
             "labels": {
               "app": "kagent",

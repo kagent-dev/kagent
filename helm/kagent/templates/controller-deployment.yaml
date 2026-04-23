@@ -15,7 +15,7 @@ spec:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
-        {{- with .Values.controller.podAnnotations }}
+        {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:

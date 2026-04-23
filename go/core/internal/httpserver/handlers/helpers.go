@@ -191,3 +191,18 @@ func CreateSecret(kubeClient client.Client, name string, namespace string, data 
 	}
 	return secret, nil
 }
+
+func getStructJSONKeys(structType reflect.Type) []string {
+	keys := []string{}
+	if structType.Kind() != reflect.Struct {
+		return keys
+	}
+	for field := range structType.Fields() {
+		jsonTag := field.Tag.Get("json")
+		if jsonTag != "" && jsonTag != "-" {
+			tagParts := strings.Split(jsonTag, ",")
+			keys = append(keys, tagParts[0])
+		}
+	}
+	return keys
+}

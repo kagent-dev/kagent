@@ -4,6 +4,7 @@ This module implements a remote checkpointer that calls the KAgent Go service
 for LangGraph checkpoint persistence via HTTP API.
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -167,15 +168,40 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         # TODO: Deal with new_versions
 
-        # Call the Go service
-        response = await self.client.post(
-            "/api/langgraph/checkpoints",
-            json=request_data.model_dump(),
-            headers={"X-User-ID": user_id},
-        )
-        response.raise_for_status()
-
-        logger.debug(f"Stored checkpoint {checkpoint['id']} for thread {thread_id}")
+        # Call the Go service with retry for transient failures
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = await self.client.post(
+                    "/api/langgraph/checkpoints",
+                    json=request_data.model_dump(),
+                    headers={"X-User-ID": user_id},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                logger.debug(f"Stored checkpoint {checkpoint['id']} for thread {thread_id}")
+                last_err = None
+                break
+            except asyncio.CancelledError:
+                raise
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500 and e.response.status_code != 429:
+                    raise  # Non-transient HTTP error, don't retry
+                last_err = e
+                logger.warning(f"Checkpoint write attempt {attempt + 1}/3 failed for thread {thread_id}: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+            except (httpx.TransportError, OSError) as e:
+                last_err = e
+                logger.warning(f"Checkpoint write attempt {attempt + 1}/3 failed for thread {thread_id}: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+        if last_err:
+            logger.error(
+                f"All checkpoint write attempts failed for thread {thread_id}: {last_err}",
+                exc_info=True,
+            )
+            raise last_err
 
         return {
             "configurable": {
@@ -221,14 +247,45 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
             writes=writes_data,
         )
 
-        response = await self.client.post(
-            "/api/langgraph/checkpoints/writes",
-            json=request_data.model_dump(),
-            headers={"X-User-ID": user_id},
-        )
-        response.raise_for_status()
-
-        logger.debug(f"Stored writes for checkpoint {checkpoint_id} for thread {thread_id}")
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = await self.client.post(
+                    "/api/langgraph/checkpoints/writes",
+                    json=request_data.model_dump(),
+                    headers={"X-User-ID": user_id},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                logger.debug(f"Stored writes for checkpoint {checkpoint_id} for thread {thread_id}")
+                last_err = None
+                break
+            except asyncio.CancelledError:
+                raise
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500 and e.response.status_code != 429:
+                    raise
+                last_err = e
+                logger.warning(
+                    f"Checkpoint writes attempt {attempt + 1}/3 failed for "
+                    f"thread {thread_id} checkpoint {checkpoint_id}: {e}"
+                )
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+            except (httpx.TransportError, OSError) as e:
+                last_err = e
+                logger.warning(
+                    f"Checkpoint writes attempt {attempt + 1}/3 failed for "
+                    f"thread {thread_id} checkpoint {checkpoint_id}: {e}"
+                )
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+        if last_err:
+            logger.error(
+                f"All checkpoint writes attempts failed for thread {thread_id} checkpoint {checkpoint_id}: {last_err}",
+                exc_info=True,
+            )
+            raise last_err
 
     def _convert_to_checkpoint_tuple(
         self, config: RunnableConfig, checkpoint_tuple: KAgentCheckpointTuple

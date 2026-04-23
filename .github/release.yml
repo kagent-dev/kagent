@@ -1,0 +1,29 @@
+# Configuration for GitHub's auto-generated release notes.
+# See: https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    labels:
+      - "duplicate"
+      - "invalid"
+      - "wontfix"
+      - "stale"
+  categories:
+    - title: "Features"
+      labels:
+        - "enhancement"
+    - title: "Bug Fixes"
+      labels:
+        - "bug"
+    - title: "Documentation"
+      labels:
+        - "documentation"
+    - title: "Testing"
+      labels:
+        - "testing"
+    - title: "Dependencies"
+      labels:
+        - "dependencies"
+    - title: "Other Changes"
+      labels:
+        - "*"

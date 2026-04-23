@@ -438,12 +438,15 @@ spec:
                   Mutually exclusive with apiKeySecret.
                 type: boolean
               apiKeySecret:
-                description: The name of the secret that contains the API key. Must
-                  be a reference to the name of a secret in the same namespace as
-                  the referencing ModelConfig
+                description: |-
+                  The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
+                  For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
+                  (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
                 type: string
               apiKeySecretKey:
-                description: The key in the secret that contains the API key
+                description: |-
+                  The key in the secret that contains the API key.
+                  Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
                 type: string
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
@@ -622,7 +625,24 @@ spec:
                 - GeminiVertexAI
                 - AnthropicVertexAI
                 - Bedrock
+                - SAPAICore
                 type: string
+              sapAICore:
+                description: SAP AI Core-specific configuration
+                properties:
+                  authUrl:
+                    description: OAuth2 token endpoint URL (e.g., https://tenant.authentication.eu10.hana.ondemand.com)
+                    type: string
+                  baseUrl:
+                    description: Base URL for the SAP AI Core API (e.g., https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com)
+                    type: string
+                  resourceGroup:
+                    default: default
+                    description: Resource group in SAP AI Core
+                    type: string
+                required:
+                - baseUrl
+                type: object
               tls:
                 description: |-
                   TLS configuration for provider connections.
@@ -684,12 +704,14 @@ spec:
               rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
             - message: provider.bedrock must be nil if the provider is not Bedrock
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
+            - message: provider.sapAICore must be nil if the provider is not SAPAICore
+              rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
-                for Bedrock provider)
+                for Bedrock and SAPAICore providers)
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
-                != ''Bedrock'')'
+                != ''Bedrock'' && self.provider != ''SAPAICore'')'
             - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
                 && size(self.apiKeySecret) > 0)'
