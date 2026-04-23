@@ -243,6 +243,18 @@ type BedrockConfig struct {
 	// AWS region where the Bedrock model is available (e.g., us-east-1, us-west-2)
 	// +required
 	Region string `json:"region"`
+
+	// TopK limits the model to the k most probable next tokens at each step.
+	// Only supported by Claude models on Bedrock.
+	// +optional
+	TopK *int `json:"topK,omitempty"`
+
+	// ThinkingBudgetTokens sets the maximum number of tokens Claude may use for
+	// internal reasoning before producing its response. When set, extended thinking
+	// is enabled. Only supported by Claude models that support extended thinking.
+	// Must be at least 1024 when set.
+	// +optional
+	ThinkingBudgetTokens *int `json:"thinkingBudgetTokens,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.
