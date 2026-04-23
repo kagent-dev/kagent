@@ -43,6 +43,13 @@ jobs:
         uses: actions/checkout@v6
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # unprivileged user namespaces by default, which causes bubblewrap
+        # to fail with EPERM on unshare(CLONE_NEWUSER)
+        # See https://github.com/openai/codex/issues/14919
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
