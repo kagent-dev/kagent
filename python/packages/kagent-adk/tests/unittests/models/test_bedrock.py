@@ -1,7 +1,7 @@
 """Tests for KAgentBedrockLlm."""
 
-import asyncio
 from unittest import mock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -21,53 +21,42 @@ class TestSanitizeToolName:
         assert _sanitize_tool_name("get_weather", name_map, counter) == "get_weather"
         assert name_map["get_weather"] == "get_weather"
 
-    def test_dots_replaced_with_underscores(self):
+    def test_dot_replaced_with_underscore(self):
         name_map: dict = {}
         counter = [0]
         assert _sanitize_tool_name("fetch.get_url", name_map, counter) == "fetch_get_url"
 
-    def test_colon_replaced(self):
+    def test_colon_replaced_with_underscore(self):
         name_map: dict = {}
         counter = [0]
         assert _sanitize_tool_name("filesystem:read", name_map, counter) == "filesystem_read"
 
-    def test_spaces_replaced(self):
+    def test_space_replaced_with_underscore(self):
         name_map: dict = {}
         counter = [0]
         assert _sanitize_tool_name("read file", name_map, counter) == "read_file"
 
-    def test_hyphens_kept(self):
+    def test_hyphen_kept(self):
         name_map: dict = {}
         counter = [0]
         assert _sanitize_tool_name("get-weather", name_map, counter) == "get-weather"
 
-    def test_caching_returns_same_sanitized_name(self):
+    def test_same_original_gives_same_sanitized(self):
         name_map: dict = {}
         counter = [0]
         first = _sanitize_tool_name("fetch.get_url", name_map, counter)
         second = _sanitize_tool_name("fetch.get_url", name_map, counter)
         assert first == second == "fetch_get_url"
-        assert counter[0] == 0  # no synthetic name needed
+        assert counter[0] == 0
 
     def test_empty_name_gets_synthetic(self):
         name_map: dict = {}
         counter = [0]
         result = _sanitize_tool_name("", name_map, counter)
         assert result == "tool_fn_1"
-        assert "" not in name_map  # empty names are not cached
+        assert "" not in name_map
 
-    def test_fully_invalid_name_gets_synthetic(self):
-        name_map: dict = {}
-        counter = [0]
-        # After substitution "!!!" becomes "___" which still passes the regex,
-        # but a name that starts with digits after substitution is fine too.
-        # Test a name that after substitution yields an empty string (all chars removed
-        # if we had a stricter regex — here it will be underscores, which is valid).
-        result = _sanitize_tool_name("valid_after_sub", name_map, counter)
-        assert _sanitize_tool_name.__module__  # just ensure it ran without error
-        assert result == "valid_after_sub"
-
-    def test_multiple_distinct_names_get_distinct_sanitizations(self):
+    def test_multiple_distinct_names(self):
         name_map: dict = {}
         counter = [0]
         a = _sanitize_tool_name("server.tool_a", name_map, counter)
@@ -76,10 +65,15 @@ class TestSanitizeToolName:
         assert b == "server_tool_b"
         assert a != b
 
+    def test_mixed_invalid_chars(self):
+        name_map: dict = {}
+        counter = [0]
+        result = _sanitize_tool_name("my.server:some tool", name_map, counter)
+        assert result == "my_server_some_tool"
+
 
 class TestConvertToolsToConverse:
     def _make_tool(self, name: str, description: str = "a tool"):
-        from unittest.mock import MagicMock
         tool = MagicMock()
         decl = MagicMock()
         decl.name = name
@@ -249,17 +243,11 @@ class TestKAgentBedrockLlm:
         assert final.usage_metadata.total_token_count == 15
 
     @pytest.mark.asyncio
-    async def test_tool_name_with_dot_sanitized_and_response_remapped(self):
-        """Tool names like 'fetch.get_url' must be sanitized for Bedrock and
-        the original name must be restored in the returned LlmResponse so the
-        ADK framework can dispatch to the correct tool."""
-        from unittest.mock import MagicMock
-
+    async def test_dot_tool_name_sanitized_to_bedrock_and_remapped_in_response(self):
         from google.genai import types
 
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
 
-        # Bedrock returns the sanitized name "fetch_get_url" in the toolUse block
         converse_response = {
             "output": {
                 "message": {
@@ -284,7 +272,6 @@ class TestKAgentBedrockLlm:
         async def fake_to_thread(fn, **kwargs):
             return fn(**kwargs)
 
-        # Build a tool declaration with the original dot-containing name
         func_decl = MagicMock()
         func_decl.name = "fetch.get_url"
         func_decl.description = "Fetch a URL"
@@ -311,17 +298,14 @@ class TestKAgentBedrockLlm:
 
         assert len(responses) == 1
         fc = responses[0].content.parts[0].function_call
-        # The ADK must see the ORIGINAL name, not the Bedrock-sanitized one
         assert fc.name == "fetch.get_url"
         assert fc.id == "call-abc"
 
-        # Also verify the sanitized name was sent to Bedrock
         call_kwargs = mock_client.converse.call_args.kwargs
         tool_names = [t["toolSpec"]["name"] for t in call_kwargs["toolConfig"]["tools"]]
         assert tool_names == ["fetch_get_url"]
 
     def test_create_llm_from_bedrock_model_config(self):
-        """Integration: _create_llm_from_model_config returns KAgentBedrockLlm for bedrock type."""
         from kagent.adk.types import Bedrock, _create_llm_from_model_config
 
         config = Bedrock(type="bedrock", model="meta.llama3-8b-instruct-v1:0")
