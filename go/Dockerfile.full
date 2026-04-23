@@ -45,11 +45,6 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
     bash ca-certificates curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
 
-# Make bwrap setuid-root so it can create user/network namespaces when invoked
-# by non-root users on hosts with kernel.apparmor_restrict_unprivileged_userns=1
-# (Ubuntu 23.10+). See https://github.com/openai/codex/issues/14919
-RUN chmod u+s /usr/bin/bwrap
-
 RUN addgroup -g 1001 goagent && \
     adduser -u 1001 -G goagent -s /bin/bash -D goagent
 
