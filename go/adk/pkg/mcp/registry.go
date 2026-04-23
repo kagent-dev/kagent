@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -21,12 +22,32 @@ const (
 	defaultTimeout = 30 * time.Minute
 )
 
+// requestHeadersKey is the context key used to store incoming request headers
+// so MCP transports can forward them to downstream MCP servers.
+type requestHeadersKey struct{}
+
+// WithRequestHeaders stores the provided headers in ctx. The headers are
+// expected to come from the incoming A2A or MCP request and will be forwarded
+// to downstream MCP server calls according to each server's AllowedHeaders list.
+func WithRequestHeaders(ctx context.Context, headers map[string]string) context.Context {
+	return context.WithValue(ctx, requestHeadersKey{}, headers)
+}
+
+// requestHeadersFromContext retrieves headers previously stored by WithRequestHeaders.
+func requestHeadersFromContext(ctx context.Context) map[string]string {
+	if h, ok := ctx.Value(requestHeadersKey{}).(map[string]string); ok {
+		return h
+	}
+	return nil
+}
+
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
 	URL                   string
 	Headers               map[string]string
-	ServerType            string // "http" or "sse"
+	AllowedHeaders        []string // header names to forward from incoming request
+	ServerType            string   // "http" or "sse"
 	Timeout               *float64
 	SseReadTimeout        *float64
 	TLSInsecureSkipVerify *bool
@@ -46,6 +67,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 		params := mcpServerParams{
 			URL:                   httpTool.Params.Url,
 			Headers:               httpTool.Params.Headers,
+			AllowedHeaders:        httpTool.AllowedHeaders,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
@@ -65,6 +87,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 		params := mcpServerParams{
 			URL:                   sseTool.Params.Url,
 			Headers:               sseTool.Params.Headers,
+			AllowedHeaders:        sseTool.AllowedHeaders,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
@@ -162,10 +185,11 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 {
 		httpTransport = &headerRoundTripper{
-			base:    baseTransport,
-			headers: params.Headers,
+			base:           baseTransport,
+			headers:        params.Headers,
+			allowedHeaders: params.AllowedHeaders,
 		}
 	}
 
@@ -190,17 +214,45 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	return mcpTransport, nil
 }
 
-// headerRoundTripper wraps an http.RoundTripper to add custom headers to all requests.
+// headerRoundTripper wraps an http.RoundTripper to add custom headers to all
+// requests. It supports two sources of headers:
+//   - headers: static key/value pairs configured on the MCP server spec
+//   - allowedHeaders: header names to forward from the incoming request; the
+//     actual values are read from the Go context (stored by WithRequestHeaders)
+//
+// Static headers take precedence: if an allowed header has the same name as a
+// static header, the static value wins.
 type headerRoundTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base           http.RoundTripper
+	headers        map[string]string
+	allowedHeaders []string // header names (case-insensitive) to forward from context
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+
+	// Forward allowed headers from the incoming request context first so that
+	// static headers can override them if there is a name collision.
+	if len(rt.allowedHeaders) > 0 {
+		incoming := requestHeadersFromContext(req.Context())
+		if len(incoming) > 0 {
+			for _, allowed := range rt.allowedHeaders {
+				lower := strings.ToLower(allowed)
+				for k, v := range incoming {
+					if strings.ToLower(k) == lower {
+						req.Header.Set(k, v)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Apply static headers (override any dynamic ones with the same name).
 	for key, value := range rt.headers {
 		req.Header.Set(key, value)
 	}
+
 	return rt.base.RoundTrip(req)
 }
 
