@@ -138,6 +138,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
 	defer invocationSpan.End()
 
+	// Propagate scalar values from the A2A message metadata as span attributes
+	// so callers can attach contextual data (e.g. approver identity) to traces.
+	telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
+
 	// 3. Initialize skills session path.
 	if e.skillsDirectory != "" && sessionID != "" {
 		if _, err := skills.InitializeSessionPath(sessionID, e.skillsDirectory); err != nil {

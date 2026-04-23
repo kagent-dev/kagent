@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -85,6 +86,36 @@ func stringAttributes(attrs map[string]string) []attribute.KeyValue {
 		}
 	}
 	return out
+}
+
+// SetMessageMetadataAttributes reads scalar values from an A2A message's
+// Metadata map and sets them as span attributes using the prefix
+// "a2a.message.metadata.<key>". Non-scalar values (maps, slices) are skipped
+// so that only clean, filterable attributes appear in the trace.
+func SetMessageMetadataAttributes(ctx context.Context, metadata map[string]any) {
+	if len(metadata) == 0 {
+		return
+	}
+	var attrs []attribute.KeyValue
+	for k, v := range metadata {
+		key := "a2a.message.metadata." + k
+		switch val := v.(type) {
+		case string:
+			if val != "" {
+				attrs = append(attrs, attribute.String(key, val))
+			}
+		case bool:
+			attrs = append(attrs, attribute.Bool(key, val))
+		case float64:
+			attrs = append(attrs, attribute.String(key, fmt.Sprintf("%g", val)))
+		case int:
+			attrs = append(attrs, attribute.Int(key, val))
+		case int64:
+			attrs = append(attrs, attribute.Int64(key, val))
+		// skip maps, slices, and other complex types
+		}
+	}
+	setSpanAttributes(ctx, attrs...)
 }
 
 func setSpanAttributes(ctx context.Context, attrs ...attribute.KeyValue) {
