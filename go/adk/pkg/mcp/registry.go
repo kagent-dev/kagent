@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -22,23 +23,33 @@ const (
 	defaultTimeout = 30 * time.Minute
 )
 
-// requestHeadersKey is the context key used to store incoming request headers
-// so MCP transports can forward them to downstream MCP servers.
-type requestHeadersKey struct{}
-
-// WithRequestHeaders stores the provided headers in ctx. The headers are
-// expected to come from the incoming A2A or MCP request and will be forwarded
-// to downstream MCP server calls according to each server's AllowedHeaders list.
-func WithRequestHeaders(ctx context.Context, headers map[string]string) context.Context {
-	return context.WithValue(ctx, requestHeadersKey{}, headers)
-}
-
-// requestHeadersFromContext retrieves headers previously stored by WithRequestHeaders.
-func requestHeadersFromContext(ctx context.Context) map[string]string {
-	if h, ok := ctx.Value(requestHeadersKey{}).(map[string]string); ok {
-		return h
+// allowedRequestHeaders reads the incoming A2A request metadata from ctx and
+// returns only the header key/value pairs whose names appear in allowed
+// (case-insensitive). It reads directly from the A2A CallContext that is
+// already present in the Go context, avoiding a redundant copy.
+func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]string {
+	if len(allowed) == 0 {
+		return nil
 	}
-	return nil
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return nil
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return nil
+	}
+	result := make(map[string]string)
+	for _, name := range allowed {
+		lower := strings.ToLower(name)
+		for key, vals := range meta.List() {
+			if strings.ToLower(key) == lower && len(vals) > 0 && vals[0] != "" {
+				result[key] = vals[0]
+				break
+			}
+		}
+	}
+	return result
 }
 
 // mcpServerParams groups connection parameters for an MCP server,
@@ -217,35 +228,25 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 // headerRoundTripper wraps an http.RoundTripper to add custom headers to all
 // requests. It supports two sources of headers:
 //   - headers: static key/value pairs configured on the MCP server spec
-//   - allowedHeaders: header names to forward from the incoming request; the
-//     actual values are read from the Go context (stored by WithRequestHeaders)
+//   - allowedHeaders: header names to forward from the incoming A2A request;
+//     values are read on each call via allowedRequestHeaders directly from the
+//     A2A CallContext that is already present in the Go context.
 //
 // Static headers take precedence: if an allowed header has the same name as a
 // static header, the static value wins.
 type headerRoundTripper struct {
 	base           http.RoundTripper
 	headers        map[string]string
-	allowedHeaders []string // header names (case-insensitive) to forward from context
+	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 
-	// Forward allowed headers from the incoming request context first so that
+	// Forward allowed headers from the incoming A2A request first so that
 	// static headers can override them if there is a name collision.
-	if len(rt.allowedHeaders) > 0 {
-		incoming := requestHeadersFromContext(req.Context())
-		if len(incoming) > 0 {
-			for _, allowed := range rt.allowedHeaders {
-				lower := strings.ToLower(allowed)
-				for k, v := range incoming {
-					if strings.ToLower(k) == lower {
-						req.Header.Set(k, v)
-						break
-					}
-				}
-			}
-		}
+	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
+		req.Header.Set(k, v)
 	}
 
 	// Apply static headers (override any dynamic ones with the same name).

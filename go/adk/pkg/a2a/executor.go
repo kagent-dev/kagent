@@ -11,7 +11,6 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
@@ -118,19 +117,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	sessionID := reqCtx.ContextID
 
 	ctx = withBearerToken(ctx)
-	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
-		if meta := callCtx.RequestMeta(); meta != nil {
-			headers := make(map[string]string)
-			for key, vals := range meta.List() {
-				if len(vals) > 0 && vals[0] != "" {
-					headers[key] = vals[0]
-				}
-			}
-			if len(headers) > 0 {
-				ctx = mcp.WithRequestHeaders(ctx, headers)
-			}
-		}
-	}
 
 	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
