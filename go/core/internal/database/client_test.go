@@ -13,6 +13,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // TestConcurrentAgentUpserts verifies that concurrent StoreAgent calls
@@ -231,6 +232,124 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	retrieved, err := client.GetSession(ctx, session.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
+}
+
+func TestListSessionsOrdersByRecentActivity(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	userID := "test-user"
+	agentID := "test-agent"
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	sessions := []struct {
+		id        string
+		createdAt time.Time
+		updatedAt time.Time
+	}{
+		{id: "old-active", createdAt: base, updatedAt: base.Add(4 * time.Hour)},
+		{id: "new-inactive", createdAt: base.Add(3 * time.Hour), updatedAt: base.Add(3 * time.Hour)},
+		{id: "old-inactive", createdAt: base.Add(time.Hour), updatedAt: base.Add(2 * time.Hour)},
+	}
+
+	for _, s := range sessions {
+		err := client.StoreSession(ctx, &dbpkg.Session{
+			ID:      s.id,
+			UserID:  userID,
+			AgentID: &agentID,
+		})
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `
+			UPDATE session
+			SET created_at = $1, updated_at = $2
+			WHERE id = $3 AND user_id = $4
+		`, s.createdAt, s.updatedAt, s.id, userID)
+		require.NoError(t, err)
+	}
+
+	allSessions, err := client.ListSessions(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, allSessions, 3)
+	assert.Equal(t, []string{"old-active", "new-inactive", "old-inactive"}, []string{
+		allSessions[0].ID,
+		allSessions[1].ID,
+		allSessions[2].ID,
+	})
+
+	agentSessions, err := client.ListSessionsForAgent(ctx, agentID, userID)
+	require.NoError(t, err)
+	require.Len(t, agentSessions, 3)
+	assert.Equal(t, []string{"old-active", "new-inactive", "old-inactive"}, []string{
+		agentSessions[0].ID,
+		agentSessions[1].ID,
+		agentSessions[2].ID,
+	})
+}
+
+func TestStoreEventTouchesSessionActivity(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	userID := "test-user"
+	sessionID := "active-session"
+	oldActivity := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	err := client.StoreSession(ctx, &dbpkg.Session{
+		ID:     sessionID,
+		UserID: userID,
+	})
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		UPDATE session
+		SET updated_at = $1
+		WHERE id = $2 AND user_id = $3
+	`, oldActivity, sessionID, userID)
+	require.NoError(t, err)
+
+	err = client.StoreEvents(ctx, &dbpkg.Event{
+		ID:        "event-1",
+		SessionID: sessionID,
+		UserID:    userID,
+		Data:      "{}",
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetSession(ctx, sessionID, userID)
+	require.NoError(t, err)
+	assert.True(t, got.UpdatedAt.After(oldActivity), "session updated_at should advance after storing an event")
+}
+
+func TestStoreTaskTouchesSessionActivity(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	userID := "test-user"
+	sessionID := "active-session"
+	oldActivity := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	err := client.StoreSession(ctx, &dbpkg.Session{
+		ID:     sessionID,
+		UserID: userID,
+	})
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		UPDATE session
+		SET updated_at = $1
+		WHERE id = $2 AND user_id = $3
+	`, oldActivity, sessionID, userID)
+	require.NoError(t, err)
+
+	err = client.StoreTask(ctx, &protocol.Task{
+		ID:        "task-1",
+		ContextID: sessionID,
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetSession(ctx, sessionID, userID)
+	require.NoError(t, err)
+	assert.True(t, got.UpdatedAt.After(oldActivity), "session updated_at should advance after storing a task")
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
