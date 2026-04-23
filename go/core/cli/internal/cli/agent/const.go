@@ -28,6 +28,14 @@ func GetModelProvider() v1alpha2.ModelProvider {
 		return v1alpha2.ModelProviderAnthropic
 	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAzureOpenAI):
 		return v1alpha2.ModelProviderAzureOpenAI
+	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderGemini):
+		return v1alpha2.ModelProviderGemini
+	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderGeminiVertexAI):
+		return v1alpha2.ModelProviderGeminiVertexAI
+	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderAnthropicVertexAI):
+		return v1alpha2.ModelProviderAnthropicVertexAI
+	case GetModelProviderHelmValuesKey(v1alpha2.ModelProviderBedrock):
+		return v1alpha2.ModelProviderBedrock
 	default:
 		return v1alpha2.ModelProviderOpenAI
 	}
@@ -42,7 +50,9 @@ func GetModelProviderHelmValuesKey(provider v1alpha2.ModelProvider) string {
 	return helmKey
 }
 
-// GetProviderAPIKey returns API_KEY env var name from provider type
+// GetProviderAPIKey returns the env var name for the provider's API key.
+// Returns "" for providers that use cloud credentials instead of an API key
+// (Ollama, Bedrock, GeminiVertexAI, AnthropicVertexAI).
 func GetProviderAPIKey(provider v1alpha2.ModelProvider) string {
 	switch provider {
 	case v1alpha2.ModelProviderOpenAI:
@@ -51,7 +61,16 @@ func GetProviderAPIKey(provider v1alpha2.ModelProvider) string {
 		return env.AnthropicAPIKey.Name()
 	case v1alpha2.ModelProviderAzureOpenAI:
 		return env.AzureOpenAIAPIKey.Name()
+	case v1alpha2.ModelProviderGemini:
+		// Prefer GOOGLE_API_KEY, fall back to GEMINI_API_KEY to match the
+		// runtime behaviour in go/adk/pkg/agent/agent.go.
+		if _, ok := os.LookupEnv(env.GoogleAPIKey.Name()); ok {
+			return env.GoogleAPIKey.Name()
+		}
+		return "GEMINI_API_KEY"
 	default:
+		// Ollama, Bedrock, GeminiVertexAI, AnthropicVertexAI use cloud
+		// credentials rather than a simple API key, so no check is needed.
 		return ""
 	}
 }
