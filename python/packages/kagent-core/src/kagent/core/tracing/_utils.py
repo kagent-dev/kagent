@@ -22,11 +22,7 @@ def _resolve_otlp_protocol(signal: str) -> str:
     Follows the OpenTelemetry specification precedence:
     signal-specific (e.g. OTEL_EXPORTER_OTLP_TRACES_PROTOCOL) > general > default (grpc).
     """
-    raw = (
-        os.getenv(f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL")
-        or os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
-        or "grpc"
-    )
+    raw = os.getenv(f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL") or os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL") or "grpc"
     return raw.strip().lower()
 
 
@@ -139,7 +135,9 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         trace_timeout_seconds = _resolve_otlp_timeout_seconds("TRACES")
         logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
-            processor = BatchSpanProcessor(_create_span_exporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds))
+            processor = BatchSpanProcessor(
+                _create_span_exporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds)
+            )
         else:
             processor = BatchSpanProcessor(_create_span_exporter(timeout=trace_timeout_seconds))
 
@@ -180,7 +178,9 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
 
         # Add OTLP exporter
         if log_endpoint:
-            log_processor = BatchLogRecordProcessor(_create_log_exporter(endpoint=log_endpoint, timeout=log_timeout_seconds))
+            log_processor = BatchLogRecordProcessor(
+                _create_log_exporter(endpoint=log_endpoint, timeout=log_timeout_seconds)
+            )
         else:
             log_processor = BatchLogRecordProcessor(_create_log_exporter(timeout=log_timeout_seconds))
         logger_provider.add_log_record_processor(log_processor)
