@@ -64,11 +64,6 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add \
     nodejs npm node-gyp bubblewrap socat ripgrep
 
-# Make bwrap setuid-root so it can create user/network namespaces when invoked
-# by non-root users on hosts with kernel.apparmor_restrict_unprivileged_userns=1
-# (Ubuntu 23.10+). See https://github.com/openai/codex/issues/14919
-RUN chmod u+s /usr/bin/bwrap
-
 # Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
 # This avoids scope-related rename issues in global node_modules
 # Using BuildKit cache for npm to speed up rebuilds
