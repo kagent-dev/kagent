@@ -57,6 +57,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -139,6 +140,15 @@ type Config struct {
 		UrlFile       string
 		VectorEnabled bool
 	}
+	Openshell struct {
+		GatewayURL  string
+		Token       string
+		TokenFile   string
+		CAFile      string
+		Insecure    bool
+		DialTimeout time.Duration
+		CallTimeout time.Duration
+	}
 }
 
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
@@ -189,6 +199,14 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+
+	commandLine.StringVar(&cfg.Openshell.GatewayURL, "openshell-gateway-url", "", "gRPC target for the OpenShell sandbox gateway (e.g. dns:///openshell.openshell.svc:443). When empty, the Sandbox controller is disabled.")
+	commandLine.StringVar(&cfg.Openshell.Token, "openshell-token", "", "Static bearer token for the OpenShell gateway. Prefer --openshell-token-file for secrets.")
+	commandLine.StringVar(&cfg.Openshell.TokenFile, "openshell-token-file", "", "Path to a file containing the OpenShell gateway bearer token. Takes precedence over --openshell-token.")
+	commandLine.StringVar(&cfg.Openshell.CAFile, "openshell-tls-ca-file", "", "Path to a PEM file containing CA bundle for verifying the OpenShell gateway TLS certificate. Optional.")
+	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
+	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
+	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
@@ -548,6 +566,24 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	if cfg.Openshell.GatewayURL != "" {
+		openshellBackend, err := buildOpenshellBackend(ctx, &cfg)
+		if err != nil {
+			setupLog.Error(err, "unable to build openshell sandbox backend")
+			os.Exit(1)
+		}
+		if err := (&controller.SandboxController{
+			Client:   mgr.GetClient(),
+			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
+			Backend:  openshellBackend,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Sandbox")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Sandbox controller disabled: --openshell-gateway-url not set")
+	}
+
 	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
@@ -671,6 +707,37 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// buildOpenshellBackend constructs an openshell AsyncBackend from flag config.
+// The returned backend owns its gRPC connection for the lifetime of the process.
+func buildOpenshellBackend(ctx context.Context, cfg *Config) (*openshell.Backend, error) {
+	oc := openshell.Config{
+		GatewayURL:  cfg.Openshell.GatewayURL,
+		Token:       cfg.Openshell.Token,
+		Insecure:    cfg.Openshell.Insecure,
+		DialTimeout: cfg.Openshell.DialTimeout,
+		CallTimeout: cfg.Openshell.CallTimeout,
+	}
+	if cfg.Openshell.TokenFile != "" {
+		data, err := os.ReadFile(cfg.Openshell.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("read openshell token file: %w", err)
+		}
+		oc.Token = strings.TrimSpace(string(data))
+	}
+	if cfg.Openshell.CAFile != "" {
+		data, err := os.ReadFile(cfg.Openshell.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read openshell CA file: %w", err)
+		}
+		oc.TLSCAPEM = data
+	}
+	cli, _, err := openshell.Dial(ctx, oc)
+	if err != nil {
+		return nil, err
+	}
+	return openshell.New(cli, oc, nil), nil
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

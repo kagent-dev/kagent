@@ -4,6 +4,7 @@
   resources:
   - agents
   - sandboxagents
+  - sandboxes
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -20,6 +21,7 @@
   resources:
   - agents/finalizers
   - sandboxagents/finalizers
+  - sandboxes/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
