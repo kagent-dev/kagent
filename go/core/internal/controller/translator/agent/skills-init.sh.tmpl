@@ -82,3 +82,8 @@ mkdir -p "$_dest"
 tar xf '/tmp/oci-skill.tar' -C "$_dest"
 rm -f '/tmp/oci-skill.tar'
 {{- end }}
+# The init process (git, krane, tar) and the main kagent run as different
+# UIDs. Clones and archives are commonly created as root with mode 0700, while the agent
+# runs as a non-root user and mounts /skills read-only—so it cannot chown. Relax perms
+# so the agent uid can list and read SKILL.md under /skills.
+chmod -R a+rX /skills
