@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -24,9 +23,15 @@ const (
 )
 
 // allowedRequestHeaders reads the incoming A2A request metadata from ctx and
-// returns only the header key/value pairs whose names appear in allowed
-// (case-insensitive). It reads directly from the A2A CallContext that is
-// already present in the Go context, avoiding a redundant copy.
+// returns only the header key/value pairs whose names appear in allowed.
+// It reads directly from the A2A CallContext that is already present in the Go
+// context, avoiding a redundant copy.
+//
+// Lookup relies on RequestMeta.Get which already does a case-insensitive O(1)
+// lookup (NewRequestMeta lowercases keys at construction). Keys in the result
+// preserve the casing from the allowed list so the MCP server sees the header
+// names the operator configured. When a header has multiple values only the
+// first one is forwarded; additional values are intentionally dropped.
 func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]string {
 	if len(allowed) == 0 {
 		return nil
@@ -41,13 +46,12 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 	}
 	result := make(map[string]string)
 	for _, name := range allowed {
-		lower := strings.ToLower(name)
-		for key, vals := range meta.List() {
-			if strings.ToLower(key) == lower && len(vals) > 0 && vals[0] != "" {
-				result[key] = vals[0]
-				break
-			}
+		if vals, ok := meta.Get(name); ok && len(vals) > 0 && vals[0] != "" {
+			result[name] = vals[0]
 		}
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }
