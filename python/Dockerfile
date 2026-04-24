@@ -70,7 +70,7 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
 # Keep the pinned sandbox-runtime revision, but replace its vulnerable locked lodash-es version.
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
-    cd opt && \
+    cd /opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install --save-exact lodash-es@4.18.0 @types/lodash-es@4.17.12 && \
