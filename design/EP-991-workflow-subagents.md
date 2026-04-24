@@ -59,7 +59,8 @@ type InlineAgentSpec struct {
 
 The `Workflow` field is added to `DeclarativeAgentSpec` with CEL validation rules:
 - `workflow` is mutually exclusive with `systemMessage`, `systemMessageFrom`, and `tools`
-- `maxIterations` is only valid for `Loop` type
+- `workflow` is mutually exclusive with `memory`, `context`, and `executeCodeBlocks`
+- `maxIterations` is only valid for `Loop` type; when unset, the loop runs indefinitely until a sub-agent escalates
 
 ### 2. ADK Config Types (`go/api/adk/types.go`)
 

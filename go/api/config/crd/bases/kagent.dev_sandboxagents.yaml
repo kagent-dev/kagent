@@ -7820,7 +7820,7 @@ spec:
                         description: |-
                           MaxIterations is the maximum number of loop iterations (Loop type only).
                           The loop exits when a sub-agent escalates or when this limit is reached.
-                          If not set for Loop type, defaults to 10.
+                          If not set for Loop type, the loop runs indefinitely until a sub-agent escalates.
                         minimum: 1
                         type: integer
                       subAgents:
@@ -8034,6 +8034,10 @@ spec:
                     and tools
                   rule: '!has(self.workflow) || (!has(self.systemMessage) && !has(self.systemMessageFrom)
                     && !has(self.tools))'
+                - message: workflow is mutually exclusive with memory, context, and
+                    executeCodeBlocks
+                  rule: '!has(self.workflow) || (!has(self.memory) && !has(self.context)
+                    && !has(self.executeCodeBlocks))'
                 - message: either workflow or a system message source must be specified
                   rule: has(self.workflow) || has(self.systemMessage) || has(self.systemMessageFrom)
               description:

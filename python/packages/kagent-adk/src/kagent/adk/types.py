@@ -495,6 +495,8 @@ class AgentConfig(BaseModel):
         if sts_integration:
             sts_header_provider = sts_integration.header_provider
 
+        tools_requiring_approval: set[str] = set()
+
         if sub_cfg.http_tools:
             for http_tool in sub_cfg.http_tools:
                 tool_header_provider = create_header_provider(
@@ -508,6 +510,8 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if http_tool.require_approval:
+                    tools_requiring_approval.update(http_tool.require_approval)
 
         if sub_cfg.sse_tools:
             for sse_tool in sub_cfg.sse_tools:
@@ -522,8 +526,15 @@ class AgentConfig(BaseModel):
                         header_provider=tool_header_provider,
                     )
                 )
+                if sse_tool.require_approval:
+                    tools_requiring_approval.update(sse_tool.require_approval)
 
         model = _create_llm_from_model_config(sub_cfg.model)
+
+        tools.append(AskUserTool())
+
+        before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+        before_model_callback = strip_confirmation_parts_callback if tools_requiring_approval else None
 
         return Agent(
             name=sub_cfg.name,
@@ -531,6 +542,8 @@ class AgentConfig(BaseModel):
             description=sub_cfg.description,
             static_instruction=sub_cfg.instruction,
             tools=tools,
+            before_tool_callback=before_tool_callback,
+            before_model_callback=before_model_callback,
         )
 
     def _configure_memory(self, agent: Agent) -> None:

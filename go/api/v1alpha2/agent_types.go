@@ -173,7 +173,7 @@ type WorkflowSpec struct {
 
 	// MaxIterations is the maximum number of loop iterations (Loop type only).
 	// The loop exits when a sub-agent escalates or when this limit is reached.
-	// If not set for Loop type, defaults to 10.
+	// If not set for Loop type, the loop runs indefinitely until a sub-agent escalates.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaxIterations *int `json:"maxIterations,omitempty"`
@@ -211,6 +211,7 @@ type InlineAgentSpec struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!has(self.workflow) || (!has(self.systemMessage) && !has(self.systemMessageFrom) && !has(self.tools))",message="workflow is mutually exclusive with systemMessage, systemMessageFrom, and tools"
+// +kubebuilder:validation:XValidation:rule="!has(self.workflow) || (!has(self.memory) && !has(self.context) && !has(self.executeCodeBlocks))",message="workflow is mutually exclusive with memory, context, and executeCodeBlocks"
 // +kubebuilder:validation:XValidation:rule="has(self.workflow) || has(self.systemMessage) || has(self.systemMessageFrom)",message="either workflow or a system message source must be specified"
 type DeclarativeAgentSpec struct {
 	// Runtime specifies which ADK implementation to use for this agent.
