@@ -457,7 +457,9 @@ class AgentConfig(BaseModel):
 
         return agent
 
-    def _build_workflow_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> BaseAgent:
+    def _build_workflow_agent(
+        self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None
+    ) -> BaseAgent:
         """Build a workflow agent (Sequential, Parallel, or Loop) from config."""
         from google.adk.agents import LoopAgent, ParallelAgent, SequentialAgent
 
@@ -488,7 +490,9 @@ class AgentConfig(BaseModel):
         else:
             raise ValueError(f"Unknown workflow type: {workflow_type}")
 
-    def _build_sub_agent(self, sub_cfg: SubAgentConfig, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
+    def _build_sub_agent(
+        self, sub_cfg: SubAgentConfig, sts_integration: Optional[ADKTokenPropagationPlugin] = None
+    ) -> Agent:
         """Build an in-process LLM Agent from a SubAgentConfig."""
         tools: list[ToolUnion] = []
         sts_header_provider = None
