@@ -184,8 +184,10 @@ type WorkflowSpec struct {
 // in-process within the parent workflow agent's pod.
 type InlineAgentSpec struct {
 	// Name is the unique identifier for this sub-agent within the workflow.
+	// Must be a valid Python identifier (letters, digits, underscores; cannot start with a digit).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[A-Za-z_][A-Za-z0-9_]*$`
 	Name string `json:"name"`
 
 	// Description is a human-readable description of what this sub-agent does.

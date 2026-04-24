@@ -96,13 +96,42 @@ func createInProcessSubAgent(ctx context.Context, config *adk.SubAgentConfig, lo
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
 
+	// Collect tool names that require approval from MCP tools.
+	approvalSet := make(map[string]bool)
+	for _, httpTool := range config.HttpTools {
+		for _, name := range httpTool.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+	for _, sseTool := range config.SseTools {
+		for _, name := range sseTool.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+
+	beforeToolCallbacks := []llmagent.BeforeToolCallback{makeBeforeToolCallback(log)}
+	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
+	if len(approvalSet) > 0 {
+		log.Info("Wiring approval callback for workflow sub-agent", "name", config.Name, "toolCount", len(approvalSet))
+		beforeToolCallbacks = append([]llmagent.BeforeToolCallback{MakeApprovalCallback(approvalSet)}, beforeToolCallbacks...)
+		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
+	}
+
 	return llmagent.New(llmagent.Config{
-		Name:            config.Name,
-		Description:     config.Description,
-		Instruction:     config.Instruction,
-		Model:           llmModel,
-		Toolsets:        toolsets,
-		IncludeContents: llmagent.IncludeContentsDefault,
+		Name:                 config.Name,
+		Description:          config.Description,
+		Instruction:          config.Instruction,
+		Model:                llmModel,
+		Toolsets:             toolsets,
+		IncludeContents:      llmagent.IncludeContentsDefault,
+		BeforeToolCallbacks:  beforeToolCallbacks,
+		BeforeModelCallbacks: beforeModelCallbacks,
+		AfterToolCallbacks: []llmagent.AfterToolCallback{
+			makeAfterToolCallback(log),
+		},
+		OnToolErrorCallbacks: []llmagent.OnToolErrorCallback{
+			makeOnToolErrorCallback(log),
+		},
 	})
 }
 

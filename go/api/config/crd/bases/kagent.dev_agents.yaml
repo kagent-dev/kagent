@@ -10194,10 +10194,12 @@ spec:
                                 Must be in the same namespace as the Agent.
                               type: string
                             name:
-                              description: Name is the unique identifier for this
-                                sub-agent within the workflow.
+                              description: |-
+                                Name is the unique identifier for this sub-agent within the workflow.
+                                Must be a valid Python identifier (letters, digits, underscores; cannot start with a digit).
                               maxLength: 63
                               minLength: 1
+                              pattern: ^[A-Za-z_][A-Za-z0-9_]*$
                               type: string
                             systemMessage:
                               description: SystemMessage is the system prompt for
