@@ -47,6 +47,7 @@ import (
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
+	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -269,12 +270,23 @@ type BootstrapConfig struct {
 
 type CtrlManagerConfigFunc func(manager.Manager) error
 
+// TargetURLResolver resolves a per-request A2A target URL from the conversation context ID.
+// It returns (url, true, nil) when a dynamic target is found, or ("", false, nil) to fall
+// back to the statically-configured agent URL.
+type TargetURLResolver interface {
+	ResolveURL(ctx context.Context, contextID string) (url string, ok bool, err error)
+}
+
 type ExtensionConfig struct {
 	Authenticator    auth.AuthProvider
 	Authorizer       auth.Authorizer
 	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
 	SandboxBackend   sandboxbackend.Backend
+	// SessionHook is called on session lifecycle events. Optional.
+	SessionHook handlers.SessionHook
+	// TargetURLResolver enables per-session A2A target URL resolution. Optional.
+	TargetURLResolver TargetURLResolver
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -578,7 +590,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
+	var resolverFn a2a.TargetURLResolverFn
+	if extensionCfg.TargetURLResolver != nil {
+		resolverFn = extensionCfg.TargetURLResolver.ResolveURL
+	}
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, resolverFn)
 
 	if err := mgr.Add(a2a.NewA2ARegistrar(
 		mgr.GetCache(),
@@ -650,6 +666,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
 		SandboxBackend:    extensionCfg.SandboxBackend,
+		SessionHook:       extensionCfg.SessionHook,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

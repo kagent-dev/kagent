@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -9,6 +11,15 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 )
+
+// SessionHook is called by session HTTP handlers on session lifecycle events.
+// Implementations must be safe to call concurrently.
+type SessionHook interface {
+	// OnSessionCreated is called after the session row is written to the DB.
+	OnSessionCreated(ctx context.Context, session *database.Session, agent *database.Agent) error
+	// OnSessionDeleted is called before the session row is removed from the DB.
+	OnSessionDeleted(ctx context.Context, sessionID, userID string) error
+}
 
 // Handlers holds all the HTTP handler components
 type Handlers struct {
@@ -40,10 +51,12 @@ type Base struct {
 	ProxyURL           string
 	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
+	// SessionHook is called on session lifecycle events. Optional.
+	SessionHook SessionHook
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxBackend sandboxbackend.Backend) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxBackend sandboxbackend.Backend, sessionHook SessionHook) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -52,6 +65,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ProxyURL:           proxyURL,
 		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
+		SessionHook:        sessionHook,
 	}
 
 	return &Handlers{

@@ -161,6 +161,17 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
+	if h.SessionHook != nil {
+		if err := h.SessionHook.OnSessionCreated(r.Context(), session, agent); err != nil {
+			log.Error(err, "session hook OnSessionCreated failed; rolling back session row", "sessionID", session.ID)
+			if delErr := h.DatabaseService.DeleteSession(r.Context(), session.ID, userID); delErr != nil {
+				log.Error(delErr, "failed to delete session row during rollback", "sessionID", session.ID)
+			}
+			w.RespondWithError(errors.NewInternalServerError("Failed to initialize session backend", err))
+			return
+		}
+	}
+
 	log.Info("Successfully created session", "sessionID", session.ID)
 	data := api.NewResponse(session, "Successfully created session", false)
 	RespondWithJSON(w, http.StatusCreated, data)
@@ -304,6 +315,12 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 	log = log.WithValues("session_id", sessionID)
+
+	if h.SessionHook != nil {
+		if err := h.SessionHook.OnSessionDeleted(r.Context(), sessionID, userID); err != nil {
+			log.Error(err, "session hook OnSessionDeleted failed; proceeding with DB delete", "sessionID", sessionID)
+		}
+	}
 
 	if err := h.DatabaseService.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))

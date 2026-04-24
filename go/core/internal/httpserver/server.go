@@ -68,6 +68,9 @@ type ServerConfig struct {
 	ProxyURL          string
 	Reconciler        reconciler.KagentReconciler
 	SandboxBackend    sandboxbackend.Backend
+	// SessionHook is called on session lifecycle events. Optional.
+	SessionHook handlers.SessionHook
+
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -86,7 +89,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend, config.SessionHook),
 		authenticator: config.Authenticator,
 	}, nil
 }
