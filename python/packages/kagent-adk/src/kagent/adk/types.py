@@ -3,7 +3,7 @@ from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
-from google.adk.agents import Agent
+from google.adk.agents import Agent, BaseAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -313,9 +313,7 @@ class AgentConfig(BaseModel):
     context_config: ContextConfig | None = None
     workflow: WorkflowAgentConfig | None = None
 
-    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> "BaseAgent":
-        from google.adk.agents import BaseAgent
-
+    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> BaseAgent:
         if self.workflow is not None:
             return self._build_workflow_agent(name, sts_integration)
         return self._build_llm_agent(name, sts_integration)
@@ -459,7 +457,7 @@ class AgentConfig(BaseModel):
 
         return agent
 
-    def _build_workflow_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> "BaseAgent":
+    def _build_workflow_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> BaseAgent:
         """Build a workflow agent (Sequential, Parallel, or Loop) from config."""
         from google.adk.agents import LoopAgent, ParallelAgent, SequentialAgent
 
