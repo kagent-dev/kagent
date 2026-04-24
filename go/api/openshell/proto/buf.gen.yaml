@@ -1,0 +1,30 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      path: openshell.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+    - file_option: go_package
+      path: sandbox.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+    - file_option: go_package
+      path: datamodel.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+plugins:
+  - local: protoc-gen-go
+    out: ../gen
+    opt:
+      - module=github.com/kagent-dev/kagent/go/api/openshell/gen
+      - Mopenshell.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+      - Msandbox.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+      - Mdatamodel.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+  - local: protoc-gen-go-grpc
+    out: ../gen
+    opt:
+      - module=github.com/kagent-dev/kagent/go/api/openshell/gen
+      - Mopenshell.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+      - Msandbox.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+      - Mdatamodel.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+inputs:
+  - directory: .
