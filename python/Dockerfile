@@ -73,7 +73,7 @@ RUN --mount=type=cache,target=/root/.npm \
     cd /opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
-    npm install --save-exact lodash-es@4.18.0 @types/lodash-es@4.17.12 && \
+    npm install --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 && \
     npm run build && \
     # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
     # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.
