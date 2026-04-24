@@ -195,8 +195,7 @@ class KAgentBedrockLlm(BaseLlm):
     """
 
     extra_headers: Optional[dict[str, str]] = None
-    top_k: Optional[int] = None
-    thinking_budget_tokens: Optional[int] = None
+    additional_model_request_fields: Optional[dict[str, Any]] = None
     model_config = {"arbitrary_types_allowed": True}
 
     @cached_property
@@ -246,16 +245,8 @@ class KAgentBedrockLlm(BaseLlm):
         if inference_config:
             kwargs["inferenceConfig"] = inference_config
 
-        additional_fields: dict[str, Any] = {}
-        if self.top_k is not None:
-            additional_fields["top_k"] = self.top_k
-        if self.thinking_budget_tokens is not None:
-            additional_fields["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget_tokens,
-            }
-        if additional_fields:
-            kwargs["additionalModelRequestFields"] = additional_fields
+        if self.additional_model_request_fields:
+            kwargs["additionalModelRequestFields"] = self.additional_model_request_fields
 
         def _run_converse_stream(**kw):
             resp = client.converse_stream(**kw)

@@ -235,13 +235,10 @@ class Gemini(BaseLLM):
 
 class Bedrock(BaseLLM):
     region: str | None = None
-    # top_k limits sampling to the top-k most probable tokens.
-    # Only supported by Claude models on Bedrock.
-    top_k: int | None = None
-    # thinking_budget_tokens enables extended thinking and caps the number of
-    # tokens Claude may spend on internal reasoning. Must be at least 1024 when set.
-    # Only supported by Claude models that support extended thinking.
-    thinking_budget_tokens: int | None = None
+    # additional_model_request_fields passes model-specific parameters to Bedrock's
+    # additionalModelRequestFields in the Converse API. Use this for provider-specific
+    # options outside the standard InferenceConfiguration block.
+    additional_model_request_fields: dict | None = None
     type: Literal["bedrock"]
 
 
@@ -576,8 +573,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
-            top_k=model_config.top_k,
-            thinking_budget_tokens=model_config.thinking_budget_tokens,
+            additional_model_request_fields=model_config.additional_model_request_fields,
         )
     if model_config.type == "sap_ai_core":
         from .models._sap_ai_core import KAgentSAPAICoreLlm

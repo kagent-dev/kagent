@@ -285,11 +285,10 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic)
 		cfg := &models.BedrockConfig{
-			TransportConfig:      transportConfigFromBase(m.BaseModel, nil),
-			Model:                modelName,
-			Region:               region,
-			TopK:                 m.TopK,
-			ThinkingBudgetTokens: m.ThinkingBudgetTokens,
+			TransportConfig:              transportConfigFromBase(m.BaseModel, nil),
+			Model:                        modelName,
+			Region:                       region,
+			AdditionalModelRequestFields: m.AdditionalModelRequestFields,
 		}
 		return models.NewBedrockModelWithLogger(ctx, cfg, log)
 

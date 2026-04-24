@@ -247,13 +247,10 @@ type Bedrock struct {
 	BaseModel
 	// Region is the AWS region where the model is available
 	Region string `json:"region,omitempty"`
-	// TopK limits sampling to the top-k most probable tokens.
-	// Only supported by Claude models on Bedrock.
-	TopK *int `json:"top_k,omitempty"`
-	// ThinkingBudgetTokens enables extended thinking when set and specifies the
-	// maximum number of tokens Claude may use for internal reasoning.
-	// Only supported by Claude models that support extended thinking.
-	ThinkingBudgetTokens *int `json:"thinking_budget_tokens,omitempty"`
+	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields in the Converse API. Use this for provider-specific
+	// options outside the standard InferenceConfiguration block.
+	AdditionalModelRequestFields map[string]any `json:"additional_model_request_fields,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -244,17 +245,14 @@ type BedrockConfig struct {
 	// +required
 	Region string `json:"region"`
 
-	// TopK limits the model to the k most probable next tokens at each step.
-	// Only supported by Claude models on Bedrock.
+	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields in the Converse API. Use this for provider-specific
+	// options that are not part of the standard InferenceConfiguration block, such as
+	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
+	// Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
 	// +optional
-	TopK *int `json:"topK,omitempty"`
-
-	// ThinkingBudgetTokens sets the maximum number of tokens Claude may use for
-	// internal reasoning before producing its response. When set, extended thinking
-	// is enabled. Only supported by Claude models that support extended thinking.
-	// Must be at least 1024 when set.
-	// +optional
-	ThinkingBudgetTokens *int `json:"thinkingBudgetTokens,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.
