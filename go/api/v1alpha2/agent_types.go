@@ -146,7 +146,72 @@ type GitRepo struct {
 	Name string `json:"name,omitempty"`
 }
 
+// WorkflowType represents the workflow orchestration pattern.
+// +kubebuilder:validation:Enum=Sequential;Parallel;Loop
+type WorkflowType string
+
+const (
+	WorkflowType_Sequential WorkflowType = "Sequential"
+	WorkflowType_Parallel   WorkflowType = "Parallel"
+	WorkflowType_Loop       WorkflowType = "Loop"
+)
+
+// WorkflowSpec defines a workflow agent that deterministically orchestrates
+// in-process sub-agents using Sequential, Parallel, or Loop patterns.
+// Sub-agents run within the same pod and share session state.
+// +kubebuilder:validation:XValidation:rule="self.type == 'Loop' || !has(self.maxIterations)",message="maxIterations is only valid for Loop workflow type"
+type WorkflowSpec struct {
+	// Type is the workflow orchestration pattern.
+	// +kubebuilder:validation:Enum=Sequential;Parallel;Loop
+	Type WorkflowType `json:"type"`
+
+	// SubAgents are the in-process LLM agents that this workflow orchestrates.
+	// Each sub-agent runs within the same pod and shares session state.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=10
+	SubAgents []InlineAgentSpec `json:"subAgents"`
+
+	// MaxIterations is the maximum number of loop iterations (Loop type only).
+	// The loop exits when a sub-agent escalates or when this limit is reached.
+	// If not set for Loop type, defaults to 10.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxIterations *int `json:"maxIterations,omitempty"`
+}
+
+// InlineAgentSpec defines an in-process LLM sub-agent within a workflow.
+// Unlike a top-level Agent CR, inline agents are not separate pods — they run
+// in-process within the parent workflow agent's pod.
+type InlineAgentSpec struct {
+	// Name is the unique identifier for this sub-agent within the workflow.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// Description is a human-readable description of what this sub-agent does.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// SystemMessage is the system prompt for this sub-agent.
+	// +kubebuilder:validation:MinLength=1
+	SystemMessage string `json:"systemMessage"`
+
+	// ModelConfig is the name of the ModelConfig to use for this sub-agent.
+	// If not specified, inherits the parent workflow agent's model config.
+	// Must be in the same namespace as the Agent.
+	// +optional
+	ModelConfig string `json:"modelConfig,omitempty"`
+
+	// Tools are the MCP server tools available to this sub-agent.
+	// Agent-as-tool references are not supported within workflow sub-agents.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Tools []*Tool `json:"tools,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.workflow) || (!has(self.systemMessage) && !has(self.systemMessageFrom) && !has(self.tools))",message="workflow is mutually exclusive with systemMessage, systemMessageFrom, and tools"
+// +kubebuilder:validation:XValidation:rule="has(self.workflow) || has(self.systemMessage) || has(self.systemMessageFrom)",message="either workflow or a system message source must be specified"
 type DeclarativeAgentSpec struct {
 	// Runtime specifies which ADK implementation to use for this agent.
 	// - "python": Uses the Python ADK (default, slower startup, full feature set)
@@ -209,6 +274,12 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// Workflow configures this agent as a workflow orchestrator (Sequential, Parallel, or Loop).
+	// When set, this agent orchestrates in-process sub-agents rather than being an LLM agent itself.
+	// Mutually exclusive with systemMessage, systemMessageFrom, and tools.
+	// +optional
+	Workflow *WorkflowSpec `json:"workflow,omitempty"`
 }
 
 // SandboxConfig configures sandboxed execution behavior.

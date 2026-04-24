@@ -280,6 +280,25 @@ class NetworkConfig(BaseModel):
     allowed_domains: list[str] = Field(default_factory=list)
 
 
+class SubAgentConfig(BaseModel):
+    """Configuration for an in-process LLM sub-agent within a workflow."""
+
+    name: str
+    description: str = ""
+    instruction: str
+    model: ModelUnion = Field(discriminator="type")
+    http_tools: list[HttpMcpServerConfig] | None = None
+    sse_tools: list[SseMcpServerConfig] | None = None
+
+
+class WorkflowAgentConfig(BaseModel):
+    """Configuration for a workflow agent that orchestrates in-process sub-agents."""
+
+    type: Literal["sequential", "parallel", "loop"]
+    sub_agents: list[SubAgentConfig]
+    max_iterations: int | None = None
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -292,8 +311,16 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
+    workflow: WorkflowAgentConfig | None = None
 
-    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
+    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> "BaseAgent":
+        from google.adk.agents import BaseAgent
+
+        if self.workflow is not None:
+            return self._build_workflow_agent(name, sts_integration)
+        return self._build_llm_agent(name, sts_integration)
+
+    def _build_llm_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
@@ -431,6 +458,82 @@ class AgentConfig(BaseModel):
             self._configure_memory(agent)
 
         return agent
+
+    def _build_workflow_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> "BaseAgent":
+        """Build a workflow agent (Sequential, Parallel, or Loop) from config."""
+        from google.adk.agents import LoopAgent, ParallelAgent, SequentialAgent
+
+        sub_agents = [self._build_sub_agent(sub_cfg, sts_integration) for sub_cfg in self.workflow.sub_agents]
+
+        workflow_type = self.workflow.type
+        if workflow_type == "sequential":
+            return SequentialAgent(
+                name=name,
+                description=self.description,
+                sub_agents=sub_agents,
+            )
+        elif workflow_type == "parallel":
+            return ParallelAgent(
+                name=name,
+                description=self.description,
+                sub_agents=sub_agents,
+            )
+        elif workflow_type == "loop":
+            kwargs: dict[str, Any] = {
+                "name": name,
+                "description": self.description,
+                "sub_agents": sub_agents,
+            }
+            if self.workflow.max_iterations is not None:
+                kwargs["max_iterations"] = self.workflow.max_iterations
+            return LoopAgent(**kwargs)
+        else:
+            raise ValueError(f"Unknown workflow type: {workflow_type}")
+
+    def _build_sub_agent(self, sub_cfg: SubAgentConfig, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
+        """Build an in-process LLM Agent from a SubAgentConfig."""
+        tools: list[ToolUnion] = []
+        sts_header_provider = None
+        if sts_integration:
+            sts_header_provider = sts_integration.header_provider
+
+        if sub_cfg.http_tools:
+            for http_tool in sub_cfg.http_tools:
+                tool_header_provider = create_header_provider(
+                    allowed_headers=http_tool.allowed_headers,
+                    sts_header_provider=sts_header_provider,
+                )
+                tools.append(
+                    KAgentMcpToolset(
+                        connection_params=http_tool.params,
+                        tool_filter=http_tool.tools,
+                        header_provider=tool_header_provider,
+                    )
+                )
+
+        if sub_cfg.sse_tools:
+            for sse_tool in sub_cfg.sse_tools:
+                tool_header_provider = create_header_provider(
+                    allowed_headers=sse_tool.allowed_headers,
+                    sts_header_provider=sts_header_provider,
+                )
+                tools.append(
+                    KAgentMcpToolset(
+                        connection_params=sse_tool.params,
+                        tool_filter=sse_tool.tools,
+                        header_provider=tool_header_provider,
+                    )
+                )
+
+        model = _create_llm_from_model_config(sub_cfg.model)
+
+        return Agent(
+            name=sub_cfg.name,
+            model=model,
+            description=sub_cfg.description,
+            static_instruction=sub_cfg.instruction,
+            tools=tools,
+        )
 
     def _configure_memory(self, agent: Agent) -> None:
         """Configures the agent to properly use memory.

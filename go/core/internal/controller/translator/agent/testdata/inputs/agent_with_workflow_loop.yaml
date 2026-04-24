@@ -1,0 +1,41 @@
+operation: translateAgent
+targetObject: iterative-refiner
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: iterative-refiner
+      namespace: test
+    spec:
+      type: Declarative
+      description: Iteratively refines content through write-critique cycles
+      declarative:
+        modelConfig: default-model
+        workflow:
+          type: Loop
+          maxIterations: 5
+          subAgents:
+            - name: writer
+              description: Writes or refines content
+              systemMessage: Write or refine content based on feedback.
+            - name: critic
+              description: Critiques content
+              systemMessage: Critique the content. If satisfactory, escalate to stop.

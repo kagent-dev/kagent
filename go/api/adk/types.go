@@ -480,6 +480,27 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WorkflowAgentConfig represents a workflow agent that deterministically orchestrates
+// in-process sub-agents using Sequential, Parallel, or Loop patterns.
+type WorkflowAgentConfig struct {
+	// Type is the workflow pattern: "sequential", "parallel", or "loop".
+	Type string `json:"type"`
+	// SubAgents are the in-process LLM sub-agent configurations.
+	SubAgents []SubAgentConfig `json:"sub_agents"`
+	// MaxIterations applies only to loop workflows.
+	MaxIterations *int `json:"max_iterations,omitempty"`
+}
+
+// SubAgentConfig represents an in-process LLM sub-agent within a workflow.
+type SubAgentConfig struct {
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Instruction string                `json:"instruction"`
+	Model       Model                 `json:"model"`
+	HttpTools   []HttpMcpServerConfig `json:"http_tools,omitempty"`
+	SseTools    []SseMcpServerConfig  `json:"sse_tools,omitempty"`
+}
+
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
 	Model         Model                 `json:"model"`
@@ -493,6 +514,7 @@ type AgentConfig struct {
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Workflow      *WorkflowAgentConfig  `json:"workflow,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -524,6 +546,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Memory        json.RawMessage       `json:"memory"`
 		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Workflow      *WorkflowAgentConfig  `json:"workflow,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -553,6 +576,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Memory = memory
 	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
+	a.Workflow = tmp.Workflow
 	return nil
 }
 

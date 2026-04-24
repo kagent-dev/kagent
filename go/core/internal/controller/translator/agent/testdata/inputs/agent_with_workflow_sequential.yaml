@@ -1,0 +1,40 @@
+operation: translateAgent
+targetObject: writer-critic
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: writer-critic
+      namespace: test
+    spec:
+      type: Declarative
+      description: A sequential workflow that writes then critiques content
+      declarative:
+        modelConfig: default-model
+        workflow:
+          type: Sequential
+          subAgents:
+            - name: writer
+              description: Writes creative content
+              systemMessage: You are a creative writer. Write a compelling paragraph.
+            - name: critic
+              description: Reviews and improves content
+              systemMessage: You are a writing critic. Review and improve the content.
