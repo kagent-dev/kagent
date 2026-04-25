@@ -163,31 +163,6 @@ func (q *Queries) SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionPa
 	return err
 }
 
-const touchSession = `-- name: TouchSession :exec
-UPDATE session SET updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL
-`
-
-func (q *Queries) TouchSession(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, touchSession, id)
-	return err
-}
-
-const touchSessionForUser = `-- name: TouchSessionForUser :exec
-UPDATE session SET updated_at = NOW()
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-`
-
-type TouchSessionForUserParams struct {
-	ID     string
-	UserID string
-}
-
-func (q *Queries) TouchSessionForUser(ctx context.Context, arg TouchSessionForUserParams) error {
-	_, err := q.db.Exec(ctx, touchSessionForUser, arg.ID, arg.UserID)
-	return err
-}
-
 const upsertSession = `-- name: UpsertSession :exec
 INSERT INTO session (id, user_id, name, agent_id, source, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())

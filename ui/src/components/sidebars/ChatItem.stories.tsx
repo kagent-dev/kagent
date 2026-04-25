@@ -62,7 +62,7 @@ export const ShortTitle: Story = {
     agentNamespace: "kagent",
     onDelete: async () => {},
     sessionName: "Quick question",
-    createdAt: new Date().toISOString(),
+    activityAt: new Date().toISOString(),
   },
 };
 
@@ -73,7 +73,7 @@ export const LongTitle: Story = {
     agentNamespace: "kagent",
     onDelete: async () => {},
     sessionName: "Review https://github.com/Smartest-Fly/app/pull/1234 and provide feedback on the authentication implementation",
-    createdAt: new Date().toISOString(),
+    activityAt: new Date().toISOString(),
   },
 };
 
@@ -84,7 +84,7 @@ export const LongTitleWithAgentName: Story = {
     agentNamespace: "kagent",
     onDelete: async () => {},
     sessionName: "Review https://github.com/Smartest-Fly/app/pull/1234 and provide feedback on the authentication implementation",
-    createdAt: new Date().toISOString(),
+    activityAt: new Date().toISOString(),
   },
 };
 
@@ -107,7 +107,7 @@ export const MultipleLongTitles: Story = {
           agentNamespace="kagent"
           onDelete={async () => {}}
           sessionName={title}
-          createdAt={new Date(Date.now() - i * 3600000).toISOString()}
+          activityAt={new Date(Date.now() - i * 3600000).toISOString()}
 
         />
       ))}

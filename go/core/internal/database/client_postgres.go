@@ -148,28 +148,17 @@ func (c *postgresClient) DeleteSession(ctx context.Context, sessionID, userID st
 // ── Events ────────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		for _, e := range events {
-			sessionID := strPtrIfNotEmpty(e.SessionID)
-			if err := q.InsertEvent(ctx, dbgen.InsertEventParams{
-				ID:        e.ID,
-				UserID:    e.UserID,
-				SessionID: sessionID,
-				Data:      e.Data,
-			}); err != nil {
-				return fmt.Errorf("failed to store event %s: %w", e.ID, err)
-			}
-			if sessionID != nil {
-				if err := q.TouchSessionForUser(ctx, dbgen.TouchSessionForUserParams{
-					ID:     *sessionID,
-					UserID: e.UserID,
-				}); err != nil {
-					return fmt.Errorf("failed to touch session %s: %w", *sessionID, err)
-				}
-			}
+	for _, e := range events {
+		if err := c.q.InsertEvent(ctx, dbgen.InsertEventParams{
+			ID:        e.ID,
+			UserID:    e.UserID,
+			SessionID: strPtrIfNotEmpty(e.SessionID),
+			Data:      e.Data,
+		}); err != nil {
+			return fmt.Errorf("failed to store event %s: %w", e.ID, err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, userID string, opts dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
@@ -213,21 +202,10 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *protocol.Task) err
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		sessionID := strPtrIfNotEmpty(task.ContextID)
-		if err := q.UpsertTask(ctx, dbgen.UpsertTaskParams{
-			ID:        task.ID,
-			Data:      string(data),
-			SessionID: sessionID,
-		}); err != nil {
-			return err
-		}
-		if sessionID != nil {
-			if err := q.TouchSession(ctx, *sessionID); err != nil {
-				return fmt.Errorf("failed to touch session %s: %w", *sessionID, err)
-			}
-		}
-		return nil
+	return c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
+		ID:        task.ID,
+		Data:      string(data),
+		SessionID: strPtrIfNotEmpty(task.ContextID),
 	})
 }
 
