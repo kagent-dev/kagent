@@ -13,13 +13,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -28,18 +27,15 @@ const backendName = v1alpha2.SandboxBackendOpenshell
 // Backend is the gRPC-backed openshell implementation of
 // sandboxbackend.AsyncBackend.
 type Backend struct {
-	client   openshellv1.OpenShellClient
-	cfg      Config
-	recorder record.EventRecorder
+	client openshellv1.OpenShellClient
+	cfg    Config
 }
 
 var _ sandboxbackend.AsyncBackend = (*Backend)(nil)
 
 // New returns a Backend using the provided gRPC client. Obtain one via Dial.
-// recorder is optional; if nil, unsupported-field warnings go to the logger
-// but no Events are emitted.
-func New(c openshellv1.OpenShellClient, cfg Config, recorder record.EventRecorder) *Backend {
-	return &Backend{client: c, cfg: cfg, recorder: recorder}
+func New(c openshellv1.OpenShellClient, cfg Config) *Backend {
+	return &Backend{client: c, cfg: cfg}
 }
 
 // Name implements AsyncBackend.
@@ -136,10 +132,6 @@ func (b *Backend) warnUnsupported(ctx context.Context, sbx *v1alpha2.Sandbox, fi
 		return
 	}
 	msg := fmt.Sprintf("OpenShell backend ignored unsupported Sandbox fields: %v", fields)
-	if b.recorder != nil && sbx != nil {
-		b.recorder.Event(sbx, "Warning", "OpenshellUnsupportedField", msg)
-		return
-	}
 	ctrllog.FromContext(ctx).Info(msg, "sandbox", sbx.Namespace+"/"+sbx.Name)
 }
 

@@ -124,7 +124,7 @@ func sampleSandbox() *v1alpha2.Sandbox {
 func TestEnsureSandbox_CreatesThenIdempotent(t *testing.T) {
 	c, fg, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{GatewayURL: "grpc://gw"}, nil)
+	b := New(c, Config{GatewayURL: "grpc://gw"})
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestEnsureSandbox_CreateFails(t *testing.T) {
 	defer cleanup()
 	fg.createErr = status.Error(codes.ResourceExhausted, "quota")
 
-	b := New(c, Config{}, nil)
+	b := New(c, Config{})
 	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CreateSandbox")
@@ -152,7 +152,7 @@ func TestEnsureSandbox_CreateFails(t *testing.T) {
 func TestGetStatus_PhaseMapping(t *testing.T) {
 	c, fg, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(c, Config{})
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestGetStatus_PhaseMapping(t *testing.T) {
 func TestGetStatus_EmptyHandle(t *testing.T) {
 	c, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(c, Config{})
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -189,7 +189,7 @@ func TestGetStatus_EmptyHandle(t *testing.T) {
 func TestGetStatus_NotFound(t *testing.T) {
 	c, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(c, Config{})
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{ID: "missing"})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -199,7 +199,7 @@ func TestGetStatus_NotFound(t *testing.T) {
 func TestDeleteSandbox(t *testing.T) {
 	c, fg, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(c, Config{})
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestCallTimeout(t *testing.T) {
 	defer cleanup()
 	fg.getErr = status.Error(codes.Unavailable, "backend down")
 
-	b := New(c, Config{CallTimeout: 50 * time.Millisecond}, nil)
+	b := New(c, Config{CallTimeout: 50 * time.Millisecond})
 	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.Error(t, err)
 }

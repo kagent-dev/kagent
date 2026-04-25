@@ -17,7 +17,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,9 +43,8 @@ const (
 // Sandboxes are a generic exec/SSH-able environment with no in-cluster
 // workload owned by kagent.
 type SandboxController struct {
-	Client   client.Client
-	Recorder record.EventRecorder
-	Backend  sandboxbackend.AsyncBackend
+	Client  client.Client
+	Backend sandboxbackend.AsyncBackend
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
@@ -70,6 +68,9 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if controllerutil.AddFinalizer(&sbx, sandboxFinalizer) {
 		if err := r.Client.Update(ctx, &sbx); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
 			return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
 		}
 		// requeue so we see the updated object with a fresh resourceVersion
@@ -132,9 +133,6 @@ func (r *SandboxController) reconcileDelete(ctx context.Context, sbx *v1alpha2.S
 
 	if r.Backend != nil && sbx.Status.BackendRef != nil && sbx.Status.BackendRef.ID != "" {
 		if err := r.Backend.DeleteSandbox(ctx, sandboxbackend.Handle{ID: sbx.Status.BackendRef.ID}); err != nil {
-			if r.Recorder != nil {
-				r.Recorder.Event(sbx, "Warning", "SandboxDeleteFailed", err.Error())
-			}
 			return ctrl.Result{RequeueAfter: sandboxNotReadyRequeue}, err
 		}
 	}

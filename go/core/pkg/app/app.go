@@ -573,9 +573,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 		if err := (&controller.SandboxController{
-			Client:   mgr.GetClient(),
-			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
-			Backend:  openshellBackend,
+			Client:  mgr.GetClient(),
+			Backend: openshellBackend,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Sandbox")
 			os.Exit(1)
@@ -737,7 +736,7 @@ func buildOpenshellBackend(ctx context.Context, cfg *Config) (*openshell.Backend
 	if err != nil {
 		return nil, err
 	}
-	return openshell.New(cli, oc, nil), nil
+	return openshell.New(cli, oc), nil
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces
