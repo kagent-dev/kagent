@@ -32,11 +32,3 @@ ON CONFLICT (id, user_id) DO UPDATE SET
 -- name: SoftDeleteSession :exec
 UPDATE session SET deleted_at = NOW()
 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
-
--- name: TouchSessionForUser :exec
-UPDATE session SET updated_at = NOW()
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
-
--- name: TouchSession :exec
-UPDATE session SET updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL;
