@@ -515,7 +515,7 @@ func TestFindNilRequiredParams(t *testing.T) {
 		wantLen int
 	}{
 		{
-			name:    "tool without Declaration — always OK",
+			name:    "tool without Declaration - always OK",
 			tool:    &mockToolNoDeclaration{name: "no_decl"},
 			args:    map[string]any{"p": nil},
 			wantNil: true,

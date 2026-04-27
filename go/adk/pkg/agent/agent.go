@@ -359,16 +359,16 @@ func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
 			"args", truncateArgs(args),
 		)
 
-		// Short-circuit if required params are nil; the LLM may drop large values
+		// Short-circuit if required params are missing or nil; the LLM may drop large values
 		// due to output-token limits, producing an opaque downstream error otherwise.
-		if nilParams := findNilRequiredParams(t, args); len(nilParams) > 0 {
+		if missingParams := findNilRequiredParams(t, args); len(missingParams) > 0 {
 			msg := fmt.Sprintf(
-				"tool %q: required parameter(s) %v are nil; the LLM may have omitted large values due to output-token limits",
-				t.Name(), nilParams,
+				"tool %q: required parameter(s) %v are missing or nil; the LLM may have omitted large values due to output-token limits",
+				t.Name(), missingParams,
 			)
-			logger.Info("required parameters nil, skipping tool call",
+			logger.Info("required parameters missing or nil, skipping tool call",
 				"tool", t.Name(),
-				"nullParams", nilParams,
+				"missingParams", missingParams,
 			)
 			return map[string]any{"error": msg}, nil
 		}
