@@ -141,7 +141,9 @@ type GitRepo struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 
-	// Name for the skill directory under /skills. Defaults to the repo name.
+	// Name for the skill directory under /skills. If omitted, defaults to the last
+	// segment of Path when Path is set; otherwise defaults to the repo name (last
+	// URL path segment, without .git).
 	// +optional
 	Name string `json:"name,omitempty"`
 }
