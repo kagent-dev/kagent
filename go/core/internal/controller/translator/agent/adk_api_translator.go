@@ -1080,12 +1080,16 @@ func isCommitSHA(ref string) bool {
 }
 
 // gitSkillName returns the directory name for a git skill ref.
-// If Name is set, it is used; otherwise the last path segment of the repo URL
-// (with any .git suffix stripped) is used.
-// Query parameters and fragments are stripped before extracting the base name.
+// If Name is set, it is used. Otherwise, if Path (in-repo directory) is set, the
+// last path segment of Path is used. If Path is empty, the last path segment of
+// the repo URL (with any .git suffix stripped) is used.
+// Query parameters and fragments are stripped before extracting the base name from the URL.
 func gitSkillName(ref v1alpha2.GitRepo) string {
-	if ref.Name != "" {
-		return ref.Name
+	if n := strings.TrimSpace(ref.Name); n != "" {
+		return n
+	}
+	if p := strings.Trim(strings.TrimSpace(ref.Path), "/"); p != "" {
+		return path.Base(p)
 	}
 	// Parse the URL to strip query params and fragments
 	u := ref.URL
