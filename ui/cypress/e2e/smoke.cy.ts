@@ -35,22 +35,19 @@ describe('Main page', () => {
     cy.contains('h1', 'Agents').should('be.visible');
 
     cy.visit('/agents/new')
-    cy.contains('h1', 'Create New Agent').should('be.visible');
+    cy.contains('h1', 'New Agent').should('be.visible');
 
     cy.wait(1000)
     cy.visit('/models')
     cy.contains('h1', 'Models').should('be.visible');
 
     cy.visit('/models/new')
-    cy.contains('h1', 'Create New Model').should('be.visible');
+    cy.contains('h1', 'New Model').should('be.visible');
 
     cy.wait(1000)
-    cy.visit('/tools')
-    cy.contains('h1', 'Tools Library').should('be.visible');
-
-    cy.wait(1000)
-    cy.visit('/servers')
-    cy.contains('h1', 'MCP Servers').should('be.visible');
+    cy.visit('/mcp')
+    cy.contains('h1', 'MCP & tools').should('be.visible');
+    cy.get('#mcp-search').should('be.visible');
   })
 })
 
@@ -64,7 +61,11 @@ describe('Regressions', () => {
     cy.visit('/models')
     cy.contains('h1', 'Models').should('be.visible');
 
-    cy.get('[data-test="edit-model-default/default-model-config"]').should('be.visible').click();
+    // `model.ref` (e.g. default/default-model-config) is embedded in data-test; use prefix to avoid exact-ref coupling
+    cy.get('[data-test^="edit-model-"]')
+      .first()
+      .should('be.visible')
+      .click();
 
     cy.contains('h1', 'Edit Model').should('be.visible');
     cy.get('[data-test="edit-model-name-button"]').should('be.visible').click();

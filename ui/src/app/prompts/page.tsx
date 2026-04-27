@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/LoadingState";
 import { ScrollText, Plus, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { AppPageFrame } from "@/components/layout/AppPageFrame";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 const DEFAULT_PROMPTS_NAMESPACE = "kagent";
 
@@ -71,34 +73,43 @@ export default function PromptsPage() {
   }, [namespace]);
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-8 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-2">
-            <h1 className="text-2xl font-bold">Prompt libraries</h1>
-            <p className="text-sm text-muted-foreground max-w-2xl">
+    <AppPageFrame ariaLabelledBy="prompts-page-title" mainClassName="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div>
+        <PageHeader
+          titleId="prompts-page-title"
+          title="Prompt Libraries"
+          description={
+            <>
               Each library holds multiple named prompt fragments (keys). Reference them from agents with{" "}
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs" translate="no">
                 {`{{include "name/key"}}`}
               </code>{" "}
-              or type <kbd className="font-mono text-xs">@</kbd> in agent instructions to pick a key.
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <div className="w-full sm:w-64">
-              <label className="sr-only" htmlFor="prompts-namespace">
-                Namespace
-              </label>
-              <NamespaceCombobox value={namespace} onValueChange={handleNamespaceChange} placeholder="Namespace…" />
+              or type <kbd>@</kbd> in agent instructions to pick a key.
+            </>
+          }
+          className="mb-8"
+          end={
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[20rem] sm:flex-row sm:items-center">
+              <div className="w-full sm:w-64">
+                <label className="sr-only" htmlFor="prompts-namespace">
+                  Namespace
+                </label>
+                <NamespaceCombobox
+                  id="prompts-namespace"
+                  value={namespace}
+                  onValueChange={handleNamespaceChange}
+                  placeholder="Namespace…"
+                />
+              </div>
+              <Button asChild className="gap-2" size="lg">
+                <Link href={namespace ? `/prompts/new?ns=${encodeURIComponent(namespace)}` : "/prompts/new"}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  New Library
+                </Link>
+              </Button>
             </div>
-            <Button asChild className="gap-2">
-              <Link href={namespace ? `/prompts/new?ns=${encodeURIComponent(namespace)}` : "/prompts/new"}>
-                <Plus className="h-4 w-4" aria-hidden />
-                New prompt library
-              </Link>
-            </Button>
-          </div>
-        </header>
+          }
+        />
 
         {!namespace && (
           <p className="text-sm text-muted-foreground" role="status">
@@ -110,7 +121,7 @@ export default function PromptsPage() {
 
         {namespace && !loading && items && items.length === 0 && (
           <div
-            className="rounded-lg border border-dashed border-border px-6 py-12 text-center"
+            className="rounded-xl border border-dashed border-border/60 bg-card/20 px-6 py-12 text-center"
             role="status"
           >
             <ScrollText className="mx-auto h-10 w-10 text-muted-foreground mb-4" aria-hidden />
@@ -131,7 +142,7 @@ export default function PromptsPage() {
               <li key={`${cm.namespace}/${cm.name}`}>
                 <Link
                   href={`/prompts/${encodeURIComponent(cm.namespace)}/${encodeURIComponent(cm.name)}`}
-                  className="group block h-full rounded-lg border bg-card p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="group block h-full rounded-xl border border-border/60 bg-card/80 p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -153,6 +164,6 @@ export default function PromptsPage() {
           </ul>
         )}
       </div>
-    </div>
+    </AppPageFrame>
   );
 }

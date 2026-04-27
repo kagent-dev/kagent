@@ -1,215 +1,290 @@
 "use client";
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Pencil, Trash2, Cpu } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ModelConfig, ModelConfigSpec } from "@/types";
-
-function getProviderParams(spec: ModelConfigSpec) {
-  return spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-    spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? undefined;
-}
 import { getModelConfigs, deleteModelConfig } from "@/app/actions/modelConfigs";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { toast } from "sonner";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { AppPageFrame } from "@/components/layout/AppPageFrame";
+import { PageHeader } from "@/components/layout/PageHeader";
+function getProviderParams(spec: ModelConfigSpec) {
+  return (
+    spec.openAI ??
+    spec.anthropic ??
+    spec.azureOpenAI ??
+    spec.ollama ??
+    spec.gemini ??
+    spec.geminiVertexAI ??
+    spec.anthropicVertexAI ??
+    spec.bedrock ??
+    spec.sapAICore ??
+    undefined
+  );
+}
+
+function safeRefParts(ref: string): { namespace: string; name: string } {
+  try {
+    return k8sRefUtils.fromRef(ref);
+  } catch {
+    return { namespace: "", name: ref };
+  }
+}
 
 export default function ModelsPage() {
-    const router = useRouter();
-    const [models, setModels] = useState<ModelConfig[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-    const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
+  const router = useRouter();
+  const [models, setModels] = useState<ModelConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
 
-    useEffect(() => {
-        fetchModels();
-    }, []);
+  useEffect(() => {
+    void fetchModels();
+  }, []);
 
-    const fetchModels = async () => {
-        try {
-            setLoading(true);
-            const response = await getModelConfigs();
-            if (response.error || !response.data) {
-                throw new Error(response.error || "Failed to fetch models");
-            }
-            setModels(response.data);
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : "Failed to fetch models";
-            setError(errorMessage);
-            toast.error(errorMessage);
-        } finally {
-            setLoading(false);
-        }
-    };
+  const fetchModels = async () => {
+    try {
+      setLoading(true);
+      const response = await getModelConfigs();
+      if (response.error || !response.data) {
+        throw new Error(response.error || "Failed to fetch models");
+      }
+      setModels(response.data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to fetch models";
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const toggleRow = (modelName: string) => {
-        const newExpandedRows = new Set(expandedRows);
-        if (expandedRows.has(modelName)) {
-            newExpandedRows.delete(modelName);
-        } else {
-            newExpandedRows.add(modelName);
-        }
-        setExpandedRows(newExpandedRows);
-    };
+  const toggleRow = (modelRef: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelRef)) {
+        next.delete(modelRef);
+      } else {
+        next.add(modelRef);
+      }
+      return next;
+    });
+  };
 
-    const handleEdit = (model: ModelConfig) => {
-        const modelRef = k8sRefUtils.fromRef(model.ref);
-        router.push(`/models/new?edit=true&name=${modelRef.name}&namespace=${modelRef.namespace}`);
-    };
+  const handleEdit = (model: ModelConfig) => {
+    const modelRef = k8sRefUtils.fromRef(model.ref);
+    router.push(`/models/new?edit=true&name=${modelRef.name}&namespace=${modelRef.namespace}`);
+  };
 
-    const handleDelete = async (model: ModelConfig) => {
-        setModelToDelete(model);
-    };
-
-    const confirmDelete = async () => {
-        if (!modelToDelete) return;
-
-        try {
-            const response = await deleteModelConfig(modelToDelete.ref);
-            if (response.error) {
-                throw new Error(response.error || "Failed to delete model");
-            }
-            toast.success(`Model "${modelToDelete.ref}" deleted successfully`);
-            setModelToDelete(null);
-            await fetchModels();
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : "Failed to delete model";
-            toast.error(errorMessage);
-            setModelToDelete(null);
-        }
-    };
-
-    if (error) {
-        return <ErrorState message={error} />;
+  const confirmDelete = async () => {
+    if (!modelToDelete) {
+      return;
     }
 
-    return (
-        <div className="min-h-screen p-8">
-            <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-2xl font-bold">Models</h1>
-                    <Button
-                        variant="default"
-                        onClick={() => router.push("/models/new")}
-                    >
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Model
-                    </Button>
-                </div>
+    try {
+      const response = await deleteModelConfig(modelToDelete.ref);
+      if (response.error) {
+        throw new Error(response.error || "Failed to delete model");
+      }
+      toast.success(`Model "${modelToDelete.ref}" deleted successfully`);
+      setModelToDelete(null);
+      await fetchModels();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete model";
+      toast.error(errorMessage);
+      setModelToDelete(null);
+    }
+  };
 
-                {loading ? (
-                    <LoadingState />
-                ) : (
-                    <div className="space-y-4">
-                        {models.map((model) => (
-                            <div key={model.ref} className="border rounded-lg overflow-hidden">
-                                <div
-                                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-secondary/5"
-                                    onClick={() => toggleRow(model.ref)}
-                                >
-                                    <div className="flex items-center space-x-2">
-                                        {expandedRows.has(model.ref) ? (
-                                            <ChevronDown className="h-4 w-4" />
-                                        ) : (
-                                            <ChevronRight className="h-4 w-4" />
-                                        )}
-                                        <span className="font-medium">{model.ref}</span>
-                                    </div>
-                                    <div className="flex space-x-2">
-                                        <Button
-                                            data-test={`edit-model-${model.ref}`}
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEdit(model);
-                                            }}
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="destructive"
-                                            size="sm"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(model);
-                                            }}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                                {expandedRows.has(model.ref) && (
-                                    <div className="p-4 border-t bg-secondary/10">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <p className="text-sm font-medium text-muted-foreground">Provider</p>
-                                                <p>{model.spec.provider}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-muted-foreground">Model</p>
-                                                <p>{model.spec.model}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-muted-foreground">Namespace</p>
-                                                <p>{k8sRefUtils.fromRef(model.ref).namespace}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
-                                                <p>{model.spec.apiKeySecret ? model.spec.apiKeySecret : "N/A"}</p>
-                                            </div>
-                                            {getProviderParams(model.spec) && (
-                                                <div className="col-span-2">
-                                                    <p className="text-sm font-medium text-muted-foreground">Model Parameters</p>
-                                                    <pre className="mt-1 text-sm bg-muted p-2 rounded">
-                                                        {JSON.stringify(getProviderParams(model.spec), null, 2)}
-                                                    </pre>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                )}
+  if (error) {
+    return <ErrorState message={error} />;
+  }
 
+  return (
+    <AppPageFrame ariaLabelledBy="models-list-title" mainClassName="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div>
+        <PageHeader
+          titleId="models-list-title"
+          title="Models"
+          description="Model configs, providers, and credentials that agents use at runtime."
+          className="mb-8"
+          end={
+            <Button variant="default" onClick={() => router.push("/models/new")} className="w-full sm:w-auto" size="lg">
+              <Plus className="mr-2 h-4 w-4" aria-hidden />
+              New Model
+            </Button>
+          }
+        />
 
-                <Dialog open={modelToDelete !== null} onOpenChange={(open) => !open && setModelToDelete(null)}>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Delete Model</DialogTitle>
-                            <DialogDescription>
-                                Are you sure you want to delete the model &apos;{modelToDelete?.ref}&apos;? This action cannot be undone.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="flex space-x-2 justify-end">
-                            <Button
-                                variant="outline"
-                                onClick={() => setModelToDelete(null)}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                variant="destructive"
-                                onClick={confirmDelete}
-                            >
-                                Delete
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+        {loading ? (
+          <LoadingState />
+        ) : models.length === 0 ? (
+          <div className="rounded-xl border border-border/60 bg-card/20 px-6 py-14 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
+              <Cpu className="h-6 w-6 text-muted-foreground" aria-hidden />
             </div>
-        </div>
-    );
-} 
+            <h2 className="mb-2 text-lg font-semibold tracking-tight text-foreground">No model configs</h2>
+            <p className="mx-auto mb-6 max-w-md text-pretty text-sm text-muted-foreground">
+              Create a namespaced model config so agents can resolve provider credentials and model IDs at runtime.
+            </p>
+            <Button size="lg" onClick={() => router.push("/models/new")}>
+              <Plus className="mr-2 h-4 w-4" aria-hidden />
+              New Model
+            </Button>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-card/15 shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] border-separate border-spacing-0 text-sm">
+                <caption className="sr-only">Model configurations</caption>
+                <thead>
+                  <tr className="border-b border-border/50 bg-muted/25 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    <th scope="col" className="w-11 px-2 py-2.5 text-left font-medium">
+                      <span className="sr-only">Expand</span>
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 text-left font-medium">
+                      Model
+                    </th>
+                    <th scope="col" className="min-w-[7rem] px-3 py-2.5 text-left font-medium">
+                      Provider
+                    </th>
+                    <th scope="col" className="min-w-[8rem] px-3 py-2.5 text-left font-medium">
+                      Model ID
+                    </th>
+                    <th scope="col" className="w-[6.5rem] px-2 py-2.5 text-right font-medium">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((model) => {
+                    const parts = safeRefParts(model.ref);
+                    const expanded = expandedRows.has(model.ref);
+                    const params = getProviderParams(model.spec);
+
+                    return (
+                      <React.Fragment key={model.ref}>
+                        <tr className="border-b border-border/35 transition-colors hover:bg-muted/25">
+                          <td className="align-middle px-2 py-3">
+                            <button
+                              type="button"
+                              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+                              onClick={() => toggleRow(model.ref)}
+                              aria-expanded={expanded}
+                              aria-label={expanded ? "Hide details" : "Show details"}
+                            >
+                              {expanded ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+                            </button>
+                          </td>
+                          <td className="max-w-[min(24rem,40vw)] align-middle px-3 py-3">
+                            <p className="font-mono text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]" translate="no">
+                              {parts.name || model.ref}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">Namespace · {parts.namespace || "—"}</p>
+                          </td>
+                          <td className="align-middle px-3 py-3">
+                            <span className="inline-flex max-w-full rounded-md border border-border/60 bg-muted/35 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                              {String(model.spec.provider)}
+                            </span>
+                          </td>
+                          <td className="align-middle px-3 py-3">
+                            <span className="text-[15px] leading-snug text-foreground [overflow-wrap:anywhere]" translate="no">
+                              {model.spec.model}
+                            </span>
+                          </td>
+                          <td className="align-middle px-2 py-3 text-right">
+                            <div className="inline-flex justify-end gap-0.5">
+                              <Button
+                                data-test={`edit-model-${model.ref}`}
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleEdit(model)}
+                                aria-label={`Edit model ${model.ref}`}
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => setModelToDelete(model)}
+                                aria-label={`Delete model ${model.ref}`}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expanded ? (
+                          <tr className="border-b border-border/35 bg-muted/15">
+                            <td colSpan={5} className="px-4 py-4">
+                              <dl className="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Full ref</dt>
+                                  <dd className="mt-1 font-mono text-sm text-foreground [overflow-wrap:anywhere]">{model.ref}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">API key secret</dt>
+                                  <dd className="mt-1 text-sm text-foreground">{model.spec.apiKeySecret || "—"}</dd>
+                                </div>
+                                {params != null ? (
+                                  <div className="sm:col-span-2">
+                                    <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      Provider parameters
+                                    </dt>
+                                    <dd className="mt-2">
+                                      <pre className="max-h-48 overflow-auto rounded-lg border border-border/60 bg-background/80 p-3 text-left text-xs leading-relaxed text-muted-foreground">
+                                        {JSON.stringify(params, null, 2)}
+                                      </pre>
+                                    </dd>
+                                  </div>
+                                ) : null}
+                              </dl>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <Dialog open={modelToDelete !== null} onOpenChange={(open) => !open && setModelToDelete(null)}>
+          <DialogContent className="overscroll-contain">
+            <DialogHeader>
+              <DialogTitle>Delete Model</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete the model &apos;{modelToDelete?.ref}&apos;? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setModelToDelete(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={confirmDelete}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </AppPageFrame>
+  );
+}

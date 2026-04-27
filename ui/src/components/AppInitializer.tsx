@@ -1,21 +1,20 @@
 "use client";
 
-import React, { useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { OnboardingWizard } from './onboarding/OnboardingWizard';
+import React, { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { OnboardingWizard } from "./onboarding/OnboardingWizard";
 
-const LOCAL_STORAGE_KEY = 'kagent-onboarding';
-
-// Helper to safely read localStorage (returns null during SSR)
-const getInitialOnboardingState = (): boolean | null => {
-  if (typeof window === 'undefined') return null;
-  const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY);
-  return hasOnboarded !== 'true';
-};
+const LOCAL_STORAGE_KEY = "kagent-onboarding";
 
 export function AppInitializer({ children }: { children: React.ReactNode }) {
-  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(getInitialOnboardingState);
+  /** `null` = not read yet (must match server + first client paint to avoid hydration mismatch) */
+  const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null);
   const pathname = usePathname();
+
+  useEffect(() => {
+    const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY) === "true";
+    setIsOnboarding(!hasOnboarded);
+  }, []);
 
   const handleOnboardingComplete = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, 'true');

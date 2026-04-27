@@ -5,12 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getPromptTemplate, updatePromptTemplate, deletePromptTemplate } from "@/app/actions/promptTemplates";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSection } from "@/components/agent-form/form-primitives";
 import { LoadingState } from "@/components/LoadingState";
 import { FragmentEntriesEditor, rowsFromData, dataFromRows, type FragmentRow } from "@/components/prompts/FragmentEntriesEditor";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Boxes } from "lucide-react";
+import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { AppPageFrame } from "@/components/layout/AppPageFrame";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export default function PromptDetailPage({
   params,
@@ -80,57 +82,77 @@ export default function PromptDetailPage({
   };
 
   if (loading) {
-    return <LoadingState />;
+    return (
+      <AppPageFrame mainClassName="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+        <div className="relative" role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Loading prompt library…</span>
+          <LoadingState />
+        </div>
+      </AppPageFrame>
+    );
   }
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-3xl mx-auto">
+    <AppPageFrame ariaLabelledBy="prompt-lib-title" mainClassName="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <Link
           href={`/prompts?namespace=${encodeURIComponent(namespace)}`}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          className="mb-8 inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Back to prompt libraries
         </Link>
 
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2 min-w-0">
-            <h1 className="text-2xl font-bold font-mono break-all" translate="no">
-              {name}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Namespace <span className="font-mono text-foreground">{namespace}</span>
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 self-start"
-            onClick={() => setConfirmOpen(true)}
-            disabled={saving}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden />
-            Delete
-          </Button>
-        </div>
+        <PageHeader
+          titleId="prompt-lib-title"
+          title={name}
+          isMonospaceTitle
+          description={
+            <>
+              Namespace <span className="font-mono text-foreground" translate="no">{namespace}</span>
+            </>
+          }
+          className="mb-8"
+          end={
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 sm:w-auto"
+              onClick={() => setConfirmOpen(true)}
+              disabled={saving}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+              Delete
+            </Button>
+          }
+        />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl font-bold">
-              <Boxes className="h-5 w-5" aria-hidden />
-              Data
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <FormSection
+          title="Data"
+          description="Named keys become include targets for agents. Save to update the config map in the cluster."
+        >
+            <form
+              className="space-y-6"
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSave();
+              }}
+            >
             <FragmentEntriesEditor rows={rows} onRowsChange={setRows} disabled={saving} />
-            <div className="flex gap-3">
-              <Button type="button" onClick={handleSave} disabled={saving}>
-                {saving ? "Saving…" : "Save changes"}
+            <div className="flex justify-end border-t border-border/50 pt-6">
+              <Button type="submit" size="lg" className="min-w-[10rem]" disabled={saving} aria-busy={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                    Saving…
+                  </>
+                ) : (
+                  "Save changes"
+                )}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+            </form>
+        </FormSection>
 
         <ConfirmDialog
           open={confirmOpen}
@@ -140,7 +162,6 @@ export default function PromptDetailPage({
           confirmLabel="Delete library"
           onConfirm={handleDelete}
         />
-      </div>
-    </div>
+    </AppPageFrame>
   );
 }

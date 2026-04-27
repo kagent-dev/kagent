@@ -71,8 +71,16 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
 
   if (gate === "loading") {
     return (
-      <div className="flex items-center justify-center min-h-[50vh] w-full">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div
+        className="flex min-h-[50vh] w-full items-center justify-center"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+          <span className="sr-only">Preparing chat…</span>
+        </div>
       </div>
     );
   }
