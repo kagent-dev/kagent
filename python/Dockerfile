@@ -64,20 +64,16 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add \
     nodejs npm node-gyp bubblewrap socat ripgrep
 
-# Make bwrap setuid-root so it can create user/network namespaces when invoked
-# by non-root users on hosts with kernel.apparmor_restrict_unprivileged_userns=1
-# (Ubuntu 23.10+). See https://github.com/openai/codex/issues/14919
-RUN chmod u+s /usr/bin/bwrap
-
 # Install sandbox runtime from a specific commit of the GitHub repo without using global prefix
 # This avoids scope-related rename issues in global node_modules
 # Using BuildKit cache for npm to speed up rebuilds
+# Keep the pinned sandbox-runtime revision, but replace its vulnerable locked lodash-es version.
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
-    cd opt && \
+    cd /opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
-    npm install && \
+    npm install --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 && \
     npm run build && \
     # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
     # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.

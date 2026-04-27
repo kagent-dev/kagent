@@ -7866,8 +7866,10 @@ spec:
                         skills from.
                       properties:
                         name:
-                          description: Name for the skill directory under /skills.
-                            Defaults to the repo name.
+                          description: |-
+                            Name for the skill directory under /skills. If omitted, defaults to the last
+                            segment of Path when Path is set; otherwise defaults to the repo name (last
+                            URL path segment, without .git).
                           type: string
                         path:
                           description: Subdirectory within the repo to use as the
