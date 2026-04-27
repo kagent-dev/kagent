@@ -347,7 +347,8 @@ func extractHeaders(headers map[string]string) map[string]string {
 	return headers
 }
 
-// makeBeforeToolCallback returns a BeforeToolCallback that logs tool invocations.
+// makeBeforeToolCallback returns a BeforeToolCallback that logs tool invocations
+// and short-circuits calls where required parameters are nil.
 func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
 	return func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
 		logger.Info("Tool execution started",
@@ -357,8 +358,82 @@ func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
 			"invocationID", ctx.InvocationID(),
 			"args", truncateArgs(args),
 		)
+
+		// Short-circuit if required params are nil; the LLM may drop large values
+		// due to output-token limits, producing an opaque downstream error otherwise.
+		if nilParams := findNilRequiredParams(t, args); len(nilParams) > 0 {
+			msg := fmt.Sprintf(
+				"tool %q: required parameter(s) %v are nil; the LLM may have omitted large values due to output-token limits",
+				t.Name(), nilParams,
+			)
+			logger.Info("required parameters nil, skipping tool call",
+				"tool", t.Name(),
+				"nullParams", nilParams,
+			)
+			return map[string]any{"error": msg}, nil
+		}
+
 		return nil, nil
 	}
+}
+
+// toolDeclarationProvider is implemented by tools that expose a genai.FunctionDeclaration.
+type toolDeclarationProvider interface {
+	Declaration() *genai.FunctionDeclaration
+}
+
+// requiredParamNames returns the required parameter names from the tool's declaration.
+func requiredParamNames(t tool.Tool) []string {
+	dp, ok := t.(toolDeclarationProvider)
+	if !ok {
+		return nil
+	}
+	decl := dp.Declaration()
+	if decl == nil {
+		return nil
+	}
+
+	// Structured schema (function tools).
+	if decl.Parameters != nil && len(decl.Parameters.Required) > 0 {
+		return decl.Parameters.Required
+	}
+
+	// Opaque JSON schema (MCP tools): re-marshal to extract the "required" array.
+	if decl.ParametersJsonSchema != nil {
+		return extractRequiredFromJSONSchema(decl.ParametersJsonSchema)
+	}
+
+	return nil
+}
+
+// extractRequiredFromJSONSchema decodes the "required" array from an opaque JSON-schema value.
+func extractRequiredFromJSONSchema(schema any) []string {
+	b, err := json.Marshal(schema)
+	if err != nil {
+		return nil
+	}
+	var s struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return nil
+	}
+	return s.Required
+}
+
+// findNilRequiredParams returns required parameter names whose value in args is nil or absent.
+func findNilRequiredParams(t tool.Tool, args map[string]any) []string {
+	required := requiredParamNames(t)
+	if len(required) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, param := range required {
+		if v, exists := args[param]; !exists || v == nil {
+			missing = append(missing, param)
+		}
+	}
+	return missing
 }
 
 // makeAfterToolCallback returns an AfterToolCallback that logs tool completion.

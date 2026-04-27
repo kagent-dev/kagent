@@ -9,6 +9,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"google.golang.org/adk/tool"
+	"google.golang.org/genai"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -421,6 +423,193 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 			// Note: We cannot fully test CreateGoogleADKAgent without API keys
 			// and running models. The real validation happens in E2E tests.
 			// This test primarily validates the AgentConfig structure itself.
+		})
+	}
+}
+
+// mockTool implements tool.Tool and toolDeclarationProvider.
+type mockTool struct {
+	name        string
+	declaration *genai.FunctionDeclaration
+}
+
+func (m *mockTool) Name() string        { return m.name }
+func (m *mockTool) Description() string { return "" }
+func (m *mockTool) IsLongRunning() bool { return false }
+
+// Declaration implements toolDeclarationProvider.
+func (m *mockTool) Declaration() *genai.FunctionDeclaration {
+	return m.declaration
+}
+
+// mockToolNoDeclaration implements tool.Tool without a Declaration method.
+type mockToolNoDeclaration struct{ name string }
+
+func (m *mockToolNoDeclaration) Name() string        { return m.name }
+func (m *mockToolNoDeclaration) Description() string { return "" }
+func (m *mockToolNoDeclaration) IsLongRunning() bool { return false }
+
+// TestExtractRequiredFromJSONSchema tests required field extraction from opaque JSON-schema values.
+func TestExtractRequiredFromJSONSchema(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema any
+		want   []string
+	}{
+		{
+			name: "map with required",
+			schema: map[string]any{
+				"type":     "object",
+				"required": []any{"file_content", "filename"},
+				"properties": map[string]any{
+					"file_content": map[string]any{"type": "string"},
+					"filename":     map[string]any{"type": "string"},
+				},
+			},
+			want: []string{"file_content", "filename"},
+		},
+		{
+			name: "map without required",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"optional_param": map[string]any{"type": "string"},
+				},
+			},
+			want: nil,
+		},
+		{
+			name:   "nil schema",
+			schema: nil,
+			want:   nil,
+		},
+		{
+			name:   "empty map",
+			schema: map[string]any{},
+			want:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRequiredFromJSONSchema(tt.schema)
+			if len(got) != len(tt.want) {
+				t.Fatalf("extractRequiredFromJSONSchema() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("extractRequiredFromJSONSchema()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestFindNilRequiredParams tests detection of nil required parameters.
+func TestFindNilRequiredParams(t *testing.T) {
+	tests := []struct {
+		name    string
+		tool    tool.Tool
+		args    map[string]any
+		wantNil bool
+		wantLen int
+	}{
+		{
+			name:    "tool without Declaration — always OK",
+			tool:    &mockToolNoDeclaration{name: "no_decl"},
+			args:    map[string]any{"p": nil},
+			wantNil: true,
+		},
+		{
+			name: "all required params present",
+			tool: &mockTool{
+				name: "uploader",
+				declaration: &genai.FunctionDeclaration{
+					Parameters: &genai.Schema{
+						Required: []string{"file_content"},
+					},
+				},
+			},
+			args:    map[string]any{"file_content": "hello"},
+			wantNil: true,
+		},
+		{
+			name: "required param is nil via genai schema",
+			tool: &mockTool{
+				name: "uploader",
+				declaration: &genai.FunctionDeclaration{
+					Parameters: &genai.Schema{
+						Required: []string{"file_content", "filename"},
+					},
+				},
+			},
+			args:    map[string]any{"file_content": nil, "filename": "report.txt"},
+			wantNil: false,
+			wantLen: 1,
+		},
+		{
+			name: "required param absent from args via genai schema",
+			tool: &mockTool{
+				name: "uploader",
+				declaration: &genai.FunctionDeclaration{
+					Parameters: &genai.Schema{
+						Required: []string{"file_content"},
+					},
+				},
+			},
+			args:    map[string]any{},
+			wantNil: false,
+			wantLen: 1,
+		},
+		{
+			name: "required param nil via JSON schema (MCP tool path)",
+			tool: &mockTool{
+				name: "sandbox_upload",
+				declaration: &genai.FunctionDeclaration{
+					ParametersJsonSchema: map[string]any{
+						"type":     "object",
+						"required": []any{"file_content"},
+					},
+				},
+			},
+			args:    map[string]any{"file_content": nil},
+			wantNil: false,
+			wantLen: 1,
+		},
+		{
+			name: "all required params present via JSON schema",
+			tool: &mockTool{
+				name: "sandbox_upload",
+				declaration: &genai.FunctionDeclaration{
+					ParametersJsonSchema: map[string]any{
+						"type":     "object",
+						"required": []any{"file_content"},
+					},
+				},
+			},
+			args:    map[string]any{"file_content": "data"},
+			wantNil: true,
+		},
+		{
+			name:    "nil declaration",
+			tool:    &mockTool{name: "tool_no_decl", declaration: nil},
+			args:    map[string]any{"p": nil},
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findNilRequiredParams(tt.tool, tt.args)
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("findNilRequiredParams() = %v, want nil", got)
+				}
+			} else {
+				if len(got) != tt.wantLen {
+					t.Errorf("findNilRequiredParams() = %v (len %d), want len %d", got, len(got), tt.wantLen)
+				}
+			}
 		})
 	}
 }
