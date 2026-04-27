@@ -1,18 +1,13 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getPromptTemplate, updatePromptTemplate, deletePromptTemplate } from "@/app/actions/promptTemplates";
-import { Button } from "@/components/ui/button";
-import { FormSection } from "@/components/agent-form/form-primitives";
 import { LoadingState } from "@/components/LoadingState";
-import { FragmentEntriesEditor, rowsFromData, dataFromRows, type FragmentRow } from "@/components/prompts/FragmentEntriesEditor";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { rowsFromData, dataFromRows, type FragmentRow } from "@/components/prompts/FragmentEntriesEditor";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { AppPageFrame } from "@/components/layout/AppPageFrame";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { PromptLibraryEditorPanel } from "@/components/prompts/PromptLibraryEditorPanel";
 
 export default function PromptDetailPage({
   params,
@@ -93,75 +88,18 @@ export default function PromptDetailPage({
   }
 
   return (
-    <AppPageFrame ariaLabelledBy="prompt-lib-title" mainClassName="mx-auto max-w-3xl px-4 py-10 sm:px-6">
-        <Link
-          href={`/prompts?namespace=${encodeURIComponent(namespace)}`}
-          className="mb-8 inline-flex items-center gap-2 rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Back to prompt libraries
-        </Link>
-
-        <PageHeader
-          titleId="prompt-lib-title"
-          title={name}
-          isMonospaceTitle
-          description={
-            <>
-              Namespace <span className="font-mono text-foreground" translate="no">{namespace}</span>
-            </>
-          }
-          className="mb-8"
-          end={
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 sm:w-auto"
-              onClick={() => setConfirmOpen(true)}
-              disabled={saving}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-              Delete
-            </Button>
-          }
-        />
-
-        <FormSection
-          title="Data"
-          description="Named keys become include targets for agents. Save to update the config map in the cluster."
-        >
-            <form
-              className="space-y-6"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleSave();
-              }}
-            >
-            <FragmentEntriesEditor rows={rows} onRowsChange={setRows} disabled={saving} />
-            <div className="flex justify-end border-t border-border/50 pt-6">
-              <Button type="submit" size="lg" className="min-w-[10rem]" disabled={saving} aria-busy={saving}>
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
-                  "Save changes"
-                )}
-              </Button>
-            </div>
-            </form>
-        </FormSection>
-
-        <ConfirmDialog
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          title="Delete this prompt library?"
-          description="Agents that reference it as a prompt source may fail until you update them."
-          confirmLabel="Delete library"
-          onConfirm={handleDelete}
-        />
-    </AppPageFrame>
+    <PromptLibraryEditorPanel
+      namespace={namespace}
+      name={name}
+      rows={rows}
+      saving={saving}
+      confirmOpen={confirmOpen}
+      listHref={`/prompts?namespace=${encodeURIComponent(namespace)}`}
+      onRowsChange={setRows}
+      onSave={handleSave}
+      onDeleteClick={() => setConfirmOpen(true)}
+      onConfirmDelete={handleDelete}
+      onConfirmOpenChange={setConfirmOpen}
+    />
   );
 }
