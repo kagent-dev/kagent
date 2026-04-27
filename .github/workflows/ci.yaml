@@ -309,6 +309,23 @@ jobs:
           version: v2.11.3
           working-directory: go
 
+  api-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Run kube-api-linter
+        working-directory: go
+        run: make lint-api
+
   python-test:
     env:
       OPENAI_API_KEY: fake

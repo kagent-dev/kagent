@@ -7629,19 +7629,15 @@ spec:
                         type: array
                     type: object
                   runtime:
-                    allOf:
-                    - enum:
-                      - python
-                      - go
-                    - enum:
-                      - python
-                      - go
                     default: python
                     description: |-
                       Runtime specifies which ADK implementation to use for this agent.
                       - "python": Uses the Python ADK (default, slower startup, full feature set)
                       - "go": Uses the Go ADK (faster startup, most features supported)
                       The runtime determines both the container image and readiness probe configuration.
+                    enum:
+                    - python
+                    - go
                     type: string
                   stream:
                     description: |-
@@ -7788,15 +7784,11 @@ spec:
                             rule: '!has(self.requireApproval) || self.requireApproval.all(x,
                               has(self.toolNames) && x in self.toolNames)'
                         type:
-                          allOf:
-                          - enum:
-                            - McpServer
-                            - Agent
-                          - enum:
-                            - McpServer
-                            - Agent
                           description: ToolProviderType represents the tool provider
                             type
+                          enum:
+                          - McpServer
+                          - Agent
                           type: string
                       type: object
                       x-kubernetes-validations:
@@ -8124,18 +8116,12 @@ spec:
                     type: array
                 type: object
               type:
-                allOf:
-                - enum:
-                  - Declarative
-                  - BYO
-                - enum:
-                  - Declarative
-                  - BYO
                 default: Declarative
                 description: AgentType represents the agent type
+                enum:
+                - Declarative
+                - BYO
                 type: string
-            required:
-            - type
             type: object
             x-kubernetes-validations:
             - message: type must be specified
@@ -8208,8 +8194,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-            required:
-            - observedGeneration
             type: object
         type: object
     served: true

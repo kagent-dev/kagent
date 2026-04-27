@@ -259,7 +259,6 @@ spec:
                 type: string
             required:
             - model
-            - provider
             type: object
             x-kubernetes-validations:
             - message: provider.openAI must be nil if the provider is not OpenAI
@@ -340,9 +339,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-            required:
-            - conditions
-            - observedGeneration
             type: object
         type: object
     served: true
@@ -598,13 +594,10 @@ spec:
                         - audience
                         type: object
                       type:
-                        allOf:
-                        - enum:
-                          - GDCHServiceAccount
-                        - enum:
-                          - GDCHServiceAccount
                         description: TokenExchangeType identifies the token exchange
                           mechanism
+                        enum:
+                        - GDCHServiceAccount
                         type: string
                     required:
                     - type
@@ -683,7 +676,6 @@ spec:
                 type: object
             required:
             - model
-            - provider
             type: object
             x-kubernetes-validations:
             - message: provider.openAI must be nil if the provider is not OpenAI
@@ -813,9 +805,6 @@ spec:
                   this model config detect changes to these secrets and restart if
                   necessary.
                 type: string
-            required:
-            - conditions
-            - observedGeneration
             type: object
         type: object
     served: true

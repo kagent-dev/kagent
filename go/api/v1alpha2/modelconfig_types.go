@@ -47,7 +47,7 @@ type BaseVertexAIConfig struct {
 
 	// The project location
 	// +required
-	Location string `json:"location,omitempty"`
+	Location string `json:"location"`
 
 	// Temperature
 	// +optional
@@ -129,7 +129,7 @@ type GDCHServiceAccountConfig struct {
 
 // TokenExchangeConfig configures dynamic bearer token acquisition before model calls.
 type TokenExchangeConfig struct {
-	// +kubebuilder:validation:Enum=GDCHServiceAccount
+	// +required
 	Type TokenExchangeType `json:"type"`
 	// +optional
 	GDCHServiceAccount *GDCHServiceAccountConfig `json:"gdchServiceAccount,omitempty"`
@@ -170,9 +170,11 @@ type OpenAIConfig struct {
 	Seed *int `json:"seed,omitempty"`
 
 	// N value
+	// +optional
 	N *int `json:"n,omitempty"`
 
 	// Timeout
+	// +optional
 	Timeout *int `json:"timeout,omitempty"`
 
 	// Reasoning effort
@@ -193,11 +195,11 @@ type OpenAIReasoningEffort string
 type AzureOpenAIConfig struct {
 	// Endpoint for the Azure OpenAI API
 	// +required
-	Endpoint string `json:"azureEndpoint,omitempty"`
+	Endpoint string `json:"azureEndpoint"`
 
 	// API version for the Azure OpenAI API
 	// +required
-	APIVersion string `json:"apiVersion,omitempty"`
+	APIVersion string `json:"apiVersion"`
 
 	// Deployment name for the Azure OpenAI API
 	// +optional
@@ -319,18 +321,19 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeyPassthrough are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough) && self.apiKeyPassthrough)"
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type == 'GDCHServiceAccount' && !has(self.openAI.tokenExchange.gdchServiceAccount))"
 type ModelConfigSpec struct {
+	// +required
 	Model string `json:"model"`
 
 	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
 	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
 	// (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
 	// +optional
-	APIKeySecret string `json:"apiKeySecret"`
+	APIKeySecret string `json:"apiKeySecret,omitempty"`
 
 	// The key in the secret that contains the API key.
 	// Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
 	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey"`
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
 	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
 	// directly to the LLM provider as the API key. This is useful for organizations
@@ -344,7 +347,8 @@ type ModelConfigSpec struct {
 
 	// The provider of the model
 	// +kubebuilder:default=OpenAI
-	Provider ModelProvider `json:"provider"`
+	// +optional
+	Provider ModelProvider `json:"provider,omitempty"`
 
 	// OpenAI-specific configuration
 	// +optional
@@ -391,9 +395,12 @@ type ModelConfigSpec struct {
 
 // ModelConfigStatus defines the observed state of ModelConfig.
 type ModelConfigStatus struct {
-	Conditions         []metav1.Condition `json:"conditions"`
-	ObservedGeneration int64              `json:"observedGeneration"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// The secret hash stores a hash of any secrets required by the model config (i.e. api key, tls cert) to ensure agents referencing this model config detect changes to these secrets and restart if necessary.
+	// +optional
 	SecretHash string `json:"secretHash,omitempty"`
 }
 
@@ -406,10 +413,13 @@ type ModelConfigStatus struct {
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ModelConfigSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec ModelConfigSpec `json:"spec,omitempty"`
+	// +optional
 	Status ModelConfigStatus `json:"status,omitempty"`
 }
 
