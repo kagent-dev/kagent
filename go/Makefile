@@ -65,10 +65,10 @@ lint-api: $(KAL_BIN)
 lint-api-fix: $(KAL_BIN)
 	$(KAL_BIN) run --fix --config .golangci-kal.yml ./api/v1alpha1/... ./api/v1alpha2/...
 
-$(KAL_BIN):
+$(KAL_BIN): golangci-lint
 	@mkdir -p $(LOCALBIN)
 	@echo "Building custom golangci-lint with kube-api-linter plugin..."
-	GOLANGCI_LINT_CUSTOM_CONFIG=.custom-gcl.yaml go tool golangci-lint-kube-api-linter custom
+	GOLANGCI_LINT_CUSTOM_CONFIG=.custom-gcl.yaml GOLANGCI_LINT_SKIP_BUILD=true GOLANGCI_LINT_OFFLINE=true $(GOLANGCI_LINT) custom
 	@mv tmp/bin/golangci-kube-api-linter $(KAL_BIN)
 
 .PHONY: govulncheck
