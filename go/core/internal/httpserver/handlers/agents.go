@@ -9,6 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	authpkg "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -44,8 +45,20 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 		return
 	}
 
+	// Filter agents by group access only when group-based authorization is configured.
+	items := agentObjects(agentList.Items)
+	if _, ok := h.Authorizer.(*authpkg.GroupAuthorizer); ok {
+		principal, principalErr := GetPrincipal(r)
+		if principalErr == nil {
+			items = authpkg.FilterAgentsByGroup(principal, items)
+		} else {
+			log.Info("No principal found, returning empty agent list for security", "error", principalErr.Error())
+			items = nil
+		}
+	}
+
 	agentsWithID := make([]api.AgentResponse, 0)
-	h.appendAgentResponses(r.Context(), log, agentObjects(agentList.Items), &agentsWithID)
+	h.appendAgentResponses(r.Context(), log, items, &agentsWithID)
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed agents", false)

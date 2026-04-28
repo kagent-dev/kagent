@@ -29,9 +29,9 @@ import (
 
 //nolint:gocyclo
 func main() {
-	authorizer := &auth.NoopAuthorizer{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
 		authenticator := getAuthenticator(bootstrap.Config.Auth)
+		authorizer := getAuthorizer(bootstrap.Config.Auth)
 		return &app.ExtensionConfig{
 			Authenticator:  authenticator,
 			Authorizer:     authorizer,
@@ -49,5 +49,15 @@ func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthPr
 		return &auth.UnsecureAuthenticator{}
 	default:
 		panic("unknown auth mode: " + authCfg.Mode + " (valid modes: unsecure, trusted-proxy)")
+	}
+}
+
+func getAuthorizer(authCfg struct{ Mode, UserIDClaim string }) pkgauth.Authorizer {
+	switch authCfg.Mode {
+	case "trusted-proxy":
+		// GroupAuthorizer with nil client — app.go will inject the kube client later
+		return auth.NewGroupAuthorizer(nil)
+	default:
+		return &auth.NoopAuthorizer{}
 	}
 }

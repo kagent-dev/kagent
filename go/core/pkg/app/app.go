@@ -47,6 +47,7 @@ import (
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -578,7 +579,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
+	// Inject kube client into GroupAuthorizer if it's being used
+	if ga, ok := extensionCfg.Authorizer.(*authimpl.GroupAuthorizer); ok {
+		ga.SetKubeClient(mgr.GetClient())
+	}
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, extensionCfg.Authorizer, mgr.GetClient())
 
 	if err := mgr.Add(a2a.NewA2ARegistrar(
 		mgr.GetCache(),

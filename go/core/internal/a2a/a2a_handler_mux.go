@@ -10,7 +10,8 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"trpc.group/trpc-go/trpc-a2a-go/client"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
@@ -18,7 +19,7 @@ import (
 type A2AHandlerMux interface {
 	SetAgentHandler(
 		agentRef string,
-		client *client.A2AClient,
+		client *a2aclient.A2AClient,
 		card server.AgentCard,
 		tracing server.Middleware,
 	) error
@@ -34,22 +35,26 @@ type handlerMux struct {
 	agentPathPrefix   string
 	sandboxPathPrefix string
 	authenticator     auth.AuthProvider
+	authorizer        auth.Authorizer
+	kubeClient        client.Client
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider) *handlerMux {
+func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider, authorizer auth.Authorizer, kubeClient client.Client) *handlerMux {
 	return &handlerMux{
 		handlers:          make(map[string]http.Handler),
 		agentPathPrefix:   agentPathPrefix,
 		sandboxPathPrefix: sandboxPathPrefix,
 		authenticator:     authenticator,
+		authorizer:        authorizer,
+		kubeClient:        kubeClient,
 	}
 }
 
 func (a *handlerMux) SetAgentHandler(
 	agentRef string,
-	client *client.A2AClient,
+	client *a2aclient.A2AClient,
 	card server.AgentCard,
 	tracing server.Middleware,
 ) error {
@@ -97,6 +102,21 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || agentName == "" {
 		http.Error(w, "Agent name not provided", http.StatusBadRequest)
 		return
+	}
+
+	// Authorization check: verify user's groups can access this agent
+	if a.authorizer != nil {
+		session, sessionOk := auth.AuthSessionFrom(r.Context())
+		if sessionOk {
+			resource := auth.Resource{
+				Type: "Agent",
+				Name: agentNamespace + "/" + agentName,
+			}
+			if err := a.authorizer.Check(r.Context(), session.Principal(), auth.VerbGet, resource); err != nil {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	handlerName := routeKey(a.isSandboxRoute(r), agentNamespace, agentName)
