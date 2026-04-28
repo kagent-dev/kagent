@@ -4,7 +4,6 @@ modelConfigRef: ""
 # -- Optional runtime specification for the agent. If not specified, it will default to "python". Supported runtimes include "python" and "go".
 runtime: ""
 
-modelConfigRef: ""
 imagePullSecrets: []
 
 resources:
@@ -14,3 +13,4 @@ resources:
   limits:
     cpu: 1000m
     memory: 1Gi
+
