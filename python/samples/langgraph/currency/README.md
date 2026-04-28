@@ -52,7 +52,7 @@ uv sync
 
 ```bash
 export GOOGLE_API_KEY=your_api_key_here
-export KAGENT_URL=http://localhost:8080
+export KAGENT_URL=http://localhost:8083
 ```
 
 3. Run the agent server:
@@ -83,7 +83,7 @@ The agent maintains conversation history across sessions using the KAgent REST A
 The agent can be configured via environment variables:
 
 - `GOOGLE_API_KEY`: Required for Gemini API access
-- `KAGENT_URL`: KAgent server URL (default: http://localhost:8080)
+- `KAGENT_URL`: Required. KAgent server URL; for local development, the controller commonly runs at `http://localhost:8083`
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
 

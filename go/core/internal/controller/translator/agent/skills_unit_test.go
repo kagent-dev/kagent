@@ -75,11 +75,119 @@ func Test_gitSkillName(t *testing.T) {
 			ref:  v1alpha2.GitRepo{URL: "git@github.com:org/repo.git"},
 			want: "repo",
 		},
+		{
+			name: "path last segment when name empty (monorepo)",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "someskills/skill1",
+			},
+			want: "skill1",
+		},
+		{
+			name: "path with leading and trailing slash",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "/someskills/skill1/",
+			},
+			want: "skill1",
+		},
+		{
+			name: "explicit name still wins over path",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "someskills/skill1",
+				Name: "custom",
+			},
+			want: "custom",
+		},
+		{
+			name: "no path uses repo name",
+			ref:  v1alpha2.GitRepo{URL: "https://github.com/reponame/myskills"},
+			want: "myskills",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := gitSkillName(tt.ref)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_gitSSHHost(t *testing.T) {
+	tests := []struct {
+		name   string
+		rawURL string
+		want   sshHostData
+		wantOK bool
+	}{
+		{
+			name:   "https repo is not ssh",
+			rawURL: "https://github.com/org/repo.git",
+			wantOK: false,
+		},
+		{
+			name:   "scp-style ssh repo",
+			rawURL: "git@github.com:org/repo.git",
+			want:   sshHostData{Host: "github.com"},
+			wantOK: true,
+		},
+		{
+			name:   "ssh url with non-default port",
+			rawURL: "ssh://git@gitea-ssh.gitea:2222/gitops/repo.git",
+			want:   sshHostData{Host: "gitea-ssh.gitea", Port: "2222"},
+			wantOK: true,
+		},
+		{
+			name:   "ssh url without explicit port",
+			rawURL: "ssh://git@gitea-ssh.gitea/gitops/repo.git",
+			want:   sshHostData{Host: "gitea-ssh.gitea"},
+			wantOK: true,
+		},
+		{
+			name:   "git+ssh url with port",
+			rawURL: "git+ssh://git@example.com:2222/org/repo.git",
+			want:   sshHostData{Host: "example.com", Port: "2222"},
+			wantOK: true,
+		},
+		{
+			name:   "ssh url with default port 22 normalizes to empty",
+			rawURL: "ssh://git@gitea-ssh.gitea:22/gitops/repo.git",
+			want:   sshHostData{Host: "gitea-ssh.gitea"},
+			wantOK: true,
+		},
+		{
+			name:   "invalid ssh-like string",
+			rawURL: "not-a-git-url",
+			wantOK: false,
+		},
+		{
+			name:   "scp-style with shell injection in host is rejected",
+			rawURL: "git@foo$(id):repo.git",
+			wantOK: false,
+		},
+		{
+			name:   "scp-style with semicolon injection in host is rejected",
+			rawURL: `git@bad";id;echo ":repo.git`,
+			wantOK: false,
+		},
+		{
+			name:   "ssh url with shell injection in host is rejected",
+			rawURL: "ssh://git@host$(whoami)/org/repo.git",
+			wantOK: false,
+		},
+		{
+			name:   "ssh url with backtick injection in host is rejected",
+			rawURL: "ssh://git@`id`.evil.com/org/repo.git",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := gitSSHHost(tt.rawURL)
+			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -209,4 +317,53 @@ func Test_prepareSkillsInitData_authMountPath(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "/git-auth", data.AuthMountPath)
+}
+
+func Test_prepareSkillsInitData_sshHosts(t *testing.T) {
+	data, err := prepareSkillsInitData(
+		[]v1alpha2.GitRepo{
+			{URL: "https://github.com/org/https-repo", Ref: "main"},
+			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
+			{URL: "ssh://git@gitea-ssh.gitea:22/gitops/ssh-repo.git", Ref: "main", Name: "ssh-repo"},
+			{URL: "ssh://git@gitea-ssh.gitea:22/gitops/another-ssh-repo.git", Ref: "main", Name: "another-ssh-repo"},
+		},
+		&corev1.LocalObjectReference{Name: "ssh-secret"},
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []sshHostData{
+		{Host: "gitea-ssh.gitea"},
+		{Host: "github.com"},
+	}, data.SSHHosts)
+}
+
+func Test_prepareSkillsInitData_sshHostsDedupesDefaultPort(t *testing.T) {
+	data, err := prepareSkillsInitData(
+		[]v1alpha2.GitRepo{
+			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
+			{URL: "ssh://git@github.com:22/org/ssh-repo.git", Ref: "main", Name: "ssh-repo"},
+		},
+		&corev1.LocalObjectReference{Name: "ssh-secret"},
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []sshHostData{
+		{Host: "github.com"},
+	}, data.SSHHosts)
+}
+
+func Test_prepareSkillsInitData_noAuthSkipsSSHHosts(t *testing.T) {
+	data, err := prepareSkillsInitData(
+		[]v1alpha2.GitRepo{
+			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
+			{URL: "ssh://git@gitea-ssh.gitea/gitops/ssh-repo.git", Ref: "main", Name: "ssh-repo"},
+		},
+		nil, // no auth secret
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Empty(t, data.SSHHosts, "SSH hosts should not be collected when authSecretRef is nil")
 }

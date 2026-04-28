@@ -1,13 +1,14 @@
 "use client";
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useCallback, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
+import { Brain, GitBranch, Loader2, Settings2, PlusCircle, Trash2, Layers } from "lucide-react";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import { ModelConfig, AgentType, ContextConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
+import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
@@ -21,6 +22,19 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
+import {
+  MAX_SKILLS_PER_SOURCE,
+  applyGitSkillUrlPathChange,
+  formRowsToGitRepos,
+  gitRepoToFormRow,
+  gitSkillRowUrlIssues,
+  isDuplicateGitSkillFormRow,
+  isDuplicateOciSkillRef,
+  isValidSkillContainerImage,
+  newEmptyGitSkillRow,
+  validateDeclarativeAgentSkills,
+  type GitSkillFormRow,
+} from "@/lib/agentSkillsForm";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,6 +51,7 @@ interface ValidationErrors {
   memoryModel?: string;
   memoryTtl?: string;
   serviceAccountName?: string;
+  promptSources?: string;
 }
 
 interface AgentPageContentProps {
@@ -63,7 +78,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
 
-  type SelectedModelType = Pick<ModelConfig, 'ref' | 'model'>;
+  type SelectedModelType = ModelConfig;
 
   interface FormState {
     name: string;
@@ -76,6 +91,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     memoryTtlDays: string;
     selectedTools: Tool[];
     skillRefs: string[];
+    skillGitRepos: GitSkillFormRow[];
+    skillsGitAuthSecretName: string;
     byoImage: string;
     byoCmd: string;
     byoArgs: string;
@@ -86,6 +103,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     stream: boolean;
     contextConfig: ContextConfig | undefined;
     serviceAccountName: string;
+    promptSourceRows: PromptSourceRow[];
     isSubmitting: boolean;
     isLoading: boolean;
     errors: ValidationErrors;
@@ -102,6 +120,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     memoryTtlDays: "",
     selectedTools: [],
     skillRefs: [""],
+    skillGitRepos: [newEmptyGitSkillRow()],
+    skillsGitAuthSecretName: "",
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -112,6 +132,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     stream: false,
     contextConfig: undefined,
     serviceAccountName: "",
+    promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -119,6 +140,38 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
   const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+
+  const resolvedGitSkillRepos = useMemo(
+    () => formRowsToGitRepos(state.skillGitRepos || []),
+    [state.skillGitRepos],
+  );
+
+  const ensureConfigMapSource = useCallback((cmName: string) => {
+    const t = cmName.trim();
+    if (!t) {
+      return;
+    }
+    setState((prev) => {
+      if (prev.promptSourceRows.some((r) => r.name.trim() === t)) {
+        return { ...prev, errors: { ...prev.errors, promptSources: undefined } };
+      }
+      const nonEmpty = prev.promptSourceRows.filter((r) => r.name.trim() !== "");
+      return {
+        ...prev,
+        errors: { ...prev.errors, promptSources: undefined },
+        promptSourceRows: [...nonEmpty, { id: crypto.randomUUID(), name: t, alias: "" }],
+      };
+    });
+  }, []);
+
+  const includeSourceIdForConfigMap = useCallback(
+    (cmName: string) => {
+      const row = state.promptSourceRows.find((r) => r.name.trim() === cmName);
+      const a = row?.alias?.trim();
+      return a || cmName;
+    },
+    [state.promptSourceRows],
+  );
 
   // Fetch existing agent data if in edit mode
   useEffect(() => {
@@ -150,15 +203,28 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
+                const pt = decl?.promptTemplate;
+                const srcRows: PromptSourceRow[] =
+                  pt?.dataSources?.map((ds) => ({
+                    id: crypto.randomUUID(),
+                    name: ds.name || "",
+                    alias: ds.alias || "",
+                  })) ?? [newPromptSourceRow()];
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
                   systemPrompt: decl?.systemMessage || "",
+                  promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
                   selectedTools: (decl?.tools && agentResponse.tools) ? agentResponse.tools : [],
-                  selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
+                  selectedModel: agentResponse.modelConfigRef ? { ref: agentResponse.modelConfigRef, spec: { model: agentResponse.model || "", provider: "" } } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
+                  skillGitRepos:
+                    agent.spec?.skills?.gitRefs && agent.spec.skills.gitRefs.length > 0
+                      ? agent.spec.skills.gitRefs.map(gitRepoToFormRow)
+                      : [newEmptyGitSkillRow()],
+                  skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
-                  selectedMemoryModel: memoryModelConfig ? { model: memorySpec?.modelConfig || "", ref: memoryModelConfig } : null,
+                  selectedMemoryModel: memoryModelConfig ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } } : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
                   contextConfig: decl?.context,
                   serviceAccountName: decl?.deployment?.serviceAccountName || "",
@@ -209,13 +275,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     void fetchAgentData();
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
-  const isValidContainerImage = (image: string): boolean => {
-    if (!image.trim()) return false;
-    // Basic regex for container image format: [registry/]repository[:tag|@digest]
-    const imageRegex = /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d+)?\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?(?:@sha256:[a-f0-9]{64})?$/i;
-    return imageRegex.test(image.trim());
-  };
-
   const validateForm = () => {
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
     const formData = {
@@ -224,6 +283,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       description: state.description,
       type: state.agentType,
       systemPrompt: state.systemPrompt,
+      promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
       modelName: state.selectedModel?.ref || "",
       tools: state.selectedTools,
       byoImage: state.byoImage,
@@ -239,28 +299,15 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     const newErrors = validateAgentData(formData);
 
-    if (useDeclarativeAgentFields && state.skillRefs && state.skillRefs.length > 0) {
-      // Filter out empty/whitespace entries first - if all are empty, treat as "no skills"
-      const nonEmptyRefs = state.skillRefs.filter(ref => ref.trim());
-      
-      // Only validate if there are actual skill references
-      if (nonEmptyRefs.length > 0) {
-        // Check for invalid image formats
-        const invalidRefs = nonEmptyRefs.filter(ref => !isValidContainerImage(ref));
-        if (invalidRefs.length > 0) {
-          newErrors.skills = `Invalid container image format: ${invalidRefs[0]}`;
-        } else {
-          // Check for duplicates (case-insensitive, trimmed)
-          const trimmedRefs = nonEmptyRefs.map(ref => ref.trim().toLowerCase());
-          const duplicates = trimmedRefs.filter((ref, index) => trimmedRefs.indexOf(ref) !== index);
-          if (duplicates.length > 0) {
-            // Find the first duplicate in the original array for error message
-            const dupIndex = trimmedRefs.findIndex((ref, idx) => trimmedRefs.indexOf(ref) !== idx);
-            newErrors.skills = `Duplicate skill detected: ${nonEmptyRefs[dupIndex]}`;
-          }
-        }
+    if (useDeclarativeAgentFields) {
+      const skillsError = validateDeclarativeAgentSkills({
+        skillRefs: state.skillRefs || [],
+        skillGitRepos: state.skillGitRepos || [],
+        skillsGitAuthSecretName: state.skillsGitAuthSecretName || "",
+      });
+      if (skillsError) {
+        newErrors.skills = skillsError;
       }
-      // If all refs are empty/whitespace, that's fine - no skills will be included
     }
 
     setState(prev => ({ ...prev, errors: newErrors }));
@@ -334,10 +381,16 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         description: state.description,
         type: state.agentType,
         systemPrompt: state.systemPrompt,
+        promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
         tools: state.selectedTools,
-        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
+        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
+        skillGitRepos: useDeclarativeAgentFields ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
+        skillsGitAuthSecretName:
+          useDeclarativeAgentFields && (state.skillsGitAuthSecretName || "").trim()
+            ? (state.skillsGitAuthSecretName || "").trim()
+            : undefined,
         memory: useDeclarativeAgentFields && memoryEnabled
           ? {
             modelConfig: state.selectedMemoryModel?.ref || "",
@@ -507,13 +560,16 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       onBlur={() => validateField('systemPrompt', state.systemPrompt)}
                       error={state.errors.systemPrompt}
                       disabled={state.isSubmitting || state.isLoading}
+                      mentionNamespace={state.namespace}
+                      onPickInclude={(pick) => ensureConfigMapSource(pick.configMapName)}
+                      includeSourceIdForConfigMap={includeSourceIdForConfigMap}
                     />
 
                     <ModelSelectionSection
                       allModels={models}
                       selectedModel={state.selectedModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
+                        setState(prev => ({ ...prev, selectedModel: model as ModelConfig | null }));
                       }}
                       error={state.errors.model}
                       isSubmitting={state.isSubmitting || state.isLoading}
@@ -746,8 +802,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       allModels={models}
                       selectedModel={state.selectedMemoryModel}
                       setSelectedModel={(model) => {
-                        setState(prev => ({ ...prev, selectedMemoryModel: model as Pick<ModelConfig, 'ref' | 'model'> | null }));
-                        validateField("memoryModel", (model as Pick<ModelConfig, 'ref' | 'model'> | null)?.ref || "");
+                        setState(prev => ({ ...prev, selectedMemoryModel: model as ModelConfig | null }));
+                        validateField("memoryModel", (model as ModelConfig | null)?.ref || "");
                       }}
                       agentNamespace={state.namespace}
                       ttlDays={state.memoryTtlDays}
@@ -786,14 +842,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   <CardContent>
                     <div className="space-y-4">
                       <div>
-                        <Label className="text-sm mb-2 block font-semibold">Skill Container Images</Label>
+                        <Label className="text-sm mb-2 block font-semibold">Skill container images (OCI)</Label>
                         <p className="text-xs mb-2 block text-muted-foreground">
-                          Add skills container images. Each skill will be pulled and mounted for your agent to use.
+                          Pull skills from container images (for example GHCR). Each image is mounted under <code className="text-xs">/skills</code>.
                         </p>
                         <div className="space-y-2">
                           {(state.skillRefs || []).map((ref, idx) => {
-                            const isDuplicate = ref.trim() && state.skillRefs.filter(r => r.trim() === ref.trim()).length > 1;
-                            const isInvalid = ref.trim() && !isValidContainerImage(ref);
+                            const isDuplicate = isDuplicateOciSkillRef(ref, state.skillRefs);
+                            const isInvalid = ref.trim() && !isValidSkillContainerImage(ref);
                             const hasError = isDuplicate || isInvalid;
 
                             return (
@@ -822,11 +878,17 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                                     variant="outline"
                                     size="icon"
                                     onClick={() => {
-                                      if ((state.skillRefs || []).length < 20) {
+                                      if ((state.skillRefs || []).length < MAX_SKILLS_PER_SOURCE) {
                                         setState(prev => ({ ...prev, skillRefs: [...prev.skillRefs, ""] }));
                                       }
                                     }}
+                                    disabled={
+                                      (state.skillRefs || []).length >= MAX_SKILLS_PER_SOURCE ||
+                                      state.isSubmitting ||
+                                      state.isLoading
+                                    }
                                     title="Add skill"
+                                    type="button"
                                   >
                                     <PlusCircle className="h-4 w-4" />
                                   </Button>
@@ -836,6 +898,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                                     onClick={() => setState(prev => ({ ...prev, skillRefs: prev.skillRefs.filter((_, i) => i !== idx) }))}
                                     disabled={(state.skillRefs || []).length <= 1}
                                     title="Remove skill"
+                                    type="button"
                                   >
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                   </Button>
@@ -844,8 +907,177 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                             );
                           })}
                         </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-border">
+                        <Label className="text-sm mb-2 block font-semibold flex items-center gap-2">
+                          <GitBranch className="h-4 w-4 text-muted-foreground" aria-hidden />
+                          Git repositories
+                        </Label>
+                        <p className="text-xs mb-3 block text-muted-foreground">
+                          Clone skills from a Git remote (HTTPS or SSH). The folder name under{" "}
+                          <code className="text-xs">/skills</code> defaults to the last segment of the path in the repo, or the repo name if
+                          there is no path. You can change it. Optional ref (branch/tag/SHA) and a Secret in the agent namespace for private repos
+                          (token or SSH key).
+                        </p>
+                        <div className="space-y-4">
+                          {(state.skillGitRepos || []).map((row, idx) => {
+                            const { hasExtraWithoutUrl, urlInvalid } = gitSkillRowUrlIssues(row);
+                            const dupGit = isDuplicateGitSkillFormRow(row, resolvedGitSkillRepos);
+
+                            return (
+                              <div key={idx} className="rounded-lg border border-border p-3 space-y-2 bg-muted/30">
+                                <div className="grid gap-2 sm:grid-cols-1">
+                                  <div>
+                                    <Label className="text-xs text-muted-foreground">Repository URL</Label>
+                                    <Input
+                                      placeholder="https://github.com/org/repo.git"
+                                      value={row.url}
+                                      onChange={(e) => {
+                                        const copy = [...state.skillGitRepos];
+                                        copy[idx] = applyGitSkillUrlPathChange(copy[idx], { url: e.target.value });
+                                        setState((prev) => ({
+                                          ...prev,
+                                          skillGitRepos: copy,
+                                          errors: { ...prev.errors, skills: undefined },
+                                        }));
+                                      }}
+                                      disabled={state.isSubmitting || state.isLoading}
+                                      className={hasExtraWithoutUrl || urlInvalid || dupGit ? "border-red-500" : ""}
+                                    />
+                                    {hasExtraWithoutUrl && (
+                                      <p className="text-xs text-red-500 mt-1">Set a URL when using ref, path, or name</p>
+                                    )}
+                                    {urlInvalid && (
+                                      <p className="text-xs text-red-500 mt-1">Use https://, http://, git@, or ssh://</p>
+                                    )}
+                                    {dupGit && (
+                                      <p className="text-xs text-red-500 mt-1">Duplicate URL + ref + path</p>
+                                    )}
+                                  </div>
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground">Ref (branch / tag / SHA)</Label>
+                                      <Input
+                                        placeholder="main"
+                                        value={row.ref}
+                                        onChange={(e) => {
+                                          const copy = [...state.skillGitRepos];
+                                          copy[idx] = { ...copy[idx], ref: e.target.value };
+                                          setState((prev) => ({
+                                            ...prev,
+                                            skillGitRepos: copy,
+                                            errors: { ...prev.errors, skills: undefined },
+                                          }));
+                                        }}
+                                        disabled={state.isSubmitting || state.isLoading}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground">Path in repo</Label>
+                                      <Input
+                                        placeholder="skills/myskill"
+                                        value={row.path}
+                                        onChange={(e) => {
+                                          const copy = [...state.skillGitRepos];
+                                          copy[idx] = applyGitSkillUrlPathChange(copy[idx], { path: e.target.value });
+                                          setState((prev) => ({
+                                            ...prev,
+                                            skillGitRepos: copy,
+                                            errors: { ...prev.errors, skills: undefined },
+                                          }));
+                                        }}
+                                        disabled={state.isSubmitting || state.isLoading}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-muted-foreground">Name under /skills</Label>
+                                      <Input
+                                        placeholder="from path, else repo"
+                                        value={row.name}
+                                        onChange={(e) => {
+                                          const copy = [...state.skillGitRepos];
+                                          copy[idx] = { ...copy[idx], name: e.target.value };
+                                          setState((prev) => ({
+                                            ...prev,
+                                            skillGitRepos: copy,
+                                            errors: { ...prev.errors, skills: undefined },
+                                          }));
+                                        }}
+                                        disabled={state.isSubmitting || state.isLoading}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => {
+                                      if ((state.skillGitRepos || []).length < MAX_SKILLS_PER_SOURCE) {
+                                        setState((prev) => ({
+                                          ...prev,
+                                          skillGitRepos: [...prev.skillGitRepos, newEmptyGitSkillRow()],
+                                        }));
+                                      }
+                                    }}
+                                    disabled={
+                                      (state.skillGitRepos || []).length >= MAX_SKILLS_PER_SOURCE ||
+                                      state.isSubmitting ||
+                                      state.isLoading
+                                    }
+                                    title="Add Git skill"
+                                    type="button"
+                                  >
+                                    <PlusCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      setState((prev) => ({
+                                        ...prev,
+                                        skillGitRepos:
+                                          prev.skillGitRepos.length <= 1
+                                            ? [newEmptyGitSkillRow()]
+                                            : prev.skillGitRepos.filter((_, i) => i !== idx),
+                                      }))
+                                    }
+                                    disabled={state.isSubmitting || state.isLoading}
+                                    title="Remove Git skill"
+                                    type="button"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-4">
+                          <Label className="text-xs text-muted-foreground" htmlFor="git-skills-auth-secret">
+                            Git credentials Secret (optional)
+                          </Label>
+                          <Input
+                            id="git-skills-auth-secret"
+                            className="mt-1"
+                            placeholder="e.g. git-auth (namespace: same as agent)"
+                            value={state.skillsGitAuthSecretName}
+                            onChange={(e) =>
+                              setState((prev) => ({
+                                ...prev,
+                                skillsGitAuthSecretName: e.target.value,
+                                errors: { ...prev.errors, skills: undefined },
+                              }))
+                            }
+                            disabled={state.isSubmitting || state.isLoading}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            For HTTPS, use a <code className="text-xs">token</code> key; for SSH, use <code className="text-xs">ssh-privatekey</code>.
+                          </p>
+                        </div>
                         {state.errors.skills && (
-                          <p className="text-red-500 text-sm mt-2">❌ {state.errors.skills}</p>
+                          <p className="text-red-500 text-sm mt-3">❌ {state.errors.skills}</p>
                         )}
                       </div>
                     </div>

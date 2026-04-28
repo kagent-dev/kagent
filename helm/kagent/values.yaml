@@ -4,6 +4,16 @@
 # GLOBAL CONFIGURATION
 # ==============================================================================
 
+# -- Enable IPv6/dual-stack support.
+# When true, configures all components for dual-stack (IPv4+IPv6) networking:
+#   - nginx listens on both IPv4 and IPv6 (adds `listen [::]:8080`)
+#   - Next.js binds to `::` instead of `0.0.0.0`
+#   - Agent pods bind to `::` for dual-stack reachability
+# Leave disabled on clusters where IPv6 is disabled at the kernel level.
+# @default -- false
+ipv6:
+  enabled: false
+
 tag: ""
 registry: "cr.kagent.dev"
 
@@ -76,7 +86,7 @@ database:
         # -- Bundled PostgreSQL image name
         name: postgres
         # -- Bundled PostgreSQL image tag
-        tag: "18"
+        tag: "18.3-alpine"
         # -- Bundled PostgreSQL image pull policy
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
@@ -115,11 +125,12 @@ database:
 # ==============================================================================
 
 rbac:
-  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
-  # If false, creates Role and RoleBinding resources instead.
-  clusterScoped: true
-  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
-  # If empty, defaults to the release namespace.
+  # -- Namespaces in which to create Role and RoleBinding resources.
+  # If empty (default), the chart creates cluster-scoped ClusterRole and ClusterRoleBinding
+  # resources and the controller watches all namespaces.
+  # If set, the chart creates a Role + RoleBinding per listed namespace and the controller's
+  # WATCH_NAMESPACES is derived from this list (unless controller.watchNamespaces is set
+  # explicitly, which always takes precedence).
   namespaces: []
 
 # ==============================================================================
@@ -155,6 +166,12 @@ controller:
     #   podLabels:
     #     team: platform
     #     environment: production
+    # -- Default host address for agent pods to bind to.
+    # Leave empty to use the controller's default fallback of "0.0.0.0".
+    # Automatically set to "::" when ipv6.enabled is true.
+    # Can be explicitly overridden here regardless of the ipv6 flag.
+    # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
+    host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
   a2aBaseUrl: ""
@@ -179,6 +196,8 @@ controller:
   watchNamespaces: []
   #  - watch-ns-1
   #  - watch-ns-2
+
+  podAnnotations: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
@@ -242,6 +261,7 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
+    annotations: {}
   # Authentication redirect configuration
   # Change this if using a different auth proxy (e.g., Pomerium, Authelia)
   auth:
@@ -268,12 +288,36 @@ ui:
   #   - ALL
   # runAsNonRoot: true
   # runAsUser: 1000
+
+  podAnnotations: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
-
+  # -- Custom startup probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1
+  startupProbe: {}
+  # Example:
+  #   startupProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     initialDelaySeconds: 10
+  #     periodSeconds: 5
+  #     failureThreshold: 20
+  # -- Custom readiness probe for the UI container.
+  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # @default -- httpGet /health on port http, periodSeconds=30
+  readinessProbe: {}
+  # Example:
+  #   readinessProbe:
+  #     httpGet:
+  #       path: /health
+  #       port: http
+  #     periodSeconds: 15
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -297,7 +341,7 @@ providers:
 
   anthropic:
     provider: Anthropic
-    model: "claude-3-5-haiku-20241022"
+    model: "claude-haiku-4-5"
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
@@ -339,11 +383,10 @@ kagent-tools:
   replicaCount: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m
+      memory: 128Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      memory: 256Mi
   tools:
     loglevel: "debug"
     metrics:
@@ -367,109 +410,94 @@ proxy:
 # ==============================================================================
 # AGENTS
 # ==============================================================================
-agents:
-  k8s-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  kgateway-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  istio-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  promql-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  observability-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  argo-rollouts-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  helm-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-policy-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-manager-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-debug-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
+
+k8s-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+kgateway-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+istio-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+promql-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+observability-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+argo-rollouts-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+helm-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-policy-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-manager-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-debug-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS
 # ==============================================================================
 
-tools:
-  grafana-mcp:
-    enabled: true
-  querydoc:
-    enabled: true
-
 grafana-mcp:
+  enabled: true
   grafana:
     url: "grafana.kagent:3000/api"
     serviceAccountToken: ""
@@ -484,6 +512,7 @@ grafana-mcp:
       memory: 512Mi
 
 querydoc:
+  enabled: true
   replicas: 1
   image:
     registry: ghcr.io

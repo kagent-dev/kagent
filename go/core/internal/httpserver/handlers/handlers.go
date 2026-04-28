@@ -24,6 +24,7 @@ type Handlers struct {
 	Memory              *MemoryHandler
 	Feedback            *FeedbackHandler
 	Namespaces          *NamespacesHandler
+	PromptTemplates     *PromptTemplatesHandler
 	Tasks               *TasksHandler
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
@@ -37,6 +38,7 @@ type Base struct {
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
 	ProxyURL           string
+	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
 }
 
@@ -48,6 +50,7 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		DatabaseService:    dbService,
 		Authorizer:         authorizer,
 		ProxyURL:           proxyURL,
+		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
 	}
 
@@ -63,7 +66,8 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ToolServerTypes:     NewToolServerTypesHandler(base),
 		Memory:              NewMemoryHandler(base),
 		Feedback:            NewFeedbackHandler(base),
-		Namespaces:          NewNamespacesHandler(base, watchedNamespaces),
+		Namespaces:          NewNamespacesHandler(base),
+		PromptTemplates:     NewPromptTemplatesHandler(base),
 		Tasks:               NewTasksHandler(base),
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),

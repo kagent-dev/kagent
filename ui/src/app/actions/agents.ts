@@ -1,12 +1,73 @@
 "use server";
 
-import { AgentSpec, BaseResponse, DeclarativeAgentSpec, SandboxAgent } from "@/types";
-import { Agent, AgentResponse, Tool } from "@/types";
+import {
+  Agent,
+  AgentResponse,
+  AgentSpec,
+  BaseResponse,
+  DeclarativeAgentSpec,
+  PromptSource,
+  SandboxAgent,
+  SkillForAgent,
+  Tool,
+} from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
+
+function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
+  if (!agentFormData.promptSources?.some((s) => s.name.trim())) {
+    return;
+  }
+  const dataSources: PromptSource[] = agentFormData.promptSources
+    .filter((s) => s.name.trim())
+    .map((s) => {
+      const src: PromptSource = {
+        kind: "ConfigMap",
+        name: s.name.trim(),
+        apiGroup: "",
+      };
+      const al = s.alias.trim();
+      if (al) {
+        src.alias = al;
+      }
+      return src;
+    });
+  if (dataSources.length > 0) {
+    decl.promptTemplate = { dataSources };
+  }
+}
+
+function buildSkillsForAgentSpec(agentFormData: AgentFormData): SkillForAgent | undefined {
+  const refs = (agentFormData.skillRefs || []).map((r) => r.trim()).filter(Boolean);
+  const rows: GitSkillFormRow[] = (agentFormData.skillGitRepos || []).map((g) => ({
+    url: g.url ?? "",
+    ref: g.ref ?? "",
+    path: g.path ?? "",
+    name: g.name ?? "",
+  }));
+  const gitRefs = formRowsToGitRepos(rows);
+
+  if (refs.length === 0 && gitRefs.length === 0) {
+    return undefined;
+  }
+
+  const skills: SkillForAgent = {};
+  if (refs.length > 0) {
+    skills.refs = refs;
+  }
+  if (gitRefs.length > 0) {
+    skills.gitRefs = gitRefs;
+    const secretName = agentFormData.skillsGitAuthSecretName?.trim();
+    if (secretName) {
+      skills.gitAuthSecretRef = { name: secretName };
+    }
+  }
+  return skills;
+}
 
 /**
  * Converts AgentFormData to Agent format
@@ -43,6 +104,11 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
           namespace = agentNamespace;
         }
 
+        const requireApproval =
+          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
+            ? mcpServer.requireApproval
+            : undefined;
+
         return {
           type: "McpServer",
           mcpServer: {
@@ -51,6 +117,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
             kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
+            ...(requireApproval ? { requireApproval } : {}),
           },
         } as Tool;
       }
@@ -109,10 +176,9 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       tools: convertTools(agentFormData.tools || []),
     };
 
-    if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
-      base.spec!.skills = {
-        refs: agentFormData.skillRefs,
-      };
+    const skills = buildSkillsForAgentSpec(agentFormData);
+    if (skills) {
+      base.spec!.skills = skills;
     }
 
     if (agentFormData.memory?.modelConfig) {
@@ -137,6 +203,8 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
         serviceAccountName: trimmedSA,
       };
     }
+
+    attachPromptTemplateToDeclarative(base.spec!.declarative!, agentFormData);
   } else if (type === "BYO") {
     base.spec!.byo = {
       deployment: {
@@ -217,6 +285,11 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
           namespace = agentNamespace;
         }
 
+        const requireApproval =
+          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
+            ? mcpServer.requireApproval
+            : undefined;
+
         return {
           type: "McpServer",
           mcpServer: {
@@ -225,6 +298,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
             kind: mcpServer.kind,
             apiGroup: mcpServer.apiGroup,
             toolNames: mcpServer.toolNames,
+            ...(requireApproval ? { requireApproval } : {}),
           },
         } as Tool;
       }
@@ -292,16 +366,17 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     };
   }
 
+  attachPromptTemplateToDeclarative(decl, agentFormData);
+
   const spec: AgentSpec = {
     type: "Declarative",
     declarative: decl,
     description: agentFormData.description,
   };
 
-  if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
-    spec.skills = {
-      refs: agentFormData.skillRefs,
-    };
+  const skills = buildSkillsForAgentSpec(agentFormData);
+  if (skills) {
+    spec.skills = skills;
   }
 
   return {

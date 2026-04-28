@@ -29,6 +29,7 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,6 +111,10 @@ var DefaultServiceAccountName string
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string
 
+// DefaultAgentBindHost is the host address agent pods bind to.
+// Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
+var DefaultAgentBindHost = "0.0.0.0"
+
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
 
@@ -161,8 +166,13 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 type TranslatorPlugin = translator.TranslatorPlugin
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
+	return NewAdkApiTranslatorWithWatchedNamespaces(kube, nil, defaultModelConfig, plugins, globalProxyURL, sandboxBackend)
+}
+
+func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
+		watchedNamespaces:  watchedNamespaces,
 		defaultModelConfig: defaultModelConfig,
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
@@ -172,6 +182,7 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 
 type adkApiTranslator struct {
 	kube               client.Client
+	watchedNamespaces  []string
 	defaultModelConfig types.NamespacedName
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
@@ -207,6 +218,8 @@ const (
 	googleCredsVolumeName = "google-creds"
 	tlsCACertVolumeName   = "tls-ca-cert"
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	gdchCredsVolumeName   = "gdch-creds"
+	gdchCredsMountPath    = "/gdch-creds"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -258,6 +271,46 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 	}
 }
 
+// addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
+// model and mounts the service account secret (referenced by the top-level
+// apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
+// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
+		return
+	}
+	tokenExchange := spec.OpenAI.TokenExchange
+	switch tokenExchange.Type {
+	case v1alpha2.TokenExchangeTypeGDCH:
+		cfg := tokenExchange.GDCHServiceAccount
+		if cfg == nil {
+			return
+		}
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
+		openai.TokenExchange = &adk.TokenExchangeConfig{
+			Type: string(tokenExchange.Type),
+			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
+				ServiceAccountPath: saPath,
+				Audience:           cfg.Audience,
+			},
+		}
+		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
+			Name: gdchCredsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  spec.APIKeySecret,
+					DefaultMode: new(int32(0444)),
+				},
+			},
+		})
+		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
+			Name:      gdchCredsVolumeName,
+			MountPath: gdchCredsMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
+
 // translateEmbeddingConfig resolves the embedding ModelConfig and returns the
 // EmbeddingConfig for the Python config JSON, the deployment data for the
 // embedding model, and the raw secret hash bytes (caller decides whether to
@@ -296,7 +349,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
+		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -317,6 +371,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		// Populate TokenExchange fields (OpenAI-specific)
+		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
@@ -640,6 +696,55 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderSAPAICore:
+		if model.Spec.SAPAICore == nil {
+			return nil, nil, nil, fmt.Errorf("sapAICore model config is required")
+		}
+
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			secret := &corev1.Secret{}
+			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to get SAP AI Core credentials secret: %w", err)
+			}
+
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.SAPAICoreClientID.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: "client_id",
+					},
+				},
+			})
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.SAPAICoreClientSecret.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: "client_secret",
+					},
+				},
+			})
+		}
+
+		sapAICore := &adk.SAPAICore{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+			BaseUrl:       model.Spec.SAPAICore.BaseURL,
+			ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
+			AuthUrl:       model.Spec.SAPAICore.AuthURL,
+		}
+
+		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
+		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		return sapAICore, modelDeploymentData, secretHashBytes, nil
 	default:
 		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
@@ -858,6 +963,10 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 			// Namespace exists, so this is an internal k8s URL
 			return true
 		}
+		// Controller is using namespaced RBAC, so check if the namespace is watched
+		if (apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err)) && len(a.watchedNamespaces) > 0 {
+			return slices.Contains(a.watchedNamespaces, potentialNamespace)
+		}
 		// If namespace doesn't exist, it's likely a TLD or external domain
 	}
 
@@ -971,12 +1080,16 @@ func isCommitSHA(ref string) bool {
 }
 
 // gitSkillName returns the directory name for a git skill ref.
-// If Name is set, it is used; otherwise the last path segment of the repo URL
-// (with any .git suffix stripped) is used.
-// Query parameters and fragments are stripped before extracting the base name.
+// If Name is set, it is used. Otherwise, if Path (in-repo directory) is set, the
+// last path segment of Path is used. If Path is empty, the last path segment of
+// the repo URL (with any .git suffix stripped) is used.
+// Query parameters and fragments are stripped before extracting the base name from the URL.
 func gitSkillName(ref v1alpha2.GitRepo) string {
-	if ref.Name != "" {
-		return ref.Name
+	if n := strings.TrimSpace(ref.Name); n != "" {
+		return n
+	}
+	if p := strings.Trim(strings.TrimSpace(ref.Path), "/"); p != "" {
+		return path.Base(p)
 	}
 	// Parse the URL to strip query params and fragments
 	u := ref.URL
@@ -989,6 +1102,58 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 	}
 	u = strings.TrimSuffix(u, ".git")
 	return path.Base(u)
+}
+
+var (
+	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
+
+	// validHostPattern and validPortPattern are the security boundary that prevents
+	// shell injection when host/port values are interpolated into the ssh-keyscan
+	// commands in skills-init.sh.tmpl. Do NOT relax these patterns without auditing
+	// every template site that references .Host or .Port.
+	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
+	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
+)
+
+func gitSSHHost(rawURL string) (sshHostData, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		switch parsed.Scheme {
+		case "ssh", "git+ssh":
+			host := parsed.Hostname()
+			if host == "" || !validHostPattern.MatchString(host) {
+				return sshHostData{}, false
+			}
+			port := parsed.Port()
+			if port == "22" {
+				port = "" // 22 is the SSH default; omit to avoid redundant -p flag
+			}
+			if port != "" && !validPortPattern.MatchString(port) {
+				return sshHostData{}, false
+			}
+			return sshHostData{
+				Host: host,
+				Port: port,
+			}, true
+		case "http", "https":
+			return sshHostData{}, false
+		}
+	}
+
+	if strings.Contains(rawURL, "://") {
+		return sshHostData{}, false
+	}
+
+	matches := scpLikeGitURLRegex.FindStringSubmatch(rawURL)
+	if len(matches) != 2 {
+		return sshHostData{}, false
+	}
+	host := matches[1]
+	if !validHostPattern.MatchString(host) {
+		return sshHostData{}, false
+	}
+
+	return sshHostData{Host: host}, true
 }
 
 // validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
@@ -1081,35 +1246,10 @@ func prepareSkillsInitData(
 
 	if authSecretRef != nil {
 		data.AuthMountPath = "/git-auth"
-		seenHosts := make(map[string]bool)
-		hostPattern := regexp.MustCompile(`^[A-Za-z0-9\.\-:]+$`)
-		portPattern := regexp.MustCompile(`^[0-9]+$`)
-		for _, ref := range gitRefs {
-			u, err := url.Parse(ref.URL)
-			if err != nil || u.Scheme != "ssh" {
-				continue
-			}
-			host := u.Hostname()
-			if host == "" || !hostPattern.MatchString(host) {
-				continue
-			}
-			port := u.Port()
-			if port == "22" {
-				port = "" // 22 is the SSH default; omit to avoid -p flag
-			}
-			if port != "" && !portPattern.MatchString(port) {
-				continue
-			}
-			key := host + ":" + port
-			if seenHosts[key] {
-				continue
-			}
-			seenHosts[key] = true
-			data.SSHHosts = append(data.SSHHosts, sshHostData{Host: host, Port: port})
-		}
 	}
 
 	seen := make(map[string]bool)
+	seenSSHHosts := make(map[string]bool)
 
 	for _, ref := range gitRefs {
 		subPath := strings.TrimSuffix(ref.Path, "/")
@@ -1128,6 +1268,18 @@ func prepareSkillsInitData(
 			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
 		seen[name] = true
+
+		// SSH host collection is separate from the AuthMountPath block above
+		// because it runs per-ref inside the loop, not once at the top level.
+		if authSecretRef != nil {
+			if sshHost, ok := gitSSHHost(ref.URL); ok {
+				key := sshHost.Host + ":" + sshHost.Port
+				if !seenSSHHosts[key] {
+					seenSSHHosts[key] = true
+					data.SSHHosts = append(data.SSHHosts, sshHost)
+				}
+			}
+		}
 
 		data.GitRefs = append(data.GitRefs, gitRefData{
 			URL:      ref.URL,
@@ -1150,6 +1302,13 @@ func prepareSkillsInitData(
 			Dest:  "/skills/" + name,
 		})
 	}
+
+	slices.SortFunc(data.SSHHosts, func(a, b sshHostData) int {
+		if cmp := strings.Compare(a.Host, b.Host); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.Port, b.Port)
+	})
 
 	return data, nil
 }

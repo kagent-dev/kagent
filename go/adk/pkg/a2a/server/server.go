@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -59,7 +60,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 
 	addr := ":" + config.Port
 	if config.Host != "" {
-		addr = config.Host + ":" + config.Port
+		addr = net.JoinHostPort(config.Host, config.Port)
 	}
 
 	return &A2AServer{

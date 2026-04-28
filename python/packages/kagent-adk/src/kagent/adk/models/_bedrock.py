@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -25,6 +26,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_BEDROCK_TOOL_ID_VALID = re.compile(r"^[a-zA-Z0-9_.:-]+$")
+_BEDROCK_TOOL_ID_INVALID = re.compile(r"[^a-zA-Z0-9_.:-]")
+
+
+def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) -> str:
+    """Return a valid Bedrock toolUseId.
+
+    Bedrock requires toolUseId to match [a-zA-Z0-9_.:-]+ and be non-empty.
+    id_map caches original→sanitized so FunctionCall and FunctionResponse
+    with the same original ID get the same sanitized ID.
+    counter is a single-element list used as a mutable integer.
+
+    Empty or fully-invalid IDs are never cached: each gets a unique synthetic
+    ID to avoid duplicate toolUseId errors when multiple calls have no ID.
+
+    See https://github.com/kagent-dev/kagent/issues/1473
+    """
+    if tool_id and tool_id in id_map:
+        return id_map[tool_id]
+    sanitized = _BEDROCK_TOOL_ID_INVALID.sub("_", tool_id)
+    if not _BEDROCK_TOOL_ID_VALID.match(sanitized):
+        counter[0] += 1
+        sanitized = f"tool_{counter[0]}"
+        return sanitized
+    id_map[tool_id] = sanitized
+    return sanitized
+
+
 def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
@@ -35,6 +64,9 @@ def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
 
 
 def _convert_content_to_converse_messages(contents: list[types.Content]) -> list[dict]:
+    id_map: dict[str, str] = {}
+    counter = [0]
+
     messages = []
     for content in contents:
         role = "assistant" if content.role in ("model", "assistant") else "user"
@@ -47,7 +79,7 @@ def _convert_content_to_converse_messages(contents: list[types.Content]) -> list
                 blocks.append(
                     {
                         "toolUse": {
-                            "toolUseId": part.function_call.id or "",
+                            "toolUseId": _sanitize_tool_id(part.function_call.id or "", id_map, counter),
                             "name": part.function_call.name or "",
                             "input": part.function_call.args or {},
                         }
@@ -58,7 +90,7 @@ def _convert_content_to_converse_messages(contents: list[types.Content]) -> list
                 blocks.append(
                     {
                         "toolResult": {
-                            "toolUseId": part.function_response.id or "",
+                            "toolUseId": _sanitize_tool_id(part.function_response.id or "", id_map, counter),
                             "content": content_block,
                         }
                     }

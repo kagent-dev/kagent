@@ -90,6 +90,7 @@ spec:
                 - GeminiVertexAI
                 - AnthropicVertexAI
                 - Bedrock
+                - SAPAICore
                 type: string
             required:
             - type

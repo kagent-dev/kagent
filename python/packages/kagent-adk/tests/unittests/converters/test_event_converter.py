@@ -3,9 +3,9 @@ from unittest.mock import Mock
 import pytest
 from a2a.types import TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
+from kagent.core.a2a import get_kagent_metadata_key
 
 from kagent.adk.converters.event_converter import convert_event_to_a2a_events
-from kagent.core.a2a import get_kagent_metadata_key
 
 
 def _create_mock_invocation_context():

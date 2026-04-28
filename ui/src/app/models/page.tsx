@@ -3,7 +3,12 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { ModelConfig } from "@/types";
+import { ModelConfig, ModelConfigSpec } from "@/types";
+
+function getProviderParams(spec: ModelConfigSpec) {
+  return spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
+    spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? undefined;
+}
 import { getModelConfigs, deleteModelConfig } from "@/app/actions/modelConfigs";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
@@ -149,11 +154,11 @@ export default function ModelsPage() {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">Provider</p>
-                                                <p>{model.providerName}</p>
+                                                <p>{model.spec.provider}</p>
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">Model</p>
-                                                <p>{model.model}</p>
+                                                <p>{model.spec.model}</p>
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">Namespace</p>
@@ -161,13 +166,13 @@ export default function ModelsPage() {
                                             </div>
                                             <div>
                                                 <p className="text-sm font-medium text-muted-foreground">API Key Secret</p>
-                                                <p>{model.apiKeySecretRef ? model.apiKeySecretRef : "N/A"}</p>
+                                                <p>{model.spec.apiKeySecret ? model.spec.apiKeySecret : "N/A"}</p>
                                             </div>
-                                            {model.modelParams && (
+                                            {getProviderParams(model.spec) && (
                                                 <div className="col-span-2">
                                                     <p className="text-sm font-medium text-muted-foreground">Model Parameters</p>
                                                     <pre className="mt-1 text-sm bg-muted p-2 rounded">
-                                                        {JSON.stringify(model.modelParams, null, 2)}
+                                                        {JSON.stringify(getProviderParams(model.spec), null, 2)}
                                                     </pre>
                                                 </div>
                                             )}

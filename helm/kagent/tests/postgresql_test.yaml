@@ -100,7 +100,7 @@ tests:
           of: Deployment
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/library/postgres:18
+          value: docker.io/library/postgres:18.3-alpine
 
   - it: should render Deployment with custom image
     template: postgresql.yaml
