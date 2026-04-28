@@ -45,8 +45,8 @@ func TestSubagentForwardingInterceptorReplacesExistingAuthorization(t *testing.T
 
 func TestAuthorizationHeaderFromContext(t *testing.T) {
 	ctx, _ := a2asrv.WithCallContext(context.Background(), a2asrv.NewRequestMeta(map[string][]string{
-		"Authorization": []string{"Bearer parent-token"},
-		"X-Other":      []string{"ignored"},
+		"Authorization": {"Bearer parent-token"},
+		"X-Other":      {"ignored"},
 	}))
 
 	if got, want := authorizationHeaderFromContext(ctx), "Bearer parent-token"; got != want {
@@ -56,7 +56,7 @@ func TestAuthorizationHeaderFromContext(t *testing.T) {
 
 func TestAuthorizationHeaderFromContextWithoutHeader(t *testing.T) {
 	ctx, _ := a2asrv.WithCallContext(context.Background(), a2asrv.NewRequestMeta(map[string][]string{
-		"X-Other": []string{"ignored"},
+		"X-Other": {"ignored"},
 	}))
 
 	if got := authorizationHeaderFromContext(ctx); got != "" {
