@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -243,6 +244,15 @@ type BedrockConfig struct {
 	// AWS region where the Bedrock model is available (e.g., us-east-1, us-west-2)
 	// +required
 	Region string `json:"region"`
+
+	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields in the Converse API. Use this for provider-specific
+	// options that are not part of the standard InferenceConfiguration block, such as
+	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
+	// Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.
