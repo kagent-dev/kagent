@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -683,12 +684,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				}
 			}
 		}
+		var additionalFields map[string]any
+		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
+			if err := json.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, &additionalFields); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
+			}
+		}
 		bedrock := &adk.Bedrock{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
 				Headers: model.Spec.DefaultHeaders,
 			},
-			Region: model.Spec.Bedrock.Region,
+			Region:                       model.Spec.Bedrock.Region,
+			AdditionalModelRequestFields: additionalFields,
 		}
 
 		// Populate TLS fields in BaseModel
