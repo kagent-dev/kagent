@@ -249,9 +249,19 @@ export interface McpServerTool extends TypedLocalReference {
 
 export type AgentType = "Declarative" | "BYO" | "Sandbox";
 
+/** Single Git repository source for skills. */
+export interface GitRepo {
+  url: string;
+  ref?: string;
+  path?: string;
+  name?: string;
+}
+
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
+  gitAuthSecretRef?: { name: string };
+  gitRefs?: GitRepo[];
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
