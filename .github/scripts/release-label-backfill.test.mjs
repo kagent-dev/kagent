@@ -1,32 +1,71 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyTitle, shouldBackfill } from "./release-label-backfill.mjs";
+import { ensureDependenciesLabel } from "./release-label-backfill.mjs";
 
-test("classifyTitle maps supported conventional prefixes", () => {
-  assert.equal(classifyTitle("feat(ui): add a button"), "enhancement");
-  assert.equal(classifyTitle("fix: handle empty input"), "bug");
-  assert.equal(classifyTitle("docs(api): update README"), "documentation");
-  assert.equal(classifyTitle("test: cover label sweeper"), "testing");
-  assert.equal(classifyTitle("chore(deps): bump lucide-react"), "dependencies");
+test("ensureDependenciesLabel skips creation when the label already exists", async () => {
+  const requests = [];
+  const originalFetch = global.fetch;
+
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url, options });
+    return new Response(JSON.stringify({ name: "dependencies" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await ensureDependenciesLabel({
+      token: "test-token",
+      repository: "kagent-dev/kagent",
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/repos\/kagent-dev\/kagent\/labels\/dependencies$/);
+  assert.equal(requests[0].options.method ?? "GET", "GET");
 });
 
-test("classifyTitle maps supported legacy bracket prefixes", () => {
-  assert.equal(classifyTitle("[FEATURE] add support for x"), "enhancement");
-  assert.equal(classifyTitle("[BUG] fix exporter config"), "bug");
-  assert.equal(classifyTitle("[DOCS] correct the install guide"), "documentation");
-});
+test("ensureDependenciesLabel creates the label when it is missing", async () => {
+  const requests = [];
+  const originalFetch = global.fetch;
 
-test("classifyTitle ignores ambiguous titles", () => {
-  assert.equal(classifyTitle("Add askUser config"), null);
-  assert.equal(classifyTitle("Improve session resilience"), null);
-  assert.equal(classifyTitle("cli: add --provider flag"), null);
-});
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url, options });
 
-test("shouldBackfill skips unlabeled categories only when safe", () => {
-  assert.equal(shouldBackfill([], "enhancement"), true);
-  assert.equal(shouldBackfill(["stale"], "bug"), true);
-  assert.equal(shouldBackfill(["ignore-for-release"], "dependencies"), false);
-  assert.equal(shouldBackfill(["bug"], "bug"), false);
-  assert.equal(shouldBackfill([], null), false);
+    if (requests.length === 1) {
+      return new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ name: "dependencies" }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await ensureDependenciesLabel({
+      token: "test-token",
+      repository: "kagent-dev/kagent",
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].url, /\/repos\/kagent-dev\/kagent\/labels\/dependencies$/);
+  assert.equal(requests[0].options.method ?? "GET", "GET");
+  assert.match(requests[1].url, /\/repos\/kagent-dev\/kagent\/labels$/);
+  assert.equal(requests[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(requests[1].options.body), {
+    name: "dependencies",
+    color: "0366d6",
+    description: "Dependency updates and version bumps",
+  });
 });
