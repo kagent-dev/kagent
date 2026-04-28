@@ -11,6 +11,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/tool"
@@ -20,16 +21,57 @@ import (
 // userIDContextKey is the context key for passing the session user_id to the subagent.
 type userIDContextKey struct{}
 
-// userIDForwardingInterceptor forwards the session user_id as an x-user-id header.
-type userIDForwardingInterceptor struct {
+// authorizationHeaderContextKey is the context key for passing the parent Authorization header to the subagent.
+type authorizationHeaderContextKey struct{}
+
+// subagentForwardingInterceptor forwards x-user-id and the parent Authorization header.
+// Only Authorization is promoted from parent request metadata; all other headers stay scoped to the parent call.
+type subagentForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (u *subagentForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
 	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
 		req.Meta.Append("x-user-id", uid)
 	}
+	if authorization, ok := ctx.Value(authorizationHeaderContextKey{}).(string); ok && authorization != "" {
+		for key := range req.Meta {
+			if strings.EqualFold(key, "authorization") {
+				delete(req.Meta, key)
+			}
+		}
+		req.Meta.Append("Authorization", authorization)
+	}
 	return ctx, nil
+}
+
+func subagentCallContext(ctx tool.Context) context.Context {
+	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	if authorization := authorizationHeaderFromContext(ctx); authorization != "" {
+		sendCtx = context.WithValue(sendCtx, authorizationHeaderContextKey{}, authorization)
+	}
+	return sendCtx
+}
+
+func authorizationHeaderFromContext(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ""
+	}
+	values, ok := meta.Get("authorization")
+	if !ok {
+		return ""
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // remoteA2AInput is the typed argument for the remote A2A function tool.
@@ -121,7 +163,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		}
 		opts = append(opts, a2aclient.WithInterceptors(
 			a2aclient.NewStaticCallMetaInjector(meta),
-			&userIDForwardingInterceptor{},
+			&subagentForwardingInterceptor{},
 		))
 
 		client, err := a2aclient.NewFromCard(ctx, card, opts...)
@@ -159,7 +201,7 @@ func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (
 	)
 	message.ContextID = s.lastContextID
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx := subagentCallContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
@@ -209,7 +251,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 		return map[string]any{"error": err.Error()}, nil
 	}
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx := subagentCallContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
