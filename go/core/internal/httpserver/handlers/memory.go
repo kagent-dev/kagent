@@ -3,10 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/pgvector/pgvector-go"
 )
@@ -69,6 +69,7 @@ type ListMemoryResponse struct {
 
 // AddSession handles POST /api/memories/sessions
 func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
+	log := logr.FromContextOrDiscard(r.Context())
 	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
@@ -106,12 +107,12 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DatabaseService.StoreAgentMemory(r.Context(), memory); err != nil {
-		log.Printf("Failed to store agent memory: %v", err)
+		log.Error(err, "failed to store agent memory")
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory: %v", err))
 		return
 	}
 
-	log.Printf("Successfully added memory ID %s for user %s agent %s", memory.ID, req.UserID, req.AgentName)
+	log.Info("added memory", "id", memory.ID, "user_id", req.UserID, "agent", req.AgentName)
 
 	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
 }
@@ -123,6 +124,7 @@ type AddSessionMemoryBatchRequest struct {
 
 // AddSessionBatch handles POST /api/memories/sessions/batch
 func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) {
+	log := logr.FromContextOrDiscard(r.Context())
 	var req AddSessionMemoryBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
@@ -174,12 +176,12 @@ func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	if err := h.DatabaseService.StoreAgentMemories(r.Context(), memories); err != nil {
-		log.Printf("Failed to store agent memory batch: %v", err)
+		log.Error(err, "failed to store agent memory batch")
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save memory batch: %v", err))
 		return
 	}
 
-	log.Printf("Successfully added %d memory items", len(memories))
+	log.Info("added memory batch", "count", len(memories))
 	RespondWithJSON(w, http.StatusCreated, map[string]int{"count": len(memories)})
 }
 
@@ -242,6 +244,7 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 
 // List handles GET /api/memories and returns all memories for an agent+user, ranked by access frequency
 func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
+	log := logr.FromContextOrDiscard(r.Context())
 	agentName := r.URL.Query().Get("agent_name")
 	userID := r.URL.Query().Get("user_id")
 
@@ -252,7 +255,7 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 
 	memories, err := h.DatabaseService.ListAgentMemories(r.Context(), agentName, userID)
 	if err != nil {
-		log.Printf("Failed to list agent memories: %v", err)
+		log.Error(err, "failed to list agent memories")
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list memories: %v", err))
 		return
 	}
@@ -276,6 +279,7 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/memories
 func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
+	log := logr.FromContextOrDiscard(r.Context())
 	agentName := r.URL.Query().Get("agent_name")
 	userID := r.URL.Query().Get("user_id")
 
@@ -285,7 +289,7 @@ func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	if err := h.DatabaseService.DeleteAgentMemory(r.Context(), agentName, userID); err != nil {
-		log.Printf("Failed to delete agent memory: %v", err)
+		log.Error(err, "failed to delete agent memory")
 		RespondWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to delete memory: %v", err))
 		return
 	}
