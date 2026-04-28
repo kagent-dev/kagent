@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import { ModelConfig, AgentType, ContextConfig } from "@/types";
+import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
@@ -35,6 +35,7 @@ import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/com
 import { ByoDeploymentFields } from "@/components/agent-form/ByoDeploymentFields";
 import { AgentSkillsFormSection } from "@/components/agent-form/AgentSkillsFormSection";
 import { ServiceAccountNameField } from "@/components/agent-form/ServiceAccountNameField";
+import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRuntimeField";
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -85,6 +86,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: string[];
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     stream: boolean;
+    /** Python vs Go ADK (`spec.declarative.runtime`). */
+    declarativeRuntime: DeclarativeRuntime;
     contextConfig: ContextConfig | undefined;
     serviceAccountName: string;
     promptSourceRows: PromptSourceRow[];
@@ -116,6 +119,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
+    declarativeRuntime: "python",
     contextConfig: undefined,
     serviceAccountName: "",
     promptSourceRows: [newPromptSourceRow()],
@@ -222,6 +226,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       : [newEmptyGitSkillRow()],
                   skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
+                  declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
                   selectedMemoryModel: memoryModelConfig
                     ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } }
                     : null,
@@ -304,11 +309,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
         : undefined,
-      context: state.contextConfig,
-      serviceAccountName: state.serviceAccountName,
-    };
+        context: state.contextConfig,
+        serviceAccountName: state.serviceAccountName,
+        ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
+      };
 
-    const newErrors = validateAgentData(formData);
+      const newErrors = validateAgentData(formData);
 
     if (useDeclarativeAgentFields) {
       const skillsError = validateDeclarativeAgentSkills({
@@ -427,6 +433,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               }
             : undefined,
         context: useDeclarativeAgentFields ? state.contextConfig : undefined,
+        declarativeRuntime: useDeclarativeAgentFields ? state.declarativeRuntime : undefined,
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
         byoArgs: state.byoArgs ? state.byoArgs.split(/\s+/).filter(Boolean) : undefined,
@@ -596,6 +603,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </SelectContent>
                 </Select>
               </FieldRoot>
+
+              {useDeclarativeAgentFields && (
+                <DeclarativeRuntimeField
+                  value={state.declarativeRuntime}
+                  onChange={(declarativeRuntime) => setState((prev) => ({ ...prev, declarativeRuntime }))}
+                  disabled={disabled}
+                />
+              )}
 
               <FieldRoot>
                 <FieldLabel htmlFor="agent-desc">Description (optional)</FieldLabel>

@@ -314,7 +314,12 @@ export interface PromptTemplateDetail {
   data: Record<string, string>;
 }
 
+/** Which ADK implementation runs the agent (Kubernetes `spec.declarative.runtime`). */
+export type DeclarativeRuntime = "python" | "go";
+
 export interface DeclarativeAgentSpec {
+  /** ADK implementation: Python (default) or Go (faster cold start). */
+  runtime?: DeclarativeRuntime;
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource

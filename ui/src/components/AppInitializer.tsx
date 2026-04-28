@@ -13,7 +13,11 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY) === "true";
-    setIsOnboarding(!hasOnboarded);
+    // Defer so this isn’t a synchronous setState in the effect body (react-hooks/set-state-in-effect).
+    const id = requestAnimationFrame(() => {
+      setIsOnboarding(!hasOnboarded);
+    });
+    return () => cancelAnimationFrame(id);
   }, []);
 
   const handleOnboardingComplete = () => {
