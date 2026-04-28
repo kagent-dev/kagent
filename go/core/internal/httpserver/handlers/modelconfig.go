@@ -315,9 +315,11 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 }
 
 // validateAPIKeySecretRef returns an error if apiKeySecret is set without apiKeySecretKey
-// for providers that require it (all except Bedrock).
+// for providers that require it (all except Bedrock and SAPAICore).
 func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha2.ModelProvider) error {
-	if apiKeySecret != "" && apiKeySecretKey == "" && provider != v1alpha2.ModelProviderBedrock {
+	if apiKeySecret != "" && apiKeySecretKey == "" &&
+		provider != v1alpha2.ModelProviderBedrock &&
+		provider != v1alpha2.ModelProviderSAPAICore {
 		return fmt.Errorf("apiKeySecretKey is required when apiKeySecret is set")
 	}
 	return nil

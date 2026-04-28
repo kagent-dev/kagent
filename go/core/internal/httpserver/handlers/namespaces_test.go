@@ -10,11 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
@@ -34,8 +37,9 @@ func TestNamespacesHandler(t *testing.T) {
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
+			WatchedNamespaces:  watchedNamespaces,
 		}
-		handler := handlers.NewNamespacesHandler(base, watchedNamespaces)
+		handler := handlers.NewNamespacesHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, kubeClient, responseRecorder
 	}
@@ -161,12 +165,16 @@ func TestNamespacesHandler(t *testing.T) {
 			// Check that only watched namespaces are returned
 			assert.Len(t, responseNamespaces.Data, 2)
 			namespaceNames := make([]string, len(responseNamespaces.Data))
+			namespaceStatuses := make(map[string]string)
 			for i, ns := range responseNamespaces.Data {
 				namespaceNames[i] = ns.Name
+				namespaceStatuses[ns.Name] = ns.Status
 			}
 			assert.Contains(t, namespaceNames, "default")
 			assert.Contains(t, namespaceNames, "test-ns")
 			assert.NotContains(t, namespaceNames, "kube-system")
+			assert.Equal(t, "Active", namespaceStatuses["default"])
+			assert.Equal(t, "Active", namespaceStatuses["test-ns"])
 		})
 
 		t.Run("Success_WatchedNamespaceNotFound", func(t *testing.T) {
@@ -192,7 +200,7 @@ func TestNamespacesHandler(t *testing.T) {
 			err = json.Unmarshal(responseRecorder.Body.Bytes(), &responseNamespaces)
 			require.NoError(t, err)
 
-			// Check that only existing watched namespaces were returned
+			// Check that only existing watched namespaces were returned.
 			assert.Len(t, responseNamespaces.Data, 2)
 			namespaceNames := make([]string, len(responseNamespaces.Data))
 			for i, ns := range responseNamespaces.Data {
@@ -226,7 +234,7 @@ func TestNamespacesHandler(t *testing.T) {
 			err = json.Unmarshal(responseRecorder.Body.Bytes(), &responseNamespaces)
 			require.NoError(t, err)
 
-			// We should get an empty list because we are only watching non-existent namespaces
+			// We should get an empty list because we are only watching non-existent namespaces.
 			assert.Len(t, responseNamespaces.Data, 0)
 		})
 
@@ -243,6 +251,39 @@ func TestNamespacesHandler(t *testing.T) {
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &responseNamespaces)
 			require.NoError(t, err)
 			assert.Len(t, responseNamespaces.Data, 0)
+		})
+
+		t.Run("Success_FallbackToConfiguredWatchedNamespacesWhenNamespaceReadsForbidden", func(t *testing.T) {
+			watchedNamespaces := []string{"default", "team-a"}
+			handler, _, responseRecorder := setupHandler(watchedNamespaces)
+
+			// Replace kubeClient with one that returns Forbidden for Namespace reads,
+			// simulating namespaced RBAC where the controller cannot list/get Namespaces.
+			handler.KubeClient = fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c ctrl_client.WithWatch, key ctrl_client.ObjectKey, obj ctrl_client.Object, opts ...ctrl_client.GetOption) error {
+						if _, ok := obj.(*corev1.Namespace); ok {
+							return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).
+				Build()
+
+			req := httptest.NewRequest("GET", "/api/namespaces", nil)
+			handler.HandleListNamespaces(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var responseNamespaces api.StandardResponse[[]api.NamespaceResponse]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &responseNamespaces)
+			require.NoError(t, err)
+			assert.Len(t, responseNamespaces.Data, 2)
+			assert.Equal(t, "default", responseNamespaces.Data[0].Name)
+			assert.Equal(t, "", responseNamespaces.Data[0].Status)
+			assert.Equal(t, "team-a", responseNamespaces.Data[1].Name)
+			assert.Equal(t, "", responseNamespaces.Data[1].Status)
 		})
 	})
 }

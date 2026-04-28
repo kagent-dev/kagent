@@ -92,18 +92,9 @@
   - watch
 {{- end -}}
 
-{{- if .Values.rbac.clusterScoped }}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "kagent.fullname" . }}-getter-role
-  labels:
-    {{- include "kagent.labels" . | nindent 4 }}
-rules:
-  {{- include "kagent.getter.rules" . | nindent 2 }}
-{{- else }}
-{{- $namespaces := .Values.rbac.namespaces | default (list (include "kagent.namespace" .)) }}
-{{- range $namespace := $namespaces }}
+{{- include "kagent.rbac.validate" . -}}
+{{- if .Values.rbac.namespaces }}
+{{- range $namespace := (.Values.rbac.namespaces | uniq | sortAlpha) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -115,4 +106,13 @@ metadata:
 rules:
   {{- include "kagent.getter.rules" $ | nindent 2 }}
 {{- end }}
+{{- else }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-getter-role
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+  {{- include "kagent.getter.rules" . | nindent 2 }}
 {{- end }}

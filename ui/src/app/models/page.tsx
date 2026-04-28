@@ -7,7 +7,7 @@ import { ModelConfig, ModelConfigSpec } from "@/types";
 
 function getProviderParams(spec: ModelConfigSpec) {
   return spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-    spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? undefined;
+    spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? undefined;
 }
 import { getModelConfigs, deleteModelConfig } from "@/app/actions/modelConfigs";
 import { LoadingState } from "@/components/LoadingState";

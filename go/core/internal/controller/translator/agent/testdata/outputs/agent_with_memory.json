@@ -13,6 +13,7 @@
     ],
     "description": "",
     "name": "agent_with_memory",
+    "preferredTransport": "JSONRPC",
     "skills": null,
     "url": "http://agent-with-memory.test:8080",
     "version": ""
@@ -64,7 +65,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_memory\",\"description\":\"\",\"url\":\"http://agent-with-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[]}",
+        "agent-card.json": "{\"name\":\"agent_with_memory\",\"description\":\"\",\"url\":\"http://agent-with-memory.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"base_url\":\"\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with memory. Save important findings and use past context when relevant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"openai\",\"model\":\"text-embedding-3-small\"}}}"
       }
     },
@@ -134,7 +135,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "1999148884398233434"
+              "kagent.dev/config-hash": "11340664467578377382"
             },
             "labels": {
               "app": "kagent",

@@ -168,8 +168,9 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 }
 
 func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translator.AdkApiTranslator {
-	return agent_translator.NewAdkApiTranslator(
+	return agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		kubeClient,
+		h.WatchedNamespaces,
 		h.DefaultModelConfig,
 		nil,
 		h.ProxyURL,

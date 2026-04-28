@@ -1,0 +1,64 @@
+suite: test ui config configmap
+templates:
+  - ui-nginx-configmap.yaml
+tests:
+  - it: should render the unified UI ConfigMap
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui-config
+      - exists:
+          path: data["nginx.conf"]
+      - exists:
+          path: data["supervisord.conf"]
+
+  - it: should only have IPv4 listen by default
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen 8080;"
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen \\[::\\]:8080;"
+
+  - it: should add IPv6 listen when ipv6 is enabled
+    template: ui-nginx-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen 8080;"
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "listen \\[::\\]:8080;"
+
+  - it: should use IPv4 HOSTNAME by default
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="0\.0\.0\.0"'
+      - notMatchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="::"'
+
+  - it: should use dual-stack HOSTNAME when ipv6 is enabled
+    template: ui-nginx-configmap.yaml
+    set:
+      ipv6:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="::"'
+      - notMatchRegex:
+          path: data["supervisord.conf"]
+          pattern: 'HOSTNAME="0\.0\.0\.0"'

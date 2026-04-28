@@ -8,24 +8,19 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	corev1 "k8s.io/api/core/v1"
-	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // NamespacesHandler handles namespace-related requests
 type NamespacesHandler struct {
 	*Base
-	// List of namespaces being watched, empty means watch all. Used for listing namespaces.
-	// Can be moved to the base handler if any other handlers need it
-	WatchedNamespaces []string
 }
 
 // NewNamespacesHandler creates a new NamespacesHandler
-func NewNamespacesHandler(base *Base, watchedNamespaces []string) *NamespacesHandler {
-	return &NamespacesHandler{
-		Base:              base,
-		WatchedNamespaces: watchedNamespaces,
-	}
+func NewNamespacesHandler(base *Base) *NamespacesHandler {
+	return &NamespacesHandler{Base: base}
 }
 
 // HandleListNamespaces returns a list of namespaces based on the watch configuration
@@ -59,31 +54,42 @@ func (h *NamespacesHandler) HandleListNamespaces(w ErrorResponseWriter, r *http.
 		return
 	}
 
-	// Filter to only show watched namespaces that exist in the cluster
-	log.Info("Listing watched namespaces only", "watchedNamespaces", h.WatchedNamespaces)
-	var namespaces []api.NamespaceResponse
-
+	// Enrich each watched namespace with live status from the API server when
+	// namespace reads are permitted. If reads are forbidden or unauthorized,
+	// fall back to the configured watch list without status information.
+	log.Info("Listing configured watched namespaces only", "watchedNamespaces", h.WatchedNamespaces)
+	namespaces := make([]api.NamespaceResponse, 0, len(h.WatchedNamespaces))
 	for _, watchedNS := range h.WatchedNamespaces {
 		namespace := &corev1.Namespace{}
-		if err := h.KubeClient.Get(r.Context(), ctrl_client.ObjectKey{Name: watchedNS}, namespace); err != nil {
-			if ctrl_client.IgnoreNotFound(err) != nil {
-				log.Error(err, "Failed to get namespace", "namespace", watchedNS)
-				continue // Skip this namespace
+		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Name: watchedNS}, namespace); err != nil {
+			if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+				namespaces = namespaceResponsesFromNames(h.WatchedNamespaces)
+				break
 			}
-			log.Info("Watched namespace not found", "namespace", watchedNS)
+			if apierrors.IsNotFound(err) {
+				log.Info("Skipping watched namespace that was not found", "namespace", watchedNS)
+				continue
+			}
+			log.Error(err, "Failed to get namespace", "namespace", watchedNS)
 			continue
 		}
-
 		namespaces = append(namespaces, api.NamespaceResponse{
 			Name:   namespace.Name,
 			Status: string(namespace.Status.Phase),
 		})
 	}
-
 	slices.SortStableFunc(namespaces, func(i, j api.NamespaceResponse) int {
 		return strings.Compare(strings.ToLower(i.Name), strings.ToLower(j.Name))
 	})
 
 	data := api.NewResponse(namespaces, "Successfully listed namespaces", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+func namespaceResponsesFromNames(names []string) []api.NamespaceResponse {
+	responses := make([]api.NamespaceResponse, 0, len(names))
+	for _, name := range names {
+		responses = append(responses, api.NamespaceResponse{Name: name})
+	}
+	return responses
 }

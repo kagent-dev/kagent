@@ -57,6 +57,15 @@ data:
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  {{- $agentHost := "" }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}
+  {{- $agentHost = .Values.controller.agentDeployment.host }}
+  {{- else if .Values.ipv6.enabled }}
+  {{- $agentHost = "::" }}
+  {{- end }}
+  {{- if $agentHost }}
+  DEFAULT_AGENT_BIND_HOST: {{ $agentHost | quote }}
+  {{- end }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
   DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
   {{- end }}

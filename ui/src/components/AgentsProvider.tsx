@@ -13,6 +13,7 @@ import type {
   AgentType,
   EnvVar,
   ContextConfig,
+  GitRepo,
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
@@ -44,8 +45,10 @@ export interface AgentFormData {
   modelName?: string;
   tools: Tool[];
   stream?: boolean;
-  // Skills
+  // Skills (OCI container refs and/or Git repositories; at least one list may be set)
   skillRefs?: string[];
+  skillGitRepos?: GitRepo[];
+  skillsGitAuthSecretName?: string;
   // Memory
   memory?: {
     modelConfig?: string;

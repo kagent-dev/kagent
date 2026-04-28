@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit, ShieldAlert } from "lucide-react";
-import type { AgentResponse, Tool, ToolsResponse } from "@/types";
+import { ChevronRight, Edit, GitBranch, ShieldAlert } from "lucide-react";
+import type { AgentResponse, GitRepo, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
@@ -265,19 +265,22 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
               </SidebarGroup>
             )}
 
-            {isDeclarativeLikeAgent && selectedTeam?.agent.spec?.skills?.refs && selectedTeam.agent.spec.skills.refs.length > 0 && (
+            {isDeclarativeLikeAgent && (() => {
+              const oci = selectedTeam?.agent.spec?.skills?.refs ?? [];
+              const git = selectedTeam?.agent.spec?.skills?.gitRefs ?? [];
+              if (oci.length + git.length === 0) return null;
+              return (
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <div className="flex items-center justify-between px-2 mb-2">
                   <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
                   <Badge variant="secondary" className="h-5">
-                    {selectedTeam.agent.spec.skills.refs.length}
+                    {oci.length + git.length}
                   </Badge>
                 </div>
                 <SidebarMenu>
                   <TooltipProvider>
-                    {selectedTeam.agent.spec.skills.refs.map((skillRef, index) => {
+                    {oci.map((skillRef, index) => {
                       // Parse OCI image reference: [registry/]repository[:tag][@digest]
-                      // Groups: (1) registry, (2) repository, (3) tag, (4) digest
                       const refMatch = skillRef.match(
                         /^(?:((?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+(?::\d+)?|localhost(?::\d+)?|[a-zA-Z0-9-]+:\d+)\/)?([^:@]+)(?::([^@]+))?(?:@(.+))?$/
                       );
@@ -286,14 +289,12 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                       const tag = refMatch?.[3] ?? null;
                       const digest = refMatch?.[4] ?? null;
 
-                      // Only show a version badge when the ref was successfully parsed.
-                      // Truncate digests to keep the badge compact.
                       const versionBadge = refMatch
                         ? tag ?? (digest ? (digest.length > 16 ? digest.substring(0, 16) + "\u2026" : digest) : "latest")
                         : null;
                       const displayName = repoName ?? skillRef;
                       return (
-                        <SidebarMenuItem key={index}>
+                        <SidebarMenuItem key={`oci-${index}`}>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <SidebarMenuButton className="w-full h-auto py-2">
@@ -321,10 +322,63 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
                         </SidebarMenuItem>
                       );
                     })}
+                    {git.map((g: GitRepo, index) => {
+                      const refLabel = g.ref?.trim() || "main";
+                      const fromUrl = g.url
+                        ?.split("/")
+                        .filter(Boolean)
+                        .pop()
+                        ?.replace(/\.git$/i, "");
+                      const displayName = (g.name && g.name.trim()) || fromUrl || "Git";
+                      const linkHref = (g.url || "").trim();
+                      const rowInner = (
+                        <div className="flex items-center w-full min-w-0 justify-between gap-2">
+                          <span className="truncate text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
+                            <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            <span className="truncate">{displayName}</span>
+                          </span>
+                          <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                            {refLabel}
+                          </span>
+                        </div>
+                      );
+                      return (
+                        <SidebarMenuItem key={`git-${index}`}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              {linkHref ? (
+                                <SidebarMenuButton asChild className="w-full h-auto py-2">
+                                  <a
+                                    href={linkHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="no-underline cursor-pointer"
+                                    aria-label={`Open ${displayName} repository in a new tab`}
+                                  >
+                                    {rowInner}
+                                  </a>
+                                </SidebarMenuButton>
+                              ) : (
+                                <SidebarMenuButton className="w-full h-auto py-2 cursor-default" type="button">
+                                  {rowInner}
+                                </SidebarMenuButton>
+                              )}
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-sm">
+                              <p className="text-xs">Name: {displayName}</p>
+                              {g.path && (
+                                <p className="text-xs mt-1">Path: {g.path}</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </TooltipProvider>
                 </SidebarMenu>
               </SidebarGroup>
-            )}
+              );
+            })()}
 
           </ScrollArea>
         </SidebarContent>

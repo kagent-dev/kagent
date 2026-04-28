@@ -43,6 +43,13 @@ jobs:
         uses: actions/checkout@v6
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # unprivileged user namespaces by default, which causes bubblewrap
+        # to fail with EPERM on unshare(CLONE_NEWUSER)
+        # See https://github.com/openai/codex/issues/14919
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
@@ -121,7 +128,6 @@ jobs:
         env:
           OPENAI_API_KEY: fake
           KAGENT_HELM_EXTRA_ARGS: >-
-            --set rbac.clusterScoped=false
             --set 'rbac.namespaces={kagent}'
         run: |
           # Upgrade helm to use namespace-scoped RBAC
@@ -199,16 +205,12 @@ jobs:
 
   ui-tests:
     runs-on: ubuntu-latest
-    env:
-      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
     permissions:
       contents: read
       pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -238,19 +240,6 @@ jobs:
       - name: Run Storybook tests (Vitest + Playwright)
         working-directory: ./ui
         run: npm run test:vitest
-
-      - name: Build Storybook
-        working-directory: ./ui
-        run: npm run build-storybook
-
-      - name: Publish to Chromatic
-        # Requires repo secret CHROMATIC_PROJECT_TOKEN. Skipped when unset, or on fork PRs (no token access).
-        if: ${{ env.CHROMATIC_PROJECT_TOKEN != '' && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: chromaui/action@v16.1.0
-        with:
-          projectToken: ${{ env.CHROMATIC_PROJECT_TOKEN }}
-          workingDir: ui
-          storybookBuildDir: storybook-static
 
   # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
   build:

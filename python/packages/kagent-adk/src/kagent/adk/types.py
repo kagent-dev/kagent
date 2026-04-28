@@ -238,7 +238,14 @@ class Bedrock(BaseLLM):
     type: Literal["bedrock"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock]
+class SAPAICore(BaseLLM):
+    base_url: str | None = None
+    resource_group: str = "default"
+    auth_url: str | None = None
+    type: Literal["sap_ai_core"]
+
+
+ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -559,10 +566,22 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     if model_config.type == "gemini":
         return model_config.model
     if model_config.type == "bedrock":
-        # api key passthrough is not applicable for bedrock
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+        )
+    if model_config.type == "sap_ai_core":
+        from .models._sap_ai_core import KAgentSAPAICoreLlm
+
+        return KAgentSAPAICoreLlm(
+            model=model_config.model,
+            base_url=base_url,
+            resource_group=model_config.resource_group,
+            auth_url=model_config.auth_url,
+            api_key_passthrough=model_config.api_key_passthrough,
+            tls_disable_verify=model_config.tls_disable_verify or False,
+            tls_ca_cert_path=model_config.tls_ca_cert_path,
+            tls_disable_system_cas=model_config.tls_disable_system_cas or False,
         )
     raise ValueError(f"Invalid model type: {model_config.type}")
 
