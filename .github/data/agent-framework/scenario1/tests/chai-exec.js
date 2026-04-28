@@ -57,7 +57,7 @@ global = {
   },
 
   checkDeploymentHasPod: async ({ context, namespace, deployment }) => {
-    let command = "kubectl --context " + context + " -n " + namespace + " get deploy " + deployment + " -o name'";
+    let command = "kubectl --context " + context + " -n " + namespace + " get deploy " + deployment + " -o name";
     debugLog(`Executing command: ${command}`);
     let cli = chaiExec(command);
 
