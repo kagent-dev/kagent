@@ -155,13 +155,25 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- end -}}
 
 {{/*
+Cluster Domain Suffix - checks if user has explicitly stated a clusterDomain.
+If so, it appends .svc.<clusterDomain>, otherwise it defaults to .svc
+*/}}
+{{- define "kagent.clusterDomainSuffix" -}}
+{{- if .Values.clusterDomain -}}
+{{- printf ".svc.%s" .Values.clusterDomain -}}
+{{- else -}}
+{{- ".svc" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 A2A Base URL - computes the default URL based on the controller service name if not explicitly set
 */}}
 {{- define "kagent.a2aBaseUrl" -}}
 {{- if .Values.controller.a2aBaseUrl -}}
 {{- .Values.controller.a2aBaseUrl -}}
 {{- else -}}
-{{- printf "http://%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "http://%s-controller.%s%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (include "kagent.clusterDomainSuffix" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 {{- end -}}
 

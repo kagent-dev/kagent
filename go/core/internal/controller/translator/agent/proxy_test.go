@@ -119,7 +119,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			kubeClient,
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
-			"http://proxy.kagent.svc.cluster.local:8080",
+			"http://proxy.kagent.svc:8080",
 			nil,
 		)
 
@@ -131,14 +131,14 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		// Verify agent tool proxy configuration
 		require.Len(t, result.Config.RemoteAgents, 1)
 		remoteAgent := result.Config.RemoteAgents[0]
-		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080", remoteAgent.Url)
+		assert.Equal(t, "http://proxy.kagent.svc:8080", remoteAgent.Url)
 		assert.NotNil(t, remoteAgent.Headers)
 		assert.Equal(t, "nested-agent.test", remoteAgent.Headers[agenttranslator.ProxyHostHeader])
 
 		// Verify RemoteMCPServer with internal k8s URL DOES use proxy
 		require.Len(t, result.Config.HttpTools, 1)
 		httpTool := result.Config.HttpTools[0]
-		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
+		assert.Equal(t, "http://proxy.kagent.svc:8080/mcp", httpTool.Params.Url)
 		// Proxy header should be set for RemoteMCPServer with internal k8s URL (uses proxy)
 		require.NotNil(t, httpTool.Params.Headers)
 		assert.Equal(t, "test-mcp-server.kagent", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
@@ -254,14 +254,14 @@ func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenName
 		[]string{"test", "kagent"},
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
-		"http://proxy.kagent.svc.cluster.local:8080",
+		"http://proxy.kagent.svc:8080",
 		nil,
 	)
 
 	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
 	require.NoError(t, err)
 	require.Len(t, result.Config.HttpTools, 1)
-	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", result.Config.HttpTools[0].Params.Url)
+	assert.Equal(t, "http://proxy.kagent.svc:8080/mcp", result.Config.HttpTools[0].Params.Url)
 	assert.Equal(t, "test-mcp-server.kagent", result.Config.HttpTools[0].Params.Headers[agenttranslator.ProxyHostHeader])
 }
 
@@ -336,7 +336,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
-		"http://proxy.kagent.svc.cluster.local:8080",
+		"http://proxy.kagent.svc:8080",
 		nil,
 	)
 
@@ -429,7 +429,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
-		"http://proxy.kagent.svc.cluster.local:8080",
+		"http://proxy.kagent.svc:8080",
 		nil,
 	)
 
@@ -441,7 +441,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 	// Verify MCPServer uses proxy
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
-	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
+	assert.Equal(t, "http://proxy.kagent.svc:8080/mcp", httpTool.Params.Url)
 	// Proxy header should be set for MCPServer (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
 	assert.Equal(t, "test-mcp-server.test", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])
@@ -527,7 +527,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		kubeClient,
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
-		"http://proxy.kagent.svc.cluster.local:8080",
+		"http://proxy.kagent.svc:8080",
 		nil,
 	)
 
@@ -539,7 +539,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 	// Verify Service uses proxy
 	require.Len(t, result.Config.HttpTools, 1)
 	httpTool := result.Config.HttpTools[0]
-	assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/mcp", httpTool.Params.Url)
+	assert.Equal(t, "http://proxy.kagent.svc:8080/mcp", httpTool.Params.Url)
 	// Proxy header should be set for Service (uses proxy)
 	require.NotNil(t, httpTool.Params.Headers)
 	assert.Equal(t, "test-service.test", httpTool.Params.Headers[agenttranslator.ProxyHostHeader])

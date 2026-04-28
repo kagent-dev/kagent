@@ -25,7 +25,7 @@ describe('URL Generation Utilities', () => {
         value: 'production',
         configurable: true
       });
-      expect(getBackendUrl()).toBe('http://kagent.kagent.svc.cluster.local/api');
+      expect(getBackendUrl()).toBe('http://kagent.kagent.svc/api');
     });
 
     it('should use default development URL', () => {
