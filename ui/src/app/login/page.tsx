@@ -1,5 +1,7 @@
 import Link from "next/link";
 import KagentLogo from "@/components/kagent-logo";
+import { skipToContentLinkClassName } from "@/lib/skipToContent";
+import { cn } from "@/lib/utils";
 
 // SSO redirect path - defaults to oauth2-proxy's start endpoint
 const SSO_REDIRECT_PATH = process.env.SSO_REDIRECT_PATH || "/oauth2/start";
@@ -10,7 +12,13 @@ export default function LoginPage() {
       {/* Preload background image for faster rendering */}
       <link rel="preload" href="/login-bg.webp" as="image" type="image/webp" fetchPriority="high" />
 
-      <div className="login-page fixed inset-0 bg-[#0B0B15] text-white overflow-hidden z-50">
+      <div className="login-page relative fixed inset-0 z-50 overflow-hidden bg-[#0B0B15] text-white">
+        <a
+          href="#login-main"
+          className={cn(skipToContentLinkClassName, "text-white/90")}
+        >
+          Skip to content
+        </a>
         {/* Background image with fade-in animation */}
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat animate-in fade-in duration-500 z-0"
@@ -25,12 +33,19 @@ export default function LoginPage() {
           </div>
         </header>
 
-        {/* Main Content */}
-        <main className="relative z-10 h-full flex flex-col justify-center items-center text-center p-5">
-          <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-6 py-8 md:px-12 md:py-10 max-w-[700px] flex flex-col items-center animate-in fade-in duration-500 delay-150 fill-mode-backwards">
-            <h1 className="flex items-center gap-3 md:gap-5 font-extrabold text-4xl md:text-[6rem] leading-tight tracking-tighter mb-4 text-white [text-shadow:0_0_20px_rgba(168,85,247,0.6),0_0_60px_rgba(168,85,247,0.4)]">
-              <KagentLogo className="w-20 h-20" />
-              <span>kagent</span>
+        <main
+          id="login-main"
+          className="relative z-10 flex h-full flex-col items-center justify-center p-5 text-center outline-none focus:outline-none scroll-mt-8"
+          tabIndex={-1}
+          aria-labelledby="login-title"
+        >
+          <div className="max-w-[700px] flex flex-col items-center rounded-2xl border border-white/10 bg-white/5 px-6 py-8 shadow-sm backdrop-blur-md animate-in fade-in duration-500 delay-150 fill-mode-backwards md:px-12 md:py-10">
+            <h1
+              id="login-title"
+              className="mb-4 flex items-center gap-3 text-4xl font-extrabold leading-tight tracking-tighter text-white md:gap-5 md:text-[6rem] [text-shadow:0_0_20px_rgba(168,85,247,0.6),0_0_60px_rgba(168,85,247,0.4)]"
+            >
+              <KagentLogo className="h-20 w-20" />
+              <span className="text-balance">kagent</span>
             </h1>
             <p className="text-lg md:text-2xl text-gray-300 max-w-[600px] font-normal mb-10 leading-relaxed">
               Bringing Agentic AI to cloud native

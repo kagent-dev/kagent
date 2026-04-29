@@ -14,6 +14,7 @@ import type {
   EnvVar,
   ContextConfig,
   GitRepo,
+  DeclarativeRuntime,
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
@@ -40,6 +41,8 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
+  /** Python vs Go ADK for declarative / sandbox (non-BYO) workloads. */
+  declarativeRuntime?: DeclarativeRuntime;
   // Declarative fields
   systemPrompt?: string;
   modelName?: string;
