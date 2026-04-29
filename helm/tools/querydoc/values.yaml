@@ -1,4 +1,4 @@
-replicaCount: 1
+replicas: 1
 
 image:
   registry: ghcr.io
@@ -39,7 +39,7 @@ logLevel: info
 # MCP server configuration
 config:
 
-# Secret configuration  
+# Secret configuration
 openai:
   apiKey: ""
 

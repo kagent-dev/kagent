@@ -392,7 +392,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.APIKeySecret}
 
 		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
-			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.APIKeySecret, kubeErr))
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %w", modelConfig.Spec.APIKeySecret, kubeErr))
 		} else {
 			secrets = append(secrets, secretRef{
 				NamespacedName: namespacedName,
@@ -407,7 +407,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: modelConfig.Spec.TLS.CACertSecretRef}
 
 		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
-			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %v", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
+			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %w", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
 		} else {
 			secrets = append(secrets, secretRef{
 				NamespacedName: namespacedName,
