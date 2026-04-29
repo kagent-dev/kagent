@@ -257,10 +257,6 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        <span className="font-medium text-foreground">Require approval</span> appears for each{" "}
-        <span className="font-medium text-foreground">MCP tool</span> (blue icon). It is not shown for agents used as tools (green icon); configure those sub-agents separately if they expose MCP tools.
-      </p>
       {selectedTools.length > 0 && (
         <div className="flex justify-between items-center">
           <h3 className="text-sm font-medium">Selected Tools and Agents</h3>
