@@ -48,12 +48,12 @@ func sanitizeBedrockToolID(id string, idMap map[string]string, counter *int) str
 // BedrockConfig holds Bedrock configuration for the Converse API
 type BedrockConfig struct {
 	TransportConfig
-	Model       string
-	Region      string
-	MaxTokens   *int
-	Temperature *float64
-	TopP        *float64
-	TopK        *int
+	Model                        string
+	Region                       string
+	MaxTokens                    *int
+	Temperature                  *float64
+	TopP                         *float64
+	AdditionalModelRequestFields map[string]any
 }
 
 // BedrockModel implements model.LLM for Amazon Bedrock using the Converse API.
@@ -158,26 +158,41 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 			}
 		}
 
+		// Build model-specific additional fields (Claude top_k, thinking, etc.)
+		additionalFields := m.buildAdditionalModelRequestFields()
+
 		// Set telemetry attributes
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		if stream {
-			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, yield)
+			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, yield)
 		} else {
-			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, yield)
+			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, yield)
 		}
 	}
 }
 
+// buildAdditionalModelRequestFields returns a document.Interface containing
+// model-specific parameters that are not part of InferenceConfiguration.
+// The raw map is forwarded as-is to the Bedrock Converse API.
+// Returns nil when no extra fields are configured.
+func (m *BedrockModel) buildAdditionalModelRequestFields() document.Interface {
+	if len(m.Config.AdditionalModelRequestFields) == 0 {
+		return nil
+	}
+	return document.NewLazyDocument(m.Config.AdditionalModelRequestFields)
+}
+
 // generateStreaming handles streaming responses from Bedrock ConverseStream.
 // It properly handles both text and tool use content blocks during streaming.
-func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, yield func(*model.LLMResponse, error) bool) {
+func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.ConverseStream(ctx, &bedrockruntime.ConverseStreamInput{
-		ModelId:         aws.String(modelId),
-		Messages:        messages,
-		System:          systemPrompt,
-		InferenceConfig: inferenceConfig,
-		ToolConfig:      toolConfig,
+		ModelId:                      aws.String(modelId),
+		Messages:                     messages,
+		System:                       systemPrompt,
+		InferenceConfig:              inferenceConfig,
+		ToolConfig:                   toolConfig,
+		AdditionalModelRequestFields: additionalFields,
 	})
 
 	if err != nil {
@@ -323,13 +338,14 @@ func (tc *streamingToolCall) parseArgs() map[string]any {
 }
 
 // generateNonStreaming handles non-streaming responses from Bedrock Converse.
-func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, yield func(*model.LLMResponse, error) bool) {
+func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.Converse(ctx, &bedrockruntime.ConverseInput{
-		ModelId:         aws.String(modelId),
-		Messages:        messages,
-		System:          systemPrompt,
-		InferenceConfig: inferenceConfig,
-		ToolConfig:      toolConfig,
+		ModelId:                      aws.String(modelId),
+		Messages:                     messages,
+		System:                       systemPrompt,
+		InferenceConfig:              inferenceConfig,
+		ToolConfig:                   toolConfig,
+		AdditionalModelRequestFields: additionalFields,
 	})
 
 	if err != nil {

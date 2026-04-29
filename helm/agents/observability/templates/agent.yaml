@@ -9,6 +9,7 @@ spec:
   description: An Observability-oriented Agent specialized in using Prometheus, Grafana, and Kubernetes for monitoring and observability. This agent is equipped with a range of tools to query Prometheus for metrics, create Grafana dashboards, and verify Kubernetes resources.
   type: Declarative
   declarative:
+    runtime: {{ .Values.runtime | default "python" }}
     systemMessage: |
       # Observability AI Agent System Prompt
 
