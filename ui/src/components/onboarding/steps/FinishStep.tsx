@@ -2,8 +2,28 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from "@/components/ui/separator";
-import { Linkedin, X, CheckCircle2 } from 'lucide-react';
+import { X, CheckCircle2 } from 'lucide-react';
 import { K8S_AGENT_DEFAULTS } from '../OnboardingWizard';
+
+function LinkedinIcon({ className }: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+            aria-hidden="true"
+        >
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z" />
+            <rect width="4" height="12" x="2" y="9" />
+            <circle cx="4" cy="4" r="2" />
+        </svg>
+    );
+}
 
 
 interface FinishStepProps {
@@ -34,7 +54,7 @@ export function FinishStep({ agentName, onFinish, shareOnTwitter, shareOnLinkedI
                             <X className="w-4 h-4 mr-2" /> Share on X
                         </Button>
                         <Button variant="outline" size="sm" onClick={shareOnLinkedIn}>
-                            <Linkedin className="w-4 h-4 mr-2" /> Share on LinkedIn
+                            <LinkedinIcon className="w-4 h-4 mr-2" /> Share on LinkedIn
                         </Button>
                     </div>
                 </div>
