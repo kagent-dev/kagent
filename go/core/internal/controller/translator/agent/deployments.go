@@ -106,6 +106,22 @@ func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 	}
 }
 
+// validateExtraContainers checks that none of the extra containers use the
+// reserved name "kagent" and that no two containers share the same name.
+func validateExtraContainers(containers []corev1.Container) error {
+	seen := make(map[string]bool)
+	for _, c := range containers {
+		if c.Name == "kagent" {
+			return fmt.Errorf("extraContainers: %q is a reserved container name", c.Name)
+		}
+		if seen[c.Name] {
+			return fmt.Errorf("extraContainers: duplicate container name %q", c.Name)
+		}
+		seen[c.Name] = true
+	}
+	return nil
+}
+
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	// Defaults
@@ -160,6 +176,10 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		if !alreadyPresent {
 			spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
 		}
+	}
+
+	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
+		return nil, err
 	}
 
 	dep := &resolvedDeployment{
@@ -241,6 +261,10 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 	replicas := spec.Replicas
 	if replicas == nil {
 		replicas = new(int32(1))
+	}
+
+	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
+		return nil, err
 	}
 
 	dep := &resolvedDeployment{
