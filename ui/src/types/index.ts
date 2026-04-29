@@ -225,6 +225,9 @@ export interface ToolsResponse {
 export interface ResourceMetadata {
   name: string;
   namespace?: string;
+  /** ISO/RFC3339 from Kubernetes `metadata.creationTimestamp` */
+  creationTimestamp?: string;
+  resourceVersion?: string;
 }
 
 export type ToolProviderType = "McpServer" | "Agent"
@@ -311,7 +314,12 @@ export interface PromptTemplateDetail {
   data: Record<string, string>;
 }
 
+/** Which ADK implementation runs the agent (Kubernetes `spec.declarative.runtime`). */
+export type DeclarativeRuntime = "python" | "go";
+
 export interface DeclarativeAgentSpec {
+  /** ADK implementation: Python (default) or Go (faster cold start). */
+  runtime?: DeclarativeRuntime;
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource
@@ -396,6 +404,8 @@ export interface Agent {
       status: string;
       reason?: string;
       message?: string;
+      /** RFC3339 from `lastTransitionTime` on Agent conditions */
+      lastTransitionTime?: string;
     }>;
   };
 }
