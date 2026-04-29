@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-logr/logr"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/pgvector/pgvector-go"
 )
@@ -69,7 +70,7 @@ type ListMemoryResponse struct {
 
 // AddSession handles POST /api/memories/sessions
 func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
-	log := logr.FromContextOrDiscard(r.Context())
+	log := ctrllog.FromContext(r.Context())
 	var req AddSessionMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
@@ -124,7 +125,7 @@ type AddSessionMemoryBatchRequest struct {
 
 // AddSessionBatch handles POST /api/memories/sessions/batch
 func (h *MemoryHandler) AddSessionBatch(w ErrorResponseWriter, r *http.Request) {
-	log := logr.FromContextOrDiscard(r.Context())
+	log := ctrllog.FromContext(r.Context())
 	var req AddSessionMemoryBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithError(w, http.StatusBadRequest, "Invalid request body")
@@ -244,7 +245,7 @@ func (h *MemoryHandler) Search(w ErrorResponseWriter, r *http.Request) {
 
 // List handles GET /api/memories and returns all memories for an agent+user, ranked by access frequency
 func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
-	log := logr.FromContextOrDiscard(r.Context())
+	log := ctrllog.FromContext(r.Context())
 	agentName := r.URL.Query().Get("agent_name")
 	userID := r.URL.Query().Get("user_id")
 
@@ -279,7 +280,7 @@ func (h *MemoryHandler) List(w ErrorResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /api/memories
 func (h *MemoryHandler) Delete(w ErrorResponseWriter, r *http.Request) {
-	log := logr.FromContextOrDiscard(r.Context())
+	log := ctrllog.FromContext(r.Context())
 	agentName := r.URL.Query().Get("agent_name")
 	userID := r.URL.Query().Get("user_id")
 
