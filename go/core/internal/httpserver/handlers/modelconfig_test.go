@@ -276,6 +276,66 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "OPENAI_API_KEY", config.Data.Spec.APIKeySecretKey)
 		})
 
+		t.Run("Success_CompanionSecrets", func(t *testing.T) {
+			handler, kubeClient, responseRecorder := setupHandler()
+
+			reqBody := api.CreateModelConfigRequest{
+				Ref: "default/test-companion-secrets",
+				Secrets: []api.SecretMaterial{
+					{Name: "provider-credentials", Key: "credentials.json", Value: `{"token":"secret"}`, Type: "Opaque"},
+					{Name: "provider-ca", Key: "ca.crt", Value: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"},
+				},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:           "gpt-4",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "provider-credentials",
+					APIKeySecretKey: "credentials.json",
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			handler.HandleCreateModelConfig(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code, responseRecorder.Body.String())
+
+			credentialsSecret := &corev1.Secret{}
+			err := kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "provider-credentials"}, credentialsSecret)
+			require.NoError(t, err)
+			assert.Equal(t, corev1.SecretTypeOpaque, credentialsSecret.Type)
+			assert.Equal(t, `{"token":"secret"}`, string(credentialsSecret.Data["credentials.json"]))
+
+			caSecret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "provider-ca"}, caSecret)
+			require.NoError(t, err)
+			assert.Equal(t, "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n", string(caSecret.Data["ca.crt"]))
+		})
+
+		t.Run("InvalidCompanionSecretName_Returns400", func(t *testing.T) {
+			handler, _, responseRecorder := setupHandler()
+
+			reqBody := api.CreateModelConfigRequest{
+				Ref: "default/test-invalid-secret",
+				Secrets: []api.SecretMaterial{
+					{Name: "Invalid_Name", Key: "sa.json", Value: "{}"},
+				},
+				Spec: v1alpha2.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha2.ModelProviderOpenAI},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/modelconfigs/", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			handler.HandleCreateModelConfig(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
 		t.Run("APIKeySecret_MissingKey_Returns400", func(t *testing.T) {
 			handler, _, responseRecorder := setupHandler()
 
@@ -492,6 +552,60 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "gpt-4", updatedConfig.Data.Spec.Model)
 			require.NotNil(t, updatedConfig.Data.Spec.OpenAI)
 			assert.Equal(t, "0.7", updatedConfig.Data.Spec.OpenAI.Temperature)
+		})
+
+		t.Run("Success_CompanionSecrets", func(t *testing.T) {
+			handler, kubeClient, responseRecorder := setupHandler()
+
+			config := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "default"},
+				Spec:       v1alpha2.ModelConfigSpec{Model: "gpt-3.5-turbo", Provider: v1alpha2.ModelProviderOpenAI},
+			}
+			err := kubeClient.Create(context.Background(), config)
+			require.NoError(t, err)
+
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "provider-credentials", Namespace: "default"},
+				Type:       corev1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					"keep": []byte("preserved"),
+				},
+			}
+			err = kubeClient.Create(context.Background(), existingSecret)
+			require.NoError(t, err)
+
+			reqBody := api.UpdateModelConfigRequest{
+				Secrets: []api.SecretMaterial{
+					{Name: "provider-credentials", Key: "credentials.json", Value: `{"token":"updated"}`},
+				},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:           "gpt-4",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "provider-credentials",
+					APIKeySecretKey: "credentials.json",
+				},
+			}
+
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateModelConfig(responseRecorder, r)
+			}).Methods("PUT")
+
+			router.ServeHTTP(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			updatedSecret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "provider-credentials"}, updatedSecret)
+			require.NoError(t, err)
+			assert.Equal(t, corev1.SecretTypeOpaque, updatedSecret.Type)
+			assert.Equal(t, `{"token":"updated"}`, string(updatedSecret.Data["credentials.json"]))
+			assert.Equal(t, "preserved", string(updatedSecret.Data["keep"]))
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {

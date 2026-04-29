@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -11,9 +13,11 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -133,6 +137,10 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
 		return
 	}
+	if err := validateSecretMaterials(req.Secrets); err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
 
 	log.V(1).Info("Checking if ModelConfig already exists")
 	existingConfig := &v1alpha2.ModelConfig{}
@@ -158,6 +166,12 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 			Namespace: modelConfigRef.Namespace,
 		},
 		Spec: req.Spec,
+	}
+
+	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, modelConfigRef.Namespace, req.Secrets); err != nil {
+		log.Error(err, "Failed to create or update companion secrets")
+		w.RespondWithError(errors.NewInternalServerError("Failed to create or update companion secrets", err))
+		return
 	}
 
 	if err := h.KubeClient.Create(r.Context(), modelConfig); err != nil {
@@ -221,6 +235,10 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
 		return
 	}
+	if err := validateSecretMaterials(req.Secrets); err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
 
 	log.V(1).Info("Getting existing ModelConfig")
 	modelConfig := &v1alpha2.ModelConfig{}
@@ -252,6 +270,12 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 			return
 		}
 		log.V(1).Info("Successfully updated API key secret")
+	}
+
+	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, namespace, req.Secrets); err != nil {
+		log.Error(err, "Failed to create or update companion secrets")
+		w.RespondWithError(errors.NewInternalServerError("Failed to create or update companion secrets", err))
+		return
 	}
 
 	modelConfig.Spec = req.Spec
@@ -322,5 +346,68 @@ func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1al
 		provider != v1alpha2.ModelProviderSAPAICore {
 		return fmt.Errorf("apiKeySecretKey is required when apiKeySecret is set")
 	}
+	return nil
+}
+
+func validateSecretMaterials(secrets []api.SecretMaterial) error {
+	for _, secret := range secrets {
+		if errs := validation.IsDNS1123Subdomain(secret.Name); len(errs) > 0 {
+			return fmt.Errorf("invalid secret name %q: %s", secret.Name, strings.Join(errs, "; "))
+		}
+		if errs := validation.IsConfigMapKey(secret.Key); len(errs) > 0 {
+			return fmt.Errorf("invalid key %q for secret %q: %s", secret.Key, secret.Name, strings.Join(errs, "; "))
+		}
+		if secret.Type != "" && secret.Type != string(corev1.SecretTypeOpaque) {
+			return fmt.Errorf("unsupported secret type %q for secret %q", secret.Type, secret.Name)
+		}
+	}
+	return nil
+}
+
+func createOrUpdateCompanionSecrets(ctx context.Context, kubeClient client.Client, namespace string, secrets []api.SecretMaterial) error {
+	// Group secrets by name and key.
+	secretsByName := map[string]map[string][]byte{}
+	for _, secret := range secrets {
+		if _, ok := secretsByName[secret.Name]; !ok {
+			secretsByName[secret.Name] = map[string][]byte{}
+		}
+		secretsByName[secret.Name][secret.Key] = []byte(secret.Value)
+	}
+
+	for name, data := range secretsByName {
+		existingSecret := &corev1.Secret{}
+		// Get the existing secret by name and namespace.
+		err := kubeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existingSecret)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to get companion secret %s/%s: %w", namespace, name, err)
+			}
+
+			// Create the secret if it doesn't exist.
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: data,
+			}
+			if err := kubeClient.Create(ctx, secret); err != nil {
+				return fmt.Errorf("failed to create companion secret %s/%s: %w", namespace, name, err)
+			}
+			continue
+		}
+
+		// Update the existing secret if it exists.
+		if existingSecret.Data == nil {
+			existingSecret.Data = map[string][]byte{}
+		}
+		maps.Copy(existingSecret.Data, data)
+		existingSecret.Type = corev1.SecretTypeOpaque
+		if err := kubeClient.Update(ctx, existingSecret); err != nil {
+			return fmt.Errorf("failed to update companion secret %s/%s: %w", namespace, name, err)
+		}
+	}
+
 	return nil
 }

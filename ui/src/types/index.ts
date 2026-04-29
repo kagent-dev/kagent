@@ -156,15 +156,24 @@ export interface ConfiguredModelProviderModelsResponse {
   models: string[];
 }
 
+export interface SecretMaterial {
+  name: string;
+  key: string;
+  value: string;
+  type?: 'Opaque';
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   apiKey?: string;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 export interface UpdateModelConfigPayload {
   apiKey?: string | null;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 /**
