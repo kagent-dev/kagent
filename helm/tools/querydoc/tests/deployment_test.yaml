@@ -1,8 +1,10 @@
 suite: test querydoc deployment
 templates:
   - deployment.yaml
+  - configmap.yaml
 tests:
   - it: should render deployment with default values
+    template: deployment.yaml
     asserts:
       - isKind:
           of: Deployment
@@ -16,23 +18,26 @@ tests:
           count: 1
 
   - it: should render deployment with custom replica count
+    template: deployment.yaml
     set:
-      replicaCount: 2
+      replicas: 2
     asserts:
       - equal:
           path: spec.replicas
           value: 2
 
   - it: should have correct container image
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].name
           value: querydoc
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/kagent-dev/doc2vec/mcp:1.1.7
+          value: ghcr.io/kagent-dev/doc2vec/mcp:1.1.10
 
   - it: should use custom image tag when set
+    template: deployment.yaml
     set:
       image:
         tag: "v2.0.0"
@@ -42,18 +47,21 @@ tests:
           value: ghcr.io/kagent-dev/doc2vec/mcp:v2.0.0
 
   - it: should have correct service account name
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.serviceAccountName
           value: RELEASE-NAME-querydoc
 
   - it: should have correct container port
+    template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
 
   - it: should have correct labels
+    template: deployment.yaml
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
@@ -69,11 +77,13 @@ tests:
           value: RELEASE-NAME
 
   - it: should not set pod security context by default
+    template: deployment.yaml
     asserts:
       - notExists:
           path: spec.template.spec.securityContext
 
   - it: should set pod security context when podSecurityContext is provided
+    template: deployment.yaml
     set:
       podSecurityContext:
         runAsNonRoot: true
@@ -87,9 +97,10 @@ tests:
           value: 1000
 
   - it: should set nodeSelector
+    template: deployment.yaml
     set:
-        nodeSelector:
-          role: AI
+      nodeSelector:
+        role: AI
     asserts:
       - equal:
           path: spec.template.spec.nodeSelector
@@ -97,12 +108,13 @@ tests:
             role: AI
 
   - it: should set tolerations
+    template: deployment.yaml
     set:
-        tolerations:
-          - key: role
-            operator: Equal
-            value: AI
-            effect: NoSchedule
+      tolerations:
+        - key: role
+          operator: Equal
+          value: AI
+          effect: NoSchedule
     asserts:
       - contains:
           any: true
