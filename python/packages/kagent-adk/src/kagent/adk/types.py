@@ -235,6 +235,10 @@ class Gemini(BaseLLM):
 
 class Bedrock(BaseLLM):
     region: str | None = None
+    # additional_model_request_fields passes model-specific parameters to Bedrock's
+    # additionalModelRequestFields in the Converse API. Use this for provider-specific
+    # options outside the standard InferenceConfiguration block.
+    additional_model_request_fields: dict | None = None
     type: Literal["bedrock"]
 
 
@@ -687,6 +691,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            additional_model_request_fields=model_config.additional_model_request_fields,
         )
     if model_config.type == "sap_ai_core":
         from .models._sap_ai_core import KAgentSAPAICoreLlm
