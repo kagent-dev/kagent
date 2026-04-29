@@ -178,14 +178,14 @@ class BaseLLM(BaseModel):
     api_key_passthrough: bool | None = None
 
 
-class GDCHTokenExchangeConfig(BaseModel):
+class GDCTokenExchangeConfig(BaseModel):
     service_account_path: str
     audience: str
 
 
 class TokenExchangeConfig(BaseModel):
-    type: Literal["GDCHServiceAccount"]
-    gdch_service_account: GDCHTokenExchangeConfig | None = None
+    type: Literal["GDCServiceAccount"]
+    gdc_service_account: GDCTokenExchangeConfig | None = None
 
 
 class OpenAI(BaseLLM):
@@ -497,21 +497,21 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     base_url = getattr(model_config, "base_url", None)
 
     if model_config.type == "openai":
-        from .models._token_source import GDCHTokenSource
+        from .models._token_source import GDCTokenSource
 
         token_exchange = None
         te = model_config.token_exchange
         if te is not None:
-            if te.type == "GDCHServiceAccount":
-                if te.gdch_service_account is None:
+            if te.type == "GDCServiceAccount":
+                if te.gdc_service_account is None:
                     raise ValueError(
                         "Invalid token_exchange configuration: "
-                        "gdch_service_account is required when token_exchange.type "
-                        "is 'GDCHServiceAccount'"
+                        "gdc_service_account is required when token_exchange.type "
+                        "is 'GDCServiceAccount'"
                     )
-                token_exchange = GDCHTokenSource(
-                    service_account_path=te.gdch_service_account.service_account_path,
-                    audience=te.gdch_service_account.audience,
+                token_exchange = GDCTokenSource(
+                    service_account_path=te.gdc_service_account.service_account_path,
+                    audience=te.gdc_service_account.audience,
                     ca_cert_path=model_config.tls_ca_cert_path,
                     tls_disable_verify=model_config.tls_disable_verify or False,
                 )

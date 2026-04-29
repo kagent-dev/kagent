@@ -8,12 +8,12 @@ import time
 logger = logging.getLogger(__name__)
 
 
-class GDCHTokenSource:
-    """Exchanges a GDCH service account JSON for short-lived bearer tokens.
+class GDCTokenSource:
+    """Exchanges a GDC service account JSON for short-lived bearer tokens.
 
     Tokens are cached and refreshed automatically with a 30-second buffer
     before expiry. The CA certificate path is used for custom TLS verification
-    when connecting to the GDCH token endpoint.
+    when connecting to the GDC token endpoint.
     """
 
     def __init__(
