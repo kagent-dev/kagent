@@ -48,18 +48,15 @@ updates:
           - "minor"
           - "patch"
 
-  # Python (uv) — workspace root and all packages
+  # Python (uv) — single workspace root.
+  # Dependabot's native `uv` ecosystem detects workspace members through
+  # python/pyproject.toml's [tool.uv.workspace] section and updates the
+  # root python/uv.lock alongside any member's pyproject.toml in the
+  # same PR. Listing each member as its own directory caused Dependabot
+  # to open per-member PRs that did not refresh the root lockfile,
+  # which then failed `uv sync --locked` in CI.
   - package-ecosystem: "uv"
-    directories:
-      - "/python"
-      - "/python/packages/kagent-adk"
-      - "/python/packages/kagent-core"
-      - "/python/packages/kagent-skills"
-      - "/python/packages/kagent-crewai"
-      - "/python/packages/kagent-langgraph"
-      - "/python/packages/kagent-openai"
-      - "/python/packages/agentsts-core"
-      - "/python/packages/agentsts-adk"
+    directory: "/python"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -73,7 +70,24 @@ updates:
       - "peterj"
       - "yuval-k"
     groups:
+      python-opentelemetry:
+        applies-to: version-updates
+        patterns:
+          - "opentelemetry-*"
+        update-types:
+          - "minor"
+          - "patch"
+      python-google-ai:
+        applies-to: version-updates
+        patterns:
+          - "google-adk"
+          - "google-genai"
+          - "google-auth"
+        update-types:
+          - "minor"
+          - "patch"
       python-minor-patch:
+        applies-to: version-updates
         patterns:
           - "*"
         update-types:
@@ -93,6 +107,13 @@ updates:
       prefix: "chore(deps):"
     reviewers:
       - "peterj"
+    ignore:
+      # Suppress major UI dependency bumps (e.g., Next.js, React) until
+      # the frontend is ready for those migrations. Minor/patch updates
+      # still flow through via the npm-minor-patch group below.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     groups:
       npm-minor-patch:
         patterns:
