@@ -638,10 +638,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   if (sessionNotFound) {
     return (
-      <div className="flex flex-col items-center justify-center w-full h-full">
-        <div className="text-xl font-semibold mb-4">Session not found</div>
-        <p className="text-muted-foreground mb-6">This chat session may have been deleted or does not exist.</p>
-        <Button onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}>
+      <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center">
+        <h2 className="mb-4 text-xl font-semibold">Session not found</h2>
+        <p className="mb-6 text-muted-foreground">This chat session may have been deleted or does not exist.</p>
+        <Button
+          type="button"
+          onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}
+        >
           Start a new chat
         </Button>
       </div>
@@ -654,16 +657,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <div className="flex flex-col space-y-5 px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
-              <div className="flex items-center justify-center h-full min-h-[50vh]">
+              <div
+                className="flex h-full min-h-[50vh] items-center justify-center"
+                role="status"
+                aria-live="polite"
+                aria-busy="true"
+              >
                 <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-muted-foreground text-sm">Loading your chat session...</p>
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden />
+                  <p className="text-sm text-muted-foreground">Loading your chat session…</p>
                 </div>
               </div>
             ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
-                <div className="bg-card p-6 rounded-lg shadow-sm border max-w-md text-center">
-                  <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
+                <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
+                  <h2 className="mb-2 text-lg font-medium">Start a conversation</h2>
                   <p className="text-muted-foreground">
                     To begin chatting with the agent, type your message in the input box below.
                   </p>

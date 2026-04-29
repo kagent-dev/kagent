@@ -6,6 +6,7 @@ import {
   AgentSpec,
   BaseResponse,
   DeclarativeAgentSpec,
+  DeclarativeRuntime,
   PromptSource,
   SandboxAgent,
   SkillForAgent,
@@ -17,6 +18,10 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
+
+function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
+  return agentFormData.declarativeRuntime === "go" ? "go" : "python";
+}
 
 function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
   if (!agentFormData.promptSources?.some((s) => s.name.trim())) {
@@ -170,6 +175,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
   if (type === "Declarative") {
     base.spec!.declarative = {
+      runtime: declarativeRuntimeFromForm(agentFormData),
       systemMessage: agentFormData.systemPrompt || "",
       modelConfig: modelConfigName || "",
       stream: agentFormData.stream ?? true,
@@ -337,6 +343,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     });
 
   const decl: DeclarativeAgentSpec = {
+    runtime: declarativeRuntimeFromForm(agentFormData),
     systemMessage: agentFormData.systemPrompt || "",
     modelConfig: modelConfigName || "",
     stream: agentFormData.stream ?? true,

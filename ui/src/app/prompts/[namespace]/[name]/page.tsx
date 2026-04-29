@@ -1,16 +1,13 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getPromptTemplate, updatePromptTemplate, deletePromptTemplate } from "@/app/actions/promptTemplates";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState } from "@/components/LoadingState";
-import { FragmentEntriesEditor, rowsFromData, dataFromRows, type FragmentRow } from "@/components/prompts/FragmentEntriesEditor";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { rowsFromData, dataFromRows, type FragmentRow } from "@/components/prompts/FragmentEntriesEditor";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Boxes } from "lucide-react";
+import { AppPageFrame } from "@/components/layout/AppPageFrame";
+import { PromptLibraryEditorPanel } from "@/components/prompts/PromptLibraryEditorPanel";
 
 export default function PromptDetailPage({
   params,
@@ -80,67 +77,29 @@ export default function PromptDetailPage({
   };
 
   if (loading) {
-    return <LoadingState />;
+    return (
+      <AppPageFrame mainClassName="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+        <div className="relative" role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Loading prompt library…</span>
+          <LoadingState />
+        </div>
+      </AppPageFrame>
+    );
   }
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-3xl mx-auto">
-        <Link
-          href={`/prompts?namespace=${encodeURIComponent(namespace)}`}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Back to prompt libraries
-        </Link>
-
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2 min-w-0">
-            <h1 className="text-2xl font-bold font-mono break-all" translate="no">
-              {name}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Namespace <span className="font-mono text-foreground">{namespace}</span>
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 self-start"
-            onClick={() => setConfirmOpen(true)}
-            disabled={saving}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden />
-            Delete
-          </Button>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl font-bold">
-              <Boxes className="h-5 w-5" aria-hidden />
-              Data
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <FragmentEntriesEditor rows={rows} onRowsChange={setRows} disabled={saving} />
-            <div className="flex gap-3">
-              <Button type="button" onClick={handleSave} disabled={saving}>
-                {saving ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <ConfirmDialog
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          title="Delete this prompt library?"
-          description="Agents that reference it as a prompt source may fail until you update them."
-          confirmLabel="Delete library"
-          onConfirm={handleDelete}
-        />
-      </div>
-    </div>
+    <PromptLibraryEditorPanel
+      namespace={namespace}
+      name={name}
+      rows={rows}
+      saving={saving}
+      confirmOpen={confirmOpen}
+      listHref={`/prompts?namespace=${encodeURIComponent(namespace)}`}
+      onRowsChange={setRows}
+      onSave={handleSave}
+      onDeleteClick={() => setConfirmOpen(true)}
+      onConfirmDelete={handleDelete}
+      onConfirmOpenChange={setConfirmOpen}
+    />
   );
 }
