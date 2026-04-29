@@ -80,35 +80,6 @@ updates:
           - "minor"
           - "patch"
 
-  # Python (uv) — sample applications
-  - package-ecosystem: "uv"
-    directories:
-      - "/python/samples/adk/basic"
-      - "/python/samples/openai/basic_agent"
-      - "/python/samples/crewai/poem_flow"
-      - "/python/samples/crewai/research-crew"
-      - "/python/samples/langgraph/currency"
-      - "/go/core/test/e2e/agents/kebab"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    commit-message:
-      prefix: "chore(deps):"
-    reviewers:
-      - "EItanya"
-      - "peterj"
-      - "yuval-k"
-    groups:
-      samples-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
   # npm — Next.js UI
   - package-ecosystem: "npm"
     directory: "/ui"
@@ -153,35 +124,6 @@ updates:
       - "yuval-k"
     groups:
       docker-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  # Docker — sample and test images
-  - package-ecosystem: "docker"
-    directories:
-      - "/python/samples/adk/basic"
-      - "/python/samples/openai/basic_agent"
-      - "/python/samples/crewai/poem_flow"
-      - "/python/samples/crewai/research-crew"
-      - "/python/samples/langgraph/currency"
-      - "/go/core/test/e2e/agents/kebab"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    commit-message:
-      prefix: "chore(deps):"
-    reviewers:
-      - "EItanya"
-      - "peterj"
-      - "yuval-k"
-    groups:
-      docker-samples-minor-patch:
         patterns:
           - "*"
         update-types:

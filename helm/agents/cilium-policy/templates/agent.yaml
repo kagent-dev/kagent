@@ -9,6 +9,7 @@ spec:
   description: Cilium policy agent knows how to create CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy resources from natural language
   type: Declarative
   declarative:
+    runtime: {{ .Values.runtime | default "python" }}
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     systemMessage: |-
       You are a CiliumNetworkPolicy and CiliumClusterwideNetworkPolicy agent that knows how to create valid YAML configurations based on user request.

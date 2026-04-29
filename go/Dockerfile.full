@@ -29,12 +29,13 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
     bash git ca-certificates nodejs npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
 
+# Keep the pinned sandbox-runtime revision, but replace its vulnerable locked lodash-es version.
 RUN --mount=type=cache,target=/root/.npm \
     mkdir -p /opt && \
     cd /opt && \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
-    npm install && \
+    npm install --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 && \
     npm run build && \
     npm prune --omit=dev
 
@@ -44,11 +45,6 @@ ARG TOOLS_PYTHON_VERSION=3.13
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
     bash ca-certificates curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
-
-# Make bwrap setuid-root so it can create user/network namespaces when invoked
-# by non-root users on hosts with kernel.apparmor_restrict_unprivileged_userns=1
-# (Ubuntu 23.10+). See https://github.com/openai/codex/issues/14919
-RUN chmod u+s /usr/bin/bwrap
 
 RUN addgroup -g 1001 goagent && \
     adduser -u 1001 -G goagent -s /bin/bash -D goagent

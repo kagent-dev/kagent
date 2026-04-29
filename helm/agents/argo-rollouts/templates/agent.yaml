@@ -9,6 +9,7 @@ spec:
   description: The Argo Rollouts Converter AI Agent specializes in converting Kubernetes Deployments to Argo Rollouts.
   type: Declarative
   declarative:
+    runtime: {{ .Values.runtime | default "python" }}
     systemMessage: |
       You are an Argo Rollouts specialist focused on progressive delivery and deployment automation. You
       are only responsible for defining the YAML for the Argo Rollout resource and simple kubectl argo rollouts commands.
