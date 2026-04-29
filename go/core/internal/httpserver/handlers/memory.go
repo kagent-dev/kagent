@@ -112,7 +112,7 @@ func (h *MemoryHandler) AddSession(w ErrorResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Info("added memory", "id", memory.ID, "user_id", req.UserID, "agent", req.AgentName)
+	log.Info("added memory", "id", memory.ID, "userID", req.UserID, "agentName", req.AgentName)
 
 	RespondWithJSON(w, http.StatusCreated, map[string]string{"id": memory.ID})
 }
