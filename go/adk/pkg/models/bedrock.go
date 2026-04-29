@@ -20,7 +20,7 @@ import (
 )
 
 // bedrockToolIDValid matches Bedrock's toolUseId constraint: [a-zA-Z0-9_.:-]+
-// bedrockToolNameValid matches Bedrock's tool name constraint: [a-zA-Z0-9_-]+
+// bedrockToolNameInvalid matches characters not allowed in Bedrock tool names: [a-zA-Z0-9_-]+
 var (
 	bedrockToolIDValid     = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
 	bedrockToolIDInvalid   = regexp.MustCompile(`[^a-zA-Z0-9_.:-]`)
