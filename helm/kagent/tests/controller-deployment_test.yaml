@@ -84,6 +84,14 @@ tests:
           path: data.A2A_BASE_URL
           value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083"
 
+  - it: should set A2A_BASE_URL with computed custom cluster domain
+    template: controller-configmap.yaml
+    set:
+      clusterDomain: my.domain
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.my.domain:8083"
   - it: should set A2A_BASE_URL with custom value when explicitly set
     template: controller-configmap.yaml
     set:
