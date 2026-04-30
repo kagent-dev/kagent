@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
@@ -22,11 +21,11 @@ func createSecretWithOwnerReference(
 	owner client.Object,
 ) error {
 	var ownerKind string
+	var ownerAPIVersion string
 	switch owner.(type) {
-	case *v1alpha1.Memory:
-		ownerKind = "Memory"
 	case *v1alpha2.ModelConfig:
 		ownerKind = "ModelConfig"
+		ownerAPIVersion = v1alpha2.GroupVersion.Identifier()
 	default:
 		return fmt.Errorf("unsupported owner type")
 	}
@@ -36,13 +35,14 @@ func createSecretWithOwnerReference(
 			Name:      owner.GetName(),
 			Namespace: owner.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: v1alpha1.GroupVersion.Identifier(),
+				APIVersion: ownerAPIVersion,
 				Kind:       ownerKind,
 				Name:       owner.GetName(),
 				UID:        owner.GetUID(),
 				Controller: new(true),
 			}},
 		},
+		Type:       corev1.SecretTypeOpaque,
 		StringData: data,
 	}
 

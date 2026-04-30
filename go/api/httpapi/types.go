@@ -54,7 +54,6 @@ type SecretMaterial struct {
 	Name  string `json:"name"`
 	Key   string `json:"key"`
 	Value string `json:"value"`
-	Type  string `json:"type,omitempty"`
 }
 
 // CreateModelConfigRequest is a thin wrapper: ref + optional inline apiKey + full CRD spec.
@@ -62,7 +61,7 @@ type CreateModelConfigRequest struct {
 	Ref string `json:"ref"`
 	// APIKey is an optional inline API key to store in a generated Secret.
 	APIKey string `json:"apiKey,omitempty"`
-	// Secrets are optional companion Secrets to create or update before applying the ModelConfig.
+	// Secrets are optional companion Secrets to create or update alongside the ModelConfig.
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
 }

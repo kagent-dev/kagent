@@ -160,7 +160,6 @@ export interface SecretMaterial {
   name: string;
   key: string;
   value: string;
-  type?: 'Opaque';
 }
 
 export interface CreateModelConfigRequest {
