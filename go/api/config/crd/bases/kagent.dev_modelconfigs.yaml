@@ -594,9 +594,9 @@ spec:
                       TokenExchange configures dynamic bearer token acquisition via credential exchange.
                       Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
                     properties:
-                      gdcServiceAccount:
-                        description: GDCServiceAccountConfig holds GDC-specific token
-                          exchange parameters.
+                      gdchServiceAccount:
+                        description: GDCHServiceAccountConfig holds GDCH-specific
+                          token exchange parameters.
                         properties:
                           audience:
                             description: Audience is the token exchange audience URL
@@ -608,9 +608,9 @@ spec:
                       type:
                         allOf:
                         - enum:
-                          - GDCServiceAccount
+                          - GDCHServiceAccount
                         - enum:
-                          - GDCServiceAccount
+                          - GDCHServiceAccount
                         description: TokenExchangeType identifies the token exchange
                           mechanism
                         type: string
@@ -750,9 +750,9 @@ spec:
             - message: openAI.tokenExchange and apiKeyPassthrough are mutually exclusive
               rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough)
                 && self.apiKeyPassthrough)'
-            - message: openAI.tokenExchange type GDCServiceAccount requires openAI.tokenExchange.gdcServiceAccount
+            - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
               rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
-                == ''GDCServiceAccount'' && !has(self.openAI.tokenExchange.gdcServiceAccount))'
+                == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

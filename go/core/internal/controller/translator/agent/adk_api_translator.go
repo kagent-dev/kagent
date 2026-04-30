@@ -219,8 +219,8 @@ const (
 	googleCredsVolumeName = "google-creds"
 	tlsCACertVolumeName   = "tls-ca-cert"
 	tlsCACertMountPath    = "/etc/ssl/certs/custom"
-	gdcCredsVolumeName    = "gdc-creds"
-	gdcCredsMountPath     = "/gdc-creds"
+	gdchCredsVolumeName   = "gdch-creds"
+	gdchCredsMountPath    = "/gdch-creds"
 )
 
 // populateTLSFields populates TLS configuration fields in the BaseModel
@@ -275,28 +275,28 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 // addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
 // model and mounts the service account secret (referenced by the top-level
 // apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
-// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDC).
+// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
 func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
 	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
 		return
 	}
 	tokenExchange := spec.OpenAI.TokenExchange
 	switch tokenExchange.Type {
-	case v1alpha2.TokenExchangeTypeGDC:
-		cfg := tokenExchange.GDCServiceAccount
+	case v1alpha2.TokenExchangeTypeGDCH:
+		cfg := tokenExchange.GDCHServiceAccount
 		if cfg == nil {
 			return
 		}
-		saPath := fmt.Sprintf("%s/%s", gdcCredsMountPath, spec.APIKeySecretKey)
+		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
 		openai.TokenExchange = &adk.TokenExchangeConfig{
 			Type: string(tokenExchange.Type),
-			GDCServiceAccount: &adk.GDCTokenExchangeConfig{
+			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
 				ServiceAccountPath: saPath,
 				Audience:           cfg.Audience,
 			},
 		}
 		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
-			Name: gdcCredsVolumeName,
+			Name: gdchCredsVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName:  spec.APIKeySecret,
@@ -305,8 +305,8 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 			},
 		})
 		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
-			Name:      gdcCredsVolumeName,
-			MountPath: gdcCredsMountPath,
+			Name:      gdchCredsVolumeName,
+			MountPath: gdchCredsMountPath,
 			ReadOnly:  true,
 		})
 	}
