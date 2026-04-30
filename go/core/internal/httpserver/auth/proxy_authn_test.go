@@ -339,4 +339,9 @@ func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
 	if got := req.Header.Get("Authorization"); got != authHeader {
 		t.Errorf("Authorization header = %q, want %q", got, authHeader)
 	}
+
+	// Verify X-User-Id is forwarded so downstream A2A runtimes receive the real user identity
+	if got := req.Header.Get("X-User-Id"); got != "user123" {
+		t.Errorf("X-User-Id header = %q, want %q", got, "user123")
+	}
 }

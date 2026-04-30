@@ -86,8 +86,13 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 }
 
 func (a *ProxyAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.authHeader != "" {
-		r.Header.Set("Authorization", simpleSession.authHeader)
+	if simpleSession, ok := session.(*SimpleSession); ok {
+		if simpleSession.authHeader != "" {
+			r.Header.Set("Authorization", simpleSession.authHeader)
+		}
+		if userID := simpleSession.P.User.ID; userID != "" {
+			r.Header.Set("X-User-Id", userID)
+		}
 	}
 	return nil
 }
