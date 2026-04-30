@@ -184,7 +184,7 @@ func TestAllowedRequestHeaders_CaseInsensitiveLookup(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
+		name     string
 		incoming map[string][]string
 		allowed  []string
 		wantKey  string
@@ -214,7 +214,6 @@ func TestAllowedRequestHeaders_CaseInsensitiveLookup(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := a2aCtx(tc.incoming)
