@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 _BEDROCK_TOOL_ID_VALID = re.compile(r"^[a-zA-Z0-9_.:-]+$")
 _BEDROCK_TOOL_ID_INVALID = re.compile(r"[^a-zA-Z0-9_.:-]")
 
+_BEDROCK_TOOL_NAME_VALID = re.compile(r"^[a-zA-Z0-9_-]+$")
+_BEDROCK_TOOL_NAME_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
+
 
 def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) -> str:
     """Return a valid Bedrock toolUseId.
@@ -54,6 +57,29 @@ def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) 
     return sanitized
 
 
+def _sanitize_tool_name(name: str, name_map: dict[str, str], counter: list[int]) -> str:
+    """Return a valid Bedrock tool name.
+
+    Bedrock requires tool names to match [a-zA-Z0-9_-]+ and be non-empty.
+    name_map caches original->sanitized so the same tool name is consistently
+    mapped throughout a single request. counter is a single-element list used
+    as a mutable integer for generating unique fallback names.
+
+    See https://github.com/kagent-dev/kagent/issues/1473
+    """
+    if name in name_map:
+        return name_map[name]
+    sanitized = _BEDROCK_TOOL_NAME_INVALID.sub("_", name)
+    if not sanitized or not _BEDROCK_TOOL_NAME_VALID.match(sanitized):
+        counter[0] += 1
+        sanitized = f"unknown_tool_{counter[0]}"
+        return sanitized
+    if sanitized != name:
+        logger.warning("Sanitized Bedrock tool name %r -> %r", name, sanitized)
+    name_map[name] = sanitized
+    return sanitized
+
+
 def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
@@ -63,7 +89,11 @@ def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
     return boto3.client("bedrock-runtime", **kwargs)
 
 
-def _convert_content_to_converse_messages(contents: list[types.Content]) -> list[dict]:
+def _convert_content_to_converse_messages(
+    contents: list[types.Content],
+    name_map: dict[str, str],
+    name_counter: list[int],
+) -> list[dict]:
     id_map: dict[str, str] = {}
     counter = [0]
 
@@ -80,7 +110,7 @@ def _convert_content_to_converse_messages(contents: list[types.Content]) -> list
                     {
                         "toolUse": {
                             "toolUseId": _sanitize_tool_id(part.function_call.id or "", id_map, counter),
-                            "name": part.function_call.name or "",
+                            "name": _sanitize_tool_name(part.function_call.name or "", name_map, name_counter),
                             "input": part.function_call.args or {},
                         }
                     }
@@ -149,7 +179,11 @@ def _normalize_schema(schema: dict) -> dict:
     return result
 
 
-def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
+def _convert_tools_to_converse(
+    tools: list[types.Tool],
+    name_map: dict[str, str],
+    name_counter: list[int],
+) -> list[dict]:
     converse_tools = []
     for tool in tools:
         for func_decl in tool.function_declarations or []:
@@ -164,7 +198,7 @@ def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
             converse_tools.append(
                 {
                     "toolSpec": {
-                        "name": func_decl.name or "",
+                        "name": _sanitize_tool_name(func_decl.name or "", name_map, name_counter),
                         "description": func_decl.description or "",
                         "inputSchema": {
                             "json": {
@@ -212,7 +246,9 @@ class KAgentBedrockLlm(BaseLlm):
         client = self._client
         model_id = llm_request.model or self.model
 
-        messages = _convert_content_to_converse_messages(llm_request.contents or [])
+        name_map: dict[str, str] = {}
+        name_counter: list[int] = [0]
+        messages = _convert_content_to_converse_messages(llm_request.contents or [], name_map, name_counter)
 
         kwargs: dict[str, Any] = {"modelId": model_id, "messages": messages}
 
@@ -228,7 +264,7 @@ class KAgentBedrockLlm(BaseLlm):
         if llm_request.config and llm_request.config.tools:
             genai_tools = [t for t in llm_request.config.tools if hasattr(t, "function_declarations")]
             if genai_tools:
-                converse_tools = _convert_tools_to_converse(genai_tools)
+                converse_tools = _convert_tools_to_converse(genai_tools, name_map, name_counter)
                 if converse_tools:
                     kwargs["toolConfig"] = {"tools": converse_tools}
 
@@ -247,6 +283,8 @@ class KAgentBedrockLlm(BaseLlm):
 
         if self.additional_model_request_fields:
             kwargs["additionalModelRequestFields"] = self.additional_model_request_fields
+
+        reverse_name_map = {v: k for k, v in name_map.items()}
 
         def _run_converse_stream(**kw):
             resp = client.converse_stream(**kw)
@@ -268,7 +306,7 @@ class KAgentBedrockLlm(BaseLlm):
                         if "toolUse" in start:
                             current_tool_id = start["toolUse"]["toolUseId"]
                             tool_uses[current_tool_id] = {
-                                "name": start["toolUse"]["name"],
+                                "name": reverse_name_map.get(start["toolUse"]["name"], start["toolUse"]["name"]),
                                 "input_json": "",
                             }
 
@@ -325,7 +363,8 @@ class KAgentBedrockLlm(BaseLlm):
                         parts.append(types.Part.from_text(text=block["text"]))
                     elif "toolUse" in block:
                         tool = block["toolUse"]
-                        part = types.Part.from_function_call(name=tool["name"], args=tool.get("input", {}))
+                        original_name = reverse_name_map.get(tool["name"], tool["name"])
+                        part = types.Part.from_function_call(name=original_name, args=tool.get("input", {}))
                         if part.function_call:
                             part.function_call.id = tool["toolUseId"]
                         parts.append(part)
