@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+type contextKey int
+
+const userIDKey contextKey = iota
+
+// WithUserID returns a copy of ctx that carries the user ID for injection into
+// outgoing HTTP requests by TokenRoundTripper.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, userIDKey, userID)
+}
+
+func userIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(userIDKey).(string)
+	return id
+}
+
 const kagentTokenPath = "/var/run/secrets/tokens/kagent-token"
 
 // KAgentTokenService reads a k8s token from a file and reloads it periodically
@@ -60,6 +75,9 @@ func (s *KAgentTokenService) AddHeaders(req *http.Request) {
 	req.Header.Set("X-Agent-Name", s.appName)
 	if token := s.GetToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if userID := userIDFromContext(req.Context()); userID != "" {
+		req.Header.Set("X-User-Id", userID)
 	}
 }
 

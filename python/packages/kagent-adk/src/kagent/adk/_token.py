@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import httpx
+from kagent.core.a2a import get_request_user_id
 
 KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class KAgentTokenService:
         """Returns a dictionary of event hooks for the application
         to use when creating the httpx.AsyncClient.
         """
-        return {"request": [self._add_bearer_token]}
+        return {"request": [self._add_headers]}
 
     async def _update_token_loop(self) -> None:
         self.token = await self._read_kagent_token()
@@ -61,12 +62,13 @@ class KAgentTokenService:
                 async with self.update_lock:
                     self.token = token
 
-    async def _add_bearer_token(self, request: httpx.Request):
-        # Your function to generate headers dynamically
+    async def _add_headers(self, request: httpx.Request):
         token = await self._get_token()
         headers = {"X-Agent-Name": self.app_name}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if user_id := get_request_user_id():
+            headers["X-User-Id"] = user_id
         request.headers.update(headers)
 
 
