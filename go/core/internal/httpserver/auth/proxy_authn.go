@@ -42,8 +42,13 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 
 	if agentID != "" {
 		// Agent call: the Bearer SA token authenticates the pod; the caller's
-		// identity must be supplied explicitly via X-User-Id / user_id.
+		// identity should be supplied explicitly via X-User-Id / user_id.
+		// Fall back to the SA sub claim for direct calls to agent pods that
+		// do not yet propagate the caller identity.
 		userID := userIDFromRequest(reqHeaders, query)
+		if userID == "" {
+			userID, _ = rawClaims["sub"].(string)
+		}
 		if userID == "" {
 			return nil, ErrUnauthenticated
 		}

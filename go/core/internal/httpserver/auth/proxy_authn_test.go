@@ -191,12 +191,13 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 			wantAgentID: "kagent/test-agent",
 		},
 		{
-			name: "agent with SA Bearer token but no user identity is rejected",
+			name: "agent with no X-User-Id falls back to SA sub claim",
 			headers: map[string]string{
 				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
 				"X-Agent-Name":  "kagent/test-agent",
 			},
-			wantErr: true,
+			wantUserID:  "system:serviceaccount:kagent:test-agent",
+			wantAgentID: "kagent/test-agent",
 		},
 		// Error cases.
 		{
@@ -204,14 +205,6 @@ func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 			headers: map[string]string{
 				"X-Agent-Name": "kagent/test-agent",
 				"X-User-Id":    "user@example.com",
-			},
-			wantErr: true,
-		},
-		{
-			name: "agent without any user identity is rejected",
-			headers: map[string]string{
-				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
-				"X-Agent-Name":  "kagent/test-agent",
 			},
 			wantErr: true,
 		},
