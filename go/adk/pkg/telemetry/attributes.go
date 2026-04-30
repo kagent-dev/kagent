@@ -88,10 +88,7 @@ func stringAttributes(attrs map[string]string) []attribute.KeyValue {
 	return out
 }
 
-// SetMessageMetadataAttributes reads scalar values from an A2A message's
-// Metadata map and sets them as span attributes using the prefix
-// "a2a.message.metadata.<key>". Non-scalar values (maps, slices) are skipped
-// so that only clean, filterable attributes appear in the trace.
+// SetMessageMetadataAttributes sets scalar values from an A2A message's metadata as span attributes.
 func SetMessageMetadataAttributes(ctx context.Context, metadata map[string]any) {
 	if len(metadata) == 0 {
 		return
@@ -112,7 +109,6 @@ func SetMessageMetadataAttributes(ctx context.Context, metadata map[string]any) 
 			attrs = append(attrs, attribute.Int(key, val))
 		case int64:
 			attrs = append(attrs, attribute.Int64(key, val))
-		// skip maps, slices, and other complex types
 		}
 	}
 	setSpanAttributes(ctx, attrs...)
