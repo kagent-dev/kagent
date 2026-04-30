@@ -19,7 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	database_fake "github.com/kagent-dev/kagent/go/core/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -80,14 +79,14 @@ func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, c
 	}
 }
 
-func setupTestHandler(objects ...client.Object) (*handlers.AgentsHandler, string) {
+func setupTestHandler(t *testing.T, objects ...client.Object) (*handlers.AgentsHandler, string) {
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(setupScheme()).
 		WithObjects(objects...).
 		Build()
 
 	userID := "test-user"
-	dbClient := database_fake.NewClient()
+	dbClient := setupTestDBClient(t)
 
 	base := &handlers.Base{
 		KubeClient: kubeClient,
@@ -116,7 +115,7 @@ func TestHandleGetAgent(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		team := createTestAgent("test-team", modelConfig)
 
-		handler, _ := setupTestHandler(team, modelConfig)
+		handler, _ := setupTestHandler(t, team, modelConfig)
 		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
@@ -154,7 +153,7 @@ func TestHandleGetAgent(t *testing.T) {
 		}
 		agent := createTestAgentWithStatus("test-agent-ready", modelConfig, conditions)
 
-		handler, _ := setupTestHandler(agent, modelConfig)
+		handler, _ := setupTestHandler(t, agent, modelConfig)
 		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-ready", nil)
@@ -184,7 +183,7 @@ func TestHandleGetAgent(t *testing.T) {
 		}
 		agent := createTestAgentWithStatus("test-agent-not-ready", modelConfig, conditions)
 
-		handler, _ := setupTestHandler(agent, modelConfig)
+		handler, _ := setupTestHandler(t, agent, modelConfig)
 		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-not-ready", nil)
@@ -213,7 +212,7 @@ func TestHandleGetAgent(t *testing.T) {
 		}
 		agent := createTestAgentWithStatus("test-agent-different-reason", modelConfig, conditions)
 
-		handler, _ := setupTestHandler(agent, modelConfig)
+		handler, _ := setupTestHandler(t, agent, modelConfig)
 		createAgent(handler.DatabaseService, agent)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-agent-different-reason", nil)
@@ -247,7 +246,7 @@ func TestHandleGetAgent(t *testing.T) {
 		}
 		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
 
-		handler, _ := setupTestHandler(sa, modelConfig)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/sandbox-accepted", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
@@ -260,7 +259,7 @@ func TestHandleGetAgent(t *testing.T) {
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
-		handler, _ := setupTestHandler()
+		handler, _ := setupTestHandler(t)
 
 		req := httptest.NewRequest("GET", "/api/agents/default/test-team", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-team"})
@@ -282,7 +281,7 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 		}
 		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
 
-		handler, _ := setupTestHandler(sa, modelConfig)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/sandboxagents/default/sandbox-accepted", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
@@ -305,7 +304,7 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
-		handler, _ := setupTestHandler(agent, sa, modelConfig)
+		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/sandboxagents/default/shared-name", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
@@ -344,7 +343,7 @@ func TestHandleListAgents(t *testing.T) {
 		// Agent with DeploymentReady=false
 		notReadyAgent := createTestAgent("not-ready-agent", modelConfig)
 
-		handler, _ := setupTestHandler(readyAgent, notReadyAgent, modelConfig)
+		handler, _ := setupTestHandler(t, readyAgent, notReadyAgent, modelConfig)
 		createAgent(handler.DatabaseService, readyAgent)
 		createAgent(handler.DatabaseService, notReadyAgent)
 
@@ -404,7 +403,7 @@ func TestHandleListAgents(t *testing.T) {
 		readyAgent := createTestAgentWithStatus("ready-agent", modelConfig, readyConditions)
 		invalidAgent := createTestAgentWithStatus("invalid-agent", modelConfig, invalidConditions)
 
-		handler, _ := setupTestHandler(readyAgent, invalidAgent, modelConfig)
+		handler, _ := setupTestHandler(t, readyAgent, invalidAgent, modelConfig)
 		createAgent(handler.DatabaseService, readyAgent)
 		createAgent(handler.DatabaseService, invalidAgent)
 
@@ -437,7 +436,7 @@ func TestHandleListAgents(t *testing.T) {
 			{Type: "Ready", Status: "True", Reason: "WorkloadReady"},
 		}
 		sa := createTestSandboxAgentCRD("mysandbox", modelConfig, conditions)
-		handler, _ := setupTestHandler(sa, modelConfig)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/agents", nil)
 		req = setUser(req, "test-user")
@@ -463,7 +462,7 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		}
 		sa := createTestSandboxAgentCRD("mysandbox", modelConfig, conditions)
 		agent := createTestAgent("myagent", modelConfig)
-		handler, _ := setupTestHandler(sa, agent, modelConfig)
+		handler, _ := setupTestHandler(t, sa, agent, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/sandboxagents", nil)
 		req = setUser(req, "test-user")
@@ -487,7 +486,7 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
-		handler, _ := setupTestHandler(agent, sa, modelConfig)
+		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 
 		agentReq := httptest.NewRequest("GET", "/api/agents", nil)
 		agentReq = setUser(agentReq, "test-user")
@@ -540,7 +539,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 			},
 		}
 
-		handler, _ := setupTestHandler(existingAgent, oldModelConfig, newModelConfig)
+		handler, _ := setupTestHandler(t, existingAgent, oldModelConfig, newModelConfig)
 
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
@@ -589,7 +588,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 			},
 		}
 
-		handler, _ := setupTestHandler(existingAgent, modelConfig)
+		handler, _ := setupTestHandler(t, existingAgent, modelConfig)
 
 		updatedAgent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
@@ -615,7 +614,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
-		handler, _ := setupTestHandler()
+		handler, _ := setupTestHandler(t)
 
 		agent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "non-existent", Namespace: "default"},
@@ -645,7 +644,7 @@ func TestHandleCreateAgent(t *testing.T) {
 			},
 		}
 
-		handler, _ := setupTestHandler(modelConfig)
+		handler, _ := setupTestHandler(t, modelConfig)
 
 		agent := &v1alpha2.Agent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
@@ -685,7 +684,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 		}
 
-		handler, _ := setupTestHandler(team)
+		handler, _ := setupTestHandler(t, team)
 		createAgent(handler.DatabaseService, team)
 
 		req := httptest.NewRequest("DELETE", "/api/agents/default/test-team", nil)
@@ -699,7 +698,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 	})
 
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
-		handler, _ := setupTestHandler()
+		handler, _ := setupTestHandler(t)
 
 		req := httptest.NewRequest("DELETE", "/api/teams/default/non-existent", nil)
 		req = mux.SetURLVars(req, map[string]string{
@@ -718,7 +717,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
-		handler, _ := setupTestHandler(agent, sa, modelConfig)
+		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 
 		req := httptest.NewRequest("DELETE", "/api/agents/default/shared-name", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
@@ -739,7 +738,7 @@ func TestHandleDeleteSandboxAgent(t *testing.T) {
 	t.Run("deletes sandbox agent successfully", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("test-sandbox", modelConfig, nil)
-		handler, _ := setupTestHandler(sa, modelConfig)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
 
 		req := httptest.NewRequest("DELETE", "/api/sandboxagents/default/test-sandbox", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-sandbox"})
