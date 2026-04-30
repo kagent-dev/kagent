@@ -3,8 +3,6 @@ import os
 
 from fastapi import FastAPI
 from opentelemetry import _logs, trace
-from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
@@ -16,6 +14,38 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from ._span_processor import KagentAttributesSpanProcessor
+
+
+def _resolve_otlp_protocol(signal: str) -> str:
+    """Resolve the OTLP protocol from signal-specific or general env vars.
+
+    Follows the OpenTelemetry specification precedence:
+    signal-specific (e.g. OTEL_EXPORTER_OTLP_TRACES_PROTOCOL) > general > default (grpc).
+    """
+    raw = os.getenv(f"OTEL_EXPORTER_OTLP_{signal}_PROTOCOL") or os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL") or "grpc"
+    return raw.strip().lower()
+
+
+def _create_span_exporter(**kwargs):
+    """Create an OTLPSpanExporter using the protocol from env vars."""
+    protocol = _resolve_otlp_protocol("TRACES")
+    if protocol == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    logging.info("Using %s protocol for trace exporter", protocol)
+    return OTLPSpanExporter(**kwargs)
+
+
+def _create_log_exporter(**kwargs):
+    """Create an OTLPLogExporter using the protocol from env vars."""
+    protocol = _resolve_otlp_protocol("LOGS")
+    if protocol == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+    logging.info("Using %s protocol for log exporter", protocol)
+    return OTLPLogExporter(**kwargs)
 
 
 def _resolve_otlp_timeout_seconds(signal: str) -> float:
@@ -105,9 +135,11 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         trace_timeout_seconds = _resolve_otlp_timeout_seconds("TRACES")
         logging.info("Trace endpoint: %s", trace_endpoint or "<default>")
         if trace_endpoint:
-            processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds))
+            processor = BatchSpanProcessor(
+                _create_span_exporter(endpoint=trace_endpoint, timeout=trace_timeout_seconds)
+            )
         else:
-            processor = BatchSpanProcessor(OTLPSpanExporter(timeout=trace_timeout_seconds))
+            processor = BatchSpanProcessor(_create_span_exporter(timeout=trace_timeout_seconds))
 
         # Check if a TracerProvider already exists (e.g., set by CrewAI)
         current_provider = trace.get_tracer_provider()
@@ -146,9 +178,11 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
 
         # Add OTLP exporter
         if log_endpoint:
-            log_processor = BatchLogRecordProcessor(OTLPLogExporter(endpoint=log_endpoint, timeout=log_timeout_seconds))
+            log_processor = BatchLogRecordProcessor(
+                _create_log_exporter(endpoint=log_endpoint, timeout=log_timeout_seconds)
+            )
         else:
-            log_processor = BatchLogRecordProcessor(OTLPLogExporter(timeout=log_timeout_seconds))
+            log_processor = BatchLogRecordProcessor(_create_log_exporter(timeout=log_timeout_seconds))
         logger_provider.add_log_record_processor(log_processor)
 
         _logs.set_logger_provider(logger_provider)
