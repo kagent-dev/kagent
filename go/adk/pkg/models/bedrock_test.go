@@ -106,7 +106,7 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msgs, systemText := convertGenaiContentsToBedrockMessages(tt.contents)
+			msgs, systemText := convertGenaiContentsToBedrockMessages(tt.contents, nil)
 			if len(msgs) != tt.wantMsgCount {
 				t.Errorf("expected %d messages, got %d", tt.wantMsgCount, len(msgs))
 			}
@@ -124,7 +124,7 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 // sources: genai.Schema (declaration-based), map[string]any (MCP), and
 // *jsonschema.Schema (functiontool.New).
 func TestConvertGenaiToolsToBedrock(t *testing.T) {
-	extractSchema := func(t *testing.T, tools []types.Tool) map[string]any {
+	extractSchema := func(t *testing.T, tools []types.Tool, _ map[string]string) map[string]any {
 		t.Helper()
 		if len(tools) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(tools))
@@ -162,7 +162,8 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			},
 		}}}}
 
-		schema := extractSchema(t, convertGenaiToolsToBedrock(tools))
+		bt1, nm1 := convertGenaiToolsToBedrock(tools)
+		schema := extractSchema(t, bt1, nm1)
 
 		props := schema["properties"].(map[string]any)
 		for prop, want := range map[string]string{"location": "string", "count": "integer", "detailed": "boolean"} {
@@ -189,7 +190,8 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			},
 		}}}}
 
-		schema := extractSchema(t, convertGenaiToolsToBedrock(tools))
+		bt2, nm2 := convertGenaiToolsToBedrock(tools)
+		schema := extractSchema(t, bt2, nm2)
 		props, ok := schema["properties"].(map[string]any)
 		if !ok || len(props) == 0 {
 			t.Fatalf("expected non-empty properties, got %v", schema["properties"])
@@ -209,7 +211,8 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			ParametersJsonSchema: s,
 		}}}}
 
-		schema := extractSchema(t, convertGenaiToolsToBedrock(tools))
+		bt3, nm3 := convertGenaiToolsToBedrock(tools)
+		schema := extractSchema(t, bt3, nm3)
 		props, ok := schema["properties"].(map[string]any)
 		if !ok || len(props) == 0 {
 			t.Fatalf("expected non-empty properties (means *jsonschema.Schema was not converted): %v", schema["properties"])
@@ -308,6 +311,88 @@ func TestSanitizeBedrockToolID(t *testing.T) {
 			t.Errorf("expected different IDs for different invalid inputs, both got %q", first)
 		}
 	})
+}
+
+func TestSanitizeBedrockToolName(t *testing.T) {
+	tests := []struct {
+		name string
+		tool string
+		want string
+	}{
+		{name: "valid name unchanged", tool: "get_weather", want: "get_weather"},
+		{name: "valid name with hyphen", tool: "fetch-data", want: "fetch-data"},
+		{name: "dot replaced", tool: "fetch.get_url", want: "fetch_get_url"},
+		{name: "colon replaced", tool: "filesystem:read_file", want: "filesystem_read_file"},
+		{name: "space replaced", tool: "my tool", want: "my_tool"},
+		{name: "multiple invalid chars", tool: "a.b:c d", want: "a_b_c_d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nameMap := make(map[string]string)
+			counter := 0
+			if got := sanitizeBedrockToolName(tt.tool, nameMap, &counter); got != tt.want {
+				t.Errorf("sanitizeBedrockToolName(%q) = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("empty name gets synthetic", func(t *testing.T) {
+		nameMap, counter := make(map[string]string), 0
+		got := sanitizeBedrockToolName("", nameMap, &counter)
+		if got != "tool_fn_1" {
+			t.Errorf("expected tool_fn_1, got %q", got)
+		}
+		if counter != 1 {
+			t.Errorf("expected counter=1, got %d", counter)
+		}
+	})
+
+	t.Run("caching returns same sanitized name", func(t *testing.T) {
+		nameMap, counter := make(map[string]string), 0
+		first := sanitizeBedrockToolName("fetch.get_url", nameMap, &counter)
+		second := sanitizeBedrockToolName("fetch.get_url", nameMap, &counter)
+		if first != second {
+			t.Errorf("expected same cached result, got %q and %q", first, second)
+		}
+		if counter != 0 {
+			t.Errorf("expected counter unchanged, got %d", counter)
+		}
+	})
+}
+
+func TestConvertGenaiToolsToBedrockSanitizesNames(t *testing.T) {
+	tools := []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{
+		{Name: "fetch.get_url", Description: "Fetch a URL"},
+		{Name: "filesystem:read_file", Description: "Read a file"},
+	}}}
+
+	bedrockTools, nameMap := convertGenaiToolsToBedrock(tools)
+	if len(bedrockTools) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(bedrockTools))
+	}
+
+	// Verify sanitized names in the Bedrock tool specs.
+	for i, want := range []string{"fetch_get_url", "filesystem_read_file"} {
+		tm, ok := bedrockTools[i].(*types.ToolMemberToolSpec)
+		if !ok {
+			t.Fatalf("tool %d: expected *types.ToolMemberToolSpec", i)
+		}
+		got := ""
+		if tm.Value.Name != nil {
+			got = *tm.Value.Name
+		}
+		if got != want {
+			t.Errorf("tool %d: expected name %q, got %q", i, want, got)
+		}
+	}
+
+	// Verify nameMap contains the mappings.
+	if nameMap["fetch.get_url"] != "fetch_get_url" {
+		t.Errorf("nameMap[fetch.get_url] = %q, want fetch_get_url", nameMap["fetch.get_url"])
+	}
+	if nameMap["filesystem:read_file"] != "filesystem_read_file" {
+		t.Errorf("nameMap[filesystem:read_file] = %q, want filesystem_read_file", nameMap["filesystem:read_file"])
+	}
 }
 
 func TestStreamingToolCallParseArgs(t *testing.T) {
