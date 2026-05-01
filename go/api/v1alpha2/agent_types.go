@@ -84,6 +84,14 @@ type AgentSpec struct {
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
 
+// BuiltinToolsSpec configures the built-in tools available to a declarative agent.
+type BuiltinToolsSpec struct {
+	// AskUser enables the "ask user" tool.
+	// When true, the agent can pause execution and ask the user for input.
+	// +optional
+	AskUser bool `json:"askUser,omitempty"`
+}
+
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
@@ -211,6 +219,10 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// BuiltinTools configures the built-in tools available to this agent.
+	// +optional
+	BuiltinTools *BuiltinToolsSpec `json:"builtinTools,omitempty"`
 }
 
 // SandboxConfig configures sandboxed execution behavior.

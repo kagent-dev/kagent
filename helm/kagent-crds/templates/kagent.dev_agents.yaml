@@ -7740,6 +7740,16 @@ spec:
                         minItems: 1
                         type: array
                     type: object
+                  builtinTools:
+                    description: BuiltinTools configures the built-in tools available
+                      to this agent.
+                    properties:
+                      askUser:
+                        description: |-
+                          AskUser enables the "ask user" tool.
+                          When true, the agent can pause execution and ask the user for input.
+                        type: boolean
+                    type: object
                   context:
                     description: |-
                       Context configures context management for this agent.
