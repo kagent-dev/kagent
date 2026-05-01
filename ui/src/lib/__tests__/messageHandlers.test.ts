@@ -43,9 +43,37 @@ describe('messageHandlers helpers', () => {
     const tasks: any = [
       { history: [{ kind: 'message', messageId: mId }, { kind: 'message', messageId: mId }] },
     ];
-    const out = extractMessagesFromTasks(tasks);
+    const { messages: out } = extractMessagesFromTasks(tasks);
     expect(out.length).toBe(1);
     expect(out[0].messageId).toBe(mId);
+  });
+
+  test('extractMessagesFromTasks detects pending task in working state', () => {
+    const tasks: any = [
+      { id: 'task-1', status: { state: 'working' }, history: [] },
+    ];
+    const { pendingTask } = extractMessagesFromTasks(tasks);
+    expect(pendingTask).toBeDefined();
+    expect(pendingTask?.taskId).toBe('task-1');
+    expect(pendingTask?.state).toBe('working');
+  });
+
+  test('extractMessagesFromTasks detects pending task in submitted state', () => {
+    const tasks: any = [
+      { id: 'task-1', status: { state: 'submitted' }, history: [] },
+    ];
+    const { pendingTask } = extractMessagesFromTasks(tasks);
+    expect(pendingTask).toBeDefined();
+    expect(pendingTask?.taskId).toBe('task-1');
+    expect(pendingTask?.state).toBe('submitted');
+  });
+
+  test('extractMessagesFromTasks returns no pending task for completed tasks', () => {
+    const tasks: any = [
+      { id: 'task-1', status: { state: 'completed' }, history: [] },
+    ];
+    const { pendingTask } = extractMessagesFromTasks(tasks);
+    expect(pendingTask).toBeUndefined();
   });
 
   test('extractMessagesFromTasks injects tokenStats into non-user agent messages only', () => {
@@ -60,7 +88,7 @@ describe('messageHandlers helpers', () => {
         ],
       },
     ] as unknown as Task[];
-    const messages = extractMessagesFromTasks(tasks);
+    const { messages } = extractMessagesFromTasks(tasks);
     // Agent message with usage metadata gets tokenStats injected
     expect((messages[0].metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats)
       .toEqual({ total: 10, prompt: 3, completion: 7 });
@@ -445,7 +473,7 @@ describe('subagent_session_id propagation', () => {
       }],
     }] as unknown as Task[];
 
-    const messages = extractMessagesFromTasks(tasks);
+    const { messages } = extractMessagesFromTasks(tasks);
     expect(messages).toHaveLength(1);
     const meta = messages[0].metadata as ADKMetadata;
     expect(meta.originalType).toBe('ToolCallRequestEvent');
@@ -474,7 +502,7 @@ describe('subagent_session_id propagation', () => {
       }],
     }] as unknown as Task[];
 
-    const messages = extractMessagesFromTasks(tasks);
+    const { messages } = extractMessagesFromTasks(tasks);
     expect(messages).toHaveLength(1);
     const meta = messages[0].metadata as ADKMetadata;
     expect(meta.originalType).toBe('ToolCallExecutionEvent');

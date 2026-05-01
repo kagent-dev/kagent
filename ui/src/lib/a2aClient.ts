@@ -6,7 +6,7 @@ import { MessageSendParams } from '@a2a-js/sdk';
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: MessageSendParams;
+  params: MessageSendParams | { id: string };
   id: string | number;
 }
 
@@ -74,6 +74,47 @@ export class KagentA2AClient {
     }
 
     // Return an async iterable for SSE processing
+    return this.processSSEStream(response.body);
+  }
+
+  /**
+   * Resubscribe to an in-flight task to resume receiving streaming events
+   * Uses the A2A tasks/resubscribe JSON-RPC method
+   */
+  async resubscribeTask(
+    namespace: string,
+    agentName: string,
+    taskId: string,
+    signal?: AbortSignal
+  ): Promise<AsyncIterable<unknown>> {
+    const request: A2AJsonRpcRequest = {
+      jsonrpc: "2.0",
+      method: "tasks/resubscribe",
+      params: { id: taskId },
+      id: uuidv4(),
+    };
+
+    const proxyUrl = `/a2a/${namespace}/${agentName}`;
+
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify(request),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`A2A resubscribe failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+
     return this.processSSEStream(response.body);
   }
 

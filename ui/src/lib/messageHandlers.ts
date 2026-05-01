@@ -4,12 +4,27 @@ import { convertToUserFriendlyName, isAgentToolName, messageUtils } from "@/lib/
 import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
+// Result type for extractMessagesFromTasks
+export interface TaskExtractionResult {
+  messages: Message[];
+  pendingTask?: { taskId: string; state: 'working' | 'submitted' };
+}
+
 // Helper functions for extracting data from stored tasks
-export function extractMessagesFromTasks(tasks: Task[]): Message[] {
+export function extractMessagesFromTasks(tasks: Task[]): TaskExtractionResult {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
+  let pendingTask: { taskId: string; state: 'working' | 'submitted' } | undefined;
 
   for (const task of tasks) {
+    // Detect in-flight tasks for stream reconnection.
+    // If multiple tasks are in-flight (unusual), the last one wins — sessions
+    // are expected to have at most one concurrent active task.
+    const taskState = task.status?.state;
+    if (taskState === 'working' || taskState === 'submitted') {
+      pendingTask = { taskId: task.id, state: taskState };
+    }
+
     if (!task.history) continue;
 
     // Track the most recent LLM usage seen so far within this task so we can
@@ -159,7 +174,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
     }
   }
 
-  return messages;
+  return { messages, pendingTask };
 }
 
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
