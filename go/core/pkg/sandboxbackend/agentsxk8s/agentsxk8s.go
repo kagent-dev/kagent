@@ -24,6 +24,10 @@ func New() *Backend {
 	return &Backend{}
 }
 
+func (b *Backend) EnsureAPIsRegistered(ctx context.Context, c client.Client) error {
+	return sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, c)
+}
+
 func (b *Backend) GetOwnedResourceTypes() []client.Object {
 	return []client.Object{
 		&agentsandboxv1.Sandbox{},

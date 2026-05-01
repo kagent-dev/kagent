@@ -283,6 +283,9 @@ type ExtensionConfig struct {
 	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
 	SandboxBackend   sandboxbackend.Backend
+	// WorkloadModeResolver optionally overrides how AgentObjects are materialized.
+	// When nil, Agent and SandboxAgent use their built-in workload modes.
+	WorkloadModeResolver translator.WorkloadModeResolver
 	// SessionHook is called on session lifecycle events. Optional.
 	SessionHook handlers.SessionHook
 	// TargetURLResolver enables per-session A2A target URL resolution. Optional.
@@ -508,22 +511,24 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
+	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespacesAndWorkloadModeResolver(
 		mgr.GetClient(),
 		watchNamespacesList,
 		cfg.DefaultModelConfig,
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
 		extensionCfg.SandboxBackend,
+		extensionCfg.WorkloadModeResolver,
 	)
 
-	rcnclr := reconciler.NewKagentReconciler(
+	rcnclr := reconciler.NewKagentReconcilerWithWorkloadModeResolver(
 		apiTranslator,
 		mgr.GetClient(),
 		dbClient,
 		cfg.DefaultModelConfig,
 		watchNamespacesList,
 		extensionCfg.SandboxBackend,
+		extensionCfg.WorkloadModeResolver,
 	)
 
 	if err := (&controller.ServiceController{
@@ -654,19 +659,20 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:            router,
-		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        mgr.GetClient(),
-		A2AHandler:        a2aHandler,
-		MCPHandler:        mcpHandler,
-		WatchedNamespaces: watchNamespacesList,
-		DbClient:          dbClient,
-		Authorizer:        extensionCfg.Authorizer,
-		Authenticator:     extensionCfg.Authenticator,
-		ProxyURL:          cfg.Proxy.URL,
-		Reconciler:        rcnclr,
-		SandboxBackend:    extensionCfg.SandboxBackend,
-		SessionHook:       extensionCfg.SessionHook,
+		Router:               router,
+		BindAddr:             cfg.HttpServerAddr,
+		KubeClient:           mgr.GetClient(),
+		A2AHandler:           a2aHandler,
+		MCPHandler:           mcpHandler,
+		WatchedNamespaces:    watchNamespacesList,
+		DbClient:             dbClient,
+		Authorizer:           extensionCfg.Authorizer,
+		Authenticator:        extensionCfg.Authenticator,
+		ProxyURL:             cfg.Proxy.URL,
+		Reconciler:           rcnclr,
+		SandboxBackend:       extensionCfg.SandboxBackend,
+		WorkloadModeResolver: extensionCfg.WorkloadModeResolver,
+		SessionHook:          extensionCfg.SessionHook,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

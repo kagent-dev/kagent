@@ -1362,6 +1362,69 @@ func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }
 
+func Test_AdkApiTranslator_WorkloadModeResolverAgentEmitsSandbox(t *testing.T) {
+	ctx := context.Background()
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: "sandbox-ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "ag1", Namespace: "sandbox-ns"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "You are a sandboxed agent",
+				ModelConfig:   "m1",
+			},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, modelConfig).
+		Build()
+
+	trans := translator.NewAdkApiTranslatorWithWatchedNamespacesAndWorkloadModeResolver(
+		kubeClient,
+		nil,
+		types.NamespacedName{Namespace: "sandbox-ns", Name: "m1"},
+		nil,
+		"",
+		agentsxk8s.New(),
+		forceSandboxResolver{},
+	)
+	outputs, err := translator.TranslateAgent(ctx, trans, agent)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+
+	var sandbox *agentsandboxv1.Sandbox
+	var sawDeploy, sawService bool
+	for _, o := range outputs.Manifest {
+		switch typed := o.(type) {
+		case *agentsandboxv1.Sandbox:
+			sandbox = typed
+		case *appsv1.Deployment:
+			sawDeploy = true
+		case *corev1.Service:
+			sawService = true
+		}
+	}
+	require.NotNil(t, sandbox, "resolver-selected sandbox mode should emit a Sandbox CR")
+	require.Len(t, sandbox.Spec.PodTemplate.Spec.Containers, 1)
+	require.Contains(t, sandbox.Spec.PodTemplate.Spec.Containers[0].Image, "golang-adk")
+	require.Contains(t, sandbox.Spec.PodTemplate.Spec.Containers[0].Image, "-full")
+	require.False(t, sawDeploy, "manifest should not include Deployment when resolver selects sandbox mode")
+	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
+}
+
 func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
@@ -1412,4 +1475,10 @@ func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 	require.True(t, sawSandbox)
 	require.False(t, sawDeploy)
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
+}
+
+type forceSandboxResolver struct{}
+
+func (forceSandboxResolver) ResolveWorkloadMode(context.Context, v1alpha2.AgentObject) (v1alpha2.WorkloadMode, bool, error) {
+	return v1alpha2.WorkloadModeSandbox, true, nil
 }

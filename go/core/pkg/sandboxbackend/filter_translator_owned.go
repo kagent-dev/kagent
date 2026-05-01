@@ -15,7 +15,11 @@ import (
 //
 // translatorOwnedTypes is typically AdkApiTranslator.GetOwnedResourceTypes() (full set used for watches).
 func FilterTranslatorOwnedTypesForList(cl client.Client, agent v1alpha2.AgentObject, translatorOwnedTypes []client.Object, backend Backend) ([]client.Object, error) {
-	if backend == nil || agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+	return FilterTranslatorOwnedTypesForListWithWorkloadMode(cl, agent.GetWorkloadMode(), translatorOwnedTypes, backend)
+}
+
+func FilterTranslatorOwnedTypesForListWithWorkloadMode(cl client.Client, workloadMode v1alpha2.WorkloadMode, translatorOwnedTypes []client.Object, backend Backend) ([]client.Object, error) {
+	if backend == nil || workloadMode == v1alpha2.WorkloadModeSandbox {
 		return translatorOwnedTypes, nil
 	}
 	sandboxOnly := backend.GetOwnedResourceTypes()

@@ -18,6 +18,7 @@ type AgentManifestInputs struct {
 	Deployment      *resolvedDeployment
 	AgentCard       *server.AgentCard
 	SecretHashBytes []byte
+	WorkloadMode    v1alpha2.WorkloadMode
 }
 
 const MAX_DEPTH = 10
@@ -93,9 +94,16 @@ func (a *adkApiTranslator) CompileAgent(
 		return nil, fmt.Errorf("unknown agent type: %s", spec.Type)
 	}
 
-	runInSandbox := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
+	workloadMode, err := a.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workload mode: %w", err)
+	}
+	runInSandbox := workloadMode == v1alpha2.WorkloadModeSandbox
 	if runInSandbox && a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
+	}
+	if runInSandbox {
+		dep = deploymentForSandboxRuntime(agent, dep)
 	}
 
 	card := GetA2AAgentCard(agent)
@@ -106,6 +114,7 @@ func (a *adkApiTranslator) CompileAgent(
 		Deployment:      dep,
 		AgentCard:       card,
 		SecretHashBytes: secretHashBytes,
+		WorkloadMode:    workloadMode,
 	}, nil
 }
 

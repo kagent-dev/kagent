@@ -16,6 +16,7 @@ type BuildInput struct {
 	PodTemplate  corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string
+	ConfigData   map[string]string
 }
 
 // Backend builds sandbox CRD objects and evaluates their readiness.
@@ -25,4 +26,9 @@ type Backend interface {
 
 	// ComputeReady reflects implementation-specific status into condition pieces for Agent.status.
 	ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (status metav1.ConditionStatus, reason, message string)
+
+	// EnsureAPIsRegistered verifies that any cluster-scoped APIs the backend depends on are
+	// reachable. Backends that don't depend on cluster APIs (e.g. those that talk to an
+	// out-of-cluster service) should return nil.
+	EnsureAPIsRegistered(ctx context.Context, c client.Client) error
 }

@@ -102,6 +102,46 @@ func (c *postgresClient) GetSession(ctx context.Context, sessionID, userID strin
 	return toSession(row), nil
 }
 
+func (c *postgresClient) GetSessionByID(ctx context.Context, sessionID string) (*dbpkg.Session, error) {
+	var (
+		id, userID    string
+		name, agentID *string
+		createdAt     *time.Time
+		updatedAt     *time.Time
+		deletedAt     *time.Time
+		sourceRaw     *string
+	)
+	err := c.db.QueryRow(ctx,
+		`SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source
+		   FROM session WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+		sessionID,
+	).Scan(&id, &userID, &name, &createdAt, &updatedAt, &deletedAt, &agentID, &sourceRaw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("GetSessionByID %s: %w", sessionID, err)
+	}
+	s := &dbpkg.Session{
+		ID:        id,
+		UserID:    userID,
+		Name:      name,
+		DeletedAt: deletedAt,
+		AgentID:   agentID,
+	}
+	if createdAt != nil {
+		s.CreatedAt = *createdAt
+	}
+	if updatedAt != nil {
+		s.UpdatedAt = *updatedAt
+	}
+	if sourceRaw != nil {
+		src := dbpkg.SessionSource(*sourceRaw)
+		s.Source = &src
+	}
+	return s, nil
+}
+
 func (c *postgresClient) ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error) {
 	rows, err := c.q.ListSessions(ctx, userID)
 	if err != nil {

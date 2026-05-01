@@ -115,7 +115,7 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			if !ok {
 				return
 			}
-			ref := a2aRouteKey(agent)
+			ref := a.a2aRouteKey(agent)
 			a.handlerMux.RemoveAgentHandler(ref)
 			log.V(1).Info("removed A2A handler", "agent", ref)
 		},
@@ -182,7 +182,8 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	cardCopy := *card
 	cardCopy.URL = a.a2aRouteURL(agent)
 
-	if err := a.handlerMux.SetAgentHandler(a2aRouteKey(agent), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
+	key := a.a2aRouteKey(agent)
+	if err := a.handlerMux.SetAgentHandler(key, client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
 		return fmt.Errorf("set handler for %s: %w", agentRef, err)
 	}
 
@@ -214,11 +215,6 @@ func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {
 	return baseURL + "/" + types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}.String() + "/"
 }
 
-func a2aRouteKey(agent v1alpha2.AgentObject) string {
-	return a2aRoutePath(agent)
-}
-
-func a2aRoutePath(agent v1alpha2.AgentObject) string {
-	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
-	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
+func (a *A2ARegistrar) a2aRouteKey(agent v1alpha2.AgentObject) string {
+	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agent.GetNamespace(), agent.GetName())
 }

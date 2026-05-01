@@ -20,3 +20,10 @@ type TranslatorPlugin interface {
 	ProcessAgent(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error
 	GetOwnedResourceTypes() []client.Object
 }
+
+// WorkloadModeResolver optionally overrides how an AgentObject should be
+// materialized. Implementations should return ok=false to preserve the object's
+// default workload mode.
+type WorkloadModeResolver interface {
+	ResolveWorkloadMode(ctx context.Context, agent v1alpha2.AgentObject) (mode v1alpha2.WorkloadMode, ok bool, err error)
+}

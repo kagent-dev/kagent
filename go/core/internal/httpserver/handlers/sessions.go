@@ -8,7 +8,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -105,6 +104,22 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
+	// Early idempotency: if the caller provides a known session ID that already exists,
+	// return it immediately without requiring agent_ref or re-running the session hook.
+	// This covers the in-sandbox A2A agent pattern: the session was created by the
+	// conversation manager (step 5) and the sandbox agent just needs to reuse it.
+	if sessionRequest.ID != nil && *sessionRequest.ID != "" {
+		existing, lookupErr := h.DatabaseService.GetSessionByID(r.Context(), *sessionRequest.ID)
+		if lookupErr != nil {
+			log.Error(lookupErr, "GetSessionByID failed; falling through to normal create path", "sessionID", *sessionRequest.ID)
+		} else if existing != nil {
+			log.V(1).Info("Session already exists; returning existing (idempotent by ID)", "sessionID", existing.ID)
+			data := api.NewResponse(existing, "Session already exists", false)
+			RespondWithJSON(w, http.StatusCreated, data)
+			return
+		}
+	}
+
 	userID, err := getUserIDOrAgentUser(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
@@ -130,18 +145,6 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
-	}
-
-	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-		existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
-		if lerr != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
-			return
-		}
-		if len(existing) > 0 {
-			w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
-			return
-		}
 	}
 
 	session := &database.Session{
@@ -203,8 +206,16 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log.V(1).Info("Getting session from database")
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
+		if fallback, fErr := h.DatabaseService.GetSessionByID(r.Context(), sessionID); fErr == nil && fallback != nil {
+			log.V(1).Info("session user mismatch; using owner's session", "owner", fallback.UserID, "requestedUser", userID)
+			session = fallback
+			userID = fallback.UserID
+			err = nil
+		}
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
 	}
 
 	queryOptions := database.QueryOptions{
@@ -399,14 +410,24 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		return
 	}
 
-	// Get session to verify it exists
+	// Get session to verify it exists. For sandbox-agent sessions the caller may use a
+	// different user_id than the session owner; fall back to ID-only lookup in that case.
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
+		if fallback, fErr := h.DatabaseService.GetSessionByID(r.Context(), sessionID); fErr == nil && fallback != nil {
+			log.V(1).Info("add-event: session user mismatch; using owner", "owner", fallback.UserID, "requestedUser", userID)
+			session = fallback
+			userID = fallback.UserID
+			err = nil
+		}
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+			return
+		}
 	}
 
-	if session.AgentID != nil && *session.AgentID != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
+	if session.AgentID != nil && principal.Agent.ID != "" &&
+		*session.AgentID != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
 		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
 		return
 	}

@@ -170,23 +170,42 @@ func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.Namespaced
 }
 
 func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
+	return NewAdkApiTranslatorWithWatchedNamespacesAndWorkloadModeResolver(kube, watchedNamespaces, defaultModelConfig, plugins, globalProxyURL, sandboxBackend, nil)
+}
+
+func NewAdkApiTranslatorWithWatchedNamespacesAndWorkloadModeResolver(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend, workloadModeResolver translator.WorkloadModeResolver) AdkApiTranslator {
 	return &adkApiTranslator{
-		kube:               kube,
-		watchedNamespaces:  watchedNamespaces,
-		defaultModelConfig: defaultModelConfig,
-		plugins:            plugins,
-		globalProxyURL:     globalProxyURL,
-		sandboxBackend:     sandboxBackend,
+		kube:                 kube,
+		watchedNamespaces:    watchedNamespaces,
+		defaultModelConfig:   defaultModelConfig,
+		plugins:              plugins,
+		globalProxyURL:       globalProxyURL,
+		sandboxBackend:       sandboxBackend,
+		workloadModeResolver: workloadModeResolver,
 	}
 }
 
 type adkApiTranslator struct {
-	kube               client.Client
-	watchedNamespaces  []string
-	defaultModelConfig types.NamespacedName
-	plugins            []TranslatorPlugin
-	globalProxyURL     string
-	sandboxBackend     sandboxbackend.Backend
+	kube                 client.Client
+	watchedNamespaces    []string
+	defaultModelConfig   types.NamespacedName
+	plugins              []TranslatorPlugin
+	globalProxyURL       string
+	sandboxBackend       sandboxbackend.Backend
+	workloadModeResolver translator.WorkloadModeResolver
+}
+
+func (a *adkApiTranslator) resolveWorkloadMode(ctx context.Context, agent v1alpha2.AgentObject) (v1alpha2.WorkloadMode, error) {
+	if a.workloadModeResolver != nil {
+		mode, ok, err := a.workloadModeResolver.ResolveWorkloadMode(ctx, agent)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return mode, nil
+		}
+	}
+	return agent.GetWorkloadMode(), nil
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.

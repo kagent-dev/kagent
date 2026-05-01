@@ -12,7 +12,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,13 +129,17 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 			break
 		}
 	}
+	workloadMode, err := h.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return api.AgentResponse{}, err
+	}
 
 	response := api.AgentResponse{
 		ID:              utils.ConvertToPythonIdentifier(agentRef),
 		Agent:           api.AgentResourceFrom(agent),
 		DeploymentReady: deploymentReady,
 		Accepted:        accepted,
-		WorkloadMode:    agent.GetWorkloadMode(),
+		WorkloadMode:    workloadMode,
 	}
 
 	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil {
@@ -168,19 +171,24 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 }
 
 func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translator.AdkApiTranslator {
-	return agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
+	return agent_translator.NewAdkApiTranslatorWithWatchedNamespacesAndWorkloadModeResolver(
 		kubeClient,
 		h.WatchedNamespaces,
 		h.DefaultModelConfig,
 		nil,
 		h.ProxyURL,
 		h.SandboxBackend,
+		h.WorkloadModeResolver,
 	)
 }
 
 func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil {
-		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, h.KubeClient); err != nil {
+	workloadMode, err := h.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return errors.NewBadRequestError("Invalid agent workload mode", err)
+	}
+	if workloadMode == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil {
+		if err := h.SandboxBackend.EnsureAPIsRegistered(ctx, h.KubeClient); err != nil {
 			return errors.NewBadRequestError(err.Error(), err)
 		}
 	}
@@ -200,6 +208,19 @@ func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.
 	}
 
 	return nil
+}
+
+func (h *AgentsHandler) resolveWorkloadMode(ctx context.Context, agent v1alpha2.AgentObject) (v1alpha2.WorkloadMode, error) {
+	if h.WorkloadModeResolver != nil {
+		mode, ok, err := h.WorkloadModeResolver.ResolveWorkloadMode(ctx, agent)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return mode, nil
+		}
+	}
+	return agent.GetWorkloadMode(), nil
 }
 
 func (h *AgentsHandler) parseAgentRef(log logr.Logger, agent client.Object, invalidMsg string) (logr.Logger, types.NamespacedName, error) {

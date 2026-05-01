@@ -212,7 +212,7 @@ func TestSessionsHandler(t *testing.T) {
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 
-		t.Run("SandboxAgentAllowsOnlyOneSessionGlobally", func(t *testing.T) {
+		t.Run("SandboxAgentAllowsMultipleSessions", func(t *testing.T) {
 			handler, dbClient, responseRecorder := setupHandler()
 			userID := "test-user"
 			agentRef := utils.ConvertToPythonIdentifier("default/test-sandbox-agent")
@@ -222,8 +222,7 @@ func TestSessionsHandler(t *testing.T) {
 				WorkloadType: v1alpha2.WorkloadModeSandbox,
 			}))
 
-			existingAgentID := agentRef
-			createTestSession(dbClient, "existing-session", "other-user", existingAgentID)
+			createTestSession(dbClient, "existing-session", "other-user", agentRef)
 
 			sessionReq := api.SessionRequest{
 				AgentRef: &agentRef,
@@ -237,8 +236,37 @@ func TestSessionsHandler(t *testing.T) {
 
 			handler.HandleCreateSession(responseRecorder, req)
 
-			assert.Equal(t, http.StatusConflict, responseRecorder.Code)
-			assert.NotNil(t, responseRecorder.errorReceived)
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
+			assert.Nil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("SessionByID", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler()
+			userID := "test-user"
+			agentRef := utils.ConvertToPythonIdentifier("default/agent")
+
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:           agentRef,
+				WorkloadType: v1alpha2.WorkloadModeSandbox,
+			}))
+
+			existing := createTestSession(dbClient, "existing-session", "other-user", agentRef)
+
+			explicitID := existing.ID
+			sessionReq := api.SessionRequest{
+				AgentRef: &agentRef,
+				ID:       &explicitID,
+			}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, userID)
+
+			handler.HandleCreateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
+			assert.Nil(t, responseRecorder.errorReceived)
 		})
 	})
 

@@ -253,6 +253,19 @@ func (c *InMemoryFakeClient) GetSession(_ context.Context, sessionID string, use
 	return session, nil
 }
 
+// GetSessionByID retrieves a session by ID alone, ignoring user_id ownership.
+func (c *InMemoryFakeClient) GetSessionByID(_ context.Context, sessionID string) (*database.Session, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, session := range c.sessions {
+		if session.ID == sessionID {
+			return session, nil
+		}
+	}
+	return nil, nil
+}
+
 // GetAgent retrieves an agent by name
 func (c *InMemoryFakeClient) GetAgent(_ context.Context, agentName string) (*database.Agent, error) {
 	c.mu.RLock()

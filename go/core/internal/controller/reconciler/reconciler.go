@@ -15,6 +15,7 @@ import (
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	translatorpkg "github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -71,7 +72,8 @@ type kagentReconciler struct {
 	// An empty list means watching all namespaces.
 	watchedNamespaces []string
 
-	sandboxBackend sandboxbackend.Backend
+	sandboxBackend       sandboxbackend.Backend
+	workloadModeResolver translatorpkg.WorkloadModeResolver
 }
 
 func NewKagentReconciler(
@@ -82,14 +84,40 @@ func NewKagentReconciler(
 	watchedNamespaces []string,
 	sandboxBackend sandboxbackend.Backend,
 ) KagentReconciler {
+	return NewKagentReconcilerWithWorkloadModeResolver(translator, kube, dbClient, defaultModelConfig, watchedNamespaces, sandboxBackend, nil)
+}
+
+func NewKagentReconcilerWithWorkloadModeResolver(
+	translator agent_translator.AdkApiTranslator,
+	kube client.Client,
+	dbClient database.Client,
+	defaultModelConfig types.NamespacedName,
+	watchedNamespaces []string,
+	sandboxBackend sandboxbackend.Backend,
+	workloadModeResolver translatorpkg.WorkloadModeResolver,
+) KagentReconciler {
 	return &kagentReconciler{
-		adkTranslator:      translator,
-		kube:               kube,
-		dbClient:           dbClient,
-		defaultModelConfig: defaultModelConfig,
-		watchedNamespaces:  watchedNamespaces,
-		sandboxBackend:     sandboxBackend,
+		adkTranslator:        translator,
+		kube:                 kube,
+		dbClient:             dbClient,
+		defaultModelConfig:   defaultModelConfig,
+		watchedNamespaces:    watchedNamespaces,
+		sandboxBackend:       sandboxBackend,
+		workloadModeResolver: workloadModeResolver,
 	}
+}
+
+func (a *kagentReconciler) resolveWorkloadMode(ctx context.Context, agent v1alpha2.AgentObject) (v1alpha2.WorkloadMode, error) {
+	if a.workloadModeResolver != nil {
+		mode, ok, err := a.workloadModeResolver.ResolveWorkloadMode(ctx, agent)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return mode, nil
+		}
+	}
+	return agent.GetWorkloadMode(), nil
 }
 
 func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
@@ -174,7 +202,11 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 
 	// TODO: create different translations with different owned objects
 	allOwnedTypes := a.adkTranslator.GetOwnedResourceTypes()
-	ownedTypes, err := sandboxbackend.FilterTranslatorOwnedTypesForList(a.kube, agent, allOwnedTypes, a.sandboxBackend)
+	workloadMode, err := a.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("resolve workload mode: %w", err)
+	}
+	ownedTypes, err := sandboxbackend.FilterTranslatorOwnedTypesForListWithWorkloadMode(a.kube, workloadMode, allOwnedTypes, a.sandboxBackend)
 	if err != nil {
 		return fmt.Errorf("filter owned types for list: %w", err)
 	}
@@ -196,7 +228,7 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 
 func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) error {
 	if a.sandboxBackend != nil {
-		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, a.kube); err != nil {
+		if err := a.sandboxBackend.EnsureAPIsRegistered(ctx, a.kube); err != nil {
 			return err
 		}
 	}
@@ -237,28 +269,49 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 		ObservedGeneration: agent.Generation,
 	}
 
-	switch agent.Spec.Type {
-	default:
-		// Check if the deployment exists
-		deployment := &appsv1.Deployment{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+	workloadMode, modeErr := a.resolveWorkloadMode(ctx, agent)
+	if modeErr != nil {
+		deployedCondition.Status = metav1.ConditionUnknown
+		deployedCondition.Reason = "WorkloadModeResolveFailed"
+		deployedCondition.Message = modeErr.Error()
+		return a.updateAgentObjectStatus(ctx, agent, err, deployedCondition)
+	}
+	if workloadMode == v1alpha2.WorkloadModeSandbox {
+		if a.sandboxBackend == nil {
 			deployedCondition.Status = metav1.ConditionUnknown
-			deployedCondition.Reason = "DeploymentNotFound"
-			deployedCondition.Message = err.Error()
+			deployedCondition.Reason = "SandboxBackendNotConfigured"
+			deployedCondition.Message = "Sandbox backend is not configured"
 		} else {
-			replicas := int32(1)
-			if deployment.Spec.Replicas != nil {
-				replicas = *deployment.Spec.Replicas
+			st, reason, msg := a.sandboxBackend.ComputeReady(ctx, a.kube, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name})
+			deployedCondition.Status = st
+			deployedCondition.Reason = reason
+			deployedCondition.Message = msg
+			if st == metav1.ConditionTrue {
+				deployedCondition.Reason = AgentReadyReasonWorkloadReady
 			}
-			if deployment.Status.AvailableReplicas >= replicas {
-				deployedCondition.Status = metav1.ConditionTrue
-				deployedCondition.Reason = AgentReadyReasonDeploymentReady
-				deployedCondition.Message = "Deployment is ready"
-			} else {
-				deployedCondition.Status = metav1.ConditionFalse
-				deployedCondition.Reason = "DeploymentNotReady"
-				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
-			}
+		}
+		return a.updateAgentObjectStatus(ctx, agent, err, deployedCondition)
+	}
+
+	// Check if the deployment exists
+	deployment := &appsv1.Deployment{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
+		deployedCondition.Status = metav1.ConditionUnknown
+		deployedCondition.Reason = "DeploymentNotFound"
+		deployedCondition.Message = err.Error()
+	} else {
+		replicas := int32(1)
+		if deployment.Spec.Replicas != nil {
+			replicas = *deployment.Spec.Replicas
+		}
+		if deployment.Status.AvailableReplicas >= replicas {
+			deployedCondition.Status = metav1.ConditionTrue
+			deployedCondition.Reason = AgentReadyReasonDeploymentReady
+			deployedCondition.Message = "Deployment is ready"
+		} else {
+			deployedCondition.Status = metav1.ConditionFalse
+			deployedCondition.Reason = "DeploymentNotReady"
+			deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
 		}
 	}
 
@@ -769,6 +822,15 @@ func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourc
 }
 
 func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
+	workloadMode, err := a.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("resolve workload mode: %w", err)
+	}
+	if workloadMode == v1alpha2.WorkloadModeSandbox && a.sandboxBackend != nil {
+		if err := a.sandboxBackend.EnsureAPIsRegistered(ctx, a.kube); err != nil {
+			return err
+		}
+	}
 	return a.reconcileTranslatedAgent(ctx, agent, "agent", nil)
 }
 
@@ -938,14 +1000,18 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent v1alpha2.AgentObject, agentOutputs *agent_translator.AgentOutputs) error {
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+	workloadMode, err := a.resolveWorkloadMode(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("resolve workload mode: %w", err)
+	}
 	dbType := string(agent.GetAgentSpec().Type)
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+	if workloadMode == v1alpha2.WorkloadModeSandbox {
 		dbType = "SandboxAgent"
 	}
 	dbAgent := &database.Agent{
 		ID:           id,
 		Type:         dbType,
-		WorkloadType: agent.GetWorkloadMode(),
+		WorkloadType: workloadMode,
 		Config:       agentOutputs.Config,
 	}
 

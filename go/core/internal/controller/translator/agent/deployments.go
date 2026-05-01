@@ -78,6 +78,44 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 	return defaultLabels
 }
 
+// getRuntimeEntrypoint returns the executable + subcommand prefix for a given runtime.
+// This is the image's ENTRYPOINT (and first CMD token where applicable), made explicit
+// so callers that need a fully-qualified command receive it.
+func getRuntimeEntrypoint(runtime v1alpha2.DeclarativeRuntime) []string {
+	switch runtime {
+	case v1alpha2.DeclarativeRuntime_Go:
+		return []string{"/app"}
+	default: // Python
+		return []string{"/.kagent/.venv/bin/kagent-adk", "static"}
+	}
+}
+
+func deploymentForSandboxRuntime(agent v1alpha2.AgentObject, dep *resolvedDeployment) *resolvedDeployment {
+	spec := agent.GetAgentSpec()
+	if spec == nil || spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+		return dep
+	}
+	if spec.Declarative.Runtime != v1alpha2.DeclarativeRuntime_Go {
+		return dep
+	}
+
+	copy := *dep
+	copy.Image = fullGoRuntimeImage(copy.Image)
+	return &copy
+}
+
+func fullGoRuntimeImage(image string) string {
+	if strings.HasSuffix(image, "-full") {
+		return image
+	}
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image + "-full"
+	}
+	return image + ":full"
+}
+
 // getRuntimeImageRepository returns the image repository for a given runtime.
 // It respects DefaultImageConfig.Repository for the Python runtime, and derives
 // the Go runtime repository by replacing the last path segment with "golang-adk".
@@ -109,14 +147,6 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	specRef := agent.GetAgentSpec()
 	// Defaults
 	port := int32(8080)
-	args := []string{
-		"--host",
-		DefaultAgentBindHost,
-		"--port",
-		fmt.Sprintf("%d", port),
-		"--filepath",
-		"/config",
-	}
 
 	serviceAccountName := new(string)
 	*serviceAccountName = agent.GetName()
@@ -132,6 +162,10 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	if specRef.Declarative.Runtime != "" {
 		runtime = specRef.Declarative.Runtime
 	}
+
+	entrypoint := getRuntimeEntrypoint(runtime)
+	cmd := entrypoint[0]
+	args := append(entrypoint[1:], "--host", DefaultAgentBindHost, "--port", fmt.Sprintf("%d", port), "--filepath", "/config")
 
 	// Get registry
 	registry := DefaultImageConfig.Registry
@@ -163,6 +197,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 
 	dep := &resolvedDeployment{
 		Image:                image,
+		Cmd:                  cmd,
 		Args:                 args,
 		Port:                 port,
 		ImagePullPolicy:      imagePullPolicy,

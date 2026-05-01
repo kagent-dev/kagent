@@ -24,6 +24,7 @@ import (
 type manifestContext struct {
 	agent          v1alpha2.AgentObject
 	deployment     *resolvedDeployment
+	workloadMode   v1alpha2.WorkloadMode
 	selectorLabels map[string]string
 }
 
@@ -55,7 +56,15 @@ func (a *adkApiTranslator) BuildManifest(
 	}
 
 	outputs := &AgentOutputs{}
-	manifestCtx := newManifestContext(agent, inputs.Deployment)
+	workloadMode := inputs.WorkloadMode
+	if workloadMode == "" {
+		var err error
+		workloadMode, err = a.resolveWorkloadMode(ctx, agent)
+		if err != nil {
+			return nil, fmt.Errorf("resolve workload mode: %w", err)
+		}
+	}
+	manifestCtx := newManifestContext(agent, inputs.Deployment, workloadMode)
 
 	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
@@ -74,7 +83,7 @@ func (a *adkApiTranslator) BuildManifest(
 
 	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configSecret.configHash)
 
-	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate)
+	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate, configSecret.secret.StringData)
 	if err != nil {
 		return nil, err
 	}
@@ -92,10 +101,11 @@ func (a *adkApiTranslator) BuildManifest(
 	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
-func newManifestContext(agent v1alpha2.AgentObject, dep *resolvedDeployment) manifestContext {
+func newManifestContext(agent v1alpha2.AgentObject, dep *resolvedDeployment, workloadMode v1alpha2.WorkloadMode) manifestContext {
 	return manifestContext{
-		agent:      agent,
-		deployment: dep,
+		agent:        agent,
+		deployment:   dep,
+		workloadMode: workloadMode,
 		selectorLabels: map[string]string{
 			"app":    labels.ManagedByKagent,
 			"kagent": agent.GetName(),
@@ -104,7 +114,7 @@ func newManifestContext(agent v1alpha2.AgentObject, dep *resolvedDeployment) man
 }
 
 func (m manifestContext) runInSandbox() bool {
-	return m.agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
+	return m.workloadMode == v1alpha2.WorkloadModeSandbox
 }
 
 func (m manifestContext) podLabels() map[string]string {
@@ -503,11 +513,13 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	ctx context.Context,
 	manifestCtx manifestContext,
 	podTemplate corev1.PodTemplateSpec,
+	configData map[string]string,
 ) ([]client.Object, error) {
 	if manifestCtx.runInSandbox() {
 		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
 			Agent:       manifestCtx.agent,
 			PodTemplate: podTemplate,
+			ConfigData:  configData,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("build sandbox workload: %w", err)
