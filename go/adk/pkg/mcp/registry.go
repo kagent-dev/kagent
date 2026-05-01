@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,12 +22,47 @@ const (
 	defaultTimeout = 30 * time.Minute
 )
 
+// allowedRequestHeaders reads the incoming A2A request metadata from ctx and
+// returns only the header key/value pairs whose names appear in allowed.
+// It reads directly from the A2A CallContext that is already present in the Go
+// context, avoiding a redundant copy.
+//
+// Lookup relies on RequestMeta.Get which already does a case-insensitive O(1)
+// lookup (NewRequestMeta lowercases keys at construction). Keys in the result
+// preserve the casing from the allowed list so the MCP server sees the header
+// names the operator configured. When a header has multiple values only the
+// first one is forwarded; additional values are intentionally dropped.
+func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]string {
+	if len(allowed) == 0 {
+		return nil
+	}
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return nil
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return nil
+	}
+	result := make(map[string]string)
+	for _, name := range allowed {
+		if vals, ok := meta.Get(name); ok && len(vals) > 0 && vals[0] != "" {
+			result[name] = vals[0]
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
 	URL                   string
 	Headers               map[string]string
-	ServerType            string // "http" or "sse"
+	AllowedHeaders        []string // header names to forward from incoming request
+	ServerType            string   // "http" or "sse"
 	Timeout               *float64
 	SseReadTimeout        *float64
 	TLSInsecureSkipVerify *bool
@@ -46,6 +82,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 		params := mcpServerParams{
 			URL:                   httpTool.Params.Url,
 			Headers:               httpTool.Params.Headers,
+			AllowedHeaders:        httpTool.AllowedHeaders,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
@@ -65,6 +102,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 		params := mcpServerParams{
 			URL:                   sseTool.Params.Url,
 			Headers:               sseTool.Params.Headers,
+			AllowedHeaders:        sseTool.AllowedHeaders,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
@@ -162,10 +200,11 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 {
 		httpTransport = &headerRoundTripper{
-			base:    baseTransport,
-			headers: params.Headers,
+			base:           baseTransport,
+			headers:        params.Headers,
+			allowedHeaders: params.AllowedHeaders,
 		}
 	}
 
@@ -190,17 +229,35 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	return mcpTransport, nil
 }
 
-// headerRoundTripper wraps an http.RoundTripper to add custom headers to all requests.
+// headerRoundTripper wraps an http.RoundTripper to add custom headers to all
+// requests. It supports two sources of headers:
+//   - headers: static key/value pairs configured on the MCP server spec
+//   - allowedHeaders: header names to forward from the incoming A2A request;
+//     values are read on each call via allowedRequestHeaders directly from the
+//     A2A CallContext that is already present in the Go context.
+//
+// Static headers take precedence: if an allowed header has the same name as a
+// static header, the static value wins.
 type headerRoundTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base           http.RoundTripper
+	headers        map[string]string
+	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+
+	// Forward allowed headers from the incoming A2A request first so that
+	// static headers can override them if there is a name collision.
+	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
+		req.Header.Set(k, v)
+	}
+
+	// Apply static headers (override any dynamic ones with the same name).
 	for key, value := range rt.headers {
 		req.Header.Set(key, value)
 	}
+
 	return rt.base.RoundTrip(req)
 }
 
