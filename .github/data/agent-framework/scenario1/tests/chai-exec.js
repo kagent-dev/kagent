@@ -57,7 +57,7 @@ global = {
   },
 
   checkDeploymentHasPod: async ({ context, namespace, deployment }) => {
-    let command = "kubectl --context " + context + " -n " + namespace + " get deploy " + deployment + " -o name'";
+    let command = "kubectl --context " + context + " -n " + namespace + " get deploy " + deployment + " -o name";
     debugLog(`Executing command: ${command}`);
     let cli = chaiExec(command);
 
@@ -82,18 +82,18 @@ global = {
     debugLog(`Found deployments: ${JSON.stringify(deployments)}`);
 
     expect(deployments).to.have.lengthOf(instances);
-    deployments.forEach((deployment) => {
+    for (const deployment of deployments) {
       let readyReplicas = deployment.status.readyReplicas || 0;
       let replicas = deployment.status.replicas;
       debugLog(`Deployment ${deployment.metadata.name} - Ready replicas: ${readyReplicas}, Total replicas: ${replicas}`);
 
       if (readyReplicas != replicas) {
         debugLog(`Deployment ${deployment.metadata.name} in ${context} not ready, retrying...`);
-        utils.sleep(1000);
+        await utils.sleep(1000);
       }
       cli.should.exit.with.code(0);
       readyReplicas.should.equal(replicas);
-    });
+    }
   },
 
   checkStatefulSet: async ({ context, namespace, k8sObj }) => {
