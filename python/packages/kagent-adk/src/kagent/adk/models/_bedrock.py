@@ -2,7 +2,10 @@
 
 Uses boto3's Converse API which provides a consistent interface across all
 Bedrock-supported models (Anthropic, Meta, Mistral, Amazon, Cohere, etc.).
-Authenticates via the standard AWS credential chain (env vars, IAM role, etc.).
+
+Supports two authentication methods:
+- **Bearer token**: Set ``AWS_BEARER_TOKEN_BEDROCK`` env var (API key auth).
+- **IAM credentials**: Standard AWS credential chain (env vars, IAM role, etc.).
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -54,12 +59,33 @@ def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) 
     return sanitized
 
 
+def _inject_bearer_token(token: str, request, **kwargs):
+    """Event handler that injects a Bearer token into the Authorization header.
+
+    Registered on the ``before-sign`` event so it runs after boto3 builds the
+    request but before SigV4 signing (which is disabled via UNSIGNED).
+    """
+    request.headers["Authorization"] = f"Bearer {token}"
+
+
 def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
     if extra_headers:
         # boto3 doesn't support custom headers natively; log and ignore
         logger.warning("extra_headers are not supported for Bedrock models and will be ignored.")
+
+    bearer_token = os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    if bearer_token:
+        logger.info("Using bearer token authentication for Bedrock")
+        kwargs["config"] = Config(signature_version=UNSIGNED)
+        client = boto3.client("bedrock-runtime", **kwargs)
+        client.meta.events.register(
+            "before-sign.bedrock-runtime.*",
+            lambda request, **kw: _inject_bearer_token(bearer_token, request, **kw),
+        )
+        return client
+
     return boto3.client("bedrock-runtime", **kwargs)
 
 

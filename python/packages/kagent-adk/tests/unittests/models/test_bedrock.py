@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from kagent.adk.models._bedrock import KAgentBedrockLlm, _get_bedrock_client
+from kagent.adk.models._bedrock import KAgentBedrockLlm, _get_bedrock_client, _inject_bearer_token
 
 
 class TestGetBedrockClient:
@@ -29,6 +29,53 @@ class TestGetBedrockClient:
             with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
                 _get_bedrock_client()
                 assert mock_boto.call_args.kwargs["region_name"] == "us-east-1"
+
+    def test_bearer_token_uses_unsigned_config(self):
+        """When AWS_BEARER_TOKEN_BEDROCK is set, client uses UNSIGNED signature."""
+        from botocore import UNSIGNED
+
+        env = {k: v for k, v in __import__("os").environ.items() if k not in ("AWS_DEFAULT_REGION", "AWS_REGION")}
+        env["AWS_BEARER_TOKEN_BEDROCK"] = "test-token-123"
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                mock_client = mock.MagicMock()
+                mock_boto.return_value = mock_client
+                _get_bedrock_client()
+                config = mock_boto.call_args.kwargs["config"]
+                assert config.signature_version == UNSIGNED
+
+    def test_bearer_token_registers_event_handler(self):
+        """When AWS_BEARER_TOKEN_BEDROCK is set, a before-sign handler is registered."""
+        env = {k: v for k, v in __import__("os").environ.items() if k not in ("AWS_DEFAULT_REGION", "AWS_REGION")}
+        env["AWS_BEARER_TOKEN_BEDROCK"] = "test-token-123"
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                mock_client = mock.MagicMock()
+                mock_boto.return_value = mock_client
+                _get_bedrock_client()
+                mock_client.meta.events.register.assert_called_once()
+                call_args = mock_client.meta.events.register.call_args
+                assert call_args[0][0] == "before-sign.bedrock-runtime.*"
+
+    def test_no_bearer_token_uses_standard_auth(self):
+        """When AWS_BEARER_TOKEN_BEDROCK is not set, standard credential chain is used."""
+        env = {k: v for k, v in __import__("os").environ.items() if k not in ("AWS_DEFAULT_REGION", "AWS_REGION", "AWS_BEARER_TOKEN_BEDROCK")}
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+                mock_client = mock.MagicMock()
+                mock_boto.return_value = mock_client
+                _get_bedrock_client()
+                assert "config" not in mock_boto.call_args.kwargs
+                mock_client.meta.events.register.assert_not_called()
+
+
+class TestInjectBearerToken:
+    def test_injects_authorization_header(self):
+        """_inject_bearer_token sets the correct Authorization header."""
+        mock_request = mock.MagicMock()
+        mock_request.headers = {}
+        _inject_bearer_token("my-secret-token", mock_request)
+        assert mock_request.headers["Authorization"] == "Bearer my-secret-token"
 
 
 class TestKAgentBedrockLlm:
