@@ -82,8 +82,16 @@ tests:
     asserts:
       - equal:
           path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083"
 
+  - it: should set A2A_BASE_URL with computed custom cluster domain
+    template: controller-configmap.yaml
+    set:
+      clusterDomain: my.domain
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.my.domain:8083"
   - it: should set A2A_BASE_URL with custom value when explicitly set
     template: controller-configmap.yaml
     set:
@@ -98,11 +106,11 @@ tests:
     template: controller-configmap.yaml
     set:
       proxy:
-        url: "http://proxy.kagent.svc.cluster.local:8080"
+        url: "http://proxy.kagent.svc:8080"
     asserts:
       - equal:
           path: data.PROXY_URL
-          value: "http://proxy.kagent.svc.cluster.local:8080"
+          value: "http://proxy.kagent.svc:8080"
 
   - it: should not set PROXY_URL when not set
     template: controller-configmap.yaml
@@ -371,7 +379,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc.cluster.local:5432/kagent?sslmode=disable"
+            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
 
   - it: should set POSTGRES_DATABASE_URL with external url when url is set
     template: controller-deployment.yaml

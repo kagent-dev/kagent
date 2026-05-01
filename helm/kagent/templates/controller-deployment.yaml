@@ -61,6 +61,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            {{- if .Values.clusterDomain }}
+            - name: CLUSTER_DOMAIN
+              value: {{ .Values.clusterDomain | quote }}
+            {{- end }}
             - name: AUTH_MODE
               value: {{ .Values.controller.auth.mode | default "unsecure" | quote }}
             {{- if .Values.controller.auth.userIdClaim }}
@@ -80,7 +84,7 @@ spec:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DATABASE_URL
-              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s%s:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) (include "kagent.clusterDomainSuffix" .) | quote }}
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}

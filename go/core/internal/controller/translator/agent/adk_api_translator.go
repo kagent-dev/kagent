@@ -940,7 +940,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 
 // isInternalK8sURL checks if a URL points to an internal Kubernetes service.
 // Internal k8s URLs follow the pattern: http://{name}.{namespace}:{port} or
-// http://{name}.{namespace}.svc.cluster.local:{port}
+// http://{name}.{namespace}.svc:{port}
 // This method checks if the namespace exists in the cluster to determine if it's internal.
 func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespace string) bool {
 	parsedURL, err := url.Parse(urlStr)
@@ -953,8 +953,8 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 		return false
 	}
 
-	// Check if it ends with .svc.cluster.local (definitely internal)
-	if strings.HasSuffix(hostname, ".svc.cluster.local") {
+	// Check if it's an internal FQDN by looking for .svc or .svc.
+	if strings.HasSuffix(hostname, ".svc") || strings.Contains(hostname, ".svc.") {
 		return true
 	}
 

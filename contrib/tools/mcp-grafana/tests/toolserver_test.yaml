@@ -19,7 +19,7 @@ tests:
     asserts:
       - equal:
           path: spec.config.sse.url
-          value: http://RELEASE-NAME-mcp-grafana.NAMESPACE.svc.cluster.local:8000
+          value: http://RELEASE-NAME-mcp-grafana.NAMESPACE.svc:8000
       - equal:
           path: spec.config.sse.timeout
           value: 5s

@@ -171,7 +171,7 @@ func TestProxyAuthenticator_JWTWithAgentHeader(t *testing.T) {
 			name: "extracts agent identity from header when JWT is present",
 			claims: map[string]any{
 				"sub": "system:serviceaccount:kagent:kebab-agent",
-				"iss": "https://kubernetes.default.svc.cluster.local",
+				"iss": "https://kubernetes.default.svc",
 				"aud": []any{"kagent"},
 			},
 			agentName:   "kagent__NS__kebab_agent",

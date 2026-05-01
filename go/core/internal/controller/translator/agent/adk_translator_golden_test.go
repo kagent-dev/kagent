@@ -284,14 +284,14 @@ func extractNamespaceFromURL(urlStr string) string {
 		return ""
 	}
 
-	// Split hostname by dots: service.namespace or service.namespace.svc.cluster.local
+	// Split hostname by dots: service.namespace or service.namespace.svc
 	hostname := parsed.Hostname()
 	parts := strings.Split(hostname, ".")
 
 	// Valid patterns:
 	// - service.namespace (2 parts)
 	// - service.namespace.svc (3 parts)
-	// - service.namespace.svc.cluster.local (5 parts)
+	// - service.namespace.svc (5 parts)
 	if len(parts) >= 2 {
 		return parts[1] // namespace is always the second part
 	}

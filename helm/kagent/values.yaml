@@ -14,6 +14,12 @@
 ipv6:
   enabled: false
 
+# -- Optional cluster domain name (e.g., "cluster.local").
+# If provided, internal service URLs will use <service>.<namespace>.svc.<clusterDomain>.
+# If omitted, internal URLs will default to <service>.<namespace>.svc and allow CoreDNS to resolve them.
+# @default -- ""
+clusterDomain: ""
+
 tag: ""
 registry: "cr.kagent.dev"
 
@@ -173,7 +179,7 @@ controller:
     # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
     host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
   agentImage:
     registry: ""
@@ -404,7 +410,7 @@ kagent-tools:
 # Note: RemoteMCPServer resources use user-supplied URLs and do not use this proxy unless the URL is an internal k8s URL.
 proxy:
   # Proxy URL for internally-built k8s URLs
-  # Example: "http://proxy.kagent.svc.cluster.local:8080"
+  # Example: "http://proxy.kagent.svc:8080" or "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
 
 # ==============================================================================
