@@ -40,7 +40,6 @@ type AgentSpec struct {
 	// If not specified, the default value is true.
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
-	// +kubebuilder:validation:MaxItems=20
 	Tools []*Tool `json:"tools,omitempty"`
 	// Can either be a reference to the name of a Memory in the same namespace as the referencing Agent, or a reference to the name of a Memory in a different namespace in the form <namespace>/<name>
 	// +optional
