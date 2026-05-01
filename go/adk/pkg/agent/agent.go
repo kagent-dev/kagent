@@ -14,6 +14,9 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
+	"google.golang.org/adk/agent/workflowagents/loopagent"
+	"google.golang.org/adk/agent/workflowagents/parallelagent"
+	"google.golang.org/adk/agent/workflowagents/sequentialagent"
 	adkmodel "google.golang.org/adk/model"
 	adkgemini "google.golang.org/adk/model/gemini"
 	"google.golang.org/adk/tool"
@@ -35,6 +38,101 @@ const (
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
 	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, extraTools...)
 	return a, err
+}
+
+// CreateWorkflowAgent creates a workflow agent (Sequential, Parallel, or Loop)
+// from a config that contains a Workflow specification.
+func CreateWorkflowAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string) (agent.Agent, error) {
+	if agentConfig == nil || agentConfig.Workflow == nil {
+		return nil, fmt.Errorf("agent config with workflow is required")
+	}
+
+	log := logr.FromContextOrDiscard(ctx)
+	workflow := agentConfig.Workflow
+
+	subAgents := make([]agent.Agent, 0, len(workflow.SubAgents))
+	for _, subAgentConfig := range workflow.SubAgents {
+		subAgent, err := createInProcessSubAgent(ctx, &subAgentConfig, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create sub-agent %q: %w", subAgentConfig.Name, err)
+		}
+		subAgents = append(subAgents, subAgent)
+	}
+
+	baseConfig := agent.Config{
+		Name:        agentName,
+		Description: agentConfig.Description,
+		SubAgents:   subAgents,
+	}
+
+	switch workflow.Type {
+	case "sequential":
+		return sequentialagent.New(sequentialagent.Config{
+			AgentConfig: baseConfig,
+		})
+	case "parallel":
+		return parallelagent.New(parallelagent.Config{
+			AgentConfig: baseConfig,
+		})
+	case "loop":
+		loopConfig := loopagent.Config{
+			AgentConfig: baseConfig,
+		}
+		if workflow.MaxIterations != nil {
+			loopConfig.MaxIterations = uint(*workflow.MaxIterations)
+		}
+		return loopagent.New(loopConfig)
+	default:
+		return nil, fmt.Errorf("unknown workflow type: %s", workflow.Type)
+	}
+}
+
+// createInProcessSubAgent builds an in-process LLM agent from a SubAgentConfig.
+func createInProcessSubAgent(ctx context.Context, config *adk.SubAgentConfig, log logr.Logger) (agent.Agent, error) {
+	toolsets := mcp.CreateToolsets(ctx, config.HttpTools, config.SseTools)
+
+	llmModel, err := CreateLLM(ctx, config.Model, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LLM: %w", err)
+	}
+
+	// Collect tool names that require approval from MCP tools.
+	approvalSet := make(map[string]bool)
+	for _, httpTool := range config.HttpTools {
+		for _, name := range httpTool.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+	for _, sseTool := range config.SseTools {
+		for _, name := range sseTool.RequireApproval {
+			approvalSet[name] = true
+		}
+	}
+
+	beforeToolCallbacks := []llmagent.BeforeToolCallback{makeBeforeToolCallback(log)}
+	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
+	if len(approvalSet) > 0 {
+		log.Info("Wiring approval callback for workflow sub-agent", "name", config.Name, "toolCount", len(approvalSet))
+		beforeToolCallbacks = append([]llmagent.BeforeToolCallback{MakeApprovalCallback(approvalSet)}, beforeToolCallbacks...)
+		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
+	}
+
+	return llmagent.New(llmagent.Config{
+		Name:                 config.Name,
+		Description:          config.Description,
+		Instruction:          config.Instruction,
+		Model:                llmModel,
+		Toolsets:             toolsets,
+		IncludeContents:      llmagent.IncludeContentsDefault,
+		BeforeToolCallbacks:  beforeToolCallbacks,
+		BeforeModelCallbacks: beforeModelCallbacks,
+		AfterToolCallbacks: []llmagent.AfterToolCallback{
+			makeAfterToolCallback(log),
+		},
+		OnToolErrorCallbacks: []llmagent.OnToolErrorCallback{
+			makeOnToolErrorCallback(log),
+		},
+	})
 }
 
 // CreateGoogleADKAgentWithSubagentSessionIDs creates a Google ADK agent and a

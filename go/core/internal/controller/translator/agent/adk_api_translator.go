@@ -936,6 +936,28 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 	return nil
 }
 
+// translateMCPServerTool translates an MCP server tool reference into HttpMcpServerConfig
+// or SseMcpServerConfig. Unlike translateMCPServerTarget, this returns the tool configs
+// instead of mutating an AgentConfig, making it reusable for both regular agents and
+// workflow sub-agents.
+func (a *adkApiTranslator) translateMCPServerTool(ctx context.Context, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) (*adk.HttpMcpServerConfig, *adk.SseMcpServerConfig, error) {
+	// Create a temporary AgentConfig to reuse existing translation logic
+	tmpConfig := &adk.AgentConfig{}
+	if err := a.translateMCPServerTarget(ctx, tmpConfig, agentNamespace, toolServer, agentHeaders, proxyURL); err != nil {
+		return nil, nil, err
+	}
+
+	var httpTool *adk.HttpMcpServerConfig
+	var sseTool *adk.SseMcpServerConfig
+	if len(tmpConfig.HttpTools) > 0 {
+		httpTool = &tmpConfig.HttpTools[len(tmpConfig.HttpTools)-1]
+	}
+	if len(tmpConfig.SseTools) > 0 {
+		sseTool = &tmpConfig.SseTools[len(tmpConfig.SseTools)-1]
+	}
+	return httpTool, sseTool, nil
+}
+
 // Helper functions
 
 // isInternalK8sURL checks if a URL points to an internal Kubernetes service.
