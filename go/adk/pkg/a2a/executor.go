@@ -11,6 +11,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
@@ -117,6 +118,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	sessionID := reqCtx.ContextID
 
 	ctx = withBearerToken(ctx)
+	ctx = auth.WithUserID(ctx, userID)
 
 	e.logger.Info("Execute",
 		"taskID", reqCtx.TaskID,
