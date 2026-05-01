@@ -82,7 +82,7 @@ jobs:
           make build-${{ matrix.build_target }}
         working-directory: ./
       - name: Image vulnerability scanner
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
           severity: 'CRITICAL,HIGH'
