@@ -1,0 +1,26 @@
+name: Ensure Dependencies Label
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-label-backfill.yml"
+      - ".github/release.yml"
+      - ".github/dependabot.yml"
+      - ".github/scripts/release-label-backfill.mjs"
+  workflow_dispatch:
+
+jobs:
+  ensure-dependencies-label:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Ensure dependencies label exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/release-label-backfill.mjs
