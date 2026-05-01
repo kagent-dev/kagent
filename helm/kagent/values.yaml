@@ -269,6 +269,14 @@ ui:
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  # -- Additional request headers (beyond Authorization) the UI proxy will forward
+  # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
+  # Transfer-Encoding, etc.) are silently dropped.
+  additionalForwardedHeaders: []
+  # Example:
+  #   additionalForwardedHeaders:
+  #     - X-Forwarded-User
+  #     - X-Forwarded-Email
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
