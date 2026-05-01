@@ -36,7 +36,7 @@ const (
 type PineconeConfig struct {
 	// The index host to connect to
 	// +required
-	IndexHost string `json:"indexHost,omitempty"`
+	IndexHost string `json:"indexHost"`
 	// The number of results to return from the Pinecone index
 	// +optional
 	TopK int `json:"topK,omitempty"`
@@ -55,16 +55,17 @@ type PineconeConfig struct {
 type MemorySpec struct {
 	// The provider of the memory
 	// +kubebuilder:default=Pinecone
-	Provider MemoryProvider `json:"provider"`
+	// +optional
+	Provider MemoryProvider `json:"provider,omitempty"`
 
 	// The reference to the secret that contains the API key. Can either be a reference to the name of a secret in the same namespace as the referencing Memory,
 	// or a reference to the name of a secret in a different namespace in the form <namespace>/<name>
 	// +optional
-	APIKeySecretRef string `json:"apiKeySecretRef"`
+	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
 
 	// The key in the secret that contains the API key
 	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey"`
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
 	// The configuration for the Pinecone memory provider
 	// +optional
@@ -73,8 +74,10 @@ type MemorySpec struct {
 
 // MemoryStatus defines the observed state of Memory.
 type MemoryStatus struct {
-	Conditions         []metav1.Condition `json:"conditions"`
-	ObservedGeneration int64              `json:"observedGeneration"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -84,10 +87,13 @@ type MemoryStatus struct {
 
 // Memory is the Schema for the memories API.
 type Memory struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MemorySpec   `json:"spec,omitempty"`
+	// +optional
+	Spec MemorySpec `json:"spec,omitempty"`
+	// +optional
 	Status MemoryStatus `json:"status,omitempty"`
 }
 

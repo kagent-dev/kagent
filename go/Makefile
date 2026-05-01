@@ -55,6 +55,22 @@ lint-fix: golangci-lint ## Run golangci-lint with auto-fix.
 lint-config: golangci-lint ## Verify golangci-lint linter configuration.
 	$(GOLANGCI_LINT) config verify
 
+KAL_BIN ?= $(LOCALBIN)/golangci-kube-api-linter
+
+.PHONY: lint-api
+lint-api: $(KAL_BIN)
+	$(KAL_BIN) run --config .golangci-kal.yml ./api/v1alpha1/... ./api/v1alpha2/...
+
+.PHONY: lint-api-fix
+lint-api-fix: $(KAL_BIN)
+	$(KAL_BIN) run --fix --config .golangci-kal.yml ./api/v1alpha1/... ./api/v1alpha2/...
+
+$(KAL_BIN): golangci-lint
+	@mkdir -p $(LOCALBIN)
+	@echo "Building custom golangci-lint with kube-api-linter plugin..."
+	GOLANGCI_LINT_CUSTOM_CONFIG=.custom-gcl.yaml GOLANGCI_LINT_SKIP_BUILD=true GOLANGCI_LINT_OFFLINE=true $(GOLANGCI_LINT) custom
+	@mv tmp/bin/golangci-kube-api-linter $(KAL_BIN)
+
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck.
 	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
@@ -99,6 +115,7 @@ core/bin/kagent-windows-amd64.exe.sha256: core/bin/kagent-windows-amd64.exe
 .PHONY: clean
 clean:
 	rm -f core/bin/kagent* && mkdir -p core/bin
+	rm -f $(LOCALBIN)/golangci-kube-api-linter*
 
 .PHONY: build
 build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 core/bin/kagent-darwin-amd64.sha256 core/bin/kagent-darwin-arm64.sha256 core/bin/kagent-windows-amd64.exe.sha256

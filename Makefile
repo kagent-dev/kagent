@@ -259,6 +259,10 @@ lint:
 	make -C go lint
 	make -C python lint
 
+.PHONY: lint-api
+lint-api:
+	make -C go lint-api
+
 .PHONY: push
 push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
 

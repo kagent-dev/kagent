@@ -32,6 +32,7 @@ type AgentSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 	// +kubebuilder:validation:MinLength=1
+	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
 	// Can either be a reference to the name of a ModelConfig in the same namespace as the referencing Agent, or a reference to the name of a ModelConfig in a different namespace in the form <namespace>/<name>
 	// +optional
@@ -41,6 +42,7 @@ type AgentSpec struct {
 	// +optional
 	Stream *bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
+	// +optional
 	Tools []*Tool `json:"tools,omitempty"`
 	// Can either be a reference to the name of a Memory in the same namespace as the referencing Agent, or a reference to the name of a Memory in a different namespace in the form <namespace>/<name>
 	// +optional
@@ -88,7 +90,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
 type Tool struct {
-	// +kubebuilder:validation:Enum=McpServer;Agent
+	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
@@ -100,15 +102,18 @@ type AgentTool struct {
 	// Reference to the Agent resource to use as a tool.
 	// Can either be a reference to the name of an Agent in the same namespace as the referencing Agent, or a reference to the name of an Agent in a different namespace in the form <namespace>/<name>
 	// +kubebuilder:validation:MinLength=1
+	// +optional
 	Ref string `json:"ref,omitempty"`
 }
 
 type McpServerTool struct {
 	// the name of the ToolServer that provides the tool. can either be a reference to the name of a ToolServer in the same namespace as the referencing Agent, or a reference to the name of an ToolServer in a different namespace in the form <namespace>/<name>
+	// +optional
 	ToolServer string `json:"toolServer,omitempty"`
 	// The names of the tools to be provided by the ToolServer
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
+	// +optional
 	ToolNames []string `json:"toolNames,omitempty"`
 }
 
@@ -118,6 +123,7 @@ type AnyType struct {
 
 type A2AConfig struct {
 	// +kubebuilder:validation:MinItems=1
+	// +optional
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
@@ -130,10 +136,13 @@ const (
 
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
-	ObservedGeneration int64 `json:"observedGeneration"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// This is used to determine if the agent config has changed.
 	// If it has changed, the agent will be restarted.
-	ConfigHash []byte             `json:"configHash"`
+	// +optional
+	ConfigHash []byte `json:"configHash,omitempty"`
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -146,10 +155,13 @@ type AgentStatus struct {
 
 // Agent is the Schema for the agents API.
 type Agent struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec AgentSpec `json:"spec,omitempty"`
+	// +optional
 	Status AgentStatus `json:"status,omitempty"`
 }
 

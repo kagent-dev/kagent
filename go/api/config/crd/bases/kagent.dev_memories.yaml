@@ -86,8 +86,6 @@ spec:
                 enum:
                 - Pinecone
                 type: string
-            required:
-            - provider
             type: object
           status:
             description: MemoryStatus defines the observed state of Memory.
@@ -151,9 +149,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-            required:
-            - conditions
-            - observedGeneration
             type: object
         type: object
     served: true
