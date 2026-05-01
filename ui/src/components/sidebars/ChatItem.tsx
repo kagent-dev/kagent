@@ -22,12 +22,12 @@ interface ChatItemProps {
   agentNamespace?: string;
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
-  createdAt?: string;
+  activityAt?: string;
   /** When true, omit delete (e.g. Sandbox single-session agents). */
   hideDelete?: boolean;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, createdAt, hideDelete }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, activityAt, hideDelete }: ChatItemProps) => {
   const title = sessionName || "Untitled";
   
   // Format timestamp based on how recent it is
@@ -60,7 +60,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
                 style={{
                   background: 'linear-gradient(to right, transparent, hsl(var(--sidebar-background)) 30%)',
                 }}
-              >{formatTime(createdAt)}</span>
+              >{formatTime(activityAt)}</span>
             </Link>
           </SidebarMenuButton>
           <DropdownMenu modal={false}>
