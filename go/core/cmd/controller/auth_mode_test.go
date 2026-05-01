@@ -32,7 +32,10 @@ func TestGetAuthenticator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authenticator := getAuthenticator(tt.authCfg)
+			authenticator, err := getAuthenticator(tt.authCfg)
+			if err != nil {
+				t.Fatalf("getAuthenticator() unexpected error: %v", err)
+			}
 			gotType := getTypeName(authenticator)
 			if gotType != tt.wantType {
 				t.Errorf("getAuthenticator() = %s, want %s", gotType, tt.wantType)
@@ -41,14 +44,14 @@ func TestGetAuthenticator(t *testing.T) {
 	}
 }
 
-func TestGetAuthenticatorPanicsOnUnknownMode(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for unknown auth mode, got none")
-		}
-	}()
-	getAuthenticator(struct{ Mode, UserIDClaim string }{"proxy", ""})
+func TestGetAuthenticatorErrorsOnUnknownMode(t *testing.T) {
+	authenticator, err := getAuthenticator(struct{ Mode, UserIDClaim string }{"proxy", ""})
+	if err == nil {
+		t.Fatal("expected error for unknown auth mode, got nil")
+	}
+	if authenticator != nil {
+		t.Errorf("expected nil authenticator on error, got %T", authenticator)
+	}
 }
 
 func getTypeName(v auth.AuthProvider) string {
