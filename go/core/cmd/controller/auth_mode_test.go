@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -45,12 +46,25 @@ func TestGetAuthenticator(t *testing.T) {
 }
 
 func TestGetAuthenticatorErrorsOnUnknownMode(t *testing.T) {
-	authenticator, err := getAuthenticator(struct{ Mode, UserIDClaim string }{"proxy", ""})
+	const invalidMode = "proxy"
+	authenticator, err := getAuthenticator(struct{ Mode, UserIDClaim string }{invalidMode, ""})
 	if err == nil {
 		t.Fatal("expected error for unknown auth mode, got nil")
 	}
 	if authenticator != nil {
 		t.Errorf("expected nil authenticator on error, got %T", authenticator)
+	}
+	// The error message must surface the invalid mode and the supported values
+	// so misconfigured deployments get an actionable message rather than just a
+	// generic failure.
+	msg := err.Error()
+	if !strings.Contains(msg, invalidMode) {
+		t.Errorf("error message %q does not include the invalid mode %q", msg, invalidMode)
+	}
+	for _, valid := range []string{"unsecure", "trusted-proxy"} {
+		if !strings.Contains(msg, valid) {
+			t.Errorf("error message %q does not list supported mode %q", msg, valid)
+		}
 	}
 }
 
