@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Terminal } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import {
@@ -125,6 +125,12 @@ export function Header() {
                     Prompt Library
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/nemoclaw" className="gap-2 cursor-pointer w-full">
+                    <Terminal className="h-4 w-4" />
+                    OpenShell (Nemoclaw)
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -186,6 +192,12 @@ export function Header() {
                     <Link href="/prompts" className="gap-2 cursor-pointer w-full">
                       <ScrollText className="h-4 w-4" />
                       Prompt Library
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/nemoclaw" className="gap-2 cursor-pointer w-full">
+                      <Terminal className="h-4 w-4" />
+                      OpenShell (Nemoclaw)
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

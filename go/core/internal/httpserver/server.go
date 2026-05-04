@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -47,6 +48,7 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
+	APIPathSandboxSSH           = "/api/sandbox/ssh"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -296,6 +298,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
 
+	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
+	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
+
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
@@ -305,11 +310,25 @@ func (s *HTTPServer) setupRoutes() {
 		s.router.PathPrefix(APIPathMCP).Handler(s.config.MCPHandler)
 	}
 
-	// Use middleware for common functionality
+	// Use middleware for common functionality (first registered runs outermost on incoming requests).
+	s.router.Use(wsSandboxSSHAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
+}
+
+// wsSandboxSSHAuthQueryMiddleware maps access_token query → Authorization for browser WebSocket upgrades
+// (fetch can send headers; WebSocket cannot).
+func wsSandboxSSHAuthQueryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == APIPathSandboxSSH && r.Header.Get("Authorization") == "" {
+			if t := r.URL.Query().Get("access_token"); t != "" {
+				r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(t))
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
