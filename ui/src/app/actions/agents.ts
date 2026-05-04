@@ -1,12 +1,27 @@
 "use server";
 
-import { AgentSpec, BaseResponse, DeclarativeAgentSpec, PromptSource, SandboxAgent } from "@/types";
-import { Agent, AgentResponse, Tool } from "@/types";
+import {
+  Agent,
+  AgentResponse,
+  AgentSpec,
+  BaseResponse,
+  DeclarativeAgentSpec,
+  DeclarativeRuntime,
+  PromptSource,
+  SandboxAgent,
+  SkillForAgent,
+  Tool,
+} from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
+
+function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
+  return agentFormData.declarativeRuntime === "go" ? "go" : "python";
+}
 
 function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
   if (!agentFormData.promptSources?.some((s) => s.name.trim())) {
@@ -29,6 +44,34 @@ function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentForm
   if (dataSources.length > 0) {
     decl.promptTemplate = { dataSources };
   }
+}
+
+function buildSkillsForAgentSpec(agentFormData: AgentFormData): SkillForAgent | undefined {
+  const refs = (agentFormData.skillRefs || []).map((r) => r.trim()).filter(Boolean);
+  const rows: GitSkillFormRow[] = (agentFormData.skillGitRepos || []).map((g) => ({
+    url: g.url ?? "",
+    ref: g.ref ?? "",
+    path: g.path ?? "",
+    name: g.name ?? "",
+  }));
+  const gitRefs = formRowsToGitRepos(rows);
+
+  if (refs.length === 0 && gitRefs.length === 0) {
+    return undefined;
+  }
+
+  const skills: SkillForAgent = {};
+  if (refs.length > 0) {
+    skills.refs = refs;
+  }
+  if (gitRefs.length > 0) {
+    skills.gitRefs = gitRefs;
+    const secretName = agentFormData.skillsGitAuthSecretName?.trim();
+    if (secretName) {
+      skills.gitAuthSecretRef = { name: secretName };
+    }
+  }
+  return skills;
 }
 
 /**
@@ -132,16 +175,16 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
   if (type === "Declarative") {
     base.spec!.declarative = {
+      runtime: declarativeRuntimeFromForm(agentFormData),
       systemMessage: agentFormData.systemPrompt || "",
       modelConfig: modelConfigName || "",
       stream: agentFormData.stream ?? true,
       tools: convertTools(agentFormData.tools || []),
     };
 
-    if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
-      base.spec!.skills = {
-        refs: agentFormData.skillRefs,
-      };
+    const skills = buildSkillsForAgentSpec(agentFormData);
+    if (skills) {
+      base.spec!.skills = skills;
     }
 
     if (agentFormData.memory?.modelConfig) {
@@ -300,6 +343,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     });
 
   const decl: DeclarativeAgentSpec = {
+    runtime: declarativeRuntimeFromForm(agentFormData),
     systemMessage: agentFormData.systemPrompt || "",
     modelConfig: modelConfigName || "",
     stream: agentFormData.stream ?? true,
@@ -337,10 +381,9 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     description: agentFormData.description,
   };
 
-  if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
-    spec.skills = {
-      refs: agentFormData.skillRefs,
-    };
+  const skills = buildSkillsForAgentSpec(agentFormData);
+  if (skills) {
+    spec.skills = skills;
   }
 
   return {

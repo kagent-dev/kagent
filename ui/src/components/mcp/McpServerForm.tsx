@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+"use client";
+
+import { useState, useEffect, type FormEvent } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,15 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { createRFC1123ValidName, isResourceNameValid } from "@/lib/utils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 
-interface AddServerDialogProps {
-  open: boolean;
+export type McpServerFormProps = {
   supportedToolServerTypes: string[];
-  onOpenChange: (open: boolean) => void;
-  onAddServer: (serverRequest: ToolServerCreateRequest) => void;
-  onError?: (error: string) => void;
-}
+  /** Resolves on success; reject or throw with a message the form can show on failure. */
+  onCreate: (serverRequest: ToolServerCreateRequest) => Promise<void>;
+};
 
 interface ArgPair {
   value: string;
@@ -29,7 +30,7 @@ interface EnvPair {
   value: string;
 }
 
-export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, onAddServer, onError }: AddServerDialogProps) {
+export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerFormProps) {
   const [activeTab, setActiveTab] = useState<"command" | "url">("url");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,7 +185,8 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
     return envVars;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
     if (activeTab === "command" && !packageName.trim()) {
       setError("Package name is required");
       return;
@@ -200,24 +202,23 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
       setError("Please enter a valid URL with protocol (e.g., http:// or https://)");
       return;
     }
-    
-    // Get the final server name
+
     const finalServerName = serverName.trim();
-    
-    // Check if the name is empty
+
     if (!finalServerName) {
       setError("Server name is required");
       return;
     }
-    
-    // Ensure the server name conforms to RFC 1123
+
     if (!isResourceNameValid(finalServerName)) {
-      setError("Server name must conform to RFC 1123 subdomain standard (lowercase alphanumeric characters, '-' or '.', must start and end with alphanumeric character)");
+      setError(
+        "Server name must conform to RFC 1123 subdomain standard (lowercase alphanumeric characters, '-' or '.', must start and end with alphanumeric character)",
+      );
       return;
     }
 
+    setError(null);
     setIsSubmitting(true);
-    setError(null); // Clear any previous errors
 
     try {
       let serverRequest: ToolServerCreateRequest;
@@ -337,41 +338,13 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
         };
       }
 
-      onAddServer(serverRequest);
-      resetForm();
+      await onCreate(serverRequest);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
-      if (onError) {
-        onError(errorMessage);
-      }
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const resetForm = () => {
-    setCommandType("npx");
-    setCommandPrefix("");
-    setPackageName("");
-    setArgPairs([{ value: "" }]);
-    setEnvPairs([{ key: "", value: "" }]);
-    setServerName("");
-    setUserEditedName(false);
-    
-    setUrl("");
-    setHeaders("");
-    setTimeout("5s");
-    setSseReadTimeout("300s");
-    setTerminateOnClose(true);
-    setError(null);
-    
-    setCommandPreview("");
-  };
-
-  const handleClose = () => {
-    resetForm();
-    onOpenChange(false);
   };
 
   // Format error message to be more user-friendly
@@ -435,24 +408,20 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
-        <DialogHeader className="px-6 pt-6 pb-2 border-b flex-shrink-0">
-          <DialogTitle>Add MCP Server</DialogTitle>
-        </DialogHeader>
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-6"
+      noValidate
+    >
+      {error ? (
+        <Alert variant="destructive" role="alert">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Couldn&apos;t create server</AlertTitle>
+          <AlertDescription>{formatErrorMessage(error)}</AlertDescription>
+        </Alert>
+      ) : null}
 
-        <div className="flex-1 overflow-y-auto px-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
-              <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="font-medium">Error</p>
-                <p>{formatErrorMessage(error)}</p>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-4">
+      <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <Label htmlFor="server-name">Server Name</Label>
@@ -460,7 +429,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="inline-flex">
-                        <InfoIcon className="h-4 w-4 text-gray-400" />
+                        <InfoIcon className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -488,7 +457,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="inline-flex">
-                        <InfoIcon className="h-4 w-4 text-gray-400" />
+                        <InfoIcon className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -498,6 +467,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                 </TooltipProvider>
               </div>
               <NamespaceCombobox
+                id="mcp-server-namespace"
                 value={serverNamespace}
                 onValueChange={setServerNamespace}
               />
@@ -520,7 +490,7 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
 
               <TabsContent value="command" className="pt-4 space-y-4">
                 {/* Command Preview Box */}
-                <div className="p-3 bg-gray-50 border rounded-md font-mono text-sm text-gray-500">
+                <div className="rounded-md border bg-muted/40 p-3 font-mono text-sm text-muted-foreground">
                   <div className="flex items-center gap-2 mb-1">
                     <Code className="h-4 w-4" />
                     <span>Command Preview:</span>
@@ -547,14 +517,25 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="command-prefix">Command prefix (optional)</Label>
+                  <Input
+                    id="command-prefix"
+                    placeholder="Extra args before the package, e.g. -y"
+                    value={commandPrefix}
+                    onChange={(e) => setCommandPrefix(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Inserted after the executor and before the package in the final command
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <Label htmlFor="package-name">Package Name</Label>
                   </div>
                   <Input id="package-name" placeholder="E.g. mcp-package" value={packageName} onChange={(e) => setPackageName(e.target.value)} />
                   <p className="text-xs text-muted-foreground">The name of the package to execute</p>
                 </div>
-
-                
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -565,12 +546,12 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                     {argPairs.map((pair, index) => (
                       <div key={index} className="flex gap-2 items-center">
                         <Input placeholder="Argument (e.g., --verbose, --help, ...)" value={pair.value} onChange={(e) => updateArgPair(index, e.target.value)} className="flex-1" />
-                        <Button variant="ghost" size="sm" onClick={() => removeArgPair(index)} disabled={argPairs.length === 1} className="p-1">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => removeArgPair(index)} disabled={argPairs.length === 1} className="p-1">
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" onClick={addArgPair} className="mt-2 w-full">
+                    <Button type="button" variant="outline" size="sm" onClick={addArgPair} className="mt-2 w-full">
                       <PlusCircle className="h-4 w-4 mr-2" />
                       Add Argument
                     </Button>
@@ -587,12 +568,12 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                       <div key={index} className="flex gap-2 items-center">
                         <Input placeholder="Key (e.g., NODE_ENV)" value={pair.key} onChange={(e) => updateEnvPair(index, "key", e.target.value)} className="flex-1" />
                         <Input placeholder="Value (e.g., production)" value={pair.value} onChange={(e) => updateEnvPair(index, "value", e.target.value)} className="flex-1" />
-                        <Button variant="ghost" size="sm" onClick={() => removeEnvPair(index)} disabled={envPairs.length === 1} className="p-1">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => removeEnvPair(index)} disabled={envPairs.length === 1} className="p-1">
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" onClick={addEnvPair} className="mt-2 w-full">
+                    <Button type="button" variant="outline" size="sm" onClick={addEnvPair} className="mt-2 w-full">
                       <PlusCircle className="h-4 w-4 mr-2" />
                       Add Environment Variable
                     </Button>
@@ -643,25 +624,29 @@ export function AddServerDialog({ open, supportedToolServerTypes, onOpenChange, 
                 </div>
               </TabsContent>
             </Tabs>
-          </div>
-        </div>
+      </div>
 
-        <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
-          <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting} className="bg-blue-500 hover:bg-blue-600 text-white">
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Adding...
-              </>
-            ) : (
-              "Add Server"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="outline" asChild className="w-full sm:w-auto" disabled={isSubmitting}>
+          <Link href="/mcp">Cancel</Link>
+        </Button>
+        <Button
+          type="submit"
+          size="lg"
+          className="min-w-[10rem] w-full sm:w-auto"
+          disabled={isSubmitting}
+          aria-busy={isSubmitting}
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              Creating…
+            </>
+          ) : (
+            "Create server"
+          )}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -195,6 +195,7 @@ class KAgentBedrockLlm(BaseLlm):
     """
 
     extra_headers: Optional[dict[str, str]] = None
+    additional_model_request_fields: Optional[dict[str, Any]] = None
     model_config = {"arbitrary_types_allowed": True}
 
     @cached_property
@@ -243,6 +244,9 @@ class KAgentBedrockLlm(BaseLlm):
                 inference_config["stopSequences"] = list(llm_request.config.stop_sequences)
         if inference_config:
             kwargs["inferenceConfig"] = inference_config
+
+        if self.additional_model_request_fields:
+            kwargs["additionalModelRequestFields"] = self.additional_model_request_fields
 
         def _run_converse_stream(**kw):
             resp = client.converse_stream(**kw)

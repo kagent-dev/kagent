@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 
-	database_fake "github.com/kagent-dev/kagent/go/core/internal/database/fake"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 )
@@ -27,10 +26,10 @@ func makeVector(n int, val float32) []float32 {
 }
 
 func TestMemoryHandler(t *testing.T) {
-	setupHandler := func() (*handlers.MemoryHandler, *mockErrorResponseWriter) {
+	setupHandler := func(t *testing.T) (*handlers.MemoryHandler, *mockErrorResponseWriter) {
 		base := &handlers.Base{
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
-			DatabaseService:    database_fake.NewClient(),
+			DatabaseService:    setupTestDBClient(t),
 			Authorizer:         &auth.NoopAuthorizer{},
 		}
 		handler := handlers.NewMemoryHandler(base)
@@ -40,7 +39,7 @@ func TestMemoryHandler(t *testing.T) {
 
 	t.Run("AddSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.AddSessionMemoryRequest{
 				AgentName: "test-agent",
@@ -64,7 +63,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("MissingFields", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.AddSessionMemoryRequest{UserID: "user123", Vector: makeVector(768, 0.1)}
 			jsonBody, _ := json.Marshal(reqBody)
@@ -77,7 +76,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("WrongVectorDimension", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.AddSessionMemoryRequest{
 				AgentName: "test-agent",
@@ -96,7 +95,7 @@ func TestMemoryHandler(t *testing.T) {
 
 	t.Run("AddSessionBatch", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.AddSessionMemoryBatchRequest{
 				Items: []handlers.AddSessionMemoryRequest{
@@ -118,7 +117,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("EmptyBatch", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.AddSessionMemoryBatchRequest{Items: []handlers.AddSessionMemoryRequest{}}
 			jsonBody, _ := json.Marshal(reqBody)
@@ -131,7 +130,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("BatchTooLarge", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			items := make([]handlers.AddSessionMemoryRequest, 51)
 			for i := range items {
@@ -149,7 +148,7 @@ func TestMemoryHandler(t *testing.T) {
 
 	t.Run("Search", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.SearchSessionMemoryRequest{
 				AgentName: "test-agent",
@@ -170,7 +169,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("MissingFields", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			reqBody := handlers.SearchSessionMemoryRequest{AgentName: "test-agent", Vector: makeVector(768, 0.1)}
 			jsonBody, _ := json.Marshal(reqBody)
@@ -185,7 +184,7 @@ func TestMemoryHandler(t *testing.T) {
 
 	t.Run("List", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("GET", "/api/memories?agent_name=test-agent&user_id=user123", nil)
 			req = setUser(req, "test-user")
@@ -198,7 +197,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("MissingFields", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("GET", "/api/memories?agent_name=test-agent", nil)
 			req = setUser(req, "test-user")
@@ -211,7 +210,7 @@ func TestMemoryHandler(t *testing.T) {
 
 	t.Run("Delete", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("DELETE", "/api/memories?agent_name=test-agent&user_id=user123", nil)
 			req = setUser(req, "test-user")
@@ -225,7 +224,7 @@ func TestMemoryHandler(t *testing.T) {
 		})
 
 		t.Run("MissingFields", func(t *testing.T) {
-			handler, responseRecorder := setupHandler()
+			handler, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("DELETE", "/api/memories?agent_name=test-agent", nil)
 			req = setUser(req, "test-user")

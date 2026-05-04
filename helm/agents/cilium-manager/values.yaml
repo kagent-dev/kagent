@@ -1,6 +1,10 @@
+# -- Optional reference to a ModelConfig resource for this agent. If not specified, the default model config will be used.
 modelConfigRef: ""
-imagePullSecrets: []
 
+# -- Optional runtime specification for the agent. If not specified, it will default to "python". Supported runtimes include "python" and "go".
+runtime: ""
+
+imagePullSecrets: []
 
 resources:
   requests:

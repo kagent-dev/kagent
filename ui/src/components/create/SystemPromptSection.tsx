@@ -15,6 +15,8 @@ interface SystemPromptSectionProps {
   includeSourceIdForConfigMap?: (configMapName: string) => string;
   /** Passed through to PromptInstructionsTextarea for Storybook/tests. */
   promptLibraryCatalogOverride?: PromptTemplateSummary[];
+  /** `id` on the instructions field (accessibility, focus on validation). */
+  instructionTextareaId?: string;
 }
 
 export const SystemPromptSection = ({
@@ -27,6 +29,7 @@ export const SystemPromptSection = ({
   onPickInclude,
   includeSourceIdForConfigMap,
   promptLibraryCatalogOverride,
+  instructionTextareaId = "agent-field-system",
 }: SystemPromptSectionProps) => {
   const useMentions = Boolean(mentionNamespace?.trim() && onPickInclude);
 
@@ -48,6 +51,7 @@ export const SystemPromptSection = ({
       <div className="space-y-4">
         {useMentions ? (
           <PromptInstructionsTextarea
+            id={instructionTextareaId}
             value={value}
             onChange={onChange}
             onBlur={onBlur}
@@ -61,15 +65,17 @@ export const SystemPromptSection = ({
         ) : (
           <>
             <Textarea
+              id={instructionTextareaId}
               value={value}
               onChange={onChange}
               onBlur={onBlur}
               className={`min-h-[300px] font-mono ${error ? "border-red-500" : ""}`}
-              placeholder="Enter the agent instructions. These instructions tell the agent how to behave and what to do."
+              placeholder="Enter the agent instructions. These instructions tell the agent how to behave and what to do…"
               disabled={disabled}
               spellCheck={false}
               autoComplete="off"
               name="systemMessage"
+              aria-invalid={!!error}
             />
             {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
           </>

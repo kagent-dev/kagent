@@ -25,13 +25,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - controller
-          - ui
-          - app
-          - skills-init
-          - golang-adk
-          - golang-adk-full
+        include:
+          - build_target: controller
+            image_name: controller
+            tag_suffix: ""
+          - build_target: ui
+            image_name: ui
+            tag_suffix: ""
+          - build_target: app
+            image_name: app
+            tag_suffix: ""
+          - build_target: skills-init
+            image_name: skills-init
+            tag_suffix: ""
+          - build_target: golang-adk
+            image_name: golang-adk
+            tag_suffix: ""
+          - build_target: golang-adk-full
+            image_name: golang-adk
+            tag_suffix: "-full"
     runs-on: ubuntu-latest
     services:
       registry:
@@ -67,15 +79,12 @@ jobs:
             --push
         run: |
           export VERSION=${{ steps.vars.outputs.version }}
-          make build-${{ matrix.image }}
+          make build-${{ matrix.build_target }}
         working-directory: ./
-      - name: Load image versions
-        id: image-versions
-        run: make build-img-versions
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@0.35.0
         with:
-          image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image }}:${{ steps.vars.outputs.version }}
+          image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'

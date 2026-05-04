@@ -156,15 +156,23 @@ export interface ConfiguredModelProviderModelsResponse {
   models: string[];
 }
 
+export interface SecretMaterial {
+  name: string;
+  key: string;
+  value: string;
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   apiKey?: string;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 export interface UpdateModelConfigPayload {
   apiKey?: string | null;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 /**
@@ -225,6 +233,9 @@ export interface ToolsResponse {
 export interface ResourceMetadata {
   name: string;
   namespace?: string;
+  /** ISO/RFC3339 from Kubernetes `metadata.creationTimestamp` */
+  creationTimestamp?: string;
+  resourceVersion?: string;
 }
 
 export type ToolProviderType = "McpServer" | "Agent"
@@ -249,9 +260,19 @@ export interface McpServerTool extends TypedLocalReference {
 
 export type AgentType = "Declarative" | "BYO" | "Sandbox";
 
+/** Single Git repository source for skills. */
+export interface GitRepo {
+  url: string;
+  ref?: string;
+  path?: string;
+  name?: string;
+}
+
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
+  gitAuthSecretRef?: { name: string };
+  gitRefs?: GitRepo[];
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
@@ -301,7 +322,12 @@ export interface PromptTemplateDetail {
   data: Record<string, string>;
 }
 
+/** Which ADK implementation runs the agent (Kubernetes `spec.declarative.runtime`). */
+export type DeclarativeRuntime = "python" | "go";
+
 export interface DeclarativeAgentSpec {
+  /** ADK implementation: Python (default) or Go (faster cold start). */
+  runtime?: DeclarativeRuntime;
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource
@@ -386,6 +412,8 @@ export interface Agent {
       status: string;
       reason?: string;
       message?: string;
+      /** RFC3339 from `lastTransitionTime` on Agent conditions */
+      lastTransitionTime?: string;
     }>;
   };
 }

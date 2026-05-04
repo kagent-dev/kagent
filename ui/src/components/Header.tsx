@@ -78,7 +78,7 @@ export function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/servers" className="gap-2 cursor-pointer w-full">
+                  <Link href="/mcp/new" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     New MCP Server
                   </Link>
@@ -114,15 +114,9 @@ export function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/tools" className="gap-2 cursor-pointer w-full">
+                  <Link href="/mcp" className="gap-2 cursor-pointer w-full">
                     <Hammer className="h-4 w-4" />
-                    Tools
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/servers" className="gap-2 cursor-pointer w-full">
-                    <Server className="h-4 w-4" />
-                    MCP Servers
+                    MCP & tools
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -183,15 +177,9 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/tools" className="gap-2 cursor-pointer w-full">
+                    <Link href="/mcp" className="gap-2 cursor-pointer w-full">
                       <Hammer className="h-4 w-4" />
-                      MCP Tools
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/servers" className="gap-2 cursor-pointer w-full">
-                      <Server className="h-4 w-4" />
-                      MCP Servers
+                      MCP & tools
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
@@ -226,7 +214,7 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
+                    <Link href="/mcp/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New MCP Server
                     </Link>

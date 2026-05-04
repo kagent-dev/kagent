@@ -35,8 +35,10 @@ ENABLED TOOLS:
 {{- end }}
 
 ENABLED AGENTS:
-{{- range $agent, $config := .Values.agents }}
-{{- if $config.enabled }}
+{{- $agents := list "k8s-agent" "kgateway-agent" "istio-agent" "promql-agent" "observability-agent" "argo-rollouts-agent" "helm-agent" "cilium-policy-agent" "cilium-manager-agent" "cilium-debug-agent" }}
+{{- range $agent := $agents }}
+{{- $config := index $.Values $agent }}
+{{- if and $config (ne ($config.enabled | toString) "false") }}
   - {{ $agent }}
 {{- end }}
 {{- end }}

@@ -75,6 +75,36 @@ func Test_gitSkillName(t *testing.T) {
 			ref:  v1alpha2.GitRepo{URL: "git@github.com:org/repo.git"},
 			want: "repo",
 		},
+		{
+			name: "path last segment when name empty (monorepo)",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "someskills/skill1",
+			},
+			want: "skill1",
+		},
+		{
+			name: "path with leading and trailing slash",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "/someskills/skill1/",
+			},
+			want: "skill1",
+		},
+		{
+			name: "explicit name still wins over path",
+			ref: v1alpha2.GitRepo{
+				URL:  "https://github.com/reponame/myskills.git",
+				Path: "someskills/skill1",
+				Name: "custom",
+			},
+			want: "custom",
+		},
+		{
+			name: "no path uses repo name",
+			ref:  v1alpha2.GitRepo{URL: "https://github.com/reponame/myskills"},
+			want: "myskills",
+		},
 	}
 
 	for _, tt := range tests {

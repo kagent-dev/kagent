@@ -9,6 +9,7 @@ spec:
   description: Cilium manager agent knows how to install, configure, monitor, and troubleshoot Cilium in Kubernetes environments
   type: Declarative
   declarative:
+    runtime: {{ .Values.runtime | default "python" }}
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     systemMessage: |-
       You are a Cilium Expert AI Agent with comprehensive knowledge of Cilium CNI, eBPF, and Kubernetes networking. 

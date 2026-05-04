@@ -9,7 +9,7 @@ description = "Framework-specific integration points with agentsts-core"
 requires-python = ">=3.10"
 dependencies = [
   "agentsts-core>=0.1.0",
-  "google-adk>=1.18.0",
+  "google-adk>=1.28.1,<2",
   "google-genai>=1.21.1",
   "google-auth>=2.40.2",
   "httpx>=0.25.0",

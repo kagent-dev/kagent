@@ -383,11 +383,10 @@ kagent-tools:
   replicaCount: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m
+      memory: 128Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      memory: 256Mi
   tools:
     loglevel: "debug"
     metrics:
@@ -411,109 +410,94 @@ proxy:
 # ==============================================================================
 # AGENTS
 # ==============================================================================
-agents:
-  k8s-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  kgateway-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  istio-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  promql-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  observability-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  argo-rollouts-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  helm-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-policy-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-manager-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-debug-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
+
+k8s-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+kgateway-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+istio-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+promql-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+observability-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+argo-rollouts-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+helm-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-policy-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-manager-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-debug-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS
 # ==============================================================================
 
-tools:
-  grafana-mcp:
-    enabled: true
-  querydoc:
-    enabled: true
-
 grafana-mcp:
+  enabled: true
   grafana:
     url: "grafana.kagent:3000/api"
     serviceAccountToken: ""
@@ -528,6 +512,7 @@ grafana-mcp:
       memory: 512Mi
 
 querydoc:
+  enabled: true
   replicas: 1
   image:
     registry: ghcr.io

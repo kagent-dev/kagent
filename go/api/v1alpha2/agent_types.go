@@ -141,7 +141,9 @@ type GitRepo struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 
-	// Name for the skill directory under /skills. Defaults to the repo name.
+	// Name for the skill directory under /skills. If omitted, defaults to the last
+	// segment of Path when Path is set; otherwise defaults to the repo name (last
+	// URL path segment, without .git).
 	// +optional
 	Name string `json:"name,omitempty"`
 }
@@ -377,6 +379,10 @@ type SharedDeploymentSpec struct {
 	// is created, and this config will be applied to it.
 	// +optional
 	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+	// ExtraContainers is a list of additional containers to run alongside the main agent container.
+	// Useful for sidecars such as token proxies, log shippers, or security agents.
+	// +optional
+	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
 }
 
 type ServiceAccountConfig struct {
