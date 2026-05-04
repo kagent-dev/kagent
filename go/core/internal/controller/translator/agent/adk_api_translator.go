@@ -1214,6 +1214,17 @@ var skillsInitScriptTmpl string
 // skillsScriptTemplate is the shell script template for fetching skills from Git and OCI.
 var skillsScriptTemplate = template.Must(template.New("skills-init").Parse(skillsInitScriptTmpl))
 
+// dockerAuthInitData holds the secret names for the docker-auth-init script template.
+type dockerAuthInitData struct {
+	Secrets []string
+}
+
+//go:embed docker-auth-init.sh.tmpl
+var dockerAuthInitScriptTmpl string
+
+// dockerAuthInitTemplate is the shell script template for merging Docker auth credentials.
+var dockerAuthInitTemplate = template.Must(template.New("docker-auth-init").Parse(dockerAuthInitScriptTmpl))
+
 // buildSkillsScript renders the unified skills-init shell script.
 func buildSkillsScript(data skillsInitData) (string, error) {
 	var buf bytes.Buffer
@@ -1404,7 +1415,10 @@ func buildSkillsInitContainer(
 			})
 		}
 
-		mergeScript := buildDockerAuthMergeScript(imagePullSecrets)
+		mergeScript, err := buildDockerAuthMergeScript(imagePullSecrets)
+		if err != nil {
+			return nil, nil, err
+		}
 		dockerAuthInitContainer := corev1.Container{
 			Name:         "docker-auth-init",
 			Image:        DefaultSkillsInitImageConfig.Image(),
@@ -1443,24 +1457,19 @@ func buildSkillsInitContainer(
 	return containers, volumes, nil
 }
 
-// buildDockerAuthMergeScript generates a shell script that merges the .auths sections from
-// all kubernetes.io/dockerconfigjson secrets (mounted under /docker-secrets/<name>/) into a
-// single Docker config.json at /docker-config-out/config.json using jq.
-func buildDockerAuthMergeScript(imagePullSecrets []corev1.LocalObjectReference) string {
-	var sb strings.Builder
-	sb.WriteString(`set -e
-mkdir -p /docker-config-out
-merged='{"auths":{}}'
-`)
-	for _, secret := range imagePullSecrets {
-		sb.WriteString(`if [ -f /docker-secrets/` + secret.Name + `/.dockerconfigjson ]; then
-  merged="$(printf '%s\n%s\n' "$merged" "$(cat /docker-secrets/` + secret.Name + `/.dockerconfigjson)" | jq -s '.[0].auths * .[1].auths | {"auths": .}')"
-fi
-`)
+// buildDockerAuthMergeScript renders the docker-auth-init shell script from the template.
+// It merges the .auths sections from all kubernetes.io/dockerconfigjson secrets
+// (mounted under /docker-secrets/<name>/) into a single config.json using jq.
+func buildDockerAuthMergeScript(imagePullSecrets []corev1.LocalObjectReference) (string, error) {
+	names := make([]string, len(imagePullSecrets))
+	for i, s := range imagePullSecrets {
+		names[i] = s.Name
 	}
-	sb.WriteString(`printf '%s' "$merged" > /docker-config-out/config.json
-`)
-	return sb.String()
+	var buf bytes.Buffer
+	if err := dockerAuthInitTemplate.Execute(&buf, dockerAuthInitData{Secrets: names}); err != nil {
+		return "", fmt.Errorf("failed to render docker-auth-init script: %w", err)
+	}
+	return buf.String(), nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {

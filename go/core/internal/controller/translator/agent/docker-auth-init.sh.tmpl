@@ -1,0 +1,9 @@
+set -e
+mkdir -p /docker-config-out
+merged='{"auths":{}}'
+{{- range .Secrets }}
+if [ -f /docker-secrets/{{ . }}/.dockerconfigjson ]; then
+  merged="$(printf '%s\n%s\n' "$merged" "$(cat /docker-secrets/{{ . }}/.dockerconfigjson)" | jq -s '.[0].auths * .[1].auths | {"auths": .}')"
+fi
+{{- end }}
+printf '%s' "$merged" > /docker-config-out/config.json
