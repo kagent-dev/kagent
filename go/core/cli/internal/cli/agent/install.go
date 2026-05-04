@@ -86,6 +86,7 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
+		fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
 		return nil
 	}
 
@@ -127,6 +128,7 @@ func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward 
 	if apiKeyName != "" && apiKeyValue == "" {
 		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
 		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
+		fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
 		return nil
 	}
 

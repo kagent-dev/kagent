@@ -360,7 +360,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="text-xl">Select Tools and Agents</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add your own tools, you can use the <Link href="/tools" className="text-violet-600 hover:text-violet-700">Tools</Link> page.
+            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add or manage tool servers, use{" "}
+            <Link href="/mcp" className="font-medium text-primary underline-offset-4 hover:underline">
+              MCP and tools
+            </Link>
+            .
           </DialogDescription>
         </DialogHeader>
 

@@ -10,6 +10,8 @@ interface ModelSelectionSectionProps {
   isSubmitting: boolean;
   onChange?: (modelRef: string) => void;
   agentNamespace?: string;
+  /** `id` on the select trigger (focus management, labels). */
+  selectTriggerId?: string;
 }
 
 export const ModelSelectionSection = ({
@@ -19,7 +21,8 @@ export const ModelSelectionSection = ({
   error,
   isSubmitting,
   onChange,
-  agentNamespace
+  agentNamespace,
+  selectTriggerId = "agent-field-model",
 }: ModelSelectionSectionProps) => {
   const getModelNamespace = (modelRef: string): string => {
     try {
@@ -58,8 +61,12 @@ export const ModelSelectionSection = ({
           }
         }}
       >
-        <SelectTrigger className={`${error ? "border-red-500" : ""}`}>
-          <SelectValue placeholder="Select a model" />
+        <SelectTrigger
+          id={selectTriggerId}
+          className={`${error ? "border-red-500" : ""}`}
+          aria-invalid={!!error}
+        >
+          <SelectValue placeholder="Select a model…" />
         </SelectTrigger>
         <SelectContent>
           {allModels.map((model, idx) => {

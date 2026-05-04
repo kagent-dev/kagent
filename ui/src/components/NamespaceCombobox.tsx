@@ -24,6 +24,8 @@ interface NamespaceComboboxProps {
   onValueChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** `id` on the trigger control (for labels and focus management). */
+  id?: string;
   // callback to handle errors in case the parent component wants to handle an error
   onError?: (error: string | null) => void;
 }
@@ -31,8 +33,9 @@ interface NamespaceComboboxProps {
 export function NamespaceCombobox({
   value,
   onValueChange,
-  placeholder = "Select namespace...",
+  placeholder = "Select namespace…",
   disabled = false,
+  id: triggerId,
   onError,
 }: NamespaceComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -95,6 +98,8 @@ export function NamespaceCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={triggerId}
+          type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
@@ -119,7 +124,7 @@ export function NamespaceCombobox({
           ) : (
             placeholder
           )}
-          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">

@@ -34,7 +34,7 @@ def test_configure_tracing_logging_enabled_uses_event_logger_provider(monkeypatc
 
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
     monkeypatch.setattr(_utils, "EventLoggerProvider", fake_event_logger_provider)
-    monkeypatch.setattr(_utils, "OTLPLogExporter", lambda *args, **kwargs: object())
+    monkeypatch.setattr(_utils, "_create_log_exporter", lambda *args, **kwargs: object())
     monkeypatch.setattr(_utils, "BatchLogRecordProcessor", lambda *args, **kwargs: FakeLogRecordProcessor())
     monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
     monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)

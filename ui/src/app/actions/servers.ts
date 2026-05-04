@@ -36,7 +36,8 @@ export async function deleteServer(serverName: string): Promise<BaseResponse<voi
       method: "DELETE",
     });
 
-    revalidatePath("/servers");
+    revalidatePath("/mcp");
+    revalidatePath("/mcp/new");
     return {
       message: "MCP server deleted successfully",
     };
@@ -60,7 +61,8 @@ export async function createServer(serverData: ToolServerCreateRequest): Promise
       body: JSON.stringify(serverData),
     });
 
-    revalidatePath("/servers");
+    revalidatePath("/mcp");
+    revalidatePath("/mcp/new");
     return response;
   } catch (error) {
     return createErrorResponse<RemoteMCPServer | MCPServer>(error, "Error creating MCP server");

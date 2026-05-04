@@ -46,6 +46,7 @@ type resolvedDeployment struct {
 	PodSecurityContext   *corev1.PodSecurityContext
 	ServiceAccountName   *string
 	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
+	ExtraContainers      []corev1.Container
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -105,6 +106,22 @@ func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 	}
 }
 
+// validateExtraContainers checks that none of the extra containers use the
+// reserved name "kagent" and that no two containers share the same name.
+func validateExtraContainers(containers []corev1.Container) error {
+	seen := make(map[string]bool)
+	for _, c := range containers {
+		if c.Name == "kagent" {
+			return fmt.Errorf("extraContainers: %q is a reserved container name", c.Name)
+		}
+		if seen[c.Name] {
+			return fmt.Errorf("extraContainers: duplicate container name %q", c.Name)
+		}
+		seen[c.Name] = true
+	}
+	return nil
+}
+
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	// Defaults
@@ -161,6 +178,10 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		}
 	}
 
+	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
+		return nil, err
+	}
+
 	dep := &resolvedDeployment{
 		Image:                image,
 		Args:                 args,
@@ -181,6 +202,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
+		ExtraContainers:      slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -241,6 +263,10 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		replicas = new(int32(1))
 	}
 
+	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
+		return nil, err
+	}
+
 	dep := &resolvedDeployment{
 		Image:                image,
 		Cmd:                  cmd,
@@ -262,6 +288,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
+		ExtraContainers:      slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)

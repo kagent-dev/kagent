@@ -49,17 +49,28 @@ type ModelConfigResource struct {
 	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
 }
 
+// SecretMaterial describes a Secret key/value pair to create or update alongside a ModelConfig.
+type SecretMaterial struct {
+	Name  string `json:"name"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // CreateModelConfigRequest is a thin wrapper: ref + optional inline apiKey + full CRD spec.
 type CreateModelConfigRequest struct {
-	Ref    string                   `json:"ref"`
-	APIKey string                   `json:"apiKey,omitempty"`
-	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
+	Ref string `json:"ref"`
+	// APIKey is an optional inline API key to store in a generated Secret.
+	APIKey string `json:"apiKey,omitempty"`
+	// Secrets are optional companion Secrets to create or update alongside the ModelConfig.
+	Secrets []SecretMaterial         `json:"secrets,omitempty"`
+	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
 // UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
-	APIKey *string                  `json:"apiKey,omitempty"`
-	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
+	APIKey  *string                  `json:"apiKey,omitempty"`
+	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 }
 
 // Agent types
