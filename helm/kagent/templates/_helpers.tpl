@@ -166,6 +166,20 @@ A2A Base URL - computes the default URL based on the controller service name if 
 {{- end -}}
 
 {{/*
+Controller Service host:port for nginx upstream (no scheme).
+*/}}
+{{- define "kagent.controllerServiceAuthority" -}}
+{{- printf "%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- end -}}
+
+{{/*
+In-cluster HTTP API base for Next.js server-side calls (includes /api).
+*/}}
+{{- define "kagent.controllerInternalHttpApiBase" -}}
+{{- printf "http://%s/api" (include "kagent.controllerServiceAuthority" .) -}}
+{{- end -}}
+
+{{/*
 imagePullSecrets from global values (for subchart usage).
 Reads .Values.global.imagePullSecrets set by the parent chart.
 */}}
