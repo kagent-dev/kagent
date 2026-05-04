@@ -282,7 +282,7 @@ func (h *Handlers) dialOpenshellShellSession(
 	defer grpcConn.Close()
 
 	cli := openshellv1.NewOpenShellClient(grpcConn)
-	sandboxID, sshRes, err := openshellCreateSSHSession(ctx, grpcAddr, cli, sandboxName)
+	sandboxID, sshRes, err := openshellCreateSSHSession(ctx, cli, sandboxName)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -295,20 +295,31 @@ func (h *Handlers) dialOpenshellShellSession(
 	return openSSHSessionOverTunnel(tunnelConn, dialHost, rows, cols, plainShell, launchCommandFromClient)
 }
 
+func sandboxIDForSSH(sb *openshellv1.Sandbox) string {
+	if sb == nil || sb.GetMetadata() == nil {
+		return ""
+	}
+	meta := sb.GetMetadata()
+	if id := strings.TrimSpace(meta.GetId()); id != "" {
+		return id
+	}
+	return strings.TrimSpace(meta.GetName())
+}
+
 func openshellCreateSSHSession(
 	ctx context.Context,
-	grpcAddr string,
 	cli openshellv1.OpenShellClient,
 	sandboxName string,
 ) (sandboxID string, sshRes *openshellv1.CreateSshSessionResponse, err error) {
 	sbRes, err := cli.GetSandbox(ctx, &openshellv1.GetSandboxRequest{Name: sandboxName})
 	if err != nil {
-		return "", nil, fmt.Errorf("GetSandbox via %q: %w", grpcAddr, err)
+		return "", nil, fmt.Errorf("GetSandbox: %w", err)
 	}
-	sandboxID = sbRes.GetSandbox().GetId()
+	sandboxID = sandboxIDForSSH(sbRes.GetSandbox())
 	if sandboxID == "" {
-		return "", nil, fmt.Errorf("sandbox %q has no id", sandboxName)
+		return "", nil, fmt.Errorf("sandbox %q: response missing metadata id and name", sandboxName)
 	}
+
 	sshRes, err = cli.CreateSshSession(ctx, &openshellv1.CreateSshSessionRequest{SandboxId: sandboxID})
 	if err != nil {
 		return "", nil, fmt.Errorf("CreateSshSession: %w", err)

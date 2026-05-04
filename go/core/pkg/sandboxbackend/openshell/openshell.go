@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
@@ -45,6 +46,15 @@ func New(c openshellv1.OpenShellClient, cfg Config, recorder record.EventRecorde
 // Name implements AsyncBackend.
 func (b *Backend) Name() v1alpha2.SandboxBackendType { return backendName }
 
+// sandboxBackendHandleID is ObjectMeta.name — the canonical lookup key for
+// GetSandbox / DeleteSandbox (same string as CreateSandboxRequest.Name).
+func sandboxBackendHandleID(sb *openshellv1.Sandbox) string {
+	if sb == nil || sb.GetMetadata() == nil {
+		return ""
+	}
+	return strings.TrimSpace(sb.GetMetadata().GetName())
+}
+
 // EnsureSandbox implements AsyncBackend. Idempotent: a prior GetSandbox
 // short-circuits the CreateSandbox when the gateway already has it.
 func (b *Backend) EnsureSandbox(ctx context.Context, sbx *v1alpha2.Sandbox) (sandboxbackend.EnsureResult, error) {
@@ -59,10 +69,10 @@ func (b *Backend) EnsureSandbox(ctx context.Context, sbx *v1alpha2.Sandbox) (san
 
 	getResp, err := b.client.GetSandbox(ctx, &openshellv1.GetSandboxRequest{Name: name})
 	if err == nil && getResp != nil && getResp.GetSandbox() != nil {
-		id := getResp.GetSandbox().GetName()
+		handleID := sandboxBackendHandleID(getResp.GetSandbox())
 		return sandboxbackend.EnsureResult{
-			Handle:   sandboxbackend.Handle{ID: id},
-			Endpoint: endpointFor(b.cfg.GatewayURL, id),
+			Handle:   sandboxbackend.Handle{ID: handleID},
+			Endpoint: endpointFor(b.cfg.GatewayURL, handleID),
 		}, nil
 	}
 	if err != nil && status.Code(err) != codes.NotFound {
@@ -79,10 +89,10 @@ func (b *Backend) EnsureSandbox(ctx context.Context, sbx *v1alpha2.Sandbox) (san
 	if createResp.GetSandbox() == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("openshell CreateSandbox %s: %w", name, ErrEmptyResponse)
 	}
-	id := createResp.GetSandbox().GetName()
+	handleID := sandboxBackendHandleID(createResp.GetSandbox())
 	return sandboxbackend.EnsureResult{
-		Handle:   sandboxbackend.Handle{ID: id},
-		Endpoint: endpointFor(b.cfg.GatewayURL, id),
+		Handle:   sandboxbackend.Handle{ID: handleID},
+		Endpoint: endpointFor(b.cfg.GatewayURL, handleID),
 	}, nil
 }
 

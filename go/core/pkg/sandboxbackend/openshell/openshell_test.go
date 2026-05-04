@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	datamodelv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
@@ -44,8 +45,10 @@ func (f *fakeGateway) CreateSandbox(_ context.Context, req *openshellv1.CreateSa
 		f.sandboxes = map[string]*openshellv1.Sandbox{}
 	}
 	sb := &openshellv1.Sandbox{
-		Id:    "id-" + req.GetName(),
-		Name:  req.GetName(),
+		Metadata: &datamodelv1.ObjectMeta{
+			Id:   "id-" + req.GetName(),
+			Name: req.GetName(),
+		},
 		Spec:  req.GetSpec(),
 		Phase: openshellv1.SandboxPhase_SANDBOX_PHASE_PROVISIONING,
 	}
