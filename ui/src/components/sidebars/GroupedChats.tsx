@@ -29,34 +29,42 @@ export default function GroupedChats({ agentName, agentNamespace, sessions, hide
   }, [sessions]);
 
   const groupedChats = useMemo(() => {
+    type SessionWithActivity = {
+      session: Session;
+      activityTimestamp: number;
+    };
+
     const groups: {
-      today: Session[];
-      yesterday: Session[];
-      older: Session[];
+      today: SessionWithActivity[];
+      yesterday: SessionWithActivity[];
+      older: SessionWithActivity[];
     } = {
       today: [],
       yesterday: [],
       older: [],
     };
 
-    const getActivityDate = (session: Session) => new Date(session.updated_at || session.created_at);
+    const sessionsWithActivity = localSessions.map(session => ({
+      session,
+      activityTimestamp: Date.parse(session.updated_at || session.created_at),
+    }));
 
     // Process each session and group by last activity date
-    localSessions.forEach(session => {
-      const date = getActivityDate(session);
+    sessionsWithActivity.forEach(sessionWithActivity => {
+      const date = new Date(sessionWithActivity.activityTimestamp);
       if (isToday(date)) {
-        groups.today.push(session);
+        groups.today.push(sessionWithActivity);
       } else if (isYesterday(date)) {
-        groups.yesterday.push(session);
+        groups.yesterday.push(sessionWithActivity);
       } else {
-        groups.older.push(session);
+        groups.older.push(sessionWithActivity);
       }
     });
 
-    const sortChats = (sessions: Session[]) =>
-      sessions.sort((a, b) => {
-        return getActivityDate(b).getTime() - getActivityDate(a).getTime();
-      });
+    const sortChats = (sessions: SessionWithActivity[]) =>
+      sessions
+        .sort((a, b) => b.activityTimestamp - a.activityTimestamp)
+        .map(({ session }) => session);
 
     return {
       today: sortChats(groups.today),

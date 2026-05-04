@@ -97,7 +97,8 @@ RETURNING session_id
 UPDATE session
 SET updated_at = NOW()
 FROM upserted_task
-WHERE session.id = upserted_task.session_id
+WHERE upserted_task.session_id IS NOT NULL
+  AND session.id = upserted_task.session_id
   AND session.deleted_at IS NULL
 `
 

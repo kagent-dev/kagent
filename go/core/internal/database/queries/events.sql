@@ -7,7 +7,8 @@ RETURNING user_id, session_id
 UPDATE session
 SET updated_at = NOW()
 FROM inserted_event
-WHERE session.id = inserted_event.session_id
+WHERE inserted_event.session_id IS NOT NULL
+  AND session.id = inserted_event.session_id
   AND session.user_id = inserted_event.user_id
   AND session.deleted_at IS NULL;
 
