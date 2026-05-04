@@ -909,6 +909,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 }
 
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
+	toolNames := resolveToolNames(mcpServerTool.ToolNames, remoteMcpServer.Status.DiscoveredTools)
 	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
@@ -917,7 +918,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
 			Params:          *tool,
-			Tools:           mcpServerTool.ToolNames,
+			Tools:           toolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
 			RequireApproval: mcpServerTool.RequireApproval,
 		})
@@ -928,12 +929,30 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
 			Params:          *tool,
-			Tools:           mcpServerTool.ToolNames,
+			Tools:           toolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
 			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	}
 	return nil
+}
+
+// resolveToolNames returns the explicit toolNames filter when set; otherwise it
+// expands to the discovered tool list from the RemoteMCPServer status. The
+// returned slice is always non-nil so it serializes as a JSON array (the Python
+// ADK runtime rejects a null `tools` field with a pydantic validation error).
+func resolveToolNames(explicit []string, discovered []*v1alpha2.MCPTool) []string {
+	if len(explicit) > 0 {
+		return explicit
+	}
+	out := make([]string, 0, len(discovered))
+	for _, t := range discovered {
+		if t == nil {
+			continue
+		}
+		out = append(out, t.Name)
+	}
+	return out
 }
 
 // Helper functions

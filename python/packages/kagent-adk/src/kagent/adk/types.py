@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Annotated, Any, Callable, Literal, Optional, Union
 
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
@@ -11,7 +11,7 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field
 
 from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
@@ -140,16 +140,23 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     return converted
 
 
+def _coerce_none_to_empty_list(v: Any) -> Any:
+    # The kagent controller has historically emitted `tools: null` for
+    # RemoteMCPServer refs without an explicit toolNames filter (kagent#TBD).
+    # Tolerate it here so older controller versions don't crash the runtime.
+    return [] if v is None else v
+
+
 class HttpMcpServerConfig(BaseModel):
     params: StreamableHTTPConnectionParams
-    tools: list[str] = Field(default_factory=list)
+    tools: Annotated[list[str], BeforeValidator(_coerce_none_to_empty_list)] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
     require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
 class SseMcpServerConfig(BaseModel):
     params: SseConnectionParams
-    tools: list[str] = Field(default_factory=list)
+    tools: Annotated[list[str], BeforeValidator(_coerce_none_to_empty_list)] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
     require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
