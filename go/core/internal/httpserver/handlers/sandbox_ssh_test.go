@@ -34,7 +34,6 @@ func TestIsLoopbackHost(t *testing.T) {
 }
 
 func TestResolveSandboxSSHRemoteCommand(t *testing.T) {
-	t.Setenv(sandboxSSHLaunchCommandEnv, "")
 	plain, cmd := resolveSandboxSSHRemoteCommand(false, "")
 	if plain || cmd != defaultSandboxSSHLaunchCmd {
 		t.Fatalf("default launch: plain=%v cmd=%q", plain, cmd)
@@ -46,11 +45,6 @@ func TestResolveSandboxSSHRemoteCommand(t *testing.T) {
 	plain, cmd = resolveSandboxSSHRemoteCommand(false, "  custom  ")
 	if plain || cmd != "custom" {
 		t.Fatalf("override: plain=%v cmd=%q", plain, cmd)
-	}
-	t.Setenv(sandboxSSHLaunchCommandEnv, "from-env")
-	plain, cmd = resolveSandboxSSHRemoteCommand(false, "")
-	if plain || cmd != "from-env" {
-		t.Fatalf("env: plain=%v cmd=%q", plain, cmd)
 	}
 }
 

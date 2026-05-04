@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	openshellpb "github.com/kagent-dev/kagent/go/core/internal/openshellgrpc/openshellpb"
+	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -281,7 +281,7 @@ func (h *Handlers) dialOpenshellShellSession(
 	}
 	defer grpcConn.Close()
 
-	cli := openshellpb.NewOpenShellClient(grpcConn)
+	cli := openshellv1.NewOpenShellClient(grpcConn)
 	sandboxID, sshRes, err := openshellCreateSSHSession(ctx, grpcAddr, cli, sandboxName)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -298,18 +298,18 @@ func (h *Handlers) dialOpenshellShellSession(
 func openshellCreateSSHSession(
 	ctx context.Context,
 	grpcAddr string,
-	cli openshellpb.OpenShellClient,
+	cli openshellv1.OpenShellClient,
 	sandboxName string,
-) (sandboxID string, sshRes *openshellpb.CreateSshSessionResponse, err error) {
-	sbRes, err := cli.GetSandbox(ctx, &openshellpb.GetSandboxRequest{Name: sandboxName})
+) (sandboxID string, sshRes *openshellv1.CreateSshSessionResponse, err error) {
+	sbRes, err := cli.GetSandbox(ctx, &openshellv1.GetSandboxRequest{Name: sandboxName})
 	if err != nil {
 		return "", nil, fmt.Errorf("GetSandbox via %q: %w", grpcAddr, err)
 	}
-	sandboxID = sbRes.GetSandbox().GetMetadata().GetId()
+	sandboxID = sbRes.GetSandbox().GetId()
 	if sandboxID == "" {
 		return "", nil, fmt.Errorf("sandbox %q has no id", sandboxName)
 	}
-	sshRes, err = cli.CreateSshSession(ctx, &openshellpb.CreateSshSessionRequest{SandboxId: sandboxID})
+	sshRes, err = cli.CreateSshSession(ctx, &openshellv1.CreateSshSessionRequest{SandboxId: sandboxID})
 	if err != nil {
 		return "", nil, fmt.Errorf("CreateSshSession: %w", err)
 	}
@@ -328,7 +328,7 @@ func openshellCreateSSHSession(
 func openshellDialHTTPConnectTunnel(
 	ctx context.Context,
 	grpcAddr string,
-	sshRes *openshellpb.CreateSshSessionResponse,
+	sshRes *openshellv1.CreateSshSessionResponse,
 	sandboxID string,
 ) (tunnelConn net.Conn, dialHost string, err error) {
 	token := sshRes.GetToken()
