@@ -14,7 +14,7 @@ export function getBackendUrl() {
 
   if (process.env.NODE_ENV === "production") {
     // This is more of a fallback; the NEXT_PUBLIC_BACKEND_URL should be set in the Helm chart
-    return "http://kagent.kagent.svc.cluster.local/api";
+    return "http://kagent.kagent.svc/api";
   }
 
   // Fallback for local development

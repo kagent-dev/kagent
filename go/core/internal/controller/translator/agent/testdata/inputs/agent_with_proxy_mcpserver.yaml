@@ -1,7 +1,7 @@
 operation: translateAgent
 targetObject: agent-with-proxy-mcpserver
 namespace: test
-proxyURL: http://proxy.kagent.svc.cluster.local:8080
+proxyURL: http://proxy.kagent.svc:8080
 objects:
   - apiVersion: v1
     kind: Secret

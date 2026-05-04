@@ -350,7 +350,7 @@ def test_mcp_tool_with_proxy_url():
         http_tools=[
             HttpMcpServerConfig(
                 params=StreamableHTTPConnectionParams(
-                    url="http://proxy.kagent.svc.cluster.local:8080/mcp",  # Proxy URL
+                    url="http://proxy.kagent.svc:8080/mcp",  # Proxy URL
                     headers={PROXY_HOST_HEADER: "test-mcp-server.kagent"},  # Proxy host header for proxy routing
                 ),
                 tools=["test-tool"],
@@ -374,7 +374,7 @@ def test_mcp_tool_with_proxy_url():
     # a public API to verify connection configuration. We're testing our code's configuration logic.
     connection_params = getattr(mcp_tool, "_connection_params", None) or getattr(mcp_tool, "connection_params", None)
     assert connection_params is not None
-    assert connection_params.url == "http://proxy.kagent.svc.cluster.local:8080/mcp"
+    assert connection_params.url == "http://proxy.kagent.svc:8080/mcp"
     assert connection_params.headers is not None
     assert connection_params.headers[PROXY_HOST_HEADER] == "test-mcp-server.kagent"
 
@@ -447,7 +447,7 @@ def test_sse_mcp_tool_with_proxy_url():
         sse_tools=[
             SseMcpServerConfig(
                 params=SseConnectionParams(
-                    url="http://proxy.kagent.svc.cluster.local:8080/mcp",  # Proxy URL
+                    url="http://proxy.kagent.svc:8080/mcp",  # Proxy URL
                     headers={PROXY_HOST_HEADER: "test-sse-mcp-server.kagent"},  # Proxy host header for proxy routing
                 ),
                 tools=["test-sse-tool"],
@@ -469,7 +469,7 @@ def test_sse_mcp_tool_with_proxy_url():
     # Verify connection params are configured correctly
     connection_params = getattr(mcp_tool, "_connection_params", None) or getattr(mcp_tool, "connection_params", None)
     assert connection_params is not None
-    assert connection_params.url == "http://proxy.kagent.svc.cluster.local:8080/mcp"
+    assert connection_params.url == "http://proxy.kagent.svc:8080/mcp"
     assert connection_params.headers is not None
     assert connection_params.headers[PROXY_HOST_HEADER] == "test-sse-mcp-server.kagent"
 

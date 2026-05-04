@@ -26,7 +26,7 @@
           "headers": {
             "x-kagent-host": "toolserver.test"
           },
-          "url": "http://proxy.kagent.svc.cluster.local:8080/mcp"
+          "url": "http://proxy.kagent.svc:8080/mcp"
         },
         "tools": [
           "k8s_get_resources"
@@ -68,7 +68,7 @@
       },
       "stringData": {
         "agent-card.json": "{\"name\":\"agent_with_proxy_service\",\"description\":\"\",\"url\":\"http://agent-with-proxy-service.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
-        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"toolserver.test\"}},\"tools\":[\"k8s_get_resources\"]}],\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc:8080/mcp\",\"headers\":{\"x-kagent-host\":\"toolserver.test\"}},\"tools\":[\"k8s_get_resources\"]}],\"stream\":false}"
       }
     },
     {

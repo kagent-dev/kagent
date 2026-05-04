@@ -8,6 +8,6 @@ metadata:
 spec:
   config:
     streamableHttp:
-      url: http://{{ include "mcp-grafana.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/mcp
+      url: http://{{ include "mcp-grafana.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/mcp
       timeout: 30s
   description: "Grafana MCP server for monitoring and dashboard management"
