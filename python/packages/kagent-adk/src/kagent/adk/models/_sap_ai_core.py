@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import ssl
 import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
@@ -16,6 +14,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
 from ._openai import _convert_tools_to_openai
+from ._ssl import KAgentTLSMixin
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -23,30 +22,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _fetch_oauth_token(auth_url: str, client_id: str, client_secret: str) -> tuple[str, float]:
+async def _fetch_oauth_token(
+    auth_url: str,
+    client_id: str,
+    client_secret: str,
+    client: httpx.AsyncClient,
+) -> tuple[str, float]:
     """Fetch a new OAuth2 token from the auth server. No caching — callers manage expiry."""
     token_url = auth_url.rstrip("/")
     if not token_url.endswith("/oauth/token"):
         token_url += "/oauth/token"
 
-    def _sync_fetch() -> tuple[str, float]:
-        resp = httpx.post(
-            token_url,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": client_secret,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        token = data["access_token"]
-        expires_at = time.time() + data.get("expires_in", 43200)
-        return token, expires_at
-
-    return await asyncio.to_thread(_sync_fetch)
+    resp = await client.post(
+        token_url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    token = data["access_token"]
+    expires_at = time.time() + data.get("expires_in", 43200)
+    return token, expires_at
 
 
 def _build_orchestration_template(
@@ -145,7 +146,7 @@ def _parse_orchestration_chunk(event_data: dict[str, Any]) -> Optional[dict[str,
 _RETRYABLE_STATUS_CODES = {401, 403, 404, 502, 503, 504}
 
 
-class KAgentSAPAICoreLlm(BaseLlm):
+class KAgentSAPAICoreLlm(KAgentTLSMixin, BaseLlm):
     """SAP AI Core LLM via Orchestration Service.
 
     Supports all model families (OpenAI, Anthropic, Gemini, etc.) through
@@ -156,10 +157,6 @@ class KAgentSAPAICoreLlm(BaseLlm):
     resource_group: str = "default"
     auth_url: Optional[str] = None
     api_key_passthrough: Optional[bool] = None
-
-    tls_disable_verify: bool = False
-    tls_ca_cert_path: Optional[str] = None
-    tls_disable_system_cas: bool = False
 
     _passthrough_key: Optional[str] = None
     _http_client: Optional[httpx.AsyncClient] = None
@@ -178,28 +175,11 @@ class KAgentSAPAICoreLlm(BaseLlm):
         self._passthrough_key = token
         self._http_client = None
 
-    def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
-        if not self.tls_disable_verify and not self.tls_ca_cert_path and not self.tls_disable_system_cas:
-            return None
-        ctx = ssl.create_default_context()
-        if self.tls_disable_verify:
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-        elif self.tls_disable_system_cas:
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            if self.tls_ca_cert_path:
-                ctx.load_verify_locations(self.tls_ca_cert_path)
-        elif self.tls_ca_cert_path:
-            ctx.load_verify_locations(self.tls_ca_cert_path)
-        return ctx
-
     def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is not None:
             return self._http_client
-        ssl_ctx = self._create_ssl_context()
         kwargs: dict[str, Any] = {"timeout": 300}
-        if ssl_ctx is not None:
-            kwargs["verify"] = ssl_ctx
+        kwargs.update(self._tls_httpx_kwargs())
         self._http_client = httpx.AsyncClient(**kwargs)
         return self._http_client
 
@@ -223,7 +203,12 @@ class KAgentSAPAICoreLlm(BaseLlm):
         client_secret = os.environ.get("SAP_AI_CORE_CLIENT_SECRET", "")
 
         if self.auth_url and client_id and client_secret:
-            token, expires_at = await _fetch_oauth_token(self.auth_url, client_id, client_secret)
+            token, expires_at = await _fetch_oauth_token(
+                self.auth_url,
+                client_id,
+                client_secret,
+                self._get_http_client(),
+            )
             self._token = token
             self._token_expires_at = expires_at
             return token

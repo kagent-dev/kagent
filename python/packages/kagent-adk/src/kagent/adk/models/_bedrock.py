@@ -20,6 +20,8 @@ from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
+from ._ssl import KAgentTLSMixin
+
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
 
@@ -54,12 +56,31 @@ def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) 
     return sanitized
 
 
-def _get_bedrock_client(extra_headers: Optional[dict[str, str]] = None):
+def _get_bedrock_client(
+    extra_headers: Optional[dict[str, str]] = None,
+    tls_disable_verify: Optional[bool] = None,
+    tls_ca_cert_path: Optional[str] = None,
+    tls_disable_system_cas: Optional[bool] = None,
+):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
+
     if extra_headers:
         # boto3 doesn't support custom headers natively; log and ignore
         logger.warning("extra_headers are not supported for Bedrock models and will be ignored.")
+
+    # TLS/SSL configuration via boto3 verify parameter
+    if tls_disable_verify:
+        kwargs["verify"] = False
+    elif tls_ca_cert_path:
+        kwargs["verify"] = tls_ca_cert_path
+
+    if tls_disable_system_cas and tls_ca_cert_path:
+        logger.warning(
+            "disable_system_cas is not fully supported by boto3 for Bedrock; "
+            "using custom CA bundle only. System CAs may still be trusted."
+        )
+
     return boto3.client("bedrock-runtime", **kwargs)
 
 
@@ -187,7 +208,7 @@ def _stop_reason_to_finish_reason(stop_reason: str) -> types.FinishReason:
     return types.FinishReason.STOP
 
 
-class KAgentBedrockLlm(BaseLlm):
+class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
     """Bedrock model via the Converse API.
 
     Supports all Bedrock-compatible models (Anthropic, Meta, Mistral, Amazon, etc.).
@@ -196,11 +217,17 @@ class KAgentBedrockLlm(BaseLlm):
 
     extra_headers: Optional[dict[str, str]] = None
     additional_model_request_fields: Optional[dict[str, Any]] = None
+
     model_config = {"arbitrary_types_allowed": True}
 
     @cached_property
     def _client(self):
-        return _get_bedrock_client(self.extra_headers)
+        return _get_bedrock_client(
+            extra_headers=self.extra_headers,
+            tls_disable_verify=self.tls_disable_verify,
+            tls_ca_cert_path=self.tls_ca_cert_path,
+            tls_disable_system_cas=self.tls_disable_system_cas,
+        )
 
     @classmethod
     def supported_models(cls) -> list[str]:

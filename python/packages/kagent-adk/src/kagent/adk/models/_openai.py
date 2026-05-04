@@ -32,7 +32,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
-from ._ssl import create_ssl_context
+from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
 
 if TYPE_CHECKING:
@@ -365,7 +365,7 @@ def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmRes
     return LlmResponse(content=content, usage_metadata=usage_metadata, finish_reason=finish_reason)
 
 
-class BaseOpenAI(BaseLlm):
+class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     """Base class for OpenAI-compatible models."""
 
     model: str
@@ -381,11 +381,6 @@ class BaseOpenAI(BaseLlm):
     temperature: Optional[float] = None
     timeout: Optional[int] = None
     top_p: Optional[float] = None
-
-    # TLS/SSL configuration fields
-    tls_disable_verify: Optional[bool] = None
-    tls_ca_cert_path: Optional[str] = None
-    tls_disable_system_cas: Optional[bool] = None
 
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: Optional[bool] = None
@@ -403,20 +398,6 @@ class BaseOpenAI(BaseLlm):
         """Returns a list of supported models in regex for LlmRegistry."""
         return [r"gpt-.*", r"o1-.*"]
 
-    def _get_tls_config(self) -> tuple[bool, Optional[str], bool]:
-        """Read TLS configuration from instance fields.
-
-        Returns:
-            Tuple of (disable_verify, ca_cert_path, disable_system_cas)
-        """
-        # Read from instance fields only (config-based approach)
-        # Environment variables are no longer supported for TLS configuration
-        disable_verify = self.tls_disable_verify or False
-        ca_cert_path = self.tls_ca_cert_path
-        disable_system_cas = self.tls_disable_system_cas or False
-
-        return disable_verify, ca_cert_path, disable_system_cas
-
     def _create_http_client(self) -> Optional[httpx.AsyncClient]:
         """Create HTTP client with custom SSL context using OpenAI SDK defaults.
 
@@ -427,22 +408,7 @@ class BaseOpenAI(BaseLlm):
         Returns:
             DefaultAsyncHttpxClient with SSL configuration, or None if no TLS config
         """
-        disable_verify, ca_cert_path, disable_system_cas = self._get_tls_config()
-
-        # Only create custom http client if TLS configuration is present
-        if disable_verify or ca_cert_path or disable_system_cas:
-            ssl_context = create_ssl_context(
-                disable_verify=disable_verify,
-                ca_cert_path=ca_cert_path,
-                disable_system_cas=disable_system_cas,
-            )
-
-            # ssl_context is either False (verification disabled) or SSLContext
-            # Use DefaultAsyncHttpxClient to preserve OpenAI's defaults
-            return DefaultAsyncHttpxClient(verify=ssl_context)
-
-        # No TLS configuration, return None to use OpenAI SDK default
-        return None
+        return self._httpx_async_client_if_tls(DefaultAsyncHttpxClient)
 
     @cached_property
     def _client(self) -> AsyncOpenAI:

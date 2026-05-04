@@ -544,7 +544,7 @@ def test_openai_client_without_tls_config():
 
 def test_openai_client_with_tls_verification_disabled():
     """Test OpenAI client with TLS verification disabled."""
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
                 # create_ssl_context returns False when verification is disabled
@@ -584,7 +584,7 @@ def test_openai_client_with_custom_ca_certificate():
     """Test OpenAI client with custom CA certificate."""
     import ssl
 
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 # create_ssl_context returns SSLContext for custom CA
@@ -621,7 +621,7 @@ def test_openai_client_with_custom_ca_only():
     """Test OpenAI client with custom CA only (no system CAs)."""
     import ssl
 
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
@@ -677,7 +677,7 @@ def test_azure_openai_client_with_tls():
 
     from kagent.adk.models import AzureOpenAI
 
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncAzureOpenAI") as mock_azure_openai:
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
@@ -719,7 +719,7 @@ def test_openai_client_with_base_url_and_tls():
     """Test OpenAI client with base_url (LiteLLM gateway) and TLS configuration."""
     import ssl
 
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)
