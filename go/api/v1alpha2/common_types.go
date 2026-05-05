@@ -117,8 +117,10 @@ type ValueSource struct {
 	// +kubebuilder:validation:Enum=ConfigMap;Secret
 	Type ValueSourceType `json:"type"`
 	// The name of the ConfigMap or Secret.
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 	// The key of the ConfigMap or Secret.
+	// +kubebuilder:validation:MaxLength=253
 	Key string `json:"key"`
 }
 

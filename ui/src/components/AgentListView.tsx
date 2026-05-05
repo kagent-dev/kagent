@@ -209,6 +209,8 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(item);
+  const isClawSandbox =
+    sshSandbox && (item.openshellSandbox?.backend === "openclaw" || item.openshellSandbox?.backend === "nemoclaw");
 
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
@@ -276,7 +278,17 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         <div className="pl-1.5">
           <div className="flex min-w-0 items-center gap-2">
             {sshSandbox ? (
-              <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
+              isClawSandbox ? (
+                <span
+                  className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
+                  aria-hidden
+                  title={item.openshellSandbox?.backend}
+                >
+                  🦞
+                </span>
+              ) : (
+                <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
+              )
             ) : (
               <KagentLogo className="h-4 w-4 shrink-0 opacity-80" />
             )}
@@ -313,62 +325,58 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         </span>
       </td>
       <td className="w-10 px-1 py-3.5 align-middle" onClick={(e) => e.stopPropagation()}>
-        {!sshSandbox ? (
-          <>
-            <div className="flex items-center justify-end">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
-                    <Pencil className="mr-2 h-4 w-4" />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setMemoriesOpen(true);
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <Brain className="mr-2 h-4 w-4" />
-                    View memories
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setDeleteOpen(true);
-                    }}
-                    className="cursor-pointer text-red-500 focus:text-red-500"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <DeleteButton
-              agentName={name}
-              namespace={namespace}
-              externalOpen={deleteOpen}
-              onExternalOpenChange={setDeleteOpen}
-            />
-            <MemoriesDialog
-              agentName={name}
-              namespace={namespace}
-              open={memoriesOpen}
-              onOpenChange={setMemoriesOpen}
-            />
-          </>
-        ) : (
-          <span className="sr-only">No actions</span>
-        )}
+        <>
+          <div className="flex items-center justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMemoriesOpen(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <Brain className="mr-2 h-4 w-4" />
+                  View memories
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDeleteOpen(true);
+                  }}
+                  className="cursor-pointer text-red-500 focus:text-red-500"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <DeleteButton
+            agentName={name}
+            namespace={namespace}
+            externalOpen={deleteOpen}
+            onExternalOpenChange={setDeleteOpen}
+          />
+          <MemoriesDialog
+            agentName={name}
+            namespace={namespace}
+            open={memoriesOpen}
+            onOpenChange={setMemoriesOpen}
+          />
+        </>
       </td>
     </tr>
   );

@@ -17,12 +17,98 @@ import (
 
 // SandboxBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openshell
+// +kubebuilder:validation:Enum=openshell;openclaw;nemoclaw
 type SandboxBackendType string
 
 const (
 	SandboxBackendOpenshell SandboxBackendType = "openshell"
+	SandboxBackendOpenClaw  SandboxBackendType = "openclaw"
+	SandboxBackendNemoClaw  SandboxBackendType = "nemoclaw"
 )
+
+// SandboxChannelType selects a messenger integration for OpenClaw sandboxes.
+// +kubebuilder:validation:Enum=telegram;discord;slack
+type SandboxChannelType string
+
+const (
+	SandboxChannelTypeTelegram SandboxChannelType = "telegram"
+	SandboxChannelTypeDiscord  SandboxChannelType = "discord"
+	SandboxChannelTypeSlack    SandboxChannelType = "slack"
+)
+
+// SandboxChannelAccess controls whether the bot listens broadly or only on an allowlist.
+// +kubebuilder:validation:Enum=allowlist;open;disabled
+type SandboxChannelAccess string
+
+const (
+	SandboxChannelAccessAllowlist SandboxChannelAccess = "allowlist"
+	SandboxChannelAccessOpen      SandboxChannelAccess = "open"
+	SandboxChannelAccessDisabled  SandboxChannelAccess = "disabled"
+)
+
+// SandboxChannelCredential supplies a token from an inline value or a Secret/ConfigMap key.
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.valueFrom) && has(self.value) && self.value != '') && (has(self.valueFrom) || (has(self.value) && self.value != ''))",message="exactly one of value or valueFrom must be set"
+type SandboxChannelCredential struct {
+	// +kubebuilder:validation:MaxLength=8192
+	Value string `json:"value,omitempty"`
+	// +optional
+	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
+}
+
+// SandboxTelegramChannelSpec configures Telegram when SandboxChannel.type is Telegram.
+//
+// +kubebuilder:validation:XValidation:rule="!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))",message="allowedUserIDs and allowedUserIDsFrom are mutually exclusive"
+type SandboxTelegramChannelSpec struct {
+	BotToken SandboxChannelCredential `json:"botToken"`
+	// +optional
+	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
+	// +optional
+	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
+}
+
+// SandboxDiscordChannelSpec configures Discord when SandboxChannel.type is Discord.
+//
+// +kubebuilder:validation:XValidation:rule="self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
+type SandboxDiscordChannelSpec struct {
+	BotToken SandboxChannelCredential `json:"botToken"`
+	// +kubebuilder:validation:Required
+	ChannelAccess SandboxChannelAccess `json:"channelAccess"`
+	// +optional
+	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
+}
+
+// SandboxSlackChannelSpec configures Slack when SandboxChannel.type is Slack.
+//
+// +kubebuilder:validation:XValidation:rule="self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
+type SandboxSlackChannelSpec struct {
+	BotToken SandboxChannelCredential `json:"botToken"`
+	AppToken SandboxChannelCredential `json:"appToken"`
+	// +kubebuilder:validation:Required
+	ChannelAccess SandboxChannelAccess `json:"channelAccess"`
+	// +optional
+	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
+	// +optional
+	// +kubebuilder:default=true
+	InteractiveReplies *bool `json:"interactiveReplies,omitempty"`
+}
+
+// SandboxChannel declares one messenger binding inside an OpenClaw/NemoClaw sandbox.
+//
+// +kubebuilder:validation:XValidation:rule="(self.type == 'telegram' && has(self.telegram) && !has(self.discord) && !has(self.slack)) || (self.type == 'discord' && has(self.discord) && !has(self.telegram) && !has(self.slack)) || (self.type == 'slack' && has(self.slack) && !has(self.telegram) && !has(self.discord))",message="exactly one of telegram, discord, or slack must be set and must match type"
+type SandboxChannel struct {
+	// Name is a stable id for this binding (OpenClaw channels.*.accounts key).
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	Type SandboxChannelType `json:"type"`
+	// +optional
+	Telegram *SandboxTelegramChannelSpec `json:"telegram,omitempty"`
+	// +optional
+	Discord *SandboxDiscordChannelSpec `json:"discord,omitempty"`
+	// +optional
+	Slack *SandboxSlackChannelSpec `json:"slack,omitempty"`
+}
 
 // SandboxSpec describes a generic remote execution environment that agents
 // (or human operators) can attach to via exec or SSH.
@@ -30,14 +116,20 @@ const (
 // A Sandbox is distinct from a SandboxAgent: it has no agent runtime baked
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.channels) || size(self.channels) == 0 || self.backend == 'openclaw' || self.backend == 'nemoclaw'",message="channels may only be set when backend is openclaw or nemoclaw"
 type SandboxSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +kubebuilder:validation:Required
 	Backend SandboxBackendType `json:"backend"`
 
+	// Description is a short human-readable summary shown in the UI (e.g. agents list).
+	// +optional
+	Description string `json:"description,omitempty"`
+
 	// Image is the container image to run in the sandbox, if the backend
-	// supports per-sandbox images. Many backends (openshell) ignore this
-	// and use a backend-configured default.
+	// supports per-sandbox images. Backends openclaw and nemoclaw pin the image
+	// to the NemoClaw sandbox base; openshell uses spec.image when set.
 	// +optional
 	Image string `json:"image,omitempty"`
 
@@ -53,10 +145,16 @@ type SandboxSpec struct {
 	Network *SandboxNetwork `json:"network,omitempty"`
 
 	// ModelConfigRef is the reference to the ModelConfig used to configure the sandbox.
-	// When set (openshell backend), the controller registers the gateway provider and,
-	// after the sandbox is Ready, runs one-time OpenClaw setup inside the VM (gateway + onboard).
+	// When set with backend openclaw or nemoclaw, the controller registers the gateway provider and,
+	// after the sandbox is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
+	// It is ignored for backend openshell.
 	// +optional
 	ModelConfigRef string `json:"modelConfigRef,omitempty"`
+
+	// Channels configures Telegram, Discord, and Slack integrations for OpenClaw inside the sandbox VM.
+	// Only supported when backend is openclaw or nemoclaw.
+	// +optional
+	Channels []SandboxChannel `json:"channels,omitempty"`
 }
 
 // SandboxNetwork captures the minimal network-policy knobs exposed to users.

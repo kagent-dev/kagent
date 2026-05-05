@@ -32,6 +32,10 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(agentResponse);
+  const isClawSandbox =
+    sshSandbox &&
+    (agentResponse.openshellSandbox?.backend === "openclaw" ||
+      agentResponse.openshellSandbox?.backend === "nemoclaw");
 
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -76,13 +80,22 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
         <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
           {sshSandbox ? (
-            <Terminal className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden />
+            isClawSandbox ? (
+              <span
+                className="h-5 w-5 flex-shrink-0 text-muted-foreground"
+                aria-hidden
+                title={agentResponse.openshellSandbox?.backend}
+              >
+                🦞
+              </span>
+            ) : (
+              <Terminal className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden />
+            )
           ) : (
             <KagentLogo className="h-5 w-5 flex-shrink-0" />
           )}
           <span className="truncate">{agentRef}</span>
         </CardTitle>
-        {!sshSandbox ? (
         <div className="relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
@@ -129,11 +142,10 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col justify-between h-32 relative z-10">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">
-          {agent.spec.description}
+          {agent.spec?.description ?? ""}
         </p>
         <div className="mt-4 flex items-center text-xs text-muted-foreground">
           {isBYO ? (
@@ -175,23 +187,21 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
         cardContent
       )}
 
-      {!sshSandbox ? (
-        <>
-          <DeleteButton
-            agentName={agent.metadata.name}
-            namespace={agent.metadata.namespace || ''}
-            externalOpen={deleteOpen}
-            onExternalOpenChange={setDeleteOpen}
-          />
+      <>
+        <DeleteButton
+          agentName={agent.metadata.name}
+          namespace={agent.metadata.namespace || ''}
+          externalOpen={deleteOpen}
+          onExternalOpenChange={setDeleteOpen}
+        />
 
-          <MemoriesDialog
-            agentName={agent.metadata.name || ''}
-            namespace={agent.metadata.namespace || ''}
-            open={memoriesOpen}
-            onOpenChange={setMemoriesOpen}
-          />
-        </>
-      ) : null}
+        <MemoriesDialog
+          agentName={agent.metadata.name || ''}
+          namespace={agent.metadata.namespace || ''}
+          open={memoriesOpen}
+          onOpenChange={setMemoriesOpen}
+        />
+      </>
     </>
   );
 }

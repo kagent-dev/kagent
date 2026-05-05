@@ -9,6 +9,7 @@ import (
 	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -64,8 +65,14 @@ func Dial(ctx context.Context, cfg Config) (*OpenShellClients, error) {
 		opts = append(opts, grpc.WithPerRPCCredentials(bearerToken{token: cfg.Token, requireTLS: !cfg.Insecure}))
 	}
 
-	conn, err := grpc.DialContext(dialCtx, cfg.GatewayURL, opts...) //nolint:staticcheck // grpc.NewClient is preferred but DialContext is simpler here and still supported
+	conn, err := grpc.NewClient(cfg.GatewayURL, opts...)
 	if err != nil {
+		return nil, fmt.Errorf("openshell: dial %s: %w", cfg.GatewayURL, err)
+	}
+	// NewClient stays idle until Connect() or an RPC; otherwise waitConnReady times out.
+	conn.Connect()
+	if err := waitConnReady(dialCtx, conn); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("openshell: dial %s: %w", cfg.GatewayURL, err)
 	}
 	return &OpenShellClients{
@@ -73,6 +80,24 @@ func Dial(ctx context.Context, cfg Config) (*OpenShellClients, error) {
 		Inference: inferencev1.NewInferenceClient(conn),
 		Conn:      conn,
 	}, nil
+}
+
+func waitConnReady(ctx context.Context, conn *grpc.ClientConn) error {
+	for {
+		switch s := conn.GetState(); s {
+		case connectivity.Ready:
+			return nil
+		case connectivity.Shutdown:
+			return fmt.Errorf("connection shut down")
+		default:
+			if !conn.WaitForStateChange(ctx, s) {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return fmt.Errorf("connection closed before ready")
+			}
+		}
+	}
 }
 
 type bearerToken struct {

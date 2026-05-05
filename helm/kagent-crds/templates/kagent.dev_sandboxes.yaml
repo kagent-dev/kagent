@@ -68,6 +68,276 @@ spec:
                 description: Backend selects the control plane to use. Required.
                 enum:
                 - openshell
+                - openclaw
+                - nemoclaw
+                type: string
+              channels:
+                description: |-
+                  Channels configures Telegram, Discord, and Slack integrations for OpenClaw inside the sandbox VM.
+                  Only supported when backend is openclaw or nemoclaw.
+                items:
+                  description: SandboxChannel declares one messenger binding inside
+                    an OpenClaw/NemoClaw sandbox.
+                  properties:
+                    discord:
+                      description: SandboxDiscordChannelSpec configures Discord when
+                        SandboxChannel.type is Discord.
+                      properties:
+                        allowlistChannels:
+                          items:
+                            type: string
+                          type: array
+                        botToken:
+                          description: SandboxChannelCredential supplies a token from
+                            an inline value or a Secret/ConfigMap key.
+                          properties:
+                            value:
+                              maxLength: 8192
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  description: The key of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                name:
+                                  description: The name of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of value or valueFrom must be set
+                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
+                              != '''') && (has(self.valueFrom) || (has(self.value)
+                              && self.value != ''''))'
+                        channelAccess:
+                          description: SandboxChannelAccess controls whether the bot
+                            listens broadly or only on an allowlist.
+                          enum:
+                          - allowlist
+                          - open
+                          - disabled
+                          type: string
+                      required:
+                      - botToken
+                      - channelAccess
+                      type: object
+                      x-kubernetes-validations:
+                      - message: allowlistChannels is required when channelAccess
+                          is allowlist
+                        rule: self.channelAccess != 'allowlist' || (has(self.allowlistChannels)
+                          && size(self.allowlistChannels) > 0)
+                    name:
+                      description: Name is a stable id for this binding (OpenClaw
+                        channels.*.accounts key).
+                      minLength: 1
+                      type: string
+                    slack:
+                      description: SandboxSlackChannelSpec configures Slack when SandboxChannel.type
+                        is Slack.
+                      properties:
+                        allowlistChannels:
+                          items:
+                            type: string
+                          type: array
+                        appToken:
+                          description: SandboxChannelCredential supplies a token from
+                            an inline value or a Secret/ConfigMap key.
+                          properties:
+                            value:
+                              maxLength: 8192
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  description: The key of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                name:
+                                  description: The name of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of value or valueFrom must be set
+                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
+                              != '''') && (has(self.valueFrom) || (has(self.value)
+                              && self.value != ''''))'
+                        botToken:
+                          description: SandboxChannelCredential supplies a token from
+                            an inline value or a Secret/ConfigMap key.
+                          properties:
+                            value:
+                              maxLength: 8192
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  description: The key of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                name:
+                                  description: The name of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of value or valueFrom must be set
+                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
+                              != '''') && (has(self.valueFrom) || (has(self.value)
+                              && self.value != ''''))'
+                        channelAccess:
+                          description: SandboxChannelAccess controls whether the bot
+                            listens broadly or only on an allowlist.
+                          enum:
+                          - allowlist
+                          - open
+                          - disabled
+                          type: string
+                        interactiveReplies:
+                          default: true
+                          type: boolean
+                      required:
+                      - appToken
+                      - botToken
+                      - channelAccess
+                      type: object
+                      x-kubernetes-validations:
+                      - message: allowlistChannels is required when channelAccess
+                          is allowlist
+                        rule: self.channelAccess != 'allowlist' || (has(self.allowlistChannels)
+                          && size(self.allowlistChannels) > 0)
+                    telegram:
+                      description: SandboxTelegramChannelSpec configures Telegram
+                        when SandboxChannel.type is Telegram.
+                      properties:
+                        allowedUserIDs:
+                          items:
+                            type: string
+                          type: array
+                        allowedUserIDsFrom:
+                          description: ValueSource defines a source for configuration
+                            values from a Secret or ConfigMap
+                          properties:
+                            key:
+                              description: The key of the ConfigMap or Secret.
+                              maxLength: 253
+                              type: string
+                            name:
+                              description: The name of the ConfigMap or Secret.
+                              maxLength: 253
+                              type: string
+                            type:
+                              enum:
+                              - ConfigMap
+                              - Secret
+                              type: string
+                          required:
+                          - key
+                          - name
+                          - type
+                          type: object
+                        botToken:
+                          description: SandboxChannelCredential supplies a token from
+                            an inline value or a Secret/ConfigMap key.
+                          properties:
+                            value:
+                              maxLength: 8192
+                              type: string
+                            valueFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  description: The key of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                name:
+                                  description: The name of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                          type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of value or valueFrom must be set
+                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
+                              != '''') && (has(self.valueFrom) || (has(self.value)
+                              && self.value != ''''))'
+                      required:
+                      - botToken
+                      type: object
+                      x-kubernetes-validations:
+                      - message: allowedUserIDs and allowedUserIDsFrom are mutually
+                          exclusive
+                        rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
+                    type:
+                      description: SandboxChannelType selects a messenger integration
+                        for OpenClaw sandboxes.
+                      enum:
+                      - telegram
+                      - discord
+                      - slack
+                      type: string
+                  required:
+                  - name
+                  - type
+                  type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of telegram, discord, or slack must be set
+                      and must match type
+                    rule: (self.type == 'telegram' && has(self.telegram) && !has(self.discord)
+                      && !has(self.slack)) || (self.type == 'discord' && has(self.discord)
+                      && !has(self.telegram) && !has(self.slack)) || (self.type ==
+                      'slack' && has(self.slack) && !has(self.telegram) && !has(self.discord))
+                type: array
+              description:
+                description: Description is a short human-readable summary shown in
+                  the UI (e.g. agents list).
                 type: string
               env:
                 description: |-
@@ -232,14 +502,15 @@ spec:
               image:
                 description: |-
                   Image is the container image to run in the sandbox, if the backend
-                  supports per-sandbox images. Many backends (openshell) ignore this
-                  and use a backend-configured default.
+                  supports per-sandbox images. Backends openclaw and nemoclaw pin the image
+                  to the NemoClaw sandbox base; openshell uses spec.image when set.
                 type: string
               modelConfigRef:
                 description: |-
                   ModelConfigRef is the reference to the ModelConfig used to configure the sandbox.
-                  When set (openshell backend), the controller registers the gateway provider and,
-                  after the sandbox is Ready, runs one-time OpenClaw setup inside the VM (gateway + onboard).
+                  When set with backend openclaw or nemoclaw, the controller registers the gateway provider and,
+                  after the sandbox is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
+                  It is ignored for backend openshell.
                 type: string
               network:
                 description: |-
@@ -256,6 +527,10 @@ spec:
             required:
             - backend
             type: object
+            x-kubernetes-validations:
+            - message: channels may only be set when backend is openclaw or nemoclaw
+              rule: '!has(self.channels) || size(self.channels) == 0 || self.backend
+                == ''openclaw'' || self.backend == ''nemoclaw'''
           status:
             description: SandboxStatus is the observed state of a Sandbox.
             properties:
@@ -270,6 +545,8 @@ spec:
                       environment. Additional backends may be added in the future.
                     enum:
                     - openshell
+                    - openclaw
+                    - nemoclaw
                     type: string
                   id:
                     type: string

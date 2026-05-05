@@ -57,7 +57,7 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	}
 	for i := range sandboxList.Items {
 		sb := &sandboxList.Items[i]
-		if sb.Spec.Backend != v1alpha2.SandboxBackendOpenshell {
+		if sb.Spec.Backend != v1alpha2.SandboxBackendOpenshell && sb.Spec.Backend != v1alpha2.SandboxBackendOpenClaw && sb.Spec.Backend != v1alpha2.SandboxBackendNemoClaw {
 			continue
 		}
 		agentsWithID = append(agentsWithID, h.openshellSandboxAgentResponse(r.Context(), log, sb))
@@ -122,6 +122,7 @@ func (h *AgentsHandler) openshellSandboxAgentResponse(ctx context.Context, log l
 	}
 
 	gatewayName := fmt.Sprintf("%s-%s", sb.Namespace, sb.Name)
+	desc := strings.TrimSpace(sb.Spec.Description)
 	entry := &api.OpenshellSandboxListEntry{
 		Backend:            sb.Spec.Backend,
 		GatewaySandboxName: gatewayName,
@@ -141,7 +142,7 @@ func (h *AgentsHandler) openshellSandboxAgentResponse(ctx context.Context, log l
 			Kind:       "Sandbox",
 			Metadata:   *sb.ObjectMeta.DeepCopy(),
 			Spec: v1alpha2.AgentSpec{
-				Description: "OpenShell sandbox — SSH terminal in the UI.",
+				Description: desc,
 			},
 		},
 		DeploymentReady:  ready,
@@ -599,16 +600,61 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 // HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name} requests using database
 func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "delete-db")
-	h.handleDeleteAgentObject(
-		w,
-		r,
-		log,
-		&v1alpha2.Agent{},
-		"Agent not found",
-		"Failed to get Agent",
-		"Failed to delete Agent",
-		"Successfully deleted agent",
-	)
+	agentName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+	agentNamespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+	log = log.WithValues("agentName", agentName, "agentNamespace", agentNamespace)
+	objKey := client.ObjectKey{Namespace: agentNamespace, Name: agentName}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	ctx := r.Context()
+	agent := &v1alpha2.Agent{}
+	err = h.KubeClient.Get(ctx, objKey, agent)
+	if err == nil {
+		if err := h.KubeClient.Delete(ctx, agent); err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
+			return
+		}
+		log.Info("Successfully deleted agent")
+		RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+		return
+	}
+	if !apierrors.IsNotFound(err) {
+		w.RespondWithError(errors.NewInternalServerError("Failed to get Agent", err))
+		return
+	}
+
+	sb := &v1alpha2.Sandbox{}
+	if err := h.KubeClient.Get(ctx, objKey, sb); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to get Sandbox", err))
+		return
+	}
+	b := sb.Spec.Backend
+	if b != v1alpha2.SandboxBackendOpenshell && b != v1alpha2.SandboxBackendOpenClaw && b != v1alpha2.SandboxBackendNemoClaw {
+		w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
+		return
+	}
+	if err := h.KubeClient.Delete(ctx, sb); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to delete Sandbox", err))
+		return
+	}
+	log.Info("Successfully deleted sandbox")
+	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
 }
 
 func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {

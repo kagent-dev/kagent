@@ -16,10 +16,19 @@ func sandboxName(sbx *v1alpha2.Sandbox) string {
 	return fmt.Sprintf("%s-%s", sbx.Namespace, sbx.Name)
 }
 
-// buildCreateRequest maps a kagent Sandbox into an OpenShell
+// sandboxBackendHandleID is ObjectMeta.name — the canonical lookup key for
+// GetSandbox / DeleteSandbox (same string as CreateSandboxRequest.Name).
+func sandboxBackendHandleID(sb *openshellv1.Sandbox) string {
+	if sb == nil || sb.GetMetadata() == nil {
+		return ""
+	}
+	return strings.TrimSpace(sb.GetMetadata().GetName())
+}
+
+// buildOpenshellCreateRequest maps a kagent Sandbox into an OpenShell
 // CreateSandboxRequest. unsupported collects Sandbox fields the gateway
 // cannot currently express so callers can surface them as events.
-func buildCreateRequest(sbx *v1alpha2.Sandbox) (*openshellv1.CreateSandboxRequest, []string) {
+func buildOpenshellCreateRequest(sbx *v1alpha2.Sandbox) (*openshellv1.CreateSandboxRequest, []string) {
 	unsupported := []string{}
 	tpl := &openshellv1.SandboxTemplate{}
 	env := map[string]string{}

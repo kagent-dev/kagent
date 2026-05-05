@@ -568,15 +568,15 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	if cfg.Openshell.GatewayURL != "" {
 		kubeClient := mgr.GetClient()
-		openshellBackend, err := buildOpenshellBackend(ctx, &cfg, kubeClient)
+		openshellBackends, err := buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
 		if err != nil {
-			setupLog.Error(err, "unable to build openshell sandbox backend")
+			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
 		}
 		if err := (&controller.SandboxController{
 			Client:   kubeClient,
 			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
-			Backend:  openshellBackend,
+			Backends: openshellBackends,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Sandbox")
 			os.Exit(1)
@@ -710,11 +710,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 }
 
-// buildOpenshellBackend constructs an openshell AsyncBackend from flag config.
-// It dials the gateway once; OpenShell and Inference RPCs share that connection
-// (see openshell.OpenShellClients). The connection is not explicitly closed today — same
-// lifetime as the process.
-func buildOpenshellBackend(ctx context.Context, cfg *Config, kubeClient client.Client) (*openshell.Backend, error) {
+// buildOpenshellSandboxBackends constructs AsyncBackend values for openshell, openclaw,
+// and nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
+// share that connection (see openshell.OpenShellClients). The connection is not explicitly
+// closed today — same lifetime as the process.
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.SandboxBackendType]sandboxbackend.AsyncBackend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -741,7 +741,15 @@ func buildOpenshellBackend(ctx context.Context, cfg *Config, kubeClient client.C
 		return nil, err
 	}
 
-	return openshell.New(kubeClient, clients, oc, nil), nil
+	osh := openshell.NewOpenshellBackend(kubeClient, clients, oc, nil)
+	ocl, err := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
+	if err != nil {
+		return nil, err
+	}
+	return map[v1alpha2.SandboxBackendType]sandboxbackend.AsyncBackend{
+		v1alpha2.SandboxBackendOpenshell: osh,
+		v1alpha2.SandboxBackendOpenClaw:  ocl,
+	}, nil
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

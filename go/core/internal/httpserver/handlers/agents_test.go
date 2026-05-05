@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -459,6 +460,7 @@ func TestHandleListAgents(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
 			Spec: v1alpha2.SandboxSpec{
 				Backend:        v1alpha2.SandboxBackendOpenshell,
+				Description:    "Workload VM for experiments",
 				ModelConfigRef: "test-model-config",
 			},
 			Status: v1alpha2.SandboxStatus{
@@ -491,6 +493,7 @@ func TestHandleListAgents(t *testing.T) {
 			require.Equal(t, "default-openclaw-1", row.OpenshellSandbox.GatewaySandboxName)
 			require.Equal(t, "Sandbox", row.Agent.Kind)
 			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
+			require.Equal(t, "Workload VM for experiments", row.Agent.Spec.Description)
 			require.True(t, row.Accepted)
 			require.True(t, row.DeploymentReady)
 			require.Equal(t, v1alpha2.ModelProviderOpenAI, row.ModelProvider)
@@ -777,6 +780,27 @@ func TestHandleDeleteTeam(t *testing.T) {
 		var stillThere v1alpha2.SandboxAgent
 		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "shared-name"}, &stillThere)
 		require.NoError(t, err)
+	})
+
+	t.Run("deletes openshell Sandbox when no Agent with that name", func(t *testing.T) {
+		sb := &v1alpha2.Sandbox{
+			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
+			Spec:       v1alpha2.SandboxSpec{Backend: v1alpha2.SandboxBackendOpenshell},
+		}
+		handler, _ := setupTestHandler(t, sb)
+
+		req := httptest.NewRequest("DELETE", "/api/agents/default/sb-only", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sb-only"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sb-only"}, sb)
+		require.Error(t, err)
+		require.True(t, apierrors.IsNotFound(err))
 	})
 }
 

@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -52,7 +51,7 @@ const (
 type SandboxController struct {
 	Client   client.Client
 	Recorder record.EventRecorder
-	Backend  sandboxbackend.AsyncBackend
+	Backends map[v1alpha2.SandboxBackendType]sandboxbackend.AsyncBackend
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
@@ -82,7 +81,8 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if r.Backend == nil || r.Backend.Name() != sbx.Spec.Backend {
+	backend := r.Backends[sbx.Spec.Backend]
+	if backend == nil {
 		setCondition(&sbx, v1alpha2.SandboxConditionTypeAccepted, metav1.ConditionFalse,
 			"BackendUnavailable",
 			fmt.Sprintf("no backend configured for %q", sbx.Spec.Backend))
@@ -94,7 +94,7 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	res, err := r.Backend.EnsureSandbox(ctx, &sbx)
+	res, err := backend.EnsureSandbox(ctx, &sbx)
 	if err != nil {
 		log.Error(err, "EnsureSandbox failed")
 		setCondition(&sbx, v1alpha2.SandboxConditionTypeAccepted, metav1.ConditionFalse,
@@ -108,7 +108,7 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	sbx.Status.BackendRef = &v1alpha2.SandboxStatusRef{
-		Backend: r.Backend.Name(),
+		Backend: backend.Name(),
 		ID:      res.Handle.ID,
 	}
 	if res.Endpoint != "" {
@@ -117,8 +117,17 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	setCondition(&sbx, v1alpha2.SandboxConditionTypeAccepted, metav1.ConditionTrue,
 		"SandboxAccepted", "backend accepted sandbox request")
 
-	st, reason, msg := r.Backend.GetStatus(ctx, res.Handle)
-	setCondition(&sbx, v1alpha2.SandboxConditionTypeReady, st, reason, msg)
+	st, reason, msg := backend.GetStatus(ctx, res.Handle)
+	pending := r.postReadyBootstrapPending(&sbx, backend)
+	if st == metav1.ConditionTrue && pending {
+		// Keep Ready=false until OnSandboxReady completes so consumers do not treat
+		// the Sandbox as usable while bootstrap is still running.
+		setCondition(&sbx, v1alpha2.SandboxConditionTypeReady, metav1.ConditionFalse,
+			"BootstrapPending",
+			"gateway sandbox is ready; waiting for post-ready bootstrap (OnSandboxReady) to finish")
+	} else {
+		setCondition(&sbx, v1alpha2.SandboxConditionTypeReady, st, reason, msg)
+	}
 	sbx.Status.ObservedGeneration = sbx.Generation
 
 	if err := r.patchStatus(ctx, &sbx); err != nil {
@@ -128,25 +137,44 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if st != metav1.ConditionTrue {
 		return ctrl.Result{RequeueAfter: sandboxNotReadyRequeue}, nil
 	}
-	if err := r.maybePostReadyBootstrap(ctx, client.ObjectKeyFromObject(&sbx), &sbx, res.Handle); err != nil {
-		log.Error(err, "post-ready sandbox bootstrap failed")
-		return ctrl.Result{}, err
+	if pending {
+		if err := r.maybePostReadyBootstrap(ctx, client.ObjectKeyFromObject(&sbx), &sbx, res.Handle, backend); err != nil {
+			log.Error(err, "post-ready sandbox bootstrap failed")
+			return ctrl.Result{}, err
+		}
+		var latest v1alpha2.Sandbox
+		if err := r.Client.Get(ctx, req.NamespacedName, &latest); err != nil {
+			return ctrl.Result{}, fmt.Errorf("get sandbox after bootstrap: %w", err)
+		}
+		st2, reason2, msg2 := backend.GetStatus(ctx, res.Handle)
+		setCondition(&latest, v1alpha2.SandboxConditionTypeReady, st2, reason2, msg2)
+		latest.Status.ObservedGeneration = latest.Generation
+		if err := r.Client.Status().Update(ctx, &latest); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update sandbox status after bootstrap: %w", err)
+		}
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *SandboxController) maybePostReadyBootstrap(ctx context.Context, key client.ObjectKey, sbx *v1alpha2.Sandbox, h sandboxbackend.Handle) error {
-	if strings.TrimSpace(sbx.Spec.ModelConfigRef) == "" {
-		return nil
-	}
-	pr, ok := r.Backend.(sandboxbackend.PostReadyBackend)
-	if !ok {
-		return nil
+// postReadyBootstrapPending is true when the backend implements
+// PostReadyBackend and bootstrap for this generation has not been recorded yet.
+func (r *SandboxController) postReadyBootstrapPending(sbx *v1alpha2.Sandbox, async sandboxbackend.AsyncBackend) bool {
+	if _, ok := async.(sandboxbackend.PostReadyBackend); !ok {
+		return false
 	}
 	wantGen := strconv.FormatInt(sbx.Generation, 10)
 	if sbx.Annotations != nil && sbx.Annotations[annotationSandboxBootstrapGeneration] == wantGen {
+		return false
+	}
+	return true
+}
+
+func (r *SandboxController) maybePostReadyBootstrap(ctx context.Context, key client.ObjectKey, sbx *v1alpha2.Sandbox, h sandboxbackend.Handle, async sandboxbackend.AsyncBackend) error {
+	if !r.postReadyBootstrapPending(sbx, async) {
 		return nil
 	}
+	pr := async.(sandboxbackend.PostReadyBackend) // guaranteed when postReadyBootstrapPending is true
+	wantGen := strconv.FormatInt(sbx.Generation, 10)
 	if err := pr.OnSandboxReady(ctx, sbx, h); err != nil {
 		return err
 	}
@@ -172,12 +200,15 @@ func (r *SandboxController) reconcileDelete(ctx context.Context, sbx *v1alpha2.S
 		return ctrl.Result{}, nil
 	}
 
-	if r.Backend != nil && sbx.Status.BackendRef != nil && sbx.Status.BackendRef.ID != "" {
-		if err := r.Backend.DeleteSandbox(ctx, sandboxbackend.Handle{ID: sbx.Status.BackendRef.ID}); err != nil {
-			if r.Recorder != nil {
-				r.Recorder.Event(sbx, "Warning", "SandboxDeleteFailed", err.Error())
+	if sbx.Status.BackendRef != nil && sbx.Status.BackendRef.ID != "" {
+		del := r.Backends[sbx.Status.BackendRef.Backend]
+		if del != nil {
+			if err := del.DeleteSandbox(ctx, sandboxbackend.Handle{ID: sbx.Status.BackendRef.ID}); err != nil {
+				if r.Recorder != nil {
+					r.Recorder.Event(sbx, "Warning", "SandboxDeleteFailed", err.Error())
+				}
+				return ctrl.Result{RequeueAfter: sandboxNotReadyRequeue}, err
 			}
-			return ctrl.Result{RequeueAfter: sandboxNotReadyRequeue}, err
 		}
 	}
 
