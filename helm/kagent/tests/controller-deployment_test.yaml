@@ -584,3 +584,87 @@ tests:
           value: 60
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
+
+  - it: should not expose metrics container port by default
+    template: controller-deployment.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+
+  - it: should not set metrics env vars by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+
+  - it: should expose metrics container port when enabled
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 8443
+            protocol: TCP
+
+  - it: should set metrics env vars when enabled
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":8443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+            value: "true"
+
+  - it: should reflect insecure serving in env
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+            value: "false"
+
+  - it: should reflect custom bind address and target port
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ":9443"
+      controller.metrics.service.targetPort: 9443
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":9443"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
