@@ -227,6 +227,19 @@ controller:
   # env:
   #   - name: OPENSHELL_GRPC_ADDR
   #     value: "openshell.my-namespace.svc.cluster.local:8080"
+  # -- Prometheus-style /metrics endpoint for the controller manager.
+  # When enabled, provisions a dedicated metrics Service plus the ClusterRoles
+  # required for authenticated scrapes. Bind `<fullname>-metrics-reader` to
+  # your Prometheus ServiceAccount to grant scrape access.
+  # @default -- disabled
+  metrics:
+    enabled: false
+    bindAddress: ":8443"
+    secureServing: true
+    service:
+      type: ClusterIP
+      port: 8443
+      targetPort: 8443
   env: []
   envFrom: []
 
