@@ -10,11 +10,24 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
+const (
+	envMoatKagentConfigJSON    = "MOAT_KAGENT_CONFIG_JSON"
+	envMoatKagentAgentCardJSON = "MOAT_KAGENT_AGENT_CARD_JSON"
+)
+
 // LoadAgentConfig loads agent configuration from config.json file
 func LoadAgentConfig(configPath string) (*adk.AgentConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		if os.IsNotExist(err) {
+			if envData := os.Getenv(envMoatKagentConfigJSON); envData != "" {
+				data = []byte(envData)
+			} else {
+				return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
 	}
 
 	var config adk.AgentConfig
@@ -29,7 +42,15 @@ func LoadAgentConfig(configPath string) (*adk.AgentConfig, error) {
 func LoadAgentCard(cardPath string) (*a2a.AgentCard, error) {
 	data, err := os.ReadFile(cardPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read agent card file %s: %w", cardPath, err)
+		if os.IsNotExist(err) {
+			if envData := os.Getenv(envMoatKagentAgentCardJSON); envData != "" {
+				data = []byte(envData)
+			} else {
+				return nil, fmt.Errorf("failed to read agent card file %s: %w", cardPath, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to read agent card file %s: %w", cardPath, err)
+		}
 	}
 
 	var card a2a.AgentCard

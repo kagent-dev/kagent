@@ -76,6 +76,26 @@ func TestLoadAgentConfig_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoadAgentConfig_FallsBackToMoatEnv(t *testing.T) {
+	t.Setenv(envMoatKagentConfigJSON, `{
+		"model": {
+			"type": "openai",
+			"model": "gpt-4",
+			"api_key": "test-key"
+		},
+		"instruction": "loaded from env"
+	}`)
+
+	config, err := LoadAgentConfig("/nonexistent/config.json")
+	if err != nil {
+		t.Fatalf("LoadAgentConfig() error = %v", err)
+	}
+
+	if config.Instruction != "loaded from env" {
+		t.Errorf("Expected instruction from env, got %q", config.Instruction)
+	}
+}
+
 func TestLoadAgentCard(t *testing.T) {
 	cardJSON := `{
 		"name": "test-agent",
@@ -108,6 +128,22 @@ func TestLoadAgentCard_InvalidJSON(t *testing.T) {
 	_, err := LoadAgentCard(cardPath)
 	if err == nil {
 		t.Error("Expected error for invalid JSON, got nil")
+	}
+}
+
+func TestLoadAgentCard_FallsBackToMoatEnv(t *testing.T) {
+	t.Setenv(envMoatKagentAgentCardJSON, `{
+		"name": "env-agent",
+		"version": "1.0.0"
+	}`)
+
+	card, err := LoadAgentCard("/nonexistent/agent-card.json")
+	if err != nil {
+		t.Fatalf("LoadAgentCard() error = %v", err)
+	}
+
+	if card.Name != "env-agent" {
+		t.Errorf("Expected card name from env, got %q", card.Name)
 	}
 }
 

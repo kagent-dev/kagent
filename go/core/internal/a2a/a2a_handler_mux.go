@@ -35,17 +35,19 @@ type handlerMux struct {
 	sandboxPathPrefix string
 	authenticator     auth.AuthProvider
 	resolver          TargetURLResolverFn
+	headersResolver   TargetHeadersResolverFn
 }
 
 var _ A2AHandlerMux = &handlerMux{}
 
-func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider, resolver TargetURLResolverFn) *handlerMux {
+func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider, resolver TargetURLResolverFn, headersResolver TargetHeadersResolverFn) *handlerMux {
 	return &handlerMux{
 		handlers:          make(map[string]http.Handler),
 		agentPathPrefix:   agentPathPrefix,
 		sandboxPathPrefix: sandboxPathPrefix,
 		authenticator:     authenticator,
 		resolver:          resolver,
+		headersResolver:   headersResolver,
 	}
 }
 
@@ -59,7 +61,7 @@ func (a *handlerMux) SetAgentHandler(
 	if tracing != nil {
 		middlewares = append(middlewares, tracing)
 	}
-	srv, err := server.NewA2AServer(card, NewPassthroughManager(client, a.resolver), server.WithMiddleWare(middlewares...))
+	srv, err := server.NewA2AServer(card, NewPassthroughManager(client, a.resolver, a.headersResolver), server.WithMiddleWare(middlewares...))
 	if err != nil {
 		return fmt.Errorf("failed to create A2A server: %w", err)
 	}

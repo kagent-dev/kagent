@@ -14,40 +14,61 @@ import (
 // or ("", false, nil) to fall back to the statically-configured agent URL.
 type TargetURLResolverFn func(ctx context.Context, contextID string) (url string, ok bool, err error)
 
+// TargetHeadersResolverFn resolves per-request HTTP headers for dynamically routed A2A traffic.
+type TargetHeadersResolverFn func(ctx context.Context, contextID string) (headers map[string]string, ok bool, err error)
+
 type PassthroughManager struct {
-	client     *client.A2AClient
-	resolver   TargetURLResolverFn
-	dynClients sync.Map // url string → *client.A2AClient; avoids creating a new client per request
+	client          *client.A2AClient
+	resolver        TargetURLResolverFn
+	headersResolver TargetHeadersResolverFn
+	dynClients      sync.Map // route cache key → *client.A2AClient; avoids creating a new client per request
 }
 
-func NewPassthroughManager(c *client.A2AClient, resolver TargetURLResolverFn) taskmanager.TaskManager {
+func NewPassthroughManager(c *client.A2AClient, resolver TargetURLResolverFn, headersResolver TargetHeadersResolverFn) taskmanager.TaskManager {
 	return &PassthroughManager{
-		client:   c,
-		resolver: resolver,
+		client:          c,
+		resolver:        resolver,
+		headersResolver: headersResolver,
 	}
 }
 
-// resolveClient returns a client targeting the dynamically resolved URL when the resolver
+// resolveTarget returns a client targeting the dynamically resolved URL when the resolver
 // finds a route for contextID. Falls back to the static client when contextID is empty,
 // the resolver is nil, or no route is found. Clients are cached by URL so the underlying
 // HTTP connection pool is reused across requests.
-func (m *PassthroughManager) resolveClient(ctx context.Context, contextID *string) *client.A2AClient {
+func (m *PassthroughManager) resolveTarget(ctx context.Context, contextID *string) (*client.A2AClient, []client.RequestOption) {
 	if m.resolver == nil || contextID == nil || *contextID == "" {
-		return m.client
+		return m.client, nil
 	}
 	url, ok, err := m.resolver(ctx, *contextID)
 	if err != nil || !ok {
-		return m.client
+		return m.client, nil
 	}
-	if cached, loaded := m.dynClients.Load(url); loaded {
-		return cached.(*client.A2AClient)
+
+	var opts []client.RequestOption
+	cacheKey := url
+	if m.headersResolver != nil {
+		headers, ok, err := m.headersResolver(ctx, *contextID)
+		if err != nil || !ok {
+			return m.client, nil
+		}
+		if len(headers) > 0 {
+			opts = append(opts, client.WithRequestHeaders(headers))
+			// Preserve per-context client isolation for integrations that previously
+			// encoded the context ID into the URL while still sending a generic URL on the wire.
+			cacheKey = url + "\x00" + *contextID
+		}
+	}
+
+	if cached, loaded := m.dynClients.Load(cacheKey); loaded {
+		return cached.(*client.A2AClient), opts
 	}
 	dynClient, err := client.NewA2AClient(url)
 	if err != nil {
-		return m.client
+		return m.client, nil
 	}
-	actual, _ := m.dynClients.LoadOrStore(url, dynClient)
-	return actual.(*client.A2AClient)
+	actual, _ := m.dynClients.LoadOrStore(cacheKey, dynClient)
+	return actual.(*client.A2AClient), opts
 }
 
 func (m *PassthroughManager) OnSendMessage(ctx context.Context, request protocol.SendMessageParams) (*protocol.MessageResult, error) {
@@ -57,7 +78,8 @@ func (m *PassthroughManager) OnSendMessage(ctx context.Context, request protocol
 	if request.Message.Kind == "" {
 		request.Message.Kind = protocol.KindMessage
 	}
-	return m.resolveClient(ctx, request.Message.ContextID).SendMessage(ctx, request)
+	resolvedClient, opts := m.resolveTarget(ctx, request.Message.ContextID)
+	return resolvedClient.SendMessage(ctx, request, opts...)
 }
 
 func (m *PassthroughManager) OnSendMessageStream(ctx context.Context, request protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
@@ -67,7 +89,8 @@ func (m *PassthroughManager) OnSendMessageStream(ctx context.Context, request pr
 	if request.Message.Kind == "" {
 		request.Message.Kind = protocol.KindMessage
 	}
-	return m.resolveClient(ctx, request.Message.ContextID).StreamMessage(ctx, request)
+	resolvedClient, opts := m.resolveTarget(ctx, request.Message.ContextID)
+	return resolvedClient.StreamMessage(ctx, request, opts...)
 }
 
 func (m *PassthroughManager) OnGetTask(ctx context.Context, params protocol.TaskQueryParams) (*protocol.Task, error) {

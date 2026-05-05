@@ -277,6 +277,11 @@ type TargetURLResolver interface {
 	ResolveURL(ctx context.Context, contextID string) (url string, ok bool, err error)
 }
 
+// TargetHeadersResolver optionally resolves HTTP headers for dynamically routed A2A requests.
+type TargetHeadersResolver interface {
+	RequestHeaders(ctx context.Context, contextID string) (headers map[string]string, ok bool, err error)
+}
+
 type ExtensionConfig struct {
 	Authenticator    auth.AuthProvider
 	Authorizer       auth.Authorizer
@@ -596,10 +601,14 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	// Register A2A handlers on all replicas
 	var resolverFn a2a.TargetURLResolverFn
+	var headersResolverFn a2a.TargetHeadersResolverFn
 	if extensionCfg.TargetURLResolver != nil {
 		resolverFn = extensionCfg.TargetURLResolver.ResolveURL
+		if headersResolver, ok := extensionCfg.TargetURLResolver.(TargetHeadersResolver); ok {
+			headersResolverFn = headersResolver.RequestHeaders
+		}
 	}
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, resolverFn)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, resolverFn, headersResolverFn)
 
 	if err := mgr.Add(a2a.NewA2ARegistrar(
 		mgr.GetCache(),
