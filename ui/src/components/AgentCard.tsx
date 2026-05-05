@@ -16,18 +16,22 @@ import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 import { cn } from "@/lib/utils";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
 }
 
-export function AgentCard({ agentResponse: { agent, model, modelProvider, deploymentReady, accepted } }: AgentCardProps) {
+export function AgentCard({ agentResponse }: AgentCardProps) {
+  const { agent, model, modelProvider, deploymentReady, accepted } = agentResponse;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const sshSandbox = isOpenshellSandboxRow(agentResponse);
 
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -71,9 +75,14 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     )}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
         <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
-          <KagentLogo className="h-5 w-5 flex-shrink-0" />
+          {sshSandbox ? (
+            <Terminal className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden />
+          ) : (
+            <KagentLogo className="h-5 w-5 flex-shrink-0" />
+          )}
           <span className="truncate">{agentRef}</span>
         </CardTitle>
+        {!sshSandbox ? (
         <div className="relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
@@ -120,6 +129,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col justify-between h-32 relative z-10">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">
@@ -145,29 +155,43 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
     </Card>
   );
 
+  const chatHref =
+    sshSandbox && agentResponse.openshellSandbox
+      ? openshellTerminalHref({
+          gatewaySandboxName: agentResponse.openshellSandbox.gatewaySandboxName,
+          namespace: agent.metadata.namespace,
+          crName: agent.metadata.name,
+          modelConfigRef: agentResponse.modelConfigRef,
+        })
+      : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
+
   return (
     <>
       {isReady ? (
-        <Link href={`/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`} passHref>
+        <Link href={chatHref} passHref>
           {cardContent}
         </Link>
       ) : (
         cardContent
       )}
 
-      <DeleteButton
-        agentName={agent.metadata.name}
-        namespace={agent.metadata.namespace || ''}
-        externalOpen={deleteOpen}
-        onExternalOpenChange={setDeleteOpen}
-      />
+      {!sshSandbox ? (
+        <>
+          <DeleteButton
+            agentName={agent.metadata.name}
+            namespace={agent.metadata.namespace || ''}
+            externalOpen={deleteOpen}
+            onExternalOpenChange={setDeleteOpen}
+          />
 
-      <MemoriesDialog
-        agentName={agent.metadata.name || ''}
-        namespace={agent.metadata.namespace || ''}
-        open={memoriesOpen}
-        onOpenChange={setMemoriesOpen}
-      />
+          <MemoriesDialog
+            agentName={agent.metadata.name || ''}
+            namespace={agent.metadata.namespace || ''}
+            open={memoriesOpen}
+            onOpenChange={setMemoriesOpen}
+          />
+        </>
+      ) : null}
     </>
   );
 }

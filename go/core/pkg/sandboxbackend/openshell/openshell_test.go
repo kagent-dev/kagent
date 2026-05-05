@@ -3,11 +3,13 @@ package openshell
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	datamodelv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
+	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
@@ -19,6 +21,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 type fakeGateway struct {
@@ -32,6 +36,10 @@ type fakeGateway struct {
 
 	createCalls int
 	deleteCalls int
+
+	execCalls      [][]string
+	execStdins     [][]byte
+	execSandboxIDs []string
 }
 
 func (f *fakeGateway) CreateSandbox(_ context.Context, req *openshellv1.CreateSandboxRequest) (*openshellv1.SandboxResponse, error) {
@@ -83,6 +91,60 @@ func (f *fakeGateway) DeleteSandbox(_ context.Context, req *openshellv1.DeleteSa
 	return &openshellv1.DeleteSandboxResponse{Deleted: true}, nil
 }
 
+func (f *fakeGateway) CreateProvider(_ context.Context, req *openshellv1.CreateProviderRequest) (*openshellv1.ProviderResponse, error) {
+	meta := req.GetProvider().GetMetadata()
+	name := ""
+	if meta != nil {
+		name = meta.GetName()
+	}
+	return &openshellv1.ProviderResponse{
+		Provider: &datamodelv1.Provider{
+			Metadata: &datamodelv1.ObjectMeta{Id: "fake-provider-id", Name: name},
+			Type:     req.GetProvider().GetType(),
+		},
+	}, nil
+}
+
+func (f *fakeGateway) GetProvider(_ context.Context, _ *openshellv1.GetProviderRequest) (*openshellv1.ProviderResponse, error) {
+	return nil, status.Error(codes.NotFound, "provider not found")
+}
+
+func (f *fakeGateway) UpdateProvider(_ context.Context, req *openshellv1.UpdateProviderRequest) (*openshellv1.ProviderResponse, error) {
+	return &openshellv1.ProviderResponse{Provider: req.GetProvider()}, nil
+}
+
+func (f *fakeGateway) ExecSandbox(req *openshellv1.ExecSandboxRequest, stream grpc.ServerStreamingServer[openshellv1.ExecSandboxEvent]) error {
+	f.mu.Lock()
+	f.execCalls = append(f.execCalls, append([]string(nil), req.Command...))
+	f.execStdins = append(f.execStdins, append([]byte(nil), req.GetStdin()...))
+	f.execSandboxIDs = append(f.execSandboxIDs, req.GetSandboxId())
+	f.mu.Unlock()
+	return stream.Send(&openshellv1.ExecSandboxEvent{
+		Payload: &openshellv1.ExecSandboxEvent_Exit{
+			Exit: &openshellv1.ExecSandboxExit{ExitCode: 0},
+		},
+	})
+}
+
+type fakeInference struct {
+	inferencev1.UnimplementedInferenceServer
+
+	mu           sync.Mutex
+	lastProvider string
+	lastModel    string
+}
+
+func (f *fakeInference) SetClusterInference(_ context.Context, req *inferencev1.SetClusterInferenceRequest) (*inferencev1.SetClusterInferenceResponse, error) {
+	f.mu.Lock()
+	f.lastProvider = req.GetProviderName()
+	f.lastModel = req.GetModelId()
+	f.mu.Unlock()
+	return &inferencev1.SetClusterInferenceResponse{
+		ProviderName: req.GetProviderName(),
+		ModelId:      req.GetModelId(),
+	}, nil
+}
+
 func (f *fakeGateway) setPhase(name string, p openshellv1.SandboxPhase) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -91,12 +153,14 @@ func (f *fakeGateway) setPhase(name string, p openshellv1.SandboxPhase) {
 	}
 }
 
-func startFake(t *testing.T) (openshellv1.OpenShellClient, *fakeGateway, func()) {
+func startFake(t *testing.T) (openshellv1.OpenShellClient, inferencev1.InferenceClient, *fakeGateway, *fakeInference, func()) {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
 	fg := &fakeGateway{}
+	fi := &fakeInference{}
 	openshellv1.RegisterOpenShellServer(srv, fg)
+	inferencev1.RegisterInferenceServer(srv, fi)
 	go func() { _ = srv.Serve(lis) }()
 
 	dialer := func(context.Context, string) (net.Conn, error) { return lis.Dial() }
@@ -110,7 +174,15 @@ func startFake(t *testing.T) (openshellv1.OpenShellClient, *fakeGateway, func())
 		srv.Stop()
 		_ = lis.Close()
 	}
-	return openshellv1.NewOpenShellClient(conn), fg, cleanup
+	return openshellv1.NewOpenShellClient(conn), inferencev1.NewInferenceClient(conn), fg, fi, cleanup
+}
+
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(s))
+	require.NoError(t, v1alpha2.AddToScheme(s))
+	return s
 }
 
 func sampleSandbox() *v1alpha2.Sandbox {
@@ -125,9 +197,9 @@ func sampleSandbox() *v1alpha2.Sandbox {
 }
 
 func TestEnsureSandbox_CreatesThenIdempotent(t *testing.T) {
-	c, fg, cleanup := startFake(t)
+	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{GatewayURL: "grpc://gw"}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -142,20 +214,20 @@ func TestEnsureSandbox_CreatesThenIdempotent(t *testing.T) {
 }
 
 func TestEnsureSandbox_CreateFails(t *testing.T) {
-	c, fg, cleanup := startFake(t)
+	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
 	fg.createErr = status.Error(codes.ResourceExhausted, "quota")
 
-	b := New(c, Config{}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CreateSandbox")
 }
 
 func TestGetStatus_PhaseMapping(t *testing.T) {
-	c, fg, cleanup := startFake(t)
+	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -180,9 +252,9 @@ func TestGetStatus_PhaseMapping(t *testing.T) {
 }
 
 func TestGetStatus_EmptyHandle(t *testing.T) {
-	c, _, cleanup := startFake(t)
+	c, ic, _, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -190,9 +262,9 @@ func TestGetStatus_EmptyHandle(t *testing.T) {
 }
 
 func TestGetStatus_NotFound(t *testing.T) {
-	c, _, cleanup := startFake(t)
+	c, ic, _, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{ID: "missing"})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -200,9 +272,9 @@ func TestGetStatus_NotFound(t *testing.T) {
 }
 
 func TestDeleteSandbox(t *testing.T) {
-	c, fg, cleanup := startFake(t)
+	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := New(c, Config{}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.NoError(t, err)
@@ -219,11 +291,111 @@ func TestDeleteSandbox(t *testing.T) {
 }
 
 func TestCallTimeout(t *testing.T) {
-	c, fg, cleanup := startFake(t)
+	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
 	fg.getErr = status.Error(codes.Unavailable, "backend down")
 
-	b := New(c, Config{CallTimeout: 50 * time.Millisecond}, nil)
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{CallTimeout: 50 * time.Millisecond}, nil)
 	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
 	require.Error(t, err)
+}
+
+func TestEnsureSandbox_WithModelConfigRef_RegistersProvider(t *testing.T) {
+	s := testScheme(t)
+	const ns = "ns1"
+	mc := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: ns},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gpt-4o",
+			Provider:        v1alpha2.ModelProviderOpenAI,
+			APIKeySecret:    "keysec",
+			APIKeySecretKey: "OPENAI_API_KEY",
+		},
+	}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "keysec", Namespace: ns},
+		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-secret")},
+	}
+	kube := fake.NewClientBuilder().WithScheme(s).WithObjects(mc, sec).Build()
+
+	c, ic, _, fi, cleanup := startFake(t)
+	defer cleanup()
+	b := New(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
+
+	sbx := sampleSandbox()
+	sbx.Spec.ModelConfigRef = "m1"
+
+	_, err := b.EnsureSandbox(context.Background(), sbx)
+	require.NoError(t, err)
+
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	require.Equal(t, "openai", fi.lastProvider)
+	require.Equal(t, "gpt-4o", fi.lastModel)
+}
+
+func TestExecSandboxID_UsesGatewayMetadataId(t *testing.T) {
+	c, ic, _, _, cleanup := startFake(t)
+	defer cleanup()
+	b := New(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+
+	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	require.NoError(t, err)
+
+	ctx := withAuth(context.Background(), "")
+	id, err := b.execSandboxID(ctx, r.Handle.ID)
+	require.NoError(t, err)
+	require.Equal(t, "id-ns1-a1", id)
+}
+
+func TestOnSandboxReady_ModelConfigRef(t *testing.T) {
+	s := testScheme(t)
+	const ns = "ns1"
+	mc := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: ns},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gpt-4o",
+			Provider:        v1alpha2.ModelProviderOpenAI,
+			APIKeySecret:    "keysec",
+			APIKeySecretKey: "OPENAI_API_KEY",
+		},
+	}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "keysec", Namespace: ns},
+		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-secret")},
+	}
+	kube := fake.NewClientBuilder().WithScheme(s).WithObjects(mc, sec).Build()
+
+	c, ic, fg, _, cleanup := startFake(t)
+	defer cleanup()
+	b := New(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{Token: "tok"}, nil)
+
+	sbx := &v1alpha2.Sandbox{
+		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: ns},
+		Spec: v1alpha2.SandboxSpec{
+			Backend:        v1alpha2.SandboxBackendOpenshell,
+			ModelConfigRef: "m1",
+		},
+	}
+
+	r, err := b.EnsureSandbox(context.Background(), sbx)
+	require.NoError(t, err)
+
+	ctx := withAuth(context.Background(), "tok")
+	require.NoError(t, b.OnSandboxReady(ctx, sbx, r.Handle))
+	require.Len(t, fg.execCalls, 2)
+	fg.mu.Lock()
+	require.Equal(t, "id-ns1-a1", fg.execSandboxIDs[0])
+	require.Equal(t, "id-ns1-a1", fg.execSandboxIDs[1])
+	fg.mu.Unlock()
+	require.Contains(t, strings.Join(fg.execCalls[1], " "), "--custom-model-id")
+	require.Contains(t, strings.Join(fg.execCalls[1], " "), "openai")
+	require.Contains(t, strings.Join(fg.execCalls[1], " "), "openshell:resolve:env:OPENAI_API_KEY")
+
+	gatewayJoined := strings.Join(fg.execCalls[0], " ")
+	require.Contains(t, gatewayJoined, "openclaw gateway run")
+	require.Contains(t, gatewayJoined, "--port 18800")
+	require.Contains(t, gatewayJoined, "--allow-unconfigured")
+	require.Contains(t, gatewayJoined, "--auth none")
+	require.Empty(t, fg.execStdins[0])
 }

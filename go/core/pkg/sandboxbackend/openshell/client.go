@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 
+	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -13,11 +14,28 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// Dial returns an OpenShell gRPC client connected to cfg.GatewayURL. The
-// returned conn must be closed on shutdown.
-func Dial(ctx context.Context, cfg Config) (openshellv1.OpenShellClient, *grpc.ClientConn, error) {
+// OpenShellClients holds OpenShell and Inference API clients sharing one gRPC
+// connection to the gateway (both services are exposed on the same channel).
+type OpenShellClients struct {
+	OpenShell openshellv1.OpenShellClient
+	Inference inferencev1.InferenceClient
+	Conn      *grpc.ClientConn
+}
+
+// Close closes the underlying connection.
+func (c *OpenShellClients) Close() error {
+	if c == nil || c.Conn == nil {
+		return nil
+	}
+	return c.Conn.Close()
+}
+
+// Dial opens a single connection to cfg.GatewayURL and constructs clients for
+// openshell.v1.OpenShell and openshell.inference.v1.Inference. Close OpenShellClients
+// when the connection is no longer needed.
+func Dial(ctx context.Context, cfg Config) (*OpenShellClients, error) {
 	if cfg.GatewayURL == "" {
-		return nil, nil, fmt.Errorf("openshell: gateway URL is required")
+		return nil, fmt.Errorf("openshell: gateway URL is required")
 	}
 
 	var transportCreds credentials.TransportCredentials
@@ -27,7 +45,7 @@ func Dial(ctx context.Context, cfg Config) (openshellv1.OpenShellClient, *grpc.C
 	case len(cfg.TLSCAPEM) > 0:
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(cfg.TLSCAPEM) {
-			return nil, nil, fmt.Errorf("openshell: no PEM certificates found in TLS CA bundle")
+			return nil, fmt.Errorf("openshell: no PEM certificates found in TLS CA bundle")
 		}
 		transportCreds = credentials.NewTLS(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
 	default:
@@ -48,9 +66,13 @@ func Dial(ctx context.Context, cfg Config) (openshellv1.OpenShellClient, *grpc.C
 
 	conn, err := grpc.DialContext(dialCtx, cfg.GatewayURL, opts...) //nolint:staticcheck // grpc.NewClient is preferred but DialContext is simpler here and still supported
 	if err != nil {
-		return nil, nil, fmt.Errorf("openshell: dial %s: %w", cfg.GatewayURL, err)
+		return nil, fmt.Errorf("openshell: dial %s: %w", cfg.GatewayURL, err)
 	}
-	return openshellv1.NewOpenShellClient(conn), conn, nil
+	return &OpenShellClients{
+		OpenShell: openshellv1.NewOpenShellClient(conn),
+		Inference: inferencev1.NewInferenceClient(conn),
+		Conn:      conn,
+	}, nil
 }
 
 type bearerToken struct {

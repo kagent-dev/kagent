@@ -418,8 +418,18 @@ export interface Agent {
   };
 }
 
+/** Merged into GET /api/agents for kagent.dev/v1alpha2 Sandbox (openshell). */
+export interface OpenshellSandboxListEntry {
+  backend: string;
+  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
+  gatewaySandboxName: string;
+  modelConfigRef?: string;
+  backendRefId?: string;
+  endpoint?: string;
+}
+
 export interface AgentResponse {
-  id: number;
+  id: number | string;
   agent: Agent;
   model: string;
   modelProvider: string;
@@ -428,6 +438,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
+  openshellSandbox?: OpenshellSandboxListEntry;
 }
 
 export interface RemoteMCPServer {

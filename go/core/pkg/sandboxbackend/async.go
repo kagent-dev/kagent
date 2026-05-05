@@ -43,3 +43,9 @@ type AsyncBackend interface {
 	// success so the finalizer can be removed idempotently.
 	DeleteSandbox(ctx context.Context, h Handle) error
 }
+
+// PostReadyBackend is implemented by backends that run one-time work after the
+// Sandbox reports Ready (for example ExecSandbox bootstrap inside the VM).
+type PostReadyBackend interface {
+	OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox, h Handle) error
+}

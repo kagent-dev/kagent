@@ -567,13 +567,14 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	if cfg.Openshell.GatewayURL != "" {
-		openshellBackend, err := buildOpenshellBackend(ctx, &cfg)
+		kubeClient := mgr.GetClient()
+		openshellBackend, err := buildOpenshellBackend(ctx, &cfg, kubeClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build openshell sandbox backend")
 			os.Exit(1)
 		}
 		if err := (&controller.SandboxController{
-			Client:   mgr.GetClient(),
+			Client:   kubeClient,
 			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
 			Backend:  openshellBackend,
 		}).SetupWithManager(mgr); err != nil {
@@ -710,8 +711,10 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 }
 
 // buildOpenshellBackend constructs an openshell AsyncBackend from flag config.
-// The returned backend owns its gRPC connection for the lifetime of the process.
-func buildOpenshellBackend(ctx context.Context, cfg *Config) (*openshell.Backend, error) {
+// It dials the gateway once; OpenShell and Inference RPCs share that connection
+// (see openshell.OpenShellClients). The connection is not explicitly closed today — same
+// lifetime as the process.
+func buildOpenshellBackend(ctx context.Context, cfg *Config, kubeClient client.Client) (*openshell.Backend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -733,11 +736,12 @@ func buildOpenshellBackend(ctx context.Context, cfg *Config) (*openshell.Backend
 		}
 		oc.TLSCAPEM = data
 	}
-	cli, _, err := openshell.Dial(ctx, oc)
+	clients, err := openshell.Dial(ctx, oc)
 	if err != nil {
 		return nil, err
 	}
-	return openshell.New(cli, oc, nil), nil
+
+	return openshell.New(kubeClient, clients, oc, nil), nil
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

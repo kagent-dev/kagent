@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-logr/logr"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
@@ -14,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -46,6 +49,19 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 
 	agentsWithID := make([]api.AgentResponse, 0)
 	h.appendAgentResponses(r.Context(), log, agentObjects(agentList.Items), &agentsWithID)
+
+	sandboxList := &v1alpha2.SandboxList{}
+	if err := h.KubeClient.List(r.Context(), sandboxList); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list Sandboxes from Kubernetes", err))
+		return
+	}
+	for i := range sandboxList.Items {
+		sb := &sandboxList.Items[i]
+		if sb.Spec.Backend != v1alpha2.SandboxBackendOpenshell {
+			continue
+		}
+		agentsWithID = append(agentsWithID, h.openshellSandboxAgentResponse(r.Context(), log, sb))
+	}
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed agents", false)
@@ -88,6 +104,71 @@ func (h *AgentsHandler) appendAgentResponses(
 		agentResponse, _ := h.getAgentResponse(ctx, log, agent)
 		*responses = append(*responses, agentResponse)
 	}
+}
+
+func (h *AgentsHandler) openshellSandboxAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha2.Sandbox) api.AgentResponse {
+	ref := utils.GetObjectRef(sb)
+	id := utils.ConvertToPythonIdentifier(ref)
+
+	ready := false
+	accepted := false
+	for _, c := range sb.Status.Conditions {
+		if c.Type == v1alpha2.SandboxConditionTypeReady && c.Status == metav1.ConditionTrue {
+			ready = true
+		}
+		if c.Type == v1alpha2.SandboxConditionTypeAccepted && c.Status == metav1.ConditionTrue {
+			accepted = true
+		}
+	}
+
+	gatewayName := fmt.Sprintf("%s-%s", sb.Namespace, sb.Name)
+	entry := &api.OpenshellSandboxListEntry{
+		Backend:            sb.Spec.Backend,
+		GatewaySandboxName: gatewayName,
+		ModelConfigRef:     sb.Spec.ModelConfigRef,
+	}
+	if sb.Status.BackendRef != nil {
+		entry.BackendRefID = sb.Status.BackendRef.ID
+	}
+	if sb.Status.Connection != nil {
+		entry.Endpoint = sb.Status.Connection.Endpoint
+	}
+
+	resp := api.AgentResponse{
+		ID: id,
+		Agent: &api.AgentResource{
+			APIVersion: v1alpha2.GroupVersion.String(),
+			Kind:       "Sandbox",
+			Metadata:   *sb.ObjectMeta.DeepCopy(),
+			Spec: v1alpha2.AgentSpec{
+				Description: "OpenShell sandbox — SSH terminal in the UI.",
+			},
+		},
+		DeploymentReady:  ready,
+		Accepted:         accepted,
+		OpenshellSandbox: entry,
+	}
+
+	mcRef := strings.TrimSpace(sb.Spec.ModelConfigRef)
+	if mcRef == "" {
+		return resp
+	}
+	nn, err := utils.ParseRefString(mcRef, sb.Namespace)
+	if err != nil {
+		log.V(1).Info("Sandbox ModelConfigRef parse failed", "ref", mcRef, "error", err)
+		return resp
+	}
+	modelConfig := &v1alpha2.ModelConfig{}
+	if err := h.KubeClient.Get(ctx, nn, modelConfig); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to get ModelConfig for Sandbox", "modelConfigRef", nn)
+		}
+		return resp
+	}
+	resp.ModelProvider = modelConfig.Spec.Provider
+	resp.Model = modelConfig.Spec.Model
+	resp.ModelConfigRef = utils.GetObjectRef(modelConfig)
+	return resp
 }
 
 func agentObjects(items []v1alpha2.Agent) []v1alpha2.AgentObject {

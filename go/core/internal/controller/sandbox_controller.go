@@ -13,6 +13,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +39,10 @@ const (
 	// sandboxNotReadyRequeue is how long we wait before re-polling backend
 	// status while the sandbox is still provisioning.
 	sandboxNotReadyRequeue = 10 * time.Second
+
+	// annotationSandboxBootstrapGeneration records the Sandbox metadata.generation for which
+	// post-ready bootstrap (backend OnSandboxReady, e.g. exec hooks) already completed.
+	annotationSandboxBootstrapGeneration = "kagent.dev/sandbox-bootstrap-generation"
 )
 
 // SandboxController reconciles a kagent.dev/v1alpha2 Sandbox against an
@@ -122,7 +128,43 @@ func (r *SandboxController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if st != metav1.ConditionTrue {
 		return ctrl.Result{RequeueAfter: sandboxNotReadyRequeue}, nil
 	}
+	if err := r.maybePostReadyBootstrap(ctx, client.ObjectKeyFromObject(&sbx), &sbx, res.Handle); err != nil {
+		log.Error(err, "post-ready sandbox bootstrap failed")
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
+}
+
+func (r *SandboxController) maybePostReadyBootstrap(ctx context.Context, key client.ObjectKey, sbx *v1alpha2.Sandbox, h sandboxbackend.Handle) error {
+	if strings.TrimSpace(sbx.Spec.ModelConfigRef) == "" {
+		return nil
+	}
+	pr, ok := r.Backend.(sandboxbackend.PostReadyBackend)
+	if !ok {
+		return nil
+	}
+	wantGen := strconv.FormatInt(sbx.Generation, 10)
+	if sbx.Annotations != nil && sbx.Annotations[annotationSandboxBootstrapGeneration] == wantGen {
+		return nil
+	}
+	if err := pr.OnSandboxReady(ctx, sbx, h); err != nil {
+		return err
+	}
+	var fresh v1alpha2.Sandbox
+	if err := r.Client.Get(ctx, key, &fresh); err != nil {
+		return fmt.Errorf("get sandbox after bootstrap: %w", err)
+	}
+	base := fresh.DeepCopy()
+	if fresh.Annotations == nil {
+		fresh.Annotations = map[string]string{}
+	}
+	fresh.Annotations[annotationSandboxBootstrapGeneration] = wantGen
+	if err := r.Client.Patch(ctx, &fresh, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("patch sandbox bootstrap-generation annotation: %w", err)
+	}
+	ctrl.LoggerFrom(ctx).WithValues("sandbox", key.String()).Info(
+		"recorded post-ready bootstrap for sandbox generation", "generation", sbx.Generation)
+	return nil
 }
 
 func (r *SandboxController) reconcileDelete(ctx context.Context, sbx *v1alpha2.Sandbox) (ctrl.Result, error) {

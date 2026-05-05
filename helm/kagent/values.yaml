@@ -222,6 +222,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
   # Extra controller env. Examples — OpenShell:
   # env:
   #   - name: OPENSHELL_GRPC_ADDR

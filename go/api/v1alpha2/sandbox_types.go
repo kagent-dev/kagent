@@ -51,6 +51,12 @@ type SandboxSpec struct {
 	// backend defaults apply.
 	// +optional
 	Network *SandboxNetwork `json:"network,omitempty"`
+
+	// ModelConfigRef is the reference to the ModelConfig used to configure the sandbox.
+	// When set (openshell backend), the controller registers the gateway provider and,
+	// after the sandbox is Ready, runs one-time OpenClaw setup inside the VM (gateway + onboard).
+	// +optional
+	ModelConfigRef string `json:"modelConfigRef,omitempty"`
 }
 
 // SandboxNetwork captures the minimal network-policy knobs exposed to users.

@@ -235,6 +235,12 @@ spec:
                   supports per-sandbox images. Many backends (openshell) ignore this
                   and use a backend-configured default.
                 type: string
+              modelConfigRef:
+                description: |-
+                  ModelConfigRef is the reference to the ModelConfig used to configure the sandbox.
+                  When set (openshell backend), the controller registers the gateway provider and,
+                  after the sandbox is Ready, runs one-time OpenClaw setup inside the VM (gateway + onboard).
+                type: string
               network:
                 description: |-
                   Network controls outbound access from the sandbox. When unset,

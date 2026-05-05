@@ -451,6 +451,52 @@ func TestHandleListAgents(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, response.Data)
 	})
+
+	t.Run("includes openshell Sandbox CR in agent list", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("list-agent", modelConfig)
+		sb := &v1alpha2.Sandbox{
+			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
+			Spec: v1alpha2.SandboxSpec{
+				Backend:        v1alpha2.SandboxBackendOpenshell,
+				ModelConfigRef: "test-model-config",
+			},
+			Status: v1alpha2.SandboxStatus{
+				Conditions: []metav1.Condition{
+					{Type: v1alpha2.SandboxConditionTypeAccepted, Status: "True", Reason: "SandboxAccepted"},
+					{Type: v1alpha2.SandboxConditionTypeReady, Status: "True", Reason: "SandboxReady"},
+				},
+				BackendRef: &v1alpha2.SandboxStatusRef{Backend: v1alpha2.SandboxBackendOpenshell, ID: "default-openclaw-1"},
+			},
+		}
+		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 2)
+
+		var found bool
+		for _, row := range response.Data {
+			if row.OpenshellSandbox == nil {
+				continue
+			}
+			found = true
+			require.Equal(t, "default-openclaw-1", row.OpenshellSandbox.GatewaySandboxName)
+			require.Equal(t, "Sandbox", row.Agent.Kind)
+			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
+			require.True(t, row.Accepted)
+			require.True(t, row.DeploymentReady)
+			require.Equal(t, v1alpha2.ModelProviderOpenAI, row.ModelProvider)
+		}
+		require.True(t, found)
+	})
 }
 
 func TestHandleListSandboxAgents(t *testing.T) {

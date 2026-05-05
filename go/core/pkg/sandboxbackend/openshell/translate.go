@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

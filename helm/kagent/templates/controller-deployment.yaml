@@ -49,6 +49,11 @@ spec:
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
           env:
+              # TODO: render from the values.yaml
+            - name: OPENSHELL_GATEWAY_URL
+              value: "openshell.openshell.svc.cluster.local:8080"
+            - name: OPENSHELL_INSECURE
+              value: "true"
             - name: KAGENT_NAMESPACE
               valueFrom:
                 fieldRef:
