@@ -15,7 +15,6 @@ import (
 )
 
 type SAPAICoreConfig struct {
-	TransportConfig
 	Model         string
 	BaseUrl       string
 	ResourceGroup string
@@ -42,17 +41,10 @@ func NewSAPAICoreModelWithLogger(config SAPAICoreConfig, logger logr.Logger) (*S
 	if config.ResourceGroup == "" {
 		config.ResourceGroup = "default"
 	}
-
-	// Build HTTP client with TLS, custom headers, and timeout support
-	httpClient, err := BuildHTTPClient(config.TransportConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SAP AI Core HTTP client: %w", err)
-	}
-
 	return &SAPAICoreModel{
 		Config:     config,
 		Logger:     logger,
-		httpClient: httpClient,
+		httpClient: &http.Client{Timeout: 5 * time.Minute},
 	}, nil
 }
 

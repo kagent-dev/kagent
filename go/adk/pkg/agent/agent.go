@@ -322,12 +322,11 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 
 	case *adk.SAPAICore:
 		cfg := models.SAPAICoreConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
-			Model:           m.Model,
-			BaseUrl:         m.BaseUrl,
-			ResourceGroup:   m.ResourceGroup,
-			AuthUrl:         m.AuthUrl,
-			Headers:         extractHeaders(m.Headers),
+			Model:         m.Model,
+			BaseUrl:       m.BaseUrl,
+			ResourceGroup: m.ResourceGroup,
+			AuthUrl:       m.AuthUrl,
+			Headers:       extractHeaders(m.Headers),
 		}
 		return models.NewSAPAICoreModelWithLogger(cfg, log)
 

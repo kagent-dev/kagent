@@ -150,6 +150,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     type: Literal["ollama"] = "ollama"
     ollama_options: Optional[dict[str, object]] = None
     default_headers: Optional[dict[str, str]] = None
+    api_key_passthrough: Optional[bool] = None
 
     @cached_property
     def _client(self) -> AsyncClient:
@@ -273,6 +274,7 @@ def create_ollama_llm(
     tls_disable_verify: Optional[bool] = None,
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
+    api_key_passthrough: Optional[bool] = None,
 ) -> KAgentOllamaLlm:
     """Build a KAgentOllamaLlm from Ollama options.
 
@@ -287,4 +289,5 @@ def create_ollama_llm(
         tls_disable_verify=tls_disable_verify,
         tls_ca_cert_path=tls_ca_cert_path,
         tls_disable_system_cas=tls_disable_system_cas,
+        api_key_passthrough=api_key_passthrough,
     )
