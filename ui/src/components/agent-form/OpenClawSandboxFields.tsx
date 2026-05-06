@@ -1,13 +1,15 @@
 "use client";
 
 import React from "react";
-import { Plus } from "lucide-react";
+import { ChevronDown, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
+import { cn } from "@/lib/utils";
 import type { OpenClawChannelRow, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
 import { newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
 
@@ -146,59 +148,40 @@ interface OpenClawSandboxFieldsProps {
 
 export function OpenClawSandboxFields({ value, onChange, disabled, sectionError }: OpenClawSandboxFieldsProps) {
   const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   return (
-    <FormSection
-      id="section-openclaw-sandbox"
-      title="OpenClaw sandbox"
-      description="Optional sandbox VM image override (spec.image) and messenger channels (spec.channels). Backend is openclaw."
-    >
-      <FieldError>{sectionError}</FieldError>
+    <div className="space-y-8">
+      <FormSection
+        id="section-openclaw-channels"
+        title="Channels integrations"
+        description="Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."
+      >
+        <FieldError>{sectionError}</FieldError>
 
-      <FieldRoot>
-        <FieldLabel htmlFor="agent-field-openclaw-image">Sandbox image (optional)</FieldLabel>
-        <FieldHint>
-          Overrides the container image for the OpenShell sandbox VM. Maps to{" "}
-          <span className="font-mono">spec.image</span>. Leave empty to use the controller default (NemoClaw sandbox base).
-        </FieldHint>
-        <Input
-          id="agent-field-openclaw-image"
-          value={value.image}
-          onChange={(e) => set({ image: e.target.value })}
-          className="font-mono text-sm"
-          placeholder="e.g. ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
-          disabled={disabled}
-          autoComplete="off"
-        />
-      </FieldRoot>
-
-      <FieldRoot>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <FieldLabel>Messenger integrations</FieldLabel>
-            <FieldHint>
-              Each entry is one OpenClaw channel account: pick the provider, then add credentials (inline or a Kubernetes Secret key). Use the
-              hints under each type for tokens and allowlist IDs.
-            </FieldHint>
+        <FieldRoot>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <FieldLabel>Channels integrations</FieldLabel>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={() => set({ channels: [...value.channels, newOpenClawChannelRow()] })}
+            >
+              <Plus className="mr-1 h-4 w-4" aria-hidden />
+              Add channel
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => set({ channels: [...value.channels, newOpenClawChannelRow()] })}
-          >
-            <Plus className="mr-1 h-4 w-4" aria-hidden />
-            Add channel
-          </Button>
-        </div>
 
-        {value.channels.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No channels configured.</p>
-        ) : (
-          <ul className="mt-3 space-y-4">
-            {value.channels.map((ch, idx) => (
-              <li key={ch.id} className="rounded-lg border border-border/70 bg-card/40 p-4">
+          {value.channels.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No channels configured.</p>
+          ) : (
+            <ul className="mt-3 space-y-4">
+              {value.channels.map((ch, idx) => (
+                <li key={ch.id} className="rounded-lg border border-border/70 bg-card/40 p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-medium text-foreground">Channel {idx + 1}</span>
                   <Button
@@ -534,6 +517,47 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
           </ul>
         )}
       </FieldRoot>
-    </FormSection>
+      </FormSection>
+
+      <section className="rounded-lg border border-border/90 bg-card text-card-foreground shadow-sm">
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger
+            type="button"
+            className="flex w-full items-center justify-between gap-3 border-b border-border/60 px-5 py-4 text-left transition-colors hover:bg-muted/25"
+            aria-expanded={advancedOpen}
+          >
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-foreground">Advanced</h2>
+              <p className="mt-1 max-w-2xl text-pretty text-sm leading-relaxed text-muted-foreground">
+                Advanced configuration for the sandbox.
+              </p>
+            </div>
+            <ChevronDown
+              className={cn("h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200", advancedOpen && "rotate-180")}
+              aria-hidden
+            />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-5 p-5">
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-openclaw-image">Image override</FieldLabel>
+                <FieldHint>
+                  Overrides the container image for the sandbox VM.
+                </FieldHint>
+                <Input
+                  id="agent-field-openclaw-image"
+                  value={value.image}
+                  onChange={(e) => set({ image: e.target.value })}
+                  className="font-mono text-sm"
+                  placeholder="e.g. ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
+                  disabled={disabled}
+                  autoComplete="off"
+                />
+              </FieldRoot>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </section>
+    </div>
   );
 }

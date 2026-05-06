@@ -5,10 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import {
-  defaultOpenClawSandboxFormSlice,
-  type OpenClawSandboxFormSlice,
-} from "@/lib/openClawSandboxForm";
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
@@ -40,7 +36,6 @@ import { ByoDeploymentFields } from "@/components/agent-form/ByoDeploymentFields
 import { AgentSkillsFormSection } from "@/components/agent-form/AgentSkillsFormSection";
 import { ServiceAccountNameField } from "@/components/agent-form/ServiceAccountNameField";
 import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRuntimeField";
-import { OpenClawSandboxFields } from "@/components/agent-form/OpenClawSandboxFields";
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -96,7 +91,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     contextConfig: ContextConfig | undefined;
     serviceAccountName: string;
     promptSourceRows: PromptSourceRow[];
-    openClaw: OpenClawSandboxFormSlice;
     isSubmitting: boolean;
     isLoading: boolean;
     errors: AgentFormValidationErrors;
@@ -129,7 +123,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     contextConfig: undefined,
     serviceAccountName: "",
     promptSourceRows: [newPromptSourceRow()],
-    openClaw: defaultOpenClawSandboxFormSlice(),
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
@@ -137,8 +130,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
   const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
-  const showOpenClawSandboxSections = state.agentType === "OpenClawSandbox";
-  const showModelAndBehaviorSection = useDeclarativeAgentFields || showOpenClawSandboxSections;
+  const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -321,7 +313,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         context: state.contextConfig,
         serviceAccountName: state.serviceAccountName,
         ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
-      ...(showOpenClawSandboxSections ? { openClawSandbox: state.openClaw } : {}),
       };
 
       const newErrors = validateAgentData(formData);
@@ -395,13 +386,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         break;
     }
 
-    if (state.agentType === "OpenClawSandbox") {
-      formData.openClawSandbox = state.openClaw;
-      if (fieldName !== "model") {
-        formData.modelName = state.selectedModel?.ref || "";
-      }
-    }
-
     const fieldErrors = validateAgentData(formData);
     const valueForField = (fieldErrors as Record<string, string | undefined>)[fieldName as string];
     setState((prev) => {
@@ -409,9 +393,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         ...prev.errors,
         [fieldName]: valueForField,
       };
-      if (state.agentType === "OpenClawSandbox") {
-        nextErrors.openClawSandbox = fieldErrors.openClawSandbox;
-      }
       return { ...prev, errors: nextErrors };
     });
   };
@@ -423,28 +404,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     try {
       setState((prev) => ({ ...prev, isSubmitting: true }));
-
-      if (state.agentType === "OpenClawSandbox") {
-        if (!state.selectedModel?.ref) {
-          throw new Error("Model config is required for this sandbox.");
-        }
-        const ocPayload: AgentFormData = {
-          name: state.name,
-          namespace: state.namespace,
-          description: state.description,
-          type: "OpenClawSandbox",
-          tools: [],
-          modelName: state.selectedModel.ref,
-          openClawSandbox: state.openClaw,
-        };
-        const ocResult = await createNewAgent(ocPayload);
-        if (ocResult.error) {
-          throw new Error(ocResult.error);
-        }
-        setFormDirty(false);
-        router.push(`/agents`);
-        return;
-      }
 
       if (useDeclarativeAgentFields && !state.selectedModel) {
         throw new Error("Model is required for this agent type.");
@@ -628,7 +587,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <FieldLabel>Agent type</FieldLabel>
                 <FieldHint>
                   Declarative and sandbox workload (without a custom image) use the in-cluster ADK runtime. BYO or sandbox with a custom image adds
-                  container settings. OpenClaw sandbox creates a kagent Sandbox CR (optional VM image override, Telegram/Discord/Slack channels).
+                  container settings. For NemoClaw / OpenClaw harness agents, use Create → New Agent Harness.
                 </FieldHint>
                 <Select
                   value={state.agentType}
@@ -637,7 +596,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
-                      errors: { ...prev.errors, type: undefined, openClawSandbox: undefined },
+                      errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
                   }}
@@ -650,7 +609,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     <SelectItem value="Declarative">Declarative</SelectItem>
                     <SelectItem value="Sandbox">Sandbox workload</SelectItem>
                     <SelectItem value="BYO">BYO</SelectItem>
-                    {!isEditMode ? <SelectItem value="OpenClawSandbox">OpenClaw sandbox</SelectItem> : null}
                   </SelectContent>
                 </Select>
               </FieldRoot>
@@ -665,11 +623,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
               <FieldRoot>
                 <FieldLabel htmlFor="agent-desc">Description (optional)</FieldLabel>
-                <FieldHint>
-                  {state.agentType === "OpenClawSandbox"
-                    ? "Shown in the agents list; maps to spec.description on the Sandbox CR."
-                    : "Internal note only; not sent to the model as instructions."}
-                </FieldHint>
+                <FieldHint>Internal note only; not sent to the model as instructions.</FieldHint>
                 <Textarea
                   id="agent-desc"
                   name="description"
@@ -689,11 +643,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showModelAndBehaviorSection && (
               <FormSection
                 title="Model & behavior"
-                description={
-                  showOpenClawSandboxSections && !useDeclarativeAgentFields
-                    ? "Main model for this sandbox (spec.modelConfigRef), same picker as declarative agents."
-                    : "Instructions, main model, streaming, and optional pod service account for this declarative or sandbox agent."
-                }
+                description="Instructions, main model, streaming, and optional pod service account for this declarative or sandbox agent."
               >
                 {useDeclarativeAgentFields && (
                   <SystemPromptSection
@@ -754,21 +704,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </>
                 )}
               </FormSection>
-            )}
-
-            {showOpenClawSandboxSections && (
-              <OpenClawSandboxFields
-                value={state.openClaw}
-                onChange={(openClaw) =>
-                  setState((prev) => ({
-                    ...prev,
-                    openClaw,
-                    errors: { ...prev.errors, openClawSandbox: undefined },
-                  }))
-                }
-                disabled={disabled}
-                sectionError={state.errors.openClawSandbox}
-              />
             )}
 
             {showByoFields && (
@@ -921,8 +856,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </>
                 ) : isEditMode ? (
                   "Save Changes"
-                ) : state.agentType === "OpenClawSandbox" ? (
-                  "Create sandbox"
                 ) : (
                   "Create Agent"
                 )}

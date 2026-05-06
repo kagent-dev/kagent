@@ -61,7 +61,7 @@ export function focusFirstFormError(
       description: "agent-desc",
       systemPrompt: "agent-field-system",
       model: "agent-field-model",
-      openClawSandbox: "section-openclaw-sandbox",
+      openClawSandbox: "section-openclaw-channels",
       memoryModel: "agent-field-memory-model",
       memoryTtl: "agent-field-memory-ttl",
       skills: "section-skills",
