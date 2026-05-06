@@ -72,6 +72,22 @@ tests:
           path: spec.ports[0].targetPort
           value: 9443
 
+  - it: should not render when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when bindAddress is empty
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should rename port when secure serving disabled
     set:
       controller.metrics.enabled: true

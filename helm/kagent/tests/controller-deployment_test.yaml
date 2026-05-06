@@ -606,6 +606,27 @@ tests:
             containerPort: 9443
             protocol: TCP
 
+  - it: should not gain metrics wiring when bindAddress disables metrics
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+
   - it: should let controller.env override the chart-supplied metrics env
     template: controller-deployment.yaml
     set:

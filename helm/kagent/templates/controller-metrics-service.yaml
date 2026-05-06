@@ -1,4 +1,4 @@
-{{- if .Values.controller.metrics.enabled }}
+{{- if include "kagent.controller.metricsEnabled" . }}
 apiVersion: v1
 kind: Service
 metadata:

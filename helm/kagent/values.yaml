@@ -235,7 +235,10 @@ controller:
   # `targetPort` and the pod `containerPort` are derived from it at
   # template time, so overriding `METRICS_BIND_ADDRESS` via
   # `controller.env` shifts only the runtime listener and leaves the
-  # rendered Service pointing at the chart-time port.
+  # rendered Service pointing at the chart-time port. Setting
+  # `bindAddress: "0"` (or empty) is treated as a disable signal —
+  # equivalent to `enabled: false` — to keep faith with the controller
+  # binary's documented contract for `--metrics-bind-address`.
   # @default -- disabled
   metrics:
     enabled: false
