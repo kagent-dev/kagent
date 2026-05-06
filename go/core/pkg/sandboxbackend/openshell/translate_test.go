@@ -8,35 +8,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestNormalizeAllowedDomainHost(t *testing.T) {
-	tests := []struct {
-		raw  string
-		want string
-		ok   bool
-	}{
-		{"api.openai.com", "api.openai.com", true},
-		{"  *.anthropic.com  ", "*.anthropic.com", true},
-		{"https://api.telegram.org/bot", "api.telegram.org", true},
-		{"http://example.com:8080/path", "example.com", true},
-		{"host.only:443", "host.only", true},
-		{"", "", false},
-		{"https://", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.raw, func(t *testing.T) {
-			got, ok := normalizeAllowedDomainHost(tt.raw)
-			require.Equal(t, tt.ok, ok)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenClaw,
-			Network: &v1alpha2.SandboxNetwork{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
+			Network: &v1alpha2.AgentHarnessNetwork{
 				AllowedDomains: []string{
 					"api.openai.com",
 					"https://api.anthropic.com/v1",
@@ -103,18 +80,18 @@ func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
 }
 
 func TestBuildOpenshellCreateRequest_NoNetwork_NoPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec:       v1alpha2.SandboxSpec{Backend: v1alpha2.SandboxBackendOpenshell},
+		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
 	}
 	req, _ := buildOpenshellCreateRequest(sbx)
 	require.Nil(t, req.GetSpec().GetPolicy())
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolicies(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec:       v1alpha2.SandboxSpec{Backend: v1alpha2.SandboxBackendOpenClaw},
+		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
 	}
 	req, _ := buildOpenshellCreateRequest(sbx)
 	policy := req.GetSpec().GetPolicy()
@@ -136,11 +113,11 @@ func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolici
 }
 
 func TestBuildOpenshellCreateRequest_Openshell_AllowedDomains_NoOpenClawDefaults(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenshell,
-			Network: &v1alpha2.SandboxNetwork{AllowedDomains: []string{"example.com"}},
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenshell,
+			Network: &v1alpha2.AgentHarnessNetwork{AllowedDomains: []string{"example.com"}},
 		},
 	}
 	req, _ := buildOpenshellCreateRequest(sbx)
@@ -153,16 +130,16 @@ func TestBuildOpenshellCreateRequest_Openshell_AllowedDomains_NoOpenClawDefaults
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenClaw,
-			Channels: []v1alpha2.SandboxChannel{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
+			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "tg1",
-					Type: v1alpha2.SandboxChannelTypeTelegram,
-					Telegram: &v1alpha2.SandboxTelegramChannelSpec{
-						BotToken: v1alpha2.SandboxChannelCredential{Value: "token"},
+					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "token"},
 					},
 				},
 			},
@@ -193,16 +170,16 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *t
 }
 
 func TestBuildOpenshellCreateRequest_Openshell_TelegramOnly_HasTelegramBotPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenshell,
-			Channels: []v1alpha2.SandboxChannel{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenshell,
+			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "tg",
-					Type: v1alpha2.SandboxChannelTypeTelegram,
-					Telegram: &v1alpha2.SandboxTelegramChannelSpec{
-						BotToken: v1alpha2.SandboxChannelCredential{Value: "x"},
+					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "x"},
 					},
 				},
 			},
@@ -217,54 +194,19 @@ func TestBuildOpenshellCreateRequest_Openshell_TelegramOnly_HasTelegramBotPolicy
 	require.Contains(t, net, openClawNetworkPolicyKeyTelegramBot)
 }
 
-func TestBuildOpenshellCreateRequest_OpenClaw_Discord_HasDiscordPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
-		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenClaw,
-			Channels: []v1alpha2.SandboxChannel{
-				{
-					Name: "d1",
-					Type: v1alpha2.SandboxChannelTypeDiscord,
-					Discord: &v1alpha2.SandboxDiscordChannelSpec{
-						BotToken:      v1alpha2.SandboxChannelCredential{Value: "token"},
-						ChannelAccess: v1alpha2.SandboxChannelAccessOpen,
-					},
-				},
-			},
-		},
-	}
-	req, _ := buildOpenshellCreateRequest(sbx)
-	net := req.GetSpec().GetPolicy().GetNetworkPolicies()
-	d := net[openClawNetworkPolicyKeyDiscord]
-	require.NotNil(t, d)
-	require.Equal(t, "discord", d.GetName())
-	require.Len(t, d.GetEndpoints(), 4)
-	require.Equal(t, "discord.com", d.GetEndpoints()[0].GetHost())
-	require.Equal(t, "rest", d.GetEndpoints()[0].GetProtocol())
-	gw := d.GetEndpoints()[1]
-	require.Equal(t, "gateway.discord.gg", gw.GetHost())
-	require.Equal(t, "", gw.GetProtocol())
-	require.Equal(t, "full", gw.GetAccess())
-	require.Equal(t, "skip", gw.GetTls())
-	require.Equal(t, "cdn.discordapp.com", d.GetEndpoints()[2].GetHost())
-	require.Equal(t, "media.discordapp.net", d.GetEndpoints()[3].GetHost())
-	require.Len(t, d.GetEndpoints()[0].GetRules(), 6)
-}
-
 func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenClaw,
-			Channels: []v1alpha2.SandboxChannel{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
+			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "s1",
-					Type: v1alpha2.SandboxChannelTypeSlack,
-					Slack: &v1alpha2.SandboxSlackChannelSpec{
-						BotToken:      v1alpha2.SandboxChannelCredential{Value: "b"},
-						AppToken:      v1alpha2.SandboxChannelCredential{Value: "a"},
-						ChannelAccess: v1alpha2.SandboxChannelAccessOpen,
+					Type: v1alpha2.AgentHarnessChannelTypeSlack,
+					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
+						BotToken:      v1alpha2.AgentHarnessChannelCredential{Value: "b"},
+						AppToken:      v1alpha2.AgentHarnessChannelCredential{Value: "a"},
+						ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
 					},
 				},
 			},
@@ -286,11 +228,11 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T)
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_AllowedDomains_OmitsNPMPresetHosts(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenClaw,
-			Network: &v1alpha2.SandboxNetwork{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
+			Network: &v1alpha2.AgentHarnessNetwork{
 				AllowedDomains: []string{
 					"registry.npmjs.org",
 					"registry.npmjs.org:443",

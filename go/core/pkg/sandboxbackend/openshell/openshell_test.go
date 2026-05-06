@@ -185,20 +185,20 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-func sampleSandbox() *v1alpha2.Sandbox {
-	return &v1alpha2.Sandbox{
+func sampleSandbox() *v1alpha2.AgentHarness {
+	return &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: "ns1"},
-		Spec: v1alpha2.SandboxSpec{
-			Backend: v1alpha2.SandboxBackendOpenshell,
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenshell,
 			Image:   "img:v1",
 			Env:     []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
 		},
 	}
 }
 
-func sampleClawSandbox() *v1alpha2.Sandbox {
+func sampleClawSandbox() *v1alpha2.AgentHarness {
 	sbx := sampleSandbox()
-	sbx.Spec.Backend = v1alpha2.SandboxBackendOpenClaw
+	sbx.Spec.Backend = v1alpha2.AgentHarnessBackendOpenClaw
 	return sbx
 }
 
@@ -207,13 +207,13 @@ func TestEnsureSandbox_CreatesThenIdempotent(t *testing.T) {
 	defer cleanup()
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
 
-	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.NoError(t, err)
 	require.Equal(t, "ns1-a1", r.Handle.ID)
 	require.Equal(t, "grpc://gw#ns1-a1", r.Endpoint)
 	require.Equal(t, 1, fg.createCalls)
 
-	r2, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	r2, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.NoError(t, err)
 	require.Equal(t, r.Handle.ID, r2.Handle.ID)
 	require.Equal(t, 1, fg.createCalls, "second EnsureSandbox must not re-create")
@@ -225,7 +225,7 @@ func TestEnsureSandbox_CreateFails(t *testing.T) {
 	fg.createErr = status.Error(codes.ResourceExhausted, "quota")
 
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
-	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	_, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CreateSandbox")
 }
@@ -235,7 +235,7 @@ func TestGetStatus_PhaseMapping(t *testing.T) {
 	defer cleanup()
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -282,17 +282,17 @@ func TestDeleteSandbox(t *testing.T) {
 	defer cleanup()
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteSandbox(context.Background(), r.Handle))
+	require.NoError(t, b.DeleteAgentHarness(context.Background(), r.Handle))
 	require.Equal(t, 1, fg.deleteCalls)
 
-	require.NoError(t, b.DeleteSandbox(context.Background(), r.Handle))
+	require.NoError(t, b.DeleteAgentHarness(context.Background(), r.Handle))
 	require.Equal(t, 2, fg.deleteCalls)
 
 	before := fg.deleteCalls
-	require.NoError(t, b.DeleteSandbox(context.Background(), sandboxbackend.Handle{}))
+	require.NoError(t, b.DeleteAgentHarness(context.Background(), sandboxbackend.Handle{}))
 	require.Equal(t, before, fg.deleteCalls)
 }
 
@@ -302,7 +302,7 @@ func TestCallTimeout(t *testing.T) {
 	fg.getErr = status.Error(codes.Unavailable, "backend down")
 
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{CallTimeout: 50 * time.Millisecond}, nil)
-	_, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	_, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.Error(t, err)
 }
 
@@ -332,7 +332,7 @@ func TestEnsureSandbox_WithModelConfigRef_RegistersProvider(t *testing.T) {
 	sbx := sampleClawSandbox()
 	sbx.Spec.ModelConfigRef = "m1"
 
-	_, err = b.EnsureSandbox(context.Background(), sbx)
+	_, err = b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	fi.mu.Lock()
@@ -346,7 +346,7 @@ func TestExecSandboxID_UsesGatewayMetadataId(t *testing.T) {
 	defer cleanup()
 	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureSandbox(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
 	require.NoError(t, err)
 
 	ctx := withAuth(context.Background(), "")
@@ -378,19 +378,19 @@ func TestOnSandboxReady_ModelConfigRef(t *testing.T) {
 	b, err := NewOpenClawBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{Token: "tok"}, nil)
 	require.NoError(t, err)
 
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: ns},
-		Spec: v1alpha2.SandboxSpec{
-			Backend:        v1alpha2.SandboxBackendOpenClaw,
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
 			ModelConfigRef: "m1",
 		},
 	}
 
-	r, err := b.EnsureSandbox(context.Background(), sbx)
+	r, err := b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	ctx := withAuth(context.Background(), "tok")
-	require.NoError(t, b.OnSandboxReady(ctx, sbx, r.Handle))
+	require.NoError(t, b.OnAgentHarnessReady(ctx, sbx, r.Handle))
 	require.Len(t, fg.execCalls, 2)
 	fg.mu.Lock()
 	require.Equal(t, "id-ns1-a1", fg.execSandboxIDs[0])
@@ -441,7 +441,7 @@ func TestEnsureSandbox_Openshell_IgnoresModelConfigRef(t *testing.T) {
 	sbx := sampleSandbox()
 	sbx.Spec.ModelConfigRef = "m1"
 
-	_, err := b.EnsureSandbox(context.Background(), sbx)
+	_, err := b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	fi.mu.Lock()
@@ -457,7 +457,7 @@ func TestEnsureSandbox_Claw_PinsNemoclawBaseImage(t *testing.T) {
 
 	sbx := sampleClawSandbox()
 	sbx.Spec.Image = ""
-	_, err = b.EnsureSandbox(context.Background(), sbx)
+	_, err = b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	fg.mu.Lock()

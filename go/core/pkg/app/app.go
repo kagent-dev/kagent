@@ -573,16 +573,16 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
 		}
-		if err := (&controller.SandboxController{
+		if err := (&controller.AgentHarnessController{
 			Client:   kubeClient,
 			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
 			Backends: openshellBackends,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Sandbox")
+			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
 			os.Exit(1)
 		}
 	} else {
-		setupLog.Info("Sandbox controller disabled: --openshell-gateway-url not set")
+		setupLog.Info("AgentHarness controller disabled: --openshell-gateway-url not set")
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -714,7 +714,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 // and nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
 // share that connection (see openshell.OpenShellClients). The connection is not explicitly
 // closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.SandboxBackendType]sandboxbackend.AsyncBackend, error) {
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -746,9 +746,9 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	if err != nil {
 		return nil, err
 	}
-	return map[v1alpha2.SandboxBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.SandboxBackendOpenshell: osh,
-		v1alpha2.SandboxBackendOpenClaw:  ocl,
+	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
+		v1alpha2.AgentHarnessBackendOpenshell: osh,
+		v1alpha2.AgentHarnessBackendOpenClaw:  ocl,
 	}, nil
 }
 

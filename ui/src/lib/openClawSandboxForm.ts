@@ -4,7 +4,7 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 /** Sandbox CR backend; UI always uses openclaw for now. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
 
-export type SandboxChannelFormType = "telegram" | "discord" | "slack";
+export type SandboxChannelFormType = "telegram" | "slack";
 
 export interface OpenClawChannelRow {
   id: string;
@@ -134,7 +134,7 @@ export function validateOpenClawSandboxForm(args: {
       }
     }
 
-    if (ch.channelType === "discord" || ch.channelType === "slack") {
+    if (ch.channelType === "slack") {
       if (ch.channelAccess === "allowlist") {
         const list = trimSplitList(ch.allowlistChannels);
         if (list.length === 0) {
@@ -149,7 +149,7 @@ export function validateOpenClawSandboxForm(args: {
 
 export interface SandboxCRDraft {
   apiVersion: string;
-  kind: "Sandbox";
+  kind: "AgentHarness";
   metadata: { name: string; namespace: string };
   spec: Record<string, unknown>;
 }
@@ -208,14 +208,6 @@ export function buildSandboxCRDraft(args: {
         botToken: bot,
         ...(allowed.length > 0 ? { allowedUserIDs: allowed } : {}),
       };
-    } else if (ch.channelType === "discord") {
-      base.discord = {
-        botToken: bot,
-        channelAccess: ch.channelAccess,
-        ...(ch.channelAccess === "allowlist"
-          ? { allowlistChannels: trimSplitList(ch.allowlistChannels) }
-          : {}),
-      };
     } else if (ch.channelType === "slack") {
       const app = credentialFromRow(
         ch.appTokenSource,
@@ -265,7 +257,7 @@ export function buildSandboxCRDraft(args: {
 
   return {
     apiVersion: "kagent.dev/v1alpha2",
-    kind: "Sandbox",
+    kind: "AgentHarness",
     metadata: {
       name: args.name.trim(),
       namespace: args.namespace.trim(),

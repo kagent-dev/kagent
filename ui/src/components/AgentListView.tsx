@@ -58,7 +58,7 @@ function rowTypeLabel(item: AgentResponse): string {
     return agentHarnessTypeLabel(harnessBackend);
   }
   if (isOpenshellSandboxRow(item)) {
-    return "Sandbox";
+    return "Agent harness";
   }
   return typeLabel(item.agent.spec?.type);
 }
@@ -228,12 +228,13 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const nSkills = countSkills(agent);
 
   const chatPath =
-    sshSandbox && item.openshellSandbox
+    sshSandbox && item.openshellAgentHarness
       ? openshellTerminalHref({
-          gatewaySandboxName: item.openshellSandbox.gatewaySandboxName,
+          gatewaySandboxName: item.openshellAgentHarness.gatewaySandboxName,
           namespace,
           crName: name,
           modelConfigRef: item.modelConfigRef,
+          clawHarness: agentHarness,
         })
       : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
   const goChat = useCallback(() => {
@@ -289,7 +290,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
                 <span
                   className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
                   aria-hidden
-                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellSandbox?.backend}
+                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellAgentHarness?.backend}
                 >
                   🦞
                 </span>

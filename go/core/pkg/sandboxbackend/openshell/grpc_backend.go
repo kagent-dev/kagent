@@ -13,11 +13,10 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -32,8 +31,8 @@ type grpcBackend struct {
 	cfg        Config
 	recorder   record.EventRecorder
 
-	backendName               v1alpha2.SandboxBackendType
-	buildCreate               func(*v1alpha2.Sandbox) (*openshellv1.CreateSandboxRequest, []string)
+	backendName               v1alpha2.AgentHarnessBackendType
+	buildCreate               func(*v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string)
 	ensureGatewayBeforeCreate bool
 }
 
@@ -42,8 +41,8 @@ func newGRPCBackend(
 	clients *OpenShellClients,
 	cfg Config,
 	recorder record.EventRecorder,
-	name v1alpha2.SandboxBackendType,
-	build func(*v1alpha2.Sandbox) (*openshellv1.CreateSandboxRequest, []string),
+	name v1alpha2.AgentHarnessBackendType,
+	build func(*v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string),
 	ensureGatewayBeforeCreate bool,
 ) *grpcBackend {
 	return &grpcBackend{
@@ -72,7 +71,7 @@ func (b *grpcBackend) inference() inferencev1.InferenceClient {
 }
 
 // Name implements AsyncBackend.
-func (b *grpcBackend) Name() v1alpha2.SandboxBackendType { return b.backendName }
+func (b *grpcBackend) Name() v1alpha2.AgentHarnessBackendType { return b.backendName }
 
 func (b *grpcBackend) applyClusterInference(ctx context.Context, providerRecordName, model string) error {
 	if _, err := b.inference().SetClusterInference(ctx, &inferencev1.SetClusterInferenceRequest{
@@ -87,7 +86,7 @@ func (b *grpcBackend) applyClusterInference(ctx context.Context, providerRecordN
 
 // ensureGatewayFromModelConfig loads the referenced ModelConfig, registers a matching
 // gateway provider, and applies SetClusterInference. It is a no-op when spec.modelConfigRef is empty.
-func (b *grpcBackend) ensureGatewayFromModelConfig(ctx context.Context, sbx *v1alpha2.Sandbox, osCli openshellv1.OpenShellClient) error {
+func (b *grpcBackend) ensureGatewayFromModelConfig(ctx context.Context, sbx *v1alpha2.AgentHarness, osCli openshellv1.OpenShellClient) error {
 	ref := strings.TrimSpace(sbx.Spec.ModelConfigRef)
 	if ref == "" {
 		return nil
@@ -108,12 +107,12 @@ func (b *grpcBackend) ensureGatewayFromModelConfig(ctx context.Context, sbx *v1a
 	if err := b.kubeClient.Get(ctx, modelConfigRef, modelConfig); err != nil {
 		return fmt.Errorf("failed to get ModelConfig %s: %w", modelConfigRef.String(), err)
 	}
-	apiKey, err := resolveModelConfigAPIKey(ctx, b.kubeClient, modelConfig)
+	apiKey, err := openclaw.ResolveModelConfigAPIKey(ctx, b.kubeClient, modelConfig)
 	if err != nil {
 		return fmt.Errorf("openshell gateway provider: %w", err)
 	}
 
-	providerRecordName := gatewayProviderRecordName(modelConfig.Spec.Provider)
+	providerRecordName := openclaw.GatewayProviderRecordName(modelConfig.Spec.Provider)
 	model := modelConfig.Spec.Model
 
 	getProviderResp, err := osCli.GetProvider(ctx, &openshellv1.GetProviderRequest{Name: providerRecordName})
@@ -153,9 +152,9 @@ func (b *grpcBackend) ensureGatewayFromModelConfig(ctx context.Context, sbx *v1a
 	return nil
 }
 
-// EnsureSandbox implements AsyncBackend. Idempotent: a prior GetSandbox
+// EnsureAgentHarness implements AsyncBackend. Idempotent: a prior GetSandbox
 // short-circuits the CreateSandbox when the gateway already has it.
-func (b *grpcBackend) EnsureSandbox(ctx context.Context, sbx *v1alpha2.Sandbox) (sandboxbackend.EnsureResult, error) {
+func (b *grpcBackend) EnsureAgentHarness(ctx context.Context, sbx *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
 	if sbx == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("sandbox is required")
 	}
@@ -229,8 +228,8 @@ func (b *grpcBackend) GetStatus(ctx context.Context, h sandboxbackend.Handle) (m
 	return phaseToCondition(resp.GetSandbox())
 }
 
-// DeleteSandbox implements AsyncBackend. NotFound is success.
-func (b *grpcBackend) DeleteSandbox(ctx context.Context, h sandboxbackend.Handle) error {
+// DeleteAgentHarness implements AsyncBackend. NotFound is success.
+func (b *grpcBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.Handle) error {
 	if h.ID == "" {
 		return nil
 	}
@@ -260,11 +259,11 @@ func (b *grpcBackend) callCtx(ctx context.Context) (context.Context, context.Can
 	return context.WithTimeout(ctx, b.cfg.CallTimeout)
 }
 
-func (b *grpcBackend) warnUnsupported(ctx context.Context, sbx *v1alpha2.Sandbox, fields []string) {
+func (b *grpcBackend) warnUnsupported(ctx context.Context, sbx *v1alpha2.AgentHarness, fields []string) {
 	if len(fields) == 0 {
 		return
 	}
-	msg := fmt.Sprintf("OpenShell backend ignored unsupported Sandbox fields: %v", fields)
+	msg := fmt.Sprintf("OpenShell backend ignored unsupported AgentHarness fields: %v", fields)
 	if b.recorder != nil && sbx != nil {
 		b.recorder.Event(sbx, "Warning", "OpenshellUnsupportedField", msg)
 		return
@@ -276,31 +275,8 @@ func (b *grpcBackend) warnUnsupported(ctx context.Context, sbx *v1alpha2.Sandbox
 // Sandbox payload. Exposed for tests to assert.
 var ErrEmptyResponse = errors.New("openshell: empty sandbox in response")
 
-func gatewayProviderRecordName(provider v1alpha2.ModelProvider) string {
-	return strings.ToLower(string(provider))
-}
-
-func resolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha2.ModelConfig) (string, error) {
-	if mc.Spec.APIKeyPassthrough {
-		return "", fmt.Errorf("APIKeyPassthrough is not supported when registering an OpenShell gateway provider from ModelConfig")
-	}
-	if mc.Spec.APIKeySecret == "" || mc.Spec.APIKeySecretKey == "" {
-		return "", fmt.Errorf("modelConfig %s/%s requires apiKeySecret and apiKeySecretKey", mc.Namespace, mc.Name)
-	}
-	sec := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: mc.Namespace, Name: mc.Spec.APIKeySecret}
-	if err := kube.Get(ctx, key, sec); err != nil {
-		return "", fmt.Errorf("get API key secret %q: %w", mc.Spec.APIKeySecret, err)
-	}
-	raw, ok := sec.Data[mc.Spec.APIKeySecretKey]
-	if !ok || len(raw) == 0 {
-		return "", fmt.Errorf("secret %q missing non-empty key %q", mc.Spec.APIKeySecret, mc.Spec.APIKeySecretKey)
-	}
-	return string(raw), nil
-}
-
 // execSandboxID resolves metadata.id for ExecSandbox and similar RPCs.
-// BackendRef.ID on the Sandbox CR stores the gateway name (GetSandbox/DeleteSandbox);
+// BackendRef.ID on the AgentHarness CR stores the gateway name (GetSandbox/DeleteSandbox);
 // ExecSandboxRequest.sandbox_id is the stable object id per openshell.proto.
 func (b *grpcBackend) execSandboxID(ctx context.Context, gatewaySandboxName string) (string, error) {
 	name := strings.TrimSpace(gatewaySandboxName)

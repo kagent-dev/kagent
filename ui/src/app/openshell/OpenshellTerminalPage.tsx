@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -37,11 +39,14 @@ export function OpenshellTerminalPage() {
   const searchParams = useSearchParams();
 
   const gatewaySandboxName = searchParams.get("sandbox")?.trim() ?? "";
-  const autoConnect = searchParams.get("connect") === "1";
+  const clawHarnessSession = searchParams.get("clawHarness") === "1";
+  const autoConnect = Boolean(gatewaySandboxName);
   const namespace = searchParams.get("ns")?.trim() ?? "";
   const crName = searchParams.get("name")?.trim() ?? "";
   const modelConfigRef = searchParams.get("modelConfigRef")?.trim() ?? "";
-  const plainShell = searchParams.get("plainShell") === "1";
+  const [plainShellOnly, setPlainShellOnly] = useState(() => searchParams.get("plainShell") === "1");
+  /** Plain-shell mode the active SSH session was opened with (null when disconnected). */
+  const [appliedPlainShell, setAppliedPlainShell] = useState<boolean | null>(null);
 
   const displayTitle =
     namespace && crName ? `${namespace}/${crName}` : gatewaySandboxName || "OpenShell";
@@ -138,11 +143,12 @@ export function OpenshellTerminalPage() {
         setConnecting(false);
         setSessionActive(true);
         setTermError(null);
+        setAppliedPlainShell(plainShellOnly);
         term.reset();
         ws.send(
           JSON.stringify({
             sandbox_name: name,
-            plain_shell: plainShell,
+            plain_shell: plainShellOnly,
             cols: term.cols,
             rows: term.rows,
           }),
@@ -179,14 +185,22 @@ export function OpenshellTerminalPage() {
         wsRef.current = null;
         setConnecting(false);
         setSessionActive(false);
+        setAppliedPlainShell(null);
         term.writeln(`\r\n\x1b[90m(disconnected)\x1b[0m`);
         if (!ev.wasClean && ev.code === 1006) {
           setTermError("Connection closed abnormally (1006).");
         }
       };
     },
-    [plainShell],
+    [plainShellOnly],
   );
+
+  const restartSession = useCallback(() => {
+    const name = gatewaySandboxName.trim();
+    if (!name) return;
+    wsRef.current?.close();
+    window.setTimeout(() => connectTerminal(name), 120);
+  }, [gatewaySandboxName, connectTerminal]);
 
   useEffect(() => {
     if (!autoConnect || !gatewaySandboxName) return;
@@ -197,7 +211,12 @@ export function OpenshellTerminalPage() {
     return () => window.clearTimeout(t);
   }, [autoConnect, gatewaySandboxName, connectTerminal]);
 
-  const showConnectButton = Boolean(gatewaySandboxName) && !sessionActive && !connecting;
+  const showReconnect = Boolean(gatewaySandboxName) && !sessionActive && !connecting;
+  const plainShellPendingRestart =
+    clawHarnessSession &&
+    sessionActive &&
+    appliedPlainShell !== null &&
+    plainShellOnly !== appliedPlainShell;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6">
@@ -226,17 +245,42 @@ export function OpenshellTerminalPage() {
             ) : null}
           </dl>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {showConnectButton ? (
-            <Button type="button" size="sm" variant="secondary" onClick={() => connectTerminal(gatewaySandboxName)}>
-              Connect
-            </Button>
+        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-start">
+          {clawHarnessSession && gatewaySandboxName ? (
+            <div className="flex max-w-[min(100%,260px)] flex-col gap-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="openshell-plain-shell"
+                  checked={plainShellOnly}
+                  onCheckedChange={(v) => setPlainShellOnly(v === true)}
+                  disabled={connecting}
+                />
+                <Label htmlFor="openshell-plain-shell" className="cursor-pointer text-sm font-normal leading-snug text-foreground">
+                  Launch plain shell
+                </Label>
+              </div>
+              {plainShellPendingRestart ? (
+                <p className="pl-7 text-xs text-muted-foreground">Restart session to apply.</p>
+              ) : null}
+            </div>
           ) : null}
-          {sessionActive || connecting ? (
-            <Button type="button" size="sm" variant="outline" onClick={onDisconnect}>
-              {connecting ? "Cancel" : "Disconnect"}
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {showReconnect ? (
+              <Button type="button" size="sm" variant="secondary" onClick={() => connectTerminal(gatewaySandboxName)}>
+                Reconnect
+              </Button>
+            ) : null}
+            {sessionActive ? (
+              <Button type="button" size="sm" variant="secondary" onClick={restartSession}>
+                Restart
+              </Button>
+            ) : null}
+            {connecting ? (
+              <Button type="button" size="sm" variant="outline" onClick={onDisconnect}>
+                Cancel
+              </Button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -250,10 +294,15 @@ export function OpenshellTerminalPage() {
       {termError ? <p className="text-sm text-destructive">{termError}</p> : null}
 
       <div
-        ref={termHostRef}
-        className="min-h-[min(520px,70vh)] w-full flex-1 rounded-md border border-border/80 bg-[#0c0c0c]"
-        aria-label="Sandbox SSH terminal"
-      />
+        className="w-full flex-1 rounded-md border border-border/80 bg-[#0c0c0c] p-3 md:p-4"
+        aria-label="Sandbox SSH terminal container"
+      >
+        <div
+          ref={termHostRef}
+          className="min-h-[min(620px,78vh)] w-full"
+          aria-label="Sandbox SSH terminal"
+        />
+      </div>
     </div>
   );
 }

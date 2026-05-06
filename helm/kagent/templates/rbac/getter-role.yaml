@@ -4,7 +4,7 @@
   resources:
   - agents
   - sandboxagents
-  - sandboxes
+  - agentharnesses
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -20,7 +20,7 @@
   resources:
   - agents/finalizers
   - sandboxagents/finalizers
-  - sandboxes/finalizers
+  - agentharnesses/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
@@ -34,7 +34,7 @@
   resources:
   - agents/status
   - sandboxagents/status
-  - sandboxes/status
+  - agentharnesses/status
   - modelconfigs/status
   - modelproviderconfigs/status
   - toolservers/status

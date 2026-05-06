@@ -83,7 +83,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
               <span
                 className="h-5 w-5 flex-shrink-0 text-muted-foreground"
                 aria-hidden
-                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellSandbox?.backend}
+                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellAgentHarness?.backend}
               >
                 🦞
               </span>
@@ -168,12 +168,13 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
   );
 
   const chatHref =
-    sshSandbox && agentResponse.openshellSandbox
+    sshSandbox && agentResponse.openshellAgentHarness
       ? openshellTerminalHref({
-          gatewaySandboxName: agentResponse.openshellSandbox.gatewaySandboxName,
+          gatewaySandboxName: agentResponse.openshellAgentHarness.gatewaySandboxName,
           namespace: agent.metadata.namespace,
           crName: agent.metadata.name,
           modelConfigRef: agentResponse.modelConfigRef,
+          clawHarness: agentHarness,
         })
       : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
 

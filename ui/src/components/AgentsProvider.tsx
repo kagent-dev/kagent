@@ -63,7 +63,7 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** OpenClaw Sandbox CR (kagent.dev/v1alpha2 Sandbox; backend openclaw). */
+  /** OpenClaw AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; backend openclaw). */
   openClawSandbox?: OpenClawSandboxFormSlice;
   // BYO fields
   byoImage?: string;

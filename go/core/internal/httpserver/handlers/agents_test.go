@@ -453,22 +453,22 @@ func TestHandleListAgents(t *testing.T) {
 		require.Empty(t, response.Data)
 	})
 
-	t.Run("includes openshell Sandbox CR in agent list", func(t *testing.T) {
+	t.Run("includes openshell AgentHarness CR in agent list", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("list-agent", modelConfig)
-		sb := &v1alpha2.Sandbox{
+		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
-			Spec: v1alpha2.SandboxSpec{
-				Backend:        v1alpha2.SandboxBackendOpenshell,
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenshell,
 				Description:    "Workload VM for experiments",
 				ModelConfigRef: "test-model-config",
 			},
-			Status: v1alpha2.SandboxStatus{
+			Status: v1alpha2.AgentHarnessStatus{
 				Conditions: []metav1.Condition{
-					{Type: v1alpha2.SandboxConditionTypeAccepted, Status: "True", Reason: "SandboxAccepted"},
-					{Type: v1alpha2.SandboxConditionTypeReady, Status: "True", Reason: "SandboxReady"},
+					{Type: v1alpha2.AgentHarnessConditionTypeAccepted, Status: "True", Reason: "AgentHarnessAccepted"},
+					{Type: v1alpha2.AgentHarnessConditionTypeReady, Status: "True", Reason: "SandboxReady"},
 				},
-				BackendRef: &v1alpha2.SandboxStatusRef{Backend: v1alpha2.SandboxBackendOpenshell, ID: "default-openclaw-1"},
+				BackendRef: &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenshell, ID: "default-openclaw-1"},
 			},
 		}
 		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
@@ -486,12 +486,12 @@ func TestHandleListAgents(t *testing.T) {
 
 		var found bool
 		for _, row := range response.Data {
-			if row.OpenshellSandbox == nil {
+			if row.OpenshellAgentHarness == nil {
 				continue
 			}
 			found = true
-			require.Equal(t, "default-openclaw-1", row.OpenshellSandbox.GatewaySandboxName)
-			require.Equal(t, "Sandbox", row.Agent.Kind)
+			require.Equal(t, "default-openclaw-1", row.OpenshellAgentHarness.GatewaySandboxName)
+			require.Equal(t, "AgentHarness", row.Agent.Kind)
 			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
 			require.Equal(t, "Workload VM for experiments", row.Agent.Spec.Description)
 			require.True(t, row.Accepted)
@@ -782,10 +782,10 @@ func TestHandleDeleteTeam(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("deletes openshell Sandbox when no Agent with that name", func(t *testing.T) {
-		sb := &v1alpha2.Sandbox{
+	t.Run("deletes openshell AgentHarness when no Agent with that name", func(t *testing.T) {
+		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
-			Spec:       v1alpha2.SandboxSpec{Backend: v1alpha2.SandboxBackendOpenshell},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
 		}
 		handler, _ := setupTestHandler(t, sb)
 
@@ -821,14 +821,14 @@ func TestHandleDeleteSandboxAgent(t *testing.T) {
 	})
 }
 
-func TestHandleCreateSandbox(t *testing.T) {
-	t.Run("creates openclaw sandbox", func(t *testing.T) {
+func TestHandleCreateAgentHarness(t *testing.T) {
+	t.Run("creates openclaw AgentHarness", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		handler, _ := setupTestHandler(t, modelConfig)
 
 		body := map[string]any{
 			"apiVersion": "kagent.dev/v1alpha2",
-			"kind":       "Sandbox",
+			"kind":       "AgentHarness",
 			"metadata": map[string]string{
 				"name":      "my-openclaw",
 				"namespace": "default",
@@ -842,24 +842,24 @@ func TestHandleCreateSandbox(t *testing.T) {
 		raw, err := json.Marshal(body)
 		require.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodPost, "/api/sandboxes", bytes.NewReader(raw))
+		req := httptest.NewRequest(http.MethodPost, "/api/agentharnesses", bytes.NewReader(raw))
 		req.Header.Set("Content-Type", "application/json")
 		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
-		handler.HandleCreateSandbox(&testErrorResponseWriter{w}, req)
+		handler.HandleCreateAgentHarness(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
 
 		var response api.StandardResponse[api.AgentResponse]
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-		require.Equal(t, "Sandbox", response.Data.Agent.Kind)
+		require.Equal(t, "AgentHarness", response.Data.Agent.Kind)
 		require.Equal(t, "my-openclaw", response.Data.Agent.Metadata.Name)
-		require.NotNil(t, response.Data.OpenshellSandbox)
-		require.Equal(t, v1alpha2.SandboxBackendOpenClaw, response.Data.OpenshellSandbox.Backend)
+		require.NotNil(t, response.Data.OpenshellAgentHarness)
+		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, response.Data.OpenshellAgentHarness.Backend)
 
-		var created v1alpha2.Sandbox
+		var created v1alpha2.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
-		require.Equal(t, v1alpha2.SandboxBackendOpenClaw, created.Spec.Backend)
+		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, created.Spec.Backend)
 	})
 }

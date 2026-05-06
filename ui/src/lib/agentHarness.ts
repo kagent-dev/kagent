@@ -16,14 +16,14 @@ export function isAgentHarnessBackend(value: string | undefined | null): value i
 }
 
 /**
- * When this agent row represents an agent harness, returns the Sandbox CR backend discriminator (e.g. openclaw vs nemoclaw).
+ * When this agent row represents an agent harness, returns the AgentHarness CR backend discriminator (e.g. openclaw vs nemoclaw).
  * Use {@link isAgentHarness} for a simple boolean check.
  */
 export function getAgentHarnessBackend(item: AgentResponse): AgentHarnessBackend | undefined {
   if (!isOpenshellSandboxRow(item)) {
     return undefined;
   }
-  const backend = item.openshellSandbox?.backend;
+  const backend = item.openshellAgentHarness?.backend;
   return isAgentHarnessBackend(backend) ? backend : undefined;
 }
 

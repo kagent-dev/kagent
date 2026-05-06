@@ -34,6 +34,6 @@ var _ sandboxbackend.AsyncBackend = (*OpenshellBackend)(nil)
 // NewOpenshellBackend returns a backend for Sandbox.spec.backend=openshell.
 func NewOpenshellBackend(kubeClient client.Client, clients *OpenShellClients, cfg Config, recorder record.EventRecorder) *OpenshellBackend {
 	return &OpenshellBackend{
-		grpcBackend: newGRPCBackend(kubeClient, clients, cfg, recorder, v1alpha2.SandboxBackendOpenshell, buildOpenshellCreateRequest, false),
+		grpcBackend: newGRPCBackend(kubeClient, clients, cfg, recorder, v1alpha2.AgentHarnessBackendOpenshell, buildOpenshellCreateRequest, false),
 	}
 }

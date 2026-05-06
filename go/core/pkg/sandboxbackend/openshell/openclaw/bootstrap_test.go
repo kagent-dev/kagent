@@ -1,4 +1,4 @@
-package openshell
+package openclaw_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestBuildOpenClawBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testing.T) {
+func TestBuildBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
@@ -35,10 +36,10 @@ func TestBuildOpenClawBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testin
 			OpenAI:          &v1alpha2.OpenAIConfig{},
 		},
 	}
-	sbx := &v1alpha2.Sandbox{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
+	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	raw, _, err := buildOpenClawBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
+	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
 	require.NoError(t, err)
 
 	var root map[string]any
@@ -46,7 +47,7 @@ func TestBuildOpenClawBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testin
 	models := root["models"].(map[string]any)
 	provs := models["providers"].(map[string]any)
 	openai := provs["openai"].(map[string]any)
-	require.Equal(t, "https://inference.local/v1", openai["baseUrl"])
+	require.Equal(t, openclaw.DefaultInferenceBaseURL, openai["baseUrl"])
 	require.Equal(t, "openshell:resolve:env:OPENAI_API_KEY", openai["apiKey"])
 	secRoot := root["secrets"].(map[string]any)
 	secProvs := secRoot["providers"].(map[string]any)
@@ -55,7 +56,7 @@ func TestBuildOpenClawBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testin
 	require.Contains(t, kagent["allowlist"], "OPENAI_API_KEY")
 }
 
-func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
+func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
@@ -75,15 +76,15 @@ func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 			OpenAI:          &v1alpha2.OpenAIConfig{BaseURL: "https://api.example/v1"},
 		},
 	}
-	sbx := &v1alpha2.Sandbox{
+	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns},
-		Spec: v1alpha2.SandboxSpec{
-			Channels: []v1alpha2.SandboxChannel{
+		Spec: v1alpha2.AgentHarnessSpec{
+			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "tg1",
-					Type: v1alpha2.SandboxChannelTypeTelegram,
-					Telegram: &v1alpha2.SandboxTelegramChannelSpec{
-						BotToken: v1alpha2.SandboxChannelCredential{Value: "telegram-bot-token"},
+					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "telegram-bot-token"},
 					},
 				},
 			},
@@ -91,7 +92,7 @@ func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	raw, env, err := buildOpenClawBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
+	raw, env, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
 	require.NoError(t, err)
 	require.Equal(t, "sk-test", env["OPENAI_API_KEY"])
 	require.Equal(t, "telegram-bot-token", env["KAGENT_SB_CH_TG1_TELEGRAM_BOT"])
@@ -122,26 +123,4 @@ func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	tgAcc := tg["accounts"].(map[string]any)
 	tg1 := tgAcc["tg1"].(map[string]any)
 	require.Equal(t, "telegram-bot-token", tg1["botToken"])
-}
-
-func TestSandboxHasChannelType_Discord(t *testing.T) {
-	sbx := &v1alpha2.Sandbox{
-		Spec: v1alpha2.SandboxSpec{
-			Channels: []v1alpha2.SandboxChannel{
-				{Name: "x", Type: v1alpha2.SandboxChannelTypeTelegram, Telegram: &v1alpha2.SandboxTelegramChannelSpec{
-					BotToken: v1alpha2.SandboxChannelCredential{Value: "t"},
-				}},
-			},
-		},
-	}
-	require.False(t, sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord))
-	sbx.Spec.Channels = append(sbx.Spec.Channels, v1alpha2.SandboxChannel{
-		Name: "d",
-		Type: v1alpha2.SandboxChannelTypeDiscord,
-		Discord: &v1alpha2.SandboxDiscordChannelSpec{
-			BotToken:      v1alpha2.SandboxChannelCredential{Value: "x"},
-			ChannelAccess: v1alpha2.SandboxChannelAccessOpen,
-		},
-	})
-	require.True(t, sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord))
 }

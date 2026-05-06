@@ -10,16 +10,17 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// NemoclawSandboxBaseImage is the container image used for OpenClaw and NemoClaw
-const NemoclawSandboxBaseImage = "ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
+// NemoclawSandboxBaseImage is the container image used for OpenClaw
+const NemoclawSandboxBaseImage = "ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4"
 
 // ClawBackend implements AsyncBackend and PostReadyBackend for OpenClaw- and
-// NemoClaw-typed Sandbox resources: gateway provider registration, fixed sandbox
+// NemoClaw-typed AgentHarness resources: gateway provider registration, fixed sandbox
 // image, and post-ready OpenClaw bootstrap when modelConfigRef is set.
 type ClawBackend struct {
 	*grpcBackend
@@ -35,9 +36,9 @@ func newClawBackend(
 	clients *OpenShellClients,
 	cfg Config,
 	recorder record.EventRecorder,
-	name v1alpha2.SandboxBackendType,
+	name v1alpha2.AgentHarnessBackendType,
 ) (*ClawBackend, error) {
-	if name != v1alpha2.SandboxBackendOpenClaw && name != v1alpha2.SandboxBackendNemoClaw {
+	if name != v1alpha2.AgentHarnessBackendOpenClaw && name != v1alpha2.AgentHarnessBackendNemoClaw {
 		return nil, fmt.Errorf("openshell: claw backend type must be openclaw or nemoclaw, got %q", name)
 	}
 	return &ClawBackend{
@@ -45,19 +46,12 @@ func newClawBackend(
 	}, nil
 }
 
-func defaultOpenclawAPIKeyEnvVar(provider v1alpha2.ModelProvider) string {
-	return fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(provider)))
-}
+const defaultOpenclawGatewayPort = 18800
 
-const (
-	defaultOpenclawGatewayPort      = 18800
-	defaultOpenclawInferenceBaseURL = "https://inference.local/v1"
-)
-
-// OnSandboxReady writes ~/.openclaw/openclaw.json from ModelConfig and spec.channels,
+// OnAgentHarnessReady writes ~/.openclaw/openclaw.json from ModelConfig and spec.channels,
 // then runs `openclaw gateway start` in the background with injected env (API key + channel secrets).
 // No-ops when modelConfigRef is empty.
-func (b *ClawBackend) OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox, h sandboxbackend.Handle) error {
+func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.AgentHarness, h sandboxbackend.Handle) error {
 	ref := strings.TrimSpace(sbx.Spec.ModelConfigRef)
 	if ref == "" {
 		return nil
@@ -78,11 +72,11 @@ func (b *ClawBackend) OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox,
 		return fmt.Errorf("get ModelConfig: %w", err)
 	}
 
-	providerRecord := gatewayProviderRecordName(mc.Spec.Provider)
+	providerRecord := openclaw.GatewayProviderRecordName(mc.Spec.Provider)
 	gwPort := defaultOpenclawGatewayPort
 	token := b.cfg.Token
 
-	jsonBytes, env, err := buildOpenClawBootstrapJSON(ctx, b.kubeClient, sbx.Namespace, sbx, mc, gwPort)
+	jsonBytes, env, err := openclaw.BuildBootstrapJSON(ctx, b.kubeClient, sbx.Namespace, sbx, mc, gwPort)
 	if err != nil {
 		return fmt.Errorf("build openclaw config: %w", err)
 	}
@@ -92,18 +86,6 @@ func (b *ClawBackend) OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox,
 	execID, err := b.execSandboxID(withAuth(idCtx, token), h.ID)
 	if err != nil {
 		return fmt.Errorf("resolve sandbox exec id: %w", err)
-	}
-
-	if sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord) {
-		dCtx, cancelDiscord := context.WithTimeout(ctx, 120*time.Second+15*time.Second)
-		code, stderr, errExec := b.execSandbox(withAuth(dCtx, token), execID, []string{"sh", "-c", "openclaw plugins enable discord"}, nil, nil, 120)
-		cancelDiscord()
-		if errExec != nil {
-			return fmt.Errorf("exec openclaw plugins enable discord: %w", errExec)
-		}
-		if code != 0 {
-			return fmt.Errorf("openclaw plugins enable discord: exit %d: %s", code, strings.TrimSpace(stderr))
-		}
 	}
 
 	installCmd := []string{"sh", "-c", `mkdir -p "$HOME/.openclaw" && cat > "$HOME/.openclaw/openclaw.json"`}
@@ -137,7 +119,7 @@ func (b *ClawBackend) OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox,
 	return nil
 }
 
-func buildClawCreateRequest(sbx *v1alpha2.Sandbox) (*openshellv1.CreateSandboxRequest, []string) {
+func buildClawCreateRequest(sbx *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
 	req, unsupported := buildOpenshellCreateRequest(sbx)
 	if req.GetSpec().GetTemplate() == nil {
 		req.Spec.Template = &openshellv1.SandboxTemplate{}
@@ -152,5 +134,5 @@ func buildClawCreateRequest(sbx *v1alpha2.Sandbox) (*openshellv1.CreateSandboxRe
 
 // NewOpenClawBackend returns a backend for Sandbox.spec.backend=openclaw.
 func NewOpenClawBackend(kubeClient client.Client, clients *OpenShellClients, cfg Config, recorder record.EventRecorder) (*ClawBackend, error) {
-	return newClawBackend(kubeClient, clients, cfg, recorder, v1alpha2.SandboxBackendOpenClaw)
+	return newClawBackend(kubeClient, clients, cfg, recorder, v1alpha2.AgentHarnessBackendOpenClaw)
 }

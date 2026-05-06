@@ -483,7 +483,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
         throw new Error(draft.error);
       }
 
-      const response = await fetchApi<BaseResponse<AgentResponse>>(`/sandboxes`, {
+      const response = await fetchApi<BaseResponse<AgentResponse>>(`/agentharnesses`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

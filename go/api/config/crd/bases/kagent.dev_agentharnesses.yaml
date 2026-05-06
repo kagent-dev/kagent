@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: sandboxes.kagent.dev
+  name: agentharnesses.kagent.dev
 spec:
   group: kagent.dev
   names:
     categories:
     - kagent
-    kind: Sandbox
-    listKind: SandboxList
-    plural: sandboxes
+    kind: AgentHarness
+    listKind: AgentHarnessList
+    plural: agentharnesses
     shortNames:
-    - sbx
-    singular: sandbox
+    - ahr
+    singular: agentharness
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -35,7 +35,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Sandbox is a generic remote execution environment provisioned by a backend
+          AgentHarness is a generic remote execution environment provisioned by a backend
           (e.g. OpenShell) and addressable by exec/SSH.
         properties:
           apiVersion:
@@ -57,10 +57,10 @@ spec:
             type: object
           spec:
             description: |-
-              SandboxSpec describes a generic remote execution environment that agents
+              AgentHarnessSpec describes a generic remote execution environment that agents
               (or human operators) can attach to via exec or SSH.
 
-              A Sandbox is distinct from a SandboxAgent: it has no agent runtime baked
+              An AgentHarness is distinct from a SandboxAgent: it has no agent runtime baked
               in. The backend is responsible for provisioning an environment that stays
               ready to accept incoming commands.
             properties:
@@ -73,88 +73,28 @@ spec:
                 type: string
               channels:
                 description: |-
-                  Channels configures Telegram, Discord, and Slack integrations for OpenClaw inside the sandbox VM.
+                  Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
                   Only supported when backend is openclaw or nemoclaw.
                 items:
-                  description: SandboxChannel declares one messenger binding inside
-                    an OpenClaw/NemoClaw sandbox.
+                  description: AgentHarnessChannel declares one messenger binding
+                    inside an OpenClaw/NemoClaw harness VM.
                   properties:
-                    discord:
-                      description: SandboxDiscordChannelSpec configures Discord when
-                        SandboxChannel.type is Discord.
-                      properties:
-                        allowlistChannels:
-                          items:
-                            type: string
-                          type: array
-                        botToken:
-                          description: SandboxChannelCredential supplies a token from
-                            an inline value or a Secret/ConfigMap key.
-                          properties:
-                            value:
-                              maxLength: 8192
-                              type: string
-                            valueFrom:
-                              description: ValueSource defines a source for configuration
-                                values from a Secret or ConfigMap
-                              properties:
-                                key:
-                                  description: The key of the ConfigMap or Secret.
-                                  maxLength: 253
-                                  type: string
-                                name:
-                                  description: The name of the ConfigMap or Secret.
-                                  maxLength: 253
-                                  type: string
-                                type:
-                                  enum:
-                                  - ConfigMap
-                                  - Secret
-                                  type: string
-                              required:
-                              - key
-                              - name
-                              - type
-                              type: object
-                          type: object
-                          x-kubernetes-validations:
-                          - message: exactly one of value or valueFrom must be set
-                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
-                              != '''') && (has(self.valueFrom) || (has(self.value)
-                              && self.value != ''''))'
-                        channelAccess:
-                          description: SandboxChannelAccess controls whether the bot
-                            listens broadly or only on an allowlist.
-                          enum:
-                          - allowlist
-                          - open
-                          - disabled
-                          type: string
-                      required:
-                      - botToken
-                      - channelAccess
-                      type: object
-                      x-kubernetes-validations:
-                      - message: allowlistChannels is required when channelAccess
-                          is allowlist
-                        rule: self.channelAccess != 'allowlist' || (has(self.allowlistChannels)
-                          && size(self.allowlistChannels) > 0)
                     name:
                       description: Name is a stable id for this binding (OpenClaw
                         channels.*.accounts key).
                       minLength: 1
                       type: string
                     slack:
-                      description: SandboxSlackChannelSpec configures Slack when SandboxChannel.type
-                        is Slack.
+                      description: AgentHarnessSlackChannelSpec configures Slack when
+                        AgentHarnessChannel.type is Slack.
                       properties:
                         allowlistChannels:
                           items:
                             type: string
                           type: array
                         appToken:
-                          description: SandboxChannelCredential supplies a token from
-                            an inline value or a Secret/ConfigMap key.
+                          description: AgentHarnessChannelCredential supplies a token
+                            from an inline value or a Secret/ConfigMap key.
                           properties:
                             value:
                               maxLength: 8192
@@ -184,12 +124,11 @@ spec:
                           type: object
                           x-kubernetes-validations:
                           - message: exactly one of value or valueFrom must be set
-                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
-                              != '''') && (has(self.valueFrom) || (has(self.value)
-                              && self.value != ''''))'
+                            rule: has(self.valueFrom) != (has(self.value) && self.value
+                              != '')
                         botToken:
-                          description: SandboxChannelCredential supplies a token from
-                            an inline value or a Secret/ConfigMap key.
+                          description: AgentHarnessChannelCredential supplies a token
+                            from an inline value or a Secret/ConfigMap key.
                           properties:
                             value:
                               maxLength: 8192
@@ -219,12 +158,11 @@ spec:
                           type: object
                           x-kubernetes-validations:
                           - message: exactly one of value or valueFrom must be set
-                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
-                              != '''') && (has(self.valueFrom) || (has(self.value)
-                              && self.value != ''''))'
+                            rule: has(self.valueFrom) != (has(self.value) && self.value
+                              != '')
                         channelAccess:
-                          description: SandboxChannelAccess controls whether the bot
-                            listens broadly or only on an allowlist.
+                          description: AgentHarnessChannelAccess controls whether
+                            the bot listens broadly or only on an allowlist.
                           enum:
                           - allowlist
                           - open
@@ -244,8 +182,8 @@ spec:
                         rule: self.channelAccess != 'allowlist' || (has(self.allowlistChannels)
                           && size(self.allowlistChannels) > 0)
                     telegram:
-                      description: SandboxTelegramChannelSpec configures Telegram
-                        when SandboxChannel.type is Telegram.
+                      description: AgentHarnessTelegramChannelSpec configures Telegram
+                        when AgentHarnessChannel.type is Telegram.
                       properties:
                         allowedUserIDs:
                           items:
@@ -274,8 +212,8 @@ spec:
                           - type
                           type: object
                         botToken:
-                          description: SandboxChannelCredential supplies a token from
-                            an inline value or a Secret/ConfigMap key.
+                          description: AgentHarnessChannelCredential supplies a token
+                            from an inline value or a Secret/ConfigMap key.
                           properties:
                             value:
                               maxLength: 8192
@@ -305,9 +243,8 @@ spec:
                           type: object
                           x-kubernetes-validations:
                           - message: exactly one of value or valueFrom must be set
-                            rule: '!(has(self.valueFrom) && has(self.value) && self.value
-                              != '''') && (has(self.valueFrom) || (has(self.value)
-                              && self.value != ''''))'
+                            rule: has(self.valueFrom) != (has(self.value) && self.value
+                              != '')
                       required:
                       - botToken
                       type: object
@@ -316,11 +253,10 @@ spec:
                           exclusive
                         rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
                     type:
-                      description: SandboxChannelType selects a messenger integration
-                        for OpenClaw sandboxes.
+                      description: AgentHarnessChannelType selects a messenger integration
+                        for OpenClaw harness VMs.
                       enum:
                       - telegram
-                      - discord
                       - slack
                       type: string
                   required:
@@ -328,12 +264,10 @@ spec:
                   - type
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of telegram, discord, or slack must be set
-                      and must match type
-                    rule: (self.type == 'telegram' && has(self.telegram) && !has(self.discord)
-                      && !has(self.slack)) || (self.type == 'discord' && has(self.discord)
-                      && !has(self.telegram) && !has(self.slack)) || (self.type ==
-                      'slack' && has(self.slack) && !has(self.telegram) && !has(self.discord))
+                  - message: exactly one of telegram or slack must be set and must
+                      match type
+                    rule: (self.type == 'telegram' && has(self.telegram) && !has(self.slack))
+                      || (self.type == 'slack' && has(self.slack) && !has(self.telegram))
                 type: array
               description:
                 description: Description is a short human-readable summary shown in
@@ -341,7 +275,7 @@ spec:
                 type: string
               env:
                 description: |-
-                  Env is a list of environment variables injected into the sandbox.
+                  Env is a list of environment variables injected into the harness workload.
                   Values use the Kubernetes EnvVar shape; ValueFrom references are
                   resolved server-side where supported.
                 items:
@@ -501,24 +435,24 @@ spec:
                 type: array
               image:
                 description: |-
-                  Image is the container image to run in the sandbox, if the backend
-                  supports per-sandbox images. Backends openclaw and nemoclaw pin the image
+                  Image is the container image to run in the harness VM, if the backend
+                  supports per-resource images. Backends openclaw and nemoclaw pin the image
                   to the NemoClaw sandbox base; openshell uses spec.image when set.
                 type: string
               modelConfigRef:
                 description: |-
-                  ModelConfigRef is the reference to the ModelConfig used to configure the sandbox.
+                  ModelConfigRef is the reference to the ModelConfig used to configure the harness.
                   When set with backend openclaw or nemoclaw, the controller registers the gateway provider and,
-                  after the sandbox is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
+                  after the harness is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
                   It is ignored for backend openshell.
                 type: string
               network:
                 description: |-
-                  Network controls outbound access from the sandbox. When unset,
+                  Network controls outbound access from the harness. When unset,
                   backend defaults apply.
                 properties:
                   allowedDomains:
-                    description: AllowedDomains is a list of DNS names the sandbox
+                    description: AllowedDomains is a list of DNS names the harness
                       may reach.
                     items:
                       type: string
@@ -532,16 +466,16 @@ spec:
               rule: '!has(self.channels) || size(self.channels) == 0 || self.backend
                 == ''openclaw'' || self.backend == ''nemoclaw'''
           status:
-            description: SandboxStatus is the observed state of a Sandbox.
+            description: AgentHarnessStatus is the observed state of an AgentHarness.
             properties:
               backendRef:
                 description: |-
-                  BackendRef points at the sandbox instance on the backend control
+                  BackendRef points at the harness instance on the backend control
                   plane, once Ensure has succeeded at least once.
                 properties:
                   backend:
                     description: |-
-                      SandboxBackendType selects which sandbox control plane provisions the
+                      AgentHarnessBackendType selects which sandbox control plane provisions the
                       environment. Additional backends may be added in the future.
                     enum:
                     - openshell
@@ -611,13 +545,13 @@ spec:
                   type: object
                 type: array
               connection:
-                description: Connection is populated by the controller when the sandbox
+                description: Connection is populated by the controller when the harness
                   is ready.
                 properties:
                   endpoint:
                     description: |-
                       Endpoint is the backend-specific address (gRPC target, SSH host:port,
-                      ...) clients should use to reach the sandbox.
+                      ...) clients should use to reach the harness.
                     type: string
                 type: object
               observedGeneration:

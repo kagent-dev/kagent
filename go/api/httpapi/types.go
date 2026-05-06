@@ -134,14 +134,14 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
-// OpenshellSandboxListEntry is set when this row is a kagent.dev/v1alpha2 Sandbox (openshell backend),
+// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
 // merged into GET /api/agents for UI alongside Agent CRs.
-type OpenshellSandboxListEntry struct {
-	Backend            v1alpha2.SandboxBackendType `json:"backend"`
-	GatewaySandboxName string                      `json:"gatewaySandboxName"`
-	ModelConfigRef     string                      `json:"modelConfigRef,omitempty"`
-	BackendRefID       string                      `json:"backendRefId,omitempty"`
-	Endpoint           string                      `json:"endpoint,omitempty"`
+type OpenshellAgentHarnessListEntry struct {
+	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
+	GatewaySandboxName string                             `json:"gatewaySandboxName"`
+	ModelConfigRef     string                             `json:"modelConfigRef,omitempty"`
+	BackendRefID       string                             `json:"backendRefId,omitempty"`
+	Endpoint           string                             `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
@@ -156,7 +156,7 @@ type AgentResponse struct {
 	DeploymentReady  bool                       `json:"deploymentReady"`
 	Accepted         bool                       `json:"accepted"`
 	WorkloadMode     v1alpha2.WorkloadMode      `json:"workloadMode,omitempty"`
-	OpenshellSandbox *OpenshellSandboxListEntry `json:"openshellSandbox,omitempty"`
+	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
 }
 
 // Session types

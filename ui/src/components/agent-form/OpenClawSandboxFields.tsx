@@ -66,37 +66,6 @@ function ChannelTypeSetupHints({ channelType }: { channelType: OpenClawChannelRo
           ]}
         />
       );
-    case "discord":
-      return (
-        <ChannelSetupHint
-          title="Discord setup"
-          lines={[
-            <>
-              <strong>Bot token:</strong>{" "}
-              <DocLink href="https://discord.com/developers/applications">Discord Developer Portal</DocLink> → your application →{" "}
-              <strong>Bot</strong> → <strong>Reset Token</strong> → copy. Invite the bot with OAuth2 → URL Generator → scope{" "}
-              <span className="font-mono">bot</span>.
-            </>,
-            <>
-              If the bot must read normal message content (not just slash commands), enable{" "}
-              <strong>Message Content Intent</strong> under Bot → Privileged Gateway Intents.
-            </>,
-            <>
-              Optional env analog: <span className="font-mono">DISCORD_BOT_TOKEN</span> in OpenClaw; here you can use a Secret ref
-              instead.
-            </>,
-            <>
-              <strong>Channel access / allowlist:</strong> <span className="font-mono">allowlist</span> requires snowflake IDs for
-              channels (and similar) the bot should use — enable Discord <strong>Developer Mode</strong>, right‑click a channel →{" "}
-              <strong>Copy channel ID</strong>. Paste one or more IDs (comma/space separated). <span className="font-mono">open</span>{" "}
-              listens broadly (subject to Discord permissions); <span className="font-mono">disabled</span> turns routing off.
-            </>,
-            <>
-              More detail: <DocLink href={`${OPENCLAW_DOCS_ROOT}/channels/discord`}>OpenClaw · Discord</DocLink>.
-            </>,
-          ]}
-        />
-      );
     case "slack":
       return (
         <ChannelSetupHint
@@ -235,7 +204,6 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="telegram">telegram</SelectItem>
-                        <SelectItem value="discord">discord</SelectItem>
                         <SelectItem value="slack">slack</SelectItem>
                       </SelectContent>
                     </Select>
@@ -436,7 +404,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                   </>
                 )}
 
-                {(ch.channelType === "discord" || ch.channelType === "slack") && (
+                {ch.channelType === "slack" && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <FieldRoot className="space-y-1.5">
                       <FieldLabel className="text-xs">Channel access</FieldLabel>
@@ -460,9 +428,9 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                         </SelectContent>
                       </Select>
                       <FieldHint className="text-[11px]">
-                        <span className="font-mono">open</span> — use permitted channels broadly (still respects Discord/Slack membership).
-                        <span className="font-mono"> allowlist</span> — only listed channel snowflake IDs (Discord) or channel IDs (
-                        <span className="font-mono">C…</span>/<span className="font-mono">G…</span>, Slack).{" "}
+                        <span className="font-mono">open</span> — use permitted channels broadly (still respects Slack membership).
+                        <span className="font-mono"> allowlist</span> — only listed channel IDs (
+                        <span className="font-mono">C…</span>/<span className="font-mono">G…</span>).{" "}
                         <span className="font-mono">disabled</span> — disable routing for this account.
                       </FieldHint>
                     </FieldRoot>
@@ -470,9 +438,8 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                       <FieldRoot className="space-y-1.5 sm:col-span-2">
                         <FieldLabel className="text-xs">Allowlisted channel IDs</FieldLabel>
                         <FieldHint className="text-[11px]">
-                          {ch.channelType === "discord"
-                            ? "Discord numeric channel or thread IDs (snowflakes). Enable Developer Mode → right‑click channel → Copy channel ID. Separate multiple IDs with commas or spaces."
-                            : "Slack channel IDs from Copy link / client diagnostics (e.g. C0123… for public channels). Separate with commas or spaces."}
+                          Slack channel IDs from Copy link / client diagnostics (e.g. C0123… for public channels). Separate with commas or
+                          spaces.
                         </FieldHint>
                         <Input
                           value={ch.allowlistChannels}
@@ -549,7 +516,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                   value={value.image}
                   onChange={(e) => set({ image: e.target.value })}
                   className="font-mono text-sm"
-                  placeholder="e.g. ghcr.io/nvidia/nemoclaw/sandbox-base:latest"
+                  placeholder="e.g. ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4"
                   disabled={disabled}
                   autoComplete="off"
                 />
