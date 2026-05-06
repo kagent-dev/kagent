@@ -84,7 +84,7 @@ spec:
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
-            {{- if .Values.controller.metrics.enabled }}
+            {{- if include "kagent.controller.metricsEnabled" . }}
             - name: METRICS_BIND_ADDRESS
               value: {{ .Values.controller.metrics.bindAddress | quote }}
             - name: METRICS_SECURE

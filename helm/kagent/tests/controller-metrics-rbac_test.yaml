@@ -111,3 +111,18 @@ tests:
       - hasDocuments:
           count: 0
         template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: should skip all metrics rbac when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml

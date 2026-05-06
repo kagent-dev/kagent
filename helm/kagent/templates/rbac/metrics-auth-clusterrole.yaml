@@ -1,4 +1,4 @@
-{{- if and .Values.controller.metrics.enabled .Values.controller.metrics.secureServing }}
+{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.secureServing }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
