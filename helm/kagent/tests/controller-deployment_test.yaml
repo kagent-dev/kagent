@@ -562,12 +562,11 @@ tests:
             name: METRICS_SECURE
             value: "false"
 
-  - it: should reflect custom bind address and target port
+  - it: should derive metrics container port from bindAddress
     template: controller-deployment.yaml
     set:
       controller.metrics.enabled: true
       controller.metrics.bindAddress: ":9443"
-      controller.metrics.service.targetPort: 9443
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -580,3 +579,22 @@ tests:
             name: metrics
             containerPort: 9443
             protocol: TCP
+
+  - it: should let controller.env override the chart-supplied metrics env
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.env:
+        - name: METRICS_BIND_ADDRESS
+          value: "0"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":8443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: "0"

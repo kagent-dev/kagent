@@ -230,7 +230,12 @@ controller:
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the ClusterRoles
   # required for authenticated scrapes. Bind `<fullname>-metrics-reader` to
-  # your Prometheus ServiceAccount to grant scrape access.
+  # your Prometheus ServiceAccount to grant scrape access. The Service
+  # targetPort and pod containerPort are derived from `bindAddress` so the
+  # two cannot drift; only the cluster-facing `service.port` is independently
+  # configurable. Overriding `METRICS_BIND_ADDRESS` via `controller.env`
+  # changes the runtime bind but not the Service — keep `service.port`
+  # aligned manually if you take that escape hatch.
   # @default -- disabled
   metrics:
     enabled: false
@@ -239,7 +244,6 @@ controller:
     service:
       type: ClusterIP
       port: 8443
-      targetPort: 8443
   env: []
   envFrom: []
 

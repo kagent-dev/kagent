@@ -39,11 +39,11 @@ tests:
           path: spec.ports[0].protocol
           value: TCP
 
-  - it: should respect custom port and targetPort
+  - it: should derive targetPort from bindAddress
     set:
       controller.metrics.enabled: true
+      controller.metrics.bindAddress: ":9443"
       controller.metrics.service.port: 9443
-      controller.metrics.service.targetPort: 9443
     asserts:
       - equal:
           path: spec.ports[0].port
