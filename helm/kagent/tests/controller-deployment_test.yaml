@@ -580,6 +580,32 @@ tests:
             containerPort: 9443
             protocol: TCP
 
+  - it: should derive metrics container port from a host-qualified bindAddress
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "127.0.0.1:9443"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should derive metrics container port from a bracketed IPv6 bindAddress
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "[::1]:9443"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
+
   - it: should let controller.env override the chart-supplied metrics env
     template: controller-deployment.yaml
     set:

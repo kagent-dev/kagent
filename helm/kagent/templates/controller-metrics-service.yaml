@@ -11,7 +11,7 @@ spec:
   ports:
     - name: {{ ternary "https" "http-metrics" .Values.controller.metrics.secureServing }}
       port: {{ .Values.controller.metrics.service.port }}
-      targetPort: {{ .Values.controller.metrics.bindAddress | regexFind "[0-9]+" | int }}
+      targetPort: {{ include "kagent.controller.metricsPort" . | int }}
       protocol: TCP
   selector:
     {{- include "kagent.controller.selectorLabels" . | nindent 4 }}
