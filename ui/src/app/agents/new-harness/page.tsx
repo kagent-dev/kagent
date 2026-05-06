@@ -16,7 +16,7 @@ import type { AgentFormData } from "@/components/AgentsProvider";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
+import { FormSection, FieldRoot, FieldLabel, FieldError } from "@/components/agent-form/form-primitives";
 import { OpenClawSandboxFields } from "@/components/agent-form/OpenClawSandboxFields";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";

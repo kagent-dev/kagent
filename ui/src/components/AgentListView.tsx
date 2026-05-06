@@ -18,6 +18,7 @@ import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
 import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
 import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 
 interface AgentListViewProps {
@@ -52,7 +53,13 @@ function typeLabel(type: string | undefined): string {
 }
 
 function rowTypeLabel(item: AgentResponse): string {
-  if (isOpenshellSandboxRow(item)) return "OpenClaw";
+  const harnessBackend = getAgentHarnessBackend(item);
+  if (harnessBackend) {
+    return agentHarnessTypeLabel(harnessBackend);
+  }
+  if (isOpenshellSandboxRow(item)) {
+    return "Sandbox";
+  }
   return typeLabel(item.agent.spec?.type);
 }
 
@@ -209,8 +216,8 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(item);
-  const isClawSandbox =
-    sshSandbox && (item.openshellSandbox?.backend === "openclaw" || item.openshellSandbox?.backend === "nemoclaw");
+  const agentHarness = isAgentHarness(item);
+  const harnessBackend = getAgentHarnessBackend(item);
 
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
@@ -278,11 +285,11 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         <div className="pl-1.5">
           <div className="flex min-w-0 items-center gap-2">
             {sshSandbox ? (
-              isClawSandbox ? (
+              agentHarness ? (
                 <span
                   className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
                   aria-hidden
-                  title={item.openshellSandbox?.backend}
+                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellSandbox?.backend}
                 >
                   🦞
                 </span>
@@ -334,22 +341,26 @@ function AgentListRow({ item }: { item: AgentResponse }) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setMemoriesOpen(true);
-                  }}
-                  className="cursor-pointer"
-                >
-                  <Brain className="mr-2 h-4 w-4" />
-                  View memories
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+                {!agentHarness ? (
+                  <>
+                    <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setMemoriesOpen(true);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Brain className="mr-2 h-4 w-4" />
+                      View memories
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.preventDefault();

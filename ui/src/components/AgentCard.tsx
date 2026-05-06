@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
 import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 import { cn } from "@/lib/utils";
 
@@ -32,10 +33,8 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(agentResponse);
-  const isClawSandbox =
-    sshSandbox &&
-    (agentResponse.openshellSandbox?.backend === "openclaw" ||
-      agentResponse.openshellSandbox?.backend === "nemoclaw");
+  const agentHarness = isAgentHarness(agentResponse);
+  const harnessBackend = getAgentHarnessBackend(agentResponse);
 
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -80,11 +79,11 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
         <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
           {sshSandbox ? (
-            isClawSandbox ? (
+            agentHarness ? (
               <span
                 className="h-5 w-5 flex-shrink-0 text-muted-foreground"
                 aria-hidden
-                title={agentResponse.openshellSandbox?.backend}
+                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellSandbox?.backend}
               >
                 🦞
               </span>
@@ -109,25 +108,26 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem
-                onClick={handleEditClick}
-                className="cursor-pointer"
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMemoriesOpen(true);
-                }}
-                className="cursor-pointer"
-              >
-                <Brain className="mr-2 h-4 w-4" />
-                View Memories
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {!agentHarness ? (
+                <>
+                  <DropdownMenuItem onClick={handleEditClick} className="cursor-pointer">
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setMemoriesOpen(true);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    <Brain className="mr-2 h-4 w-4" />
+                    View Memories
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuItem
                 onClick={(e) => {
                   e.preventDefault();
