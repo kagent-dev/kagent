@@ -18,6 +18,7 @@ package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -151,5 +152,8 @@ type ModelProviderConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ModelProviderConfig{}, &ModelProviderConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ModelProviderConfig{}, &ModelProviderConfigList{})
+		return nil
+	})
 }

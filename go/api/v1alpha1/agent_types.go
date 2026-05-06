@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
@@ -163,5 +164,8 @@ type AgentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Agent{}, &AgentList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Agent{}, &AgentList{})
+		return nil
+	})
 }
