@@ -47,13 +47,23 @@ const (
 	AgentReadyReasonDeploymentReady = "DeploymentReady"
 	AgentReadyReasonWorkloadReady   = "WorkloadReady"
 
-	// mcpRegistrationTimeout is the deadline applied to each RemoteMCPServer
-	// registration attempt (header resolution + MCP connect + tool listing).
-	// A hung or unreachable endpoint is bounded to this duration, ensuring the
-	// reconciler goroutine is always released and does not block subsequent
-	// RemoteMCPServer reconciliations.
+	// mcpRegistrationTimeout is the default deadline applied to a RemoteMCPServer
+	// registration attempt (header resolution + MCP connect + tool listing) when
+	// .spec.timeout is not set. A hung or unreachable endpoint is bounded to this
+	// duration, ensuring the reconciler goroutine is always released and does not
+	// block subsequent RemoteMCPServer reconciliations.
 	mcpRegistrationTimeout = 30 * time.Second
 )
+
+// remoteMCPRegistrationTimeout returns the effective registration deadline for
+// a RemoteMCPServer. It uses .spec.timeout when set, and falls back to the
+// package-level default otherwise.
+func remoteMCPRegistrationTimeout(s *v1alpha2.RemoteMCPServer) time.Duration {
+	if s != nil && s.Spec.Timeout != nil {
+		return s.Spec.Timeout.Duration
+	}
+	return mcpRegistrationTimeout
+}
 
 type KagentReconciler interface {
 	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
@@ -981,10 +991,10 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 	}
 
 	// Bound the entire registration sequence (header resolution + MCP connect +
-	// tool listing) to mcpRegistrationTimeout so that a hung or unreachable
-	// endpoint cannot block this goroutine — and therefore all subsequent
-	// RemoteMCPServer reconciliations — indefinitely.
-	tCtx, cancel := context.WithTimeout(ctx, mcpRegistrationTimeout)
+	// tool listing) to the effective per-resource timeout so that a hung or
+	// unreachable endpoint cannot block this goroutine — and therefore all
+	// subsequent RemoteMCPServer reconciliations — indefinitely.
+	tCtx, cancel := context.WithTimeout(ctx, remoteMCPRegistrationTimeout(remoteMcpServer))
 	defer cancel()
 
 	tsp, err := a.createMcpTransport(tCtx, remoteMcpServer)
@@ -1018,7 +1028,7 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
-	httpClient := newHTTPClient(headers)
+	httpClient := newHTTPClient(headers, remoteMCPRegistrationTimeout(s))
 
 	switch s.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
@@ -1036,14 +1046,14 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 
 // go-sdk does not have a WithHeaders option when initializing transport
 // so we need to create a custom HTTP client that adds headers to all requests.
-func newHTTPClient(headers map[string]string) *http.Client {
+func newHTTPClient(headers map[string]string, timeout time.Duration) *http.Client {
 	if len(headers) == 0 {
 		return &http.Client{
-			Timeout: mcpRegistrationTimeout,
+			Timeout: timeout,
 		}
 	}
 	return &http.Client{
-		Timeout: mcpRegistrationTimeout,
+		Timeout: timeout,
 		Transport: &headerTransport{
 			headers: headers,
 			base:    http.DefaultTransport,
