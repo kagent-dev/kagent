@@ -258,7 +258,7 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox";
+export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
 
 /** Single Git repository source for skills. */
 export interface GitRepo {

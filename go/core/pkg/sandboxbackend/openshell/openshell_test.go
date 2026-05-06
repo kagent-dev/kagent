@@ -403,12 +403,13 @@ func TestOnSandboxReady_ModelConfigRef(t *testing.T) {
 	require.NotEmpty(t, fg.execStdins[0])
 	require.Contains(t, string(fg.execStdins[0]), `"openai/gpt-4o"`)
 	require.Contains(t, string(fg.execStdins[0]), `"OPENAI_API_KEY"`)
+	require.Contains(t, string(fg.execStdins[0]), `openshell:resolve:env:OPENAI_API_KEY`)
 	require.Contains(t, string(fg.execStdins[0]), `"secrets"`)
 	require.Contains(t, string(fg.execStdins[0]), `"kagent"`)
 	require.Contains(t, string(fg.execStdins[0]), `"allowlist"`)
 
 	gatewayJoined := strings.Join(fg.execCalls[1], " ")
-	require.Contains(t, gatewayJoined, "openclaw gateway start")
+	require.Contains(t, gatewayJoined, "openclaw gateway run")
 	require.Contains(t, gatewayJoined, "--port 18800")
 	require.NotContains(t, gatewayJoined, "--allow-unconfigured")
 	require.NotContains(t, gatewayJoined, "--auth none")
@@ -455,6 +456,7 @@ func TestEnsureSandbox_Claw_PinsNemoclawBaseImage(t *testing.T) {
 	require.NoError(t, err)
 
 	sbx := sampleClawSandbox()
+	sbx.Spec.Image = ""
 	_, err = b.EnsureSandbox(context.Background(), sbx)
 	require.NoError(t, err)
 

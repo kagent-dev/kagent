@@ -13,12 +13,11 @@ import (
 
 const openclawBootstrapEnvProvider = "kagent"
 
-func openclawEnvSecretRef(envVar string) map[string]any {
-	return map[string]any{
-		"source":   "env",
-		"provider": openclawBootstrapEnvProvider,
-		"id":       envVar,
-	}
+// openclawOpenshellResolveEnv matches OpenClaw onboard --custom-api-key:
+// credentials resolve via OpenShell’s env path inside the sandbox (same as
+// literal OPENAI_API_KEY etc. still injected by kagent on ExecSandbox).
+func openclawOpenshellResolveEnv(envVar string) string {
+	return "openshell:resolve:env:" + envVar
 }
 
 func sandboxChannelEnvSuffix(name string) string {
@@ -56,6 +55,18 @@ func putChannelCredential(ctx context.Context, kube client.Client, namespace str
 	}
 	env[envKey] = v
 	return nil
+}
+
+// resolvedChannelSecret returns the plaintext value putChannelCredential stored in env.
+// Channel configs (Telegram botToken, Discord token, Slack tokens) must use literals in
+// openclaw.json: OpenClaw's Bot API clients build URLs from botToken before OpenShell-style
+// openshell:resolve:env: placeholders are expanded, which yields 404 from Telegram.
+func resolvedChannelSecret(env map[string]string, envKey string) (string, error) {
+	v := strings.TrimSpace(env[envKey])
+	if v == "" {
+		return "", fmt.Errorf("credential %s is missing or empty after resolve", envKey)
+	}
+	return v, nil
 }
 
 func splitAllowedList(raw string) []any {
@@ -163,7 +174,7 @@ func slackInteractiveReplies(spec *v1alpha2.SandboxSlackChannelSpec) bool {
 }
 
 // buildOpenClawBootstrapJSON builds ~/.openclaw/openclaw.json contents plus environment variables
-// that must be present when OpenClaw reads env-based secret refs (provider API key + channel tokens).
+// that must be present when OpenClaw resolves openshell:resolve:env:<VAR> (API key + channel tokens).
 func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespace string, sbx *v1alpha2.Sandbox, mc *v1alpha2.ModelConfig, gwPort int) ([]byte, map[string]string, error) {
 	if mc == nil {
 		return nil, nil, fmt.Errorf("ModelConfig is required")
@@ -203,7 +214,7 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 			"providers": map[string]any{
 				providerRecord: map[string]any{
 					"baseUrl": baseURL,
-					"apiKey":  openclawEnvSecretRef(apiKeyEnv),
+					"apiKey":  openclawOpenshellResolveEnv(apiKeyEnv),
 					"auth":    openclawProviderAuth(mc),
 					"api":     apiAdapter,
 					// openclaw.schema.json requires models.providers.<id>.models (array of {id,name}).
@@ -247,6 +258,10 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 			if err := putChannelCredential(ctx, kube, namespace, spec.BotToken, botEnv, env); err != nil {
 				return nil, nil, fmt.Errorf("channel %q telegram bot token: %w", ch.Name, err)
 			}
+			botTok, err := resolvedChannelSecret(env, botEnv)
+			if err != nil {
+				return nil, nil, fmt.Errorf("channel %q telegram %w", ch.Name, err)
+			}
 			allowFrom, err := telegramAllowFrom(ctx, kube, namespace, spec)
 			if err != nil {
 				return nil, nil, fmt.Errorf("channel %q telegram allowlist: %w", ch.Name, err)
@@ -254,7 +269,7 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 			acc := map[string]any{
 				"name":     ch.Name,
 				"enabled":  true,
-				"botToken": openclawEnvSecretRef(botEnv),
+				"botToken": botTok,
 			}
 			if len(allowFrom) > 0 {
 				acc["dmPolicy"] = "allowlist"
@@ -276,10 +291,14 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 			if err := putChannelCredential(ctx, kube, namespace, spec.BotToken, botEnv, env); err != nil {
 				return nil, nil, fmt.Errorf("channel %q discord bot token: %w", ch.Name, err)
 			}
+			dcTok, err := resolvedChannelSecret(env, botEnv)
+			if err != nil {
+				return nil, nil, fmt.Errorf("channel %q discord %w", ch.Name, err)
+			}
 			acc := map[string]any{
 				"name":        ch.Name,
 				"enabled":     true,
-				"token":       openclawEnvSecretRef(botEnv),
+				"token":       dcTok,
 				"groupPolicy": string(spec.ChannelAccess),
 				"dmPolicy":    "open",
 			}
@@ -307,12 +326,20 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 			if err := putChannelCredential(ctx, kube, namespace, spec.AppToken, appEnv, env); err != nil {
 				return nil, nil, fmt.Errorf("channel %q slack app token: %w", ch.Name, err)
 			}
+			slackBotTok, err := resolvedChannelSecret(env, botEnv)
+			if err != nil {
+				return nil, nil, fmt.Errorf("channel %q slack %w", ch.Name, err)
+			}
+			slackAppTok, err := resolvedChannelSecret(env, appEnv)
+			if err != nil {
+				return nil, nil, fmt.Errorf("channel %q slack %w", ch.Name, err)
+			}
 			acc := map[string]any{
 				"name":              ch.Name,
 				"enabled":           true,
 				"mode":              "socket",
-				"botToken":          openclawEnvSecretRef(botEnv),
-				"appToken":          openclawEnvSecretRef(appEnv),
+				"botToken":          slackBotTok,
+				"appToken":          slackAppTok,
 				"userTokenReadOnly": true,
 				"groupPolicy":       string(spec.ChannelAccess),
 				"capabilities": map[string]any{
@@ -369,8 +396,9 @@ func buildOpenClawBootstrapJSON(ctx context.Context, kube client.Client, namespa
 		root["channels"] = channelsRoot
 	}
 
-	// env:-backed secret refs (e.g. models.providers.*.apiKey) use provider "kagent"; OpenClaw requires
-	// secrets.providers.kagent with source "env" (see openclaw.schema.json secrets.providers).
+	// Model apiKey and channel tokens use openshell:resolve:env:<VAR> (OpenClaw onboard pattern).
+	// secrets.providers.kagent allowlist still enumerates injected vars for compatibility with
+	// OpenClaw secret validation (openclaw.schema.json secrets.providers).
 	secretAllow := make([]string, 0, len(env))
 	for k := range env {
 		secretAllow = append(secretAllow, k)
@@ -405,13 +433,4 @@ func stringSliceToAny(ss []string) []any {
 		}
 	}
 	return out
-}
-
-func sandboxHasDiscordChannel(sbx *v1alpha2.Sandbox) bool {
-	for _, ch := range sbx.Spec.Channels {
-		if ch.Type == v1alpha2.SandboxChannelTypeDiscord {
-			return true
-		}
-	}
-	return false
 }

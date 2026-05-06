@@ -666,6 +666,45 @@ func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {
 	}
 }
 
+// HandleCreateSandbox handles POST /api/sandboxes requests (kagent.dev/v1alpha2 Sandbox — OpenClaw/NemoClaw VM, etc.).
+func (h *AgentsHandler) HandleCreateSandbox(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-sandbox")
+	sb := &v1alpha2.Sandbox{}
+	if err := DecodeJSONBody(r, sb); err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+	if sb.APIVersion == "" {
+		sb.APIVersion = v1alpha2.GroupVersion.String()
+	}
+	if sb.Kind == "" {
+		sb.Kind = "Sandbox"
+	}
+
+	log, agentRef, wrappedErr := h.parseAgentRef(log, sb, "Invalid sandbox metadata")
+	if wrappedErr != nil {
+		w.RespondWithError(wrappedErr)
+		return
+	}
+	if !h.authorizeAgentRequest(w, r, agentRef) {
+		return
+	}
+
+	if strings.TrimSpace(string(sb.Spec.Backend)) == "" {
+		w.RespondWithError(errors.NewBadRequestError("spec.backend is required", nil))
+		return
+	}
+
+	if err := h.KubeClient.Create(r.Context(), sb); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to create Sandbox in Kubernetes", err))
+		return
+	}
+
+	resp := h.openshellSandboxAgentResponse(r.Context(), log, sb)
+	log.Info("Successfully created sandbox", "sandboxRef", agentRef)
+	respondWithObjectResponse(w, http.StatusCreated, resp, "Successfully created sandbox")
+}
+
 // HandleCreateSandboxAgent handles POST /api/sandboxagents requests.
 func (h *AgentsHandler) HandleCreateSandboxAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-sandboxagent")

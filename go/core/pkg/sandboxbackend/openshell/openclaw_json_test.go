@@ -47,6 +47,7 @@ func TestBuildOpenClawBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testin
 	provs := models["providers"].(map[string]any)
 	openai := provs["openai"].(map[string]any)
 	require.Equal(t, "https://inference.local/v1", openai["baseUrl"])
+	require.Equal(t, "openshell:resolve:env:OPENAI_API_KEY", openai["apiKey"])
 	secRoot := root["secrets"].(map[string]any)
 	secProvs := secRoot["providers"].(map[string]any)
 	kagent := secProvs["kagent"].(map[string]any)
@@ -108,6 +109,7 @@ func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	entry := modelList[0].(map[string]any)
 	require.Equal(t, "gpt-4o", entry["id"])
 	require.Equal(t, "gpt-4o", entry["name"])
+	require.Equal(t, "openshell:resolve:env:OPENAI_API_KEY", openai["apiKey"])
 	secRoot := root["secrets"].(map[string]any)
 	secProvs := secRoot["providers"].(map[string]any)
 	kagent := secProvs["kagent"].(map[string]any)
@@ -116,9 +118,13 @@ func TestBuildOpenClawBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	require.ElementsMatch(t, []any{"KAGENT_SB_CH_TG1_TELEGRAM_BOT", "OPENAI_API_KEY"}, al)
 	ch := root["channels"].(map[string]any)
 	require.Contains(t, ch, "telegram")
+	tg := ch["telegram"].(map[string]any)
+	tgAcc := tg["accounts"].(map[string]any)
+	tg1 := tgAcc["tg1"].(map[string]any)
+	require.Equal(t, "telegram-bot-token", tg1["botToken"])
 }
 
-func TestSandboxHasDiscordChannel(t *testing.T) {
+func TestSandboxHasChannelType_Discord(t *testing.T) {
 	sbx := &v1alpha2.Sandbox{
 		Spec: v1alpha2.SandboxSpec{
 			Channels: []v1alpha2.SandboxChannel{
@@ -128,7 +134,7 @@ func TestSandboxHasDiscordChannel(t *testing.T) {
 			},
 		},
 	}
-	require.False(t, sandboxHasDiscordChannel(sbx))
+	require.False(t, sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord))
 	sbx.Spec.Channels = append(sbx.Spec.Channels, v1alpha2.SandboxChannel{
 		Name: "d",
 		Type: v1alpha2.SandboxChannelTypeDiscord,
@@ -137,5 +143,5 @@ func TestSandboxHasDiscordChannel(t *testing.T) {
 			ChannelAccess: v1alpha2.SandboxChannelAccessOpen,
 		},
 	})
-	require.True(t, sandboxHasDiscordChannel(sbx))
+	require.True(t, sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord))
 }

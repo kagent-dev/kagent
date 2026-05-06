@@ -94,7 +94,7 @@ func (b *ClawBackend) OnSandboxReady(ctx context.Context, sbx *v1alpha2.Sandbox,
 		return fmt.Errorf("resolve sandbox exec id: %w", err)
 	}
 
-	if sandboxHasDiscordChannel(sbx) {
+	if sandboxHasChannelType(sbx, v1alpha2.SandboxChannelTypeDiscord) {
 		dCtx, cancelDiscord := context.WithTimeout(ctx, 120*time.Second+15*time.Second)
 		code, stderr, errExec := b.execSandbox(withAuth(dCtx, token), execID, []string{"sh", "-c", "openclaw plugins enable discord"}, nil, nil, 120)
 		cancelDiscord()
@@ -142,7 +142,11 @@ func buildClawCreateRequest(sbx *v1alpha2.Sandbox) (*openshellv1.CreateSandboxRe
 	if req.GetSpec().GetTemplate() == nil {
 		req.Spec.Template = &openshellv1.SandboxTemplate{}
 	}
-	req.Spec.Template.Image = NemoclawSandboxBaseImage
+
+	// If the user has set an image, use it. Otherwise, use our nemoclaw image.
+	if sbx.Spec.Image == "" {
+		req.Spec.Template.Image = NemoclawSandboxBaseImage
+	}
 	return req, unsupported
 }
 

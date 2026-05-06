@@ -37,6 +37,7 @@ const (
 	APIPathToolServerTypes      = "/api/toolservertypes"
 	APIPathAgents               = "/api/agents"
 	APIPathSandboxAgents        = "/api/sandboxagents"
+	APIPathSandboxes            = "/api/sandboxes"
 	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
 	APIPathModels               = "/api/models"
 	APIPathMemories             = "/api/memories"
@@ -251,6 +252,7 @@ func (s *HTTPServer) setupRoutes() {
 
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSandboxes, adaptHandler(s.handlers.Agents.HandleCreateSandbox)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
