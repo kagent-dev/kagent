@@ -587,7 +587,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <FieldLabel>Agent type</FieldLabel>
                 <FieldHint>
                   Declarative and sandbox workload (without a custom image) use the in-cluster ADK runtime. BYO or sandbox with a custom image adds
-                  container settings. For NemoClaw / OpenClaw harness agents, use Create → New Agent Harness.
+                  container settings. 
                 </FieldHint>
                 <Select
                   value={state.agentType}
