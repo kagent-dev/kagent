@@ -52,6 +52,26 @@ tests:
           path: spec.ports[0].targetPort
           value: 9443
 
+  - it: should derive targetPort from a host-qualified bindAddress
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "127.0.0.1:9443"
+      controller.metrics.service.port: 9443
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
+  - it: should derive targetPort from a bracketed IPv6 bindAddress
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "[::1]:9443"
+      controller.metrics.service.port: 9443
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
   - it: should rename port when secure serving disabled
     set:
       controller.metrics.enabled: true

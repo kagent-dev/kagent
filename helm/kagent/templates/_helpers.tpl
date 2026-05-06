@@ -144,6 +144,20 @@ Check if leader election should be enabled (more than 1 replica)
 {{- end -}}
 
 {{/*
+Extract the TCP port from controller.metrics.bindAddress.
+
+Anchors the digit run to the end of the string so every Go-style
+address form the controller binary accepts is handled correctly: bare
+":port", host-qualified "host:port", and bracketed IPv6 "[::1]:port"
+all yield the trailing port. Disabling metrics is exclusively the job
+of controller.metrics.enabled=false; bindAddress is expected to carry
+a real, non-zero port whenever the metrics resources render.
+*/}}
+{{- define "kagent.controller.metricsPort" -}}
+{{- regexFind "[0-9]+$" (.Values.controller.metrics.bindAddress | toString) -}}
+{{- end -}}
+
+{{/*
 PostgreSQL service name for the bundled postgres instance
 */}}
 {{- define "kagent.postgresqlServiceName" -}}

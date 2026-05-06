@@ -141,7 +141,7 @@ spec:
               protocol: TCP
             {{- if .Values.controller.metrics.enabled }}
             - name: metrics
-              containerPort: {{ .Values.controller.metrics.bindAddress | regexFind "[0-9]+" | int }}
+              containerPort: {{ include "kagent.controller.metricsPort" . | int }}
               protocol: TCP
             {{- end }}
           resources:
