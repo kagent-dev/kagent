@@ -575,7 +575,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		}
 		if err := (&controller.AgentHarnessController{
 			Client:   kubeClient,
-			Recorder: mgr.GetEventRecorderFor("sandbox-controller"),
+			Recorder: mgr.GetEventRecorder("agentharness-controller"),
 			Backends: openshellBackends,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")

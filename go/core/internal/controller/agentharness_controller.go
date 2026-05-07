@@ -18,7 +18,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,7 +50,7 @@ const (
 // workload owned by kagent.
 type AgentHarnessController struct {
 	Client   client.Client
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	Backends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 }
 
@@ -200,7 +200,7 @@ func (r *AgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alph
 		if del != nil {
 			if err := del.DeleteAgentHarness(ctx, sandboxbackend.Handle{ID: ah.Status.BackendRef.ID}); err != nil {
 				if r.Recorder != nil {
-					r.Recorder.Event(ah, "Warning", "AgentHarnessDeleteFailed", err.Error())
+					r.Recorder.Eventf(ah, nil, "Warning", "AgentHarnessDeleteFailed", "DeleteAgentHarness", "%s", err.Error())
 				}
 				return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
 			}

@@ -1,6 +1,7 @@
 package openshell
 
 import (
+	"maps"
 	"net"
 	"net/url"
 	"strings"
@@ -362,9 +363,7 @@ func extractAllowedDomains(sbx *v1alpha2.AgentHarness) []string {
 func applyClawBaselinePolicies(
 	net map[string]*sandboxv1.NetworkPolicyRule,
 ) (fs *sandboxv1.FilesystemPolicy, landlock *sandboxv1.LandlockPolicy, process *sandboxv1.ProcessPolicy) {
-	for k, r := range openClawDefaultNetworkPolicies() {
-		net[k] = r
-	}
+	maps.Copy(net, openClawDefaultNetworkPolicies())
 	net[openClawNetworkPolicyKeyNPMYarn] = npmYarnNetworkPolicyRule()
 	return defaultClawFilesystemPolicy(), defaultClawLandlockPolicy(), defaultClawProcessPolicy()
 }

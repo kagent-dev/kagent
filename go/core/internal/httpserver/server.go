@@ -49,7 +49,7 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
-	APIPathSandboxSSH = "/api/sandbox/ssh"
+	APIPathSandboxSSH           = "/api/sandbox/ssh"
 )
 
 var defaultModelConfig = types.NamespacedName{

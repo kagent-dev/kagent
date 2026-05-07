@@ -145,8 +145,8 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 				Description: desc,
 			},
 		},
-		DeploymentReady:  ready,
-		Accepted:         accepted,
+		DeploymentReady:       ready,
+		Accepted:              accepted,
 		OpenshellAgentHarness: entry,
 	}
 
