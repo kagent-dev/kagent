@@ -45,20 +45,20 @@ jest.mock('next/router', () => ({
   },
 }));
 
+const mockNextUseRouter = jest.fn(() => ({
+  push: jest.fn(),
+  replace: jest.fn(),
+  refresh: jest.fn(),
+  back: jest.fn(),
+}));
+
+const mockNextUsePathname = jest.fn(() => '');
+
+const mockNextUseSearchParams = jest.fn(() => new URLSearchParams());
+
 // Mock next/navigation
 jest.mock('next/navigation', () => ({
-  useRouter() {
-    return {
-      push: jest.fn(),
-      replace: jest.fn(),
-      refresh: jest.fn(),
-      back: jest.fn(),
-    };
-  },
-  usePathname() {
-    return '';
-  },
-  useSearchParams() {
-    return new URLSearchParams();
-  },
-})); 
+  useRouter: mockNextUseRouter,
+  usePathname: mockNextUsePathname,
+  useSearchParams: mockNextUseSearchParams,
+}));

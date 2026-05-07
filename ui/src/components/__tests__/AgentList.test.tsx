@@ -1,17 +1,8 @@
 import { render, screen } from "@testing-library/react";
+import * as nextNavigation from "next/navigation";
 import AgentList from "@/components/AgentList";
 import { AgentsContext, type AgentsContextType } from "@/components/AgentsProvider";
 import type { Agent, AgentResponse } from "@/types";
-
-const mockUseRouter = jest.fn();
-const mockUsePathname = jest.fn();
-const mockUseSearchParams = jest.fn();
-
-jest.mock("next/navigation", () => ({
-  useRouter: () => mockUseRouter(),
-  usePathname: () => mockUsePathname(),
-  useSearchParams: () => mockUseSearchParams(),
-}));
 
 function createContextValue(agents: AgentResponse[]): AgentsContextType {
   return {
@@ -62,6 +53,10 @@ const agents: AgentResponse[] = [
 ];
 
 describe("AgentList", () => {
+  const mockUseRouter = jest.mocked(nextNavigation.useRouter);
+  const mockUsePathname = jest.mocked(nextNavigation.usePathname);
+  const mockUseSearchParams = jest.mocked(nextNavigation.useSearchParams);
+
   beforeEach(() => {
     mockUseRouter.mockReturnValue({
       push: jest.fn(),
