@@ -19,12 +19,12 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	database_fake "github.com/kagent-dev/kagent/go/core/internal/database/fake"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
+	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func setUser(req *http.Request, userID string) *http.Request {
@@ -43,9 +43,9 @@ func TestSessionsHandler(t *testing.T) {
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	setupHandler := func() (*handlers.SessionsHandler, *database_fake.InMemoryFakeClient, *mockErrorResponseWriter) {
+	setupHandler := func(t *testing.T) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-		dbClient := database_fake.NewClient()
+		dbClient := setupTestDBClient(t)
 
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
@@ -54,40 +54,40 @@ func TestSessionsHandler(t *testing.T) {
 		}
 		handler := handlers.NewSessionsHandler(base)
 		responseRecorder := newMockErrorResponseWriter()
-		return handler, dbClient.(*database_fake.InMemoryFakeClient), responseRecorder
+		return handler, dbClient, responseRecorder
 	}
 
-	createTestAgent := func(dbClient database.Client, agentRef string) *database.Agent {
+	createTestAgent := func(t *testing.T, dbClient database.Client, agentRef string) *database.Agent {
+		t.Helper()
 		agent := &database.Agent{
 			ID:           agentRef,
 			WorkloadType: v1alpha2.WorkloadModeDeployment,
 		}
-		dbClient.StoreAgent(context.Background(), agent) //nolint:errcheck
-		// The fake client should assign an ID, but we'll use a default for testing
-		agent.ID = "1" // Simulate the ID that would be assigned by GORM
+		require.NoError(t, dbClient.StoreAgent(context.Background(), agent))
 		return agent
 	}
 
-	createTestSession := func(dbClient database.Client, sessionID, userID string, agentID string) *database.Session {
+	createTestSession := func(t *testing.T, dbClient database.Client, sessionID, userID string, agentID string) *database.Session {
+		t.Helper()
 		session := &database.Session{
 			ID:      sessionID,
 			Name:    new(sessionID),
 			UserID:  userID,
 			AgentID: &agentID,
 		}
-		dbClient.StoreSession(context.Background(), session) //nolint:errcheck
+		require.NoError(t, dbClient.StoreSession(context.Background(), session))
 		return session
 	}
 
 	t.Run("HandleListSessions", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 
 			// Create test sessions
 			agentID := "1"
-			session1 := createTestSession(dbClient, "session-1", userID, agentID)
-			session2 := createTestSession(dbClient, "session-2", userID, agentID)
+			session1 := createTestSession(t, dbClient, "session-1", userID, agentID)
+			session2 := createTestSession(t, dbClient, "session-2", userID, agentID)
 
 			req := httptest.NewRequest("GET", "/api/sessions?user_id="+userID, nil)
 			req = setUser(req, userID)
@@ -104,7 +104,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("GET", "/api/sessions", nil)
 			handler.HandleListSessions(responseRecorder, req)
@@ -116,12 +116,12 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleCreateSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
 
 			// Create test agent
-			createTestAgent(dbClient, agentRef)
+			createTestAgent(t, dbClient, agentRef)
 
 			sessionReq := api.SessionRequest{
 				AgentRef: &agentRef,
@@ -146,7 +146,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
 
 			sessionReq := api.SessionRequest{
@@ -164,7 +164,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingAgentRef", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			userID := "test-user"
 
 			sessionReq := api.SessionRequest{}
@@ -182,7 +182,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("AgentNotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			agentRef := utils.ConvertToPythonIdentifier("default/non-existent-agent")
 
 			sessionReq := api.SessionRequest{
@@ -201,7 +201,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 
 			req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBufferString("invalid json"))
 			req.Header.Set("Content-Type", "application/json")
@@ -213,7 +213,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("SandboxAgentAllowsOnlyOneSessionGlobally", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			agentRef := utils.ConvertToPythonIdentifier("default/test-sandbox-agent")
 
@@ -223,7 +223,7 @@ func TestSessionsHandler(t *testing.T) {
 			}))
 
 			existingAgentID := agentRef
-			createTestSession(dbClient, "existing-session", "other-user", existingAgentID)
+			createTestSession(t, dbClient, "existing-session", "other-user", existingAgentID)
 
 			sessionReq := api.SessionRequest{
 				AgentRef: &agentRef,
@@ -244,13 +244,13 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleGetSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionID := "test-session"
 
 			// Create test session
 			agentID := "1"
-			session := createTestSession(dbClient, sessionID, userID, agentID)
+			session := createTestSession(t, dbClient, sessionID, userID, agentID)
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
@@ -268,7 +268,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("SessionNotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionID := "non-existent-session"
 
@@ -283,7 +283,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			sessionID := "test-session"
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
@@ -296,13 +296,13 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("OrderAsc", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionID := "test-session"
 
 			// Create test session
 			agentID := "1"
-			createTestSession(dbClient, sessionID, userID, agentID)
+			createTestSession(t, dbClient, sessionID, userID, agentID)
 
 			// Create events with different timestamps
 			event1 := &database.Event{
@@ -340,17 +340,17 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleUpdateSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionName := "test-session"
 
 			// Create test agent and session
 			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
-			agent := createTestAgent(dbClient, agentRef)
-			session := createTestSession(dbClient, sessionName, userID, agent.ID)
+			agent := createTestAgent(t, dbClient, agentRef)
+			session := createTestSession(t, dbClient, sessionName, userID, agent.ID)
 
 			newAgentRef := utils.ConvertToPythonIdentifier("default/new-agent")
-			newAgent := createTestAgent(dbClient, newAgentRef)
+			newAgent := createTestAgent(t, dbClient, newAgentRef)
 
 			sessionReq := api.SessionRequest{
 				Name:     &sessionName,
@@ -374,7 +374,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingSessionName", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			agentRef := "default/test-agent"
 
@@ -394,12 +394,12 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("SessionNotFound", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionName := "non-existent-session"
 			agentRef := "default/test-agent"
 
-			createTestAgent(dbClient, agentRef)
+			createTestAgent(t, dbClient, agentRef)
 
 			sessionReq := api.SessionRequest{
 				Name:     &sessionName,
@@ -420,7 +420,7 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleDeleteSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionID := "test-session"
 
@@ -430,7 +430,7 @@ func TestSessionsHandler(t *testing.T) {
 				Type: "Declarative",
 			}))
 			agentID := "1"
-			createTestSession(dbClient, sessionID, userID, agentID)
+			createTestSession(t, dbClient, sessionID, userID, agentID)
 
 			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID, nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
@@ -447,7 +447,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			sessionID := "test-session"
 
 			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID, nil)
@@ -462,16 +462,16 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleGetSessionsForAgent", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			namespace := "default"
 			agentName := "test-agent"
 			agentRef := utils.ConvertToPythonIdentifier(namespace + "/" + agentName)
 
 			// Create test agent and sessions
-			agent := createTestAgent(dbClient, agentRef)
-			session1 := createTestSession(dbClient, "session-1", userID, agent.ID)
-			session2 := createTestSession(dbClient, "session-2", userID, agent.ID)
+			agent := createTestAgent(t, dbClient, agentRef)
+			session1 := createTestSession(t, dbClient, "session-1", userID, agent.ID)
+			session2 := createTestSession(t, dbClient, "session-2", userID, agent.ID)
 
 			req := httptest.NewRequest("GET", "/api/agents/"+namespace+"/"+agentName+"/sessions", nil)
 			req = mux.SetURLVars(req, map[string]string{"namespace": namespace, "name": agentName})
@@ -490,7 +490,7 @@ func TestSessionsHandler(t *testing.T) {
 		})
 
 		t.Run("AgentNotFound", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			namespace := "default"
 			agentName := "non-existent-agent"
@@ -508,27 +508,22 @@ func TestSessionsHandler(t *testing.T) {
 
 	t.Run("HandleListTasksForSession", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
-			handler, dbClient, responseRecorder := setupHandler()
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
 			sessionID := "test-session"
 
 			// Create test session and tasks
 			agentID := "1"
-			createTestSession(dbClient, sessionID, userID, agentID)
+			createTestSession(t, dbClient, sessionID, userID, agentID)
 
-			task1 := &database.Task{
+			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
 				ID:        "task-1",
-				SessionID: sessionID,
-				Data:      "{}",
-			}
-			task2 := &database.Task{
+				ContextID: sessionID,
+			}))
+			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
 				ID:        "task-2",
-				SessionID: sessionID,
-				Data:      "{}",
-			}
-			// Use the fake client's AddTask method for testing
-			dbClient.AddTask(task1)
-			dbClient.AddTask(task2)
+				ContextID: sessionID,
+			}))
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
@@ -538,14 +533,14 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*database.Task]
+			var response api.StandardResponse[[]*protocol.Task]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler()
+			handler, _, responseRecorder := setupHandler(t)
 			sessionID := "test-session"
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)

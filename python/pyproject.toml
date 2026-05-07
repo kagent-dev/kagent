@@ -6,7 +6,7 @@ dev = [
   "pytest>=9.0.3",
   "pytest-asyncio>=0.25.3",
   "ruff>=0.15.12",
-  "authlib>=1.7.0"
+  "authlib>=1.7.1"
 ]
 
 [tool.uv]

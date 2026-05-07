@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Cable } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import {
@@ -64,11 +64,17 @@ export function Header() {
                   <ChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="min-w-56">
                 <DropdownMenuItem asChild>
                   <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
                     <KagentLogo className="h-4 w-4 text-primary" />
                     New Agent
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/agents/new-harness" className="gap-2 cursor-pointer w-full">
+                    <Cable className="h-4 w-4 shrink-0 text-primary" />
+                    New Agent Harness
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -205,6 +211,12 @@ export function Header() {
                     <Link href="/agents/new" className="gap-2 cursor-pointer w-full">
                       <KagentLogo className="h-4 w-4 text-primary" />
                       New Agent
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/agents/new-harness" className="gap-2 cursor-pointer w-full">
+                      <Cable className="h-4 w-4 shrink-0 text-primary" />
+                      New Agent Harness
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild onClick={handleMobileLinkClick}>

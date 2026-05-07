@@ -1,0 +1,120 @@
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package openshell.inference.v1;
+
+import "datamodel.proto";
+
+// Inference service provides cluster inference configuration and bundle delivery.
+service Inference {
+  // Return the resolved inference route bundle for sandbox-local execution.
+  rpc GetInferenceBundle(GetInferenceBundleRequest)
+      returns (GetInferenceBundleResponse);
+
+  // Set cluster-level inference configuration.
+  //
+  // This controls how requests sent to `inference.local` are routed.
+  rpc SetClusterInference(SetClusterInferenceRequest)
+      returns (SetClusterInferenceResponse);
+
+  // Get cluster-level inference configuration.
+  rpc GetClusterInference(GetClusterInferenceRequest)
+      returns (GetClusterInferenceResponse);
+
+}
+
+// Persisted cluster inference configuration.
+//
+// Only `provider_name` and `model_id` are stored; endpoint, protocols,
+// credentials, and auth style are resolved from the provider at bundle time.
+message ClusterInferenceConfig {
+  // Provider record name backing this route.
+  string provider_name = 1;
+  // Model identifier to force on generation calls.
+  string model_id = 2;
+  // Per-route request timeout in seconds. 0 means use default (60s).
+  uint64 timeout_secs = 3;
+}
+
+// Storage envelope for the managed cluster inference route.
+message InferenceRoute {
+  openshell.datamodel.v1.ObjectMeta metadata = 1;
+  ClusterInferenceConfig config = 2;
+  // Monotonic version incremented on every update.
+  uint64 version = 3;
+}
+
+message SetClusterInferenceRequest {
+  // Provider record name to use for credentials + endpoint mapping.
+  string provider_name = 1;
+  // Model identifier to force on generation calls.
+  string model_id = 2;
+  // Route name to target. Empty string defaults to "inference.local" (user-facing).
+  // Use "sandbox-system" for the sandbox system-level inference route.
+  string route_name = 3;
+  // Verify the resolved upstream endpoint synchronously before persistence.
+  bool verify = 4;
+  // Skip synchronous endpoint validation before persistence.
+  bool no_verify = 5;
+  // Per-route request timeout in seconds. 0 means use default (60s).
+  uint64 timeout_secs = 6;
+}
+
+message ValidatedEndpoint {
+  string url = 1;
+  string protocol = 2;
+}
+
+message SetClusterInferenceResponse {
+  string provider_name = 1;
+  string model_id = 2;
+  uint64 version = 3;
+  // Route name that was configured.
+  string route_name = 4;
+  // Whether endpoint verification ran as part of this request.
+  bool validation_performed = 5;
+  // The concrete endpoints that were probed during validation, when available.
+  repeated ValidatedEndpoint validated_endpoints = 6;
+  // Per-route request timeout in seconds that was persisted.
+  uint64 timeout_secs = 7;
+}
+
+message GetClusterInferenceRequest {
+  // Route name to query. Empty string defaults to "inference.local" (user-facing).
+  // Use "sandbox-system" for the sandbox system-level inference route.
+  string route_name = 1;
+}
+
+message GetClusterInferenceResponse {
+  string provider_name = 1;
+  string model_id = 2;
+  uint64 version = 3;
+  // Route name that was queried.
+  string route_name = 4;
+  // Per-route request timeout in seconds. 0 means default (60s).
+  uint64 timeout_secs = 5;
+}
+
+message GetInferenceBundleRequest {}
+
+// A single resolved route ready for sandbox-local execution.
+message ResolvedRoute {
+  string name = 1;
+  string base_url = 2;
+  repeated string protocols = 3;
+  string api_key = 4;
+  string model_id = 5;
+  string provider_type = 6;
+  // Per-route request timeout in seconds. 0 means use default (60s).
+  uint64 timeout_secs = 7;
+}
+
+message GetInferenceBundleResponse {
+  repeated ResolvedRoute routes = 1;
+  // Opaque revision tag for cache freshness checks.
+  string revision = 2;
+  // Timestamp (epoch ms) when this bundle was generated.
+  int64 generated_at_ms = 3;
+}

@@ -15,6 +15,8 @@ from google.genai import types
 from ollama import AsyncClient
 from ollama import Message as OllamaMessage
 
+from ._ssl import KAgentTLSMixin
+
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
 
@@ -131,7 +133,7 @@ def _convert_tools_to_ollama(tools: list[types.Tool]) -> list[ollama_sdk.Tool]:
     return ollama_tools
 
 
-class KAgentOllamaLlm(BaseLlm):
+class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     """Ollama model via the native Ollama SDK.
 
     All Ollama options (temperature, top_p, top_k, num_ctx, etc.) are forwarded
@@ -148,11 +150,19 @@ class KAgentOllamaLlm(BaseLlm):
     type: Literal["ollama"] = "ollama"
     ollama_options: Optional[dict[str, object]] = None
     default_headers: Optional[dict[str, str]] = None
+    api_key_passthrough: Optional[bool] = None
 
     @cached_property
     def _client(self) -> AsyncClient:
         host = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
-        return AsyncClient(host=host, headers=self.default_headers or {})
+        kwargs: dict[str, object] = {
+            "host": host,
+            "headers": self.default_headers or {},
+        }
+
+        kwargs.update(self._tls_httpx_kwargs())
+
+        return AsyncClient(**kwargs)
 
     @classmethod
     def supported_models(cls) -> list[str]:
@@ -261,6 +271,10 @@ def create_ollama_llm(
     model: str,
     options: dict[str, object] | None,
     extra_headers: dict[str, str],
+    tls_disable_verify: Optional[bool] = None,
+    tls_ca_cert_path: Optional[str] = None,
+    tls_disable_system_cas: Optional[bool] = None,
+    api_key_passthrough: Optional[bool] = None,
 ) -> KAgentOllamaLlm:
     """Build a KAgentOllamaLlm from Ollama options.
 
@@ -272,4 +286,8 @@ def create_ollama_llm(
         model=model,
         ollama_options=options or None,
         default_headers=extra_headers or {},
+        tls_disable_verify=tls_disable_verify,
+        tls_ca_cert_path=tls_ca_cert_path,
+        tls_disable_system_cas=tls_disable_system_cas,
+        api_key_passthrough=api_key_passthrough,
     )
