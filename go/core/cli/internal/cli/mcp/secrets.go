@@ -22,7 +22,7 @@ type SecretsCfg struct {
 	ProjectDir string
 }
 
-func SyncSecretsMcp(cfg *SecretsCfg, environment string) error {
+func SyncSecretsMcp(ctx context.Context, cfg *SecretsCfg, environment string) error {
 	// Determine project root
 	projectRoot := cfg.ProjectDir
 	if projectRoot == "" {
@@ -109,10 +109,10 @@ func SyncSecretsMcp(cfg *SecretsCfg, environment string) error {
 	}
 
 	// Apply to cluster
-	return applySecretToCluster(secret)
+	return applySecretToCluster(ctx, secret)
 }
 
-func applySecretToCluster(secret *corev1.Secret) error {
+func applySecretToCluster(ctx context.Context, secret *corev1.Secret) error {
 	// Get kubeconfig
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -126,17 +126,17 @@ func applySecretToCluster(secret *corev1.Secret) error {
 	}
 
 	// Check if secret exists
-	_, err = clientset.CoreV1().Secrets(secret.Namespace).Get(context.TODO(), secret.Name, metav1.GetOptions{})
+	_, err = clientset.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
 	if err != nil {
 		// Create if it doesn't exist
-		_, err = clientset.CoreV1().Secrets(secret.Namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
+		_, err = clientset.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create secret: %w", err)
 		}
 		fmt.Printf("✅ Secret '%s' created in namespace '%s'.\n", secret.Name, secret.Namespace)
 	} else {
 		// Update if it exists
-		_, err = clientset.CoreV1().Secrets(secret.Namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
+		_, err = clientset.CoreV1().Secrets(secret.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update secret: %w", err)
 		}
