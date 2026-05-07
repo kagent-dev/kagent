@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 
 const AGENTS_VIEW_KEY = "kagent-agents-view";
 const ALL_NAMESPACES = "__all__";
+const DEFAULT_NAMESPACE = "default";
 type AgentsView = "grid" | "list";
 
 function readStoredView(): AgentsView {
@@ -34,6 +35,8 @@ export default function AgentList() {
   const searchParams = useSearchParams();
   const [view, setView] = useState<AgentsView>("grid");
   const namespaceFilter = searchParams.get("namespace") || ALL_NAMESPACES;
+
+  const normalizeNamespace = useCallback((namespace?: string) => namespace || DEFAULT_NAMESPACE, []);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -68,7 +71,7 @@ export default function AgentList() {
 
   const namespaces = useMemo(() => {
     const uniqueNamespaces = new Set(
-      (agents || []).map((item) => item.agent.metadata.namespace || "").filter(Boolean),
+      (agents || []).map((item) => normalizeNamespace(item.agent.metadata.namespace)),
     );
 
     if (namespaceFilter !== ALL_NAMESPACES) {
@@ -76,15 +79,15 @@ export default function AgentList() {
     }
 
     return Array.from(uniqueNamespaces).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [agents, namespaceFilter]);
+  }, [agents, namespaceFilter, normalizeNamespace]);
 
   const filteredAgents = useMemo(() => {
     if (!agents || namespaceFilter === ALL_NAMESPACES) {
       return agents || [];
     }
 
-    return agents.filter((item) => (item.agent.metadata.namespace || "") === namespaceFilter);
-  }, [agents, namespaceFilter]);
+    return agents.filter((item) => normalizeNamespace(item.agent.metadata.namespace) === namespaceFilter);
+  }, [agents, namespaceFilter, normalizeNamespace]);
 
   if (error) {
     return <ErrorState message={error} />;

@@ -25,7 +25,7 @@ const agents: AgentResponse[] = [
   {
     id: 1,
     agent: {
-      metadata: { name: "support-bot", namespace: "kagent" },
+      metadata: { name: "support-bot" },
       spec: {
         type: "Declarative",
         description: "Answers support questions",
@@ -83,7 +83,20 @@ describe("AgentList", () => {
 
     expect(screen.getByLabelText("Namespace filter")).toBeInTheDocument();
     expect(screen.getByText("team-a/team-analyzer")).toBeInTheDocument();
-    expect(screen.queryByText("kagent/support-bot")).not.toBeInTheDocument();
+    expect(screen.queryByText("default/support-bot")).not.toBeInTheDocument();
+  });
+
+  it("treats missing namespaces as default when filtering", () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("namespace=default"));
+
+    render(
+      <AgentsContext.Provider value={createContextValue(agents)}>
+        <AgentList />
+      </AgentsContext.Provider>,
+    );
+
+    expect(screen.getByText("default/support-bot")).toBeInTheDocument();
+    expect(screen.queryByText("team-a/team-analyzer")).not.toBeInTheDocument();
   });
 
   it("shows a filtered empty state when no agents match the namespace", () => {
