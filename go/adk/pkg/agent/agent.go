@@ -216,7 +216,14 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{APIKey: apiKey})
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+		if err != nil {
+			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
+		}
+		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
+			APIKey:     apiKey,
+			HTTPClient: httpClient,
+		})
 
 	case *adk.GeminiVertexAI:
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")

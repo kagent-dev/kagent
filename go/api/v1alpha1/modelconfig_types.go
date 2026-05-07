@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -313,5 +314,8 @@ type ModelConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ModelConfig{}, &ModelConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ModelConfig{}, &ModelConfigList{})
+		return nil
+	})
 }

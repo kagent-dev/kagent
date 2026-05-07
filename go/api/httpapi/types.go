@@ -134,18 +134,29 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
+// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
+// merged into GET /api/agents for UI alongside Agent CRs.
+type OpenshellAgentHarnessListEntry struct {
+	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
+	GatewaySandboxName string                           `json:"gatewaySandboxName"`
+	ModelConfigRef     string                           `json:"modelConfigRef,omitempty"`
+	BackendRefID       string                           `json:"backendRefId,omitempty"`
+	Endpoint           string                           `json:"endpoint,omitempty"`
+}
+
 type AgentResponse struct {
 	ID    string         `json:"id"`
 	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
-	Model           string                 `json:"model"`
-	ModelConfigRef  string                 `json:"modelConfigRef"`
-	MemoryRefs      []string               `json:"memoryRefs"`
-	Tools           []*v1alpha2.Tool       `json:"tools"`
-	DeploymentReady bool                   `json:"deploymentReady"`
-	Accepted        bool                   `json:"accepted"`
-	WorkloadMode    v1alpha2.WorkloadMode  `json:"workloadMode,omitempty"`
+	ModelProvider         v1alpha2.ModelProvider          `json:"modelProvider"`
+	Model                 string                          `json:"model"`
+	ModelConfigRef        string                          `json:"modelConfigRef"`
+	MemoryRefs            []string                        `json:"memoryRefs"`
+	Tools                 []*v1alpha2.Tool                `json:"tools"`
+	DeploymentReady       bool                            `json:"deploymentReady"`
+	Accepted              bool                            `json:"accepted"`
+	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
+	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
 }
 
 // Session types

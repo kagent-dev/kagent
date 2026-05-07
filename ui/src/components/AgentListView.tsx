@@ -17,7 +17,9 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
+import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 
 interface AgentListViewProps {
   agentResponse: AgentResponse[];
@@ -48,6 +50,17 @@ function typeLabel(type: string | undefined): string {
     default:
       return "Declarative";
   }
+}
+
+function rowTypeLabel(item: AgentResponse): string {
+  const harnessBackend = getAgentHarnessBackend(item);
+  if (harnessBackend) {
+    return agentHarnessTypeLabel(harnessBackend);
+  }
+  if (isOpenshellSandboxRow(item)) {
+    return "Agent harness";
+  }
+  return typeLabel(item.agent.spec?.type);
 }
 
 function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
@@ -123,7 +136,7 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
         return compareStrings(s(a), s(b), dir);
       }
       case "type": {
-        return compareStrings(typeLabel(a.spec?.type), typeLabel(b.spec?.type), dir);
+        return compareStrings(rowTypeLabel(A), rowTypeLabel(B), dir);
       }
       case "providerModel": {
         return compareStrings(providerModelText(A), providerModelText(B), dir);
@@ -202,6 +215,10 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  const sshSandbox = isOpenshellSandboxRow(item);
+  const agentHarness = isAgentHarness(item);
+  const harnessBackend = getAgentHarnessBackend(item);
+
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
   const isReady = accepted && deploymentReady;
@@ -210,7 +227,16 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
 
-  const chatPath = `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
+  const chatPath =
+    sshSandbox && item.openshellAgentHarness
+      ? openshellTerminalHref({
+          gatewaySandboxName: item.openshellAgentHarness.gatewaySandboxName,
+          namespace,
+          crName: name,
+          modelConfigRef: item.modelConfigRef,
+          clawHarness: agentHarness,
+        })
+      : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
   const goChat = useCallback(() => {
     if (isReady) {
       router.push(chatPath);
@@ -244,7 +270,13 @@ function AgentListRow({ item }: { item: AgentResponse }) {
       }}
       tabIndex={isReady ? 0 : -1}
       role={isReady ? "link" : undefined}
-      aria-label={isReady ? `Open chat for ${k8sRefUtils.toRef(namespace, name)}` : undefined}
+      aria-label={
+        isReady
+          ? sshSandbox
+            ? `Open SSH terminal for ${k8sRefUtils.toRef(namespace, name)}`
+            : `Open chat for ${k8sRefUtils.toRef(namespace, name)}`
+          : undefined
+      }
     >
       <td className="relative px-3 py-3.5 pl-4 align-top [overflow-wrap:anywhere] first:pl-4">
         <div
@@ -253,7 +285,21 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         />
         <div className="pl-1.5">
           <div className="flex min-w-0 items-center gap-2">
-            <KagentLogo className="h-4 w-4 shrink-0 opacity-80" />
+            {sshSandbox ? (
+              agentHarness ? (
+                <span
+                  className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
+                  aria-hidden
+                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellAgentHarness?.backend}
+                >
+                  🦞
+                </span>
+              ) : (
+                <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
+              )
+            ) : (
+              <KagentLogo className="h-4 w-4 shrink-0 opacity-80" />
+            )}
             <span className="font-medium text-foreground">{name || "—"}</span>
           </div>
           {agent.spec?.description ? (
@@ -264,7 +310,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         </div>
       </td>
       <td className="px-3 py-3.5 align-middle text-sm text-foreground" title="Agent type">
-        {typeLabel(agent.spec?.type)}
+        {rowTypeLabel(item)}
       </td>
       <td className="px-3 py-3.5 align-middle" title={providerTitle}>
         <ProviderModelCell item={item} />
@@ -287,56 +333,62 @@ function AgentListRow({ item }: { item: AgentResponse }) {
         </span>
       </td>
       <td className="w-10 px-1 py-3.5 align-middle" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMemoriesOpen(true);
-                }}
-                className="cursor-pointer"
-              >
-                <Brain className="mr-2 h-4 w-4" />
-                View memories
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDeleteOpen(true);
-                }}
-                className="cursor-pointer text-red-500 focus:text-red-500"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <DeleteButton
-          agentName={name}
-          namespace={namespace}
-          externalOpen={deleteOpen}
-          onExternalOpenChange={setDeleteOpen}
-        />
-        <MemoriesDialog
-          agentName={name}
-          namespace={namespace}
-          open={memoriesOpen}
-          onOpenChange={setMemoriesOpen}
-        />
+        <>
+          <div className="flex items-center justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                {!agentHarness ? (
+                  <>
+                    <DropdownMenuItem onClick={handleEdit} className="cursor-pointer">
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setMemoriesOpen(true);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Brain className="mr-2 h-4 w-4" />
+                      View memories
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDeleteOpen(true);
+                  }}
+                  className="cursor-pointer text-red-500 focus:text-red-500"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <DeleteButton
+            agentName={name}
+            namespace={namespace}
+            externalOpen={deleteOpen}
+            onExternalOpenChange={setDeleteOpen}
+          />
+          <MemoriesDialog
+            agentName={name}
+            namespace={namespace}
+            open={memoriesOpen}
+            onOpenChange={setMemoriesOpen}
+          />
+        </>
       </td>
     </tr>
   );

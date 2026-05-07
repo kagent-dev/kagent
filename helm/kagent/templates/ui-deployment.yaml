@@ -57,7 +57,9 @@ spec:
           imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
-              value: "http://{{ include "kagent.fullname" . }}-controller.{{ include "kagent.namespace" . }}.svc.cluster.local:{{ .Values.controller.service.ports.port }}/api"
+              value: {{ .Values.ui.publicBackendUrl | quote }}
+            - name: BACKEND_INTERNAL_URL
+              value: {{ .Values.ui.backendInternalUrl | default (include "kagent.controllerInternalHttpApiBase" .) | quote }}
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}

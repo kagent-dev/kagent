@@ -222,6 +222,11 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
+  # Extra controller env. Examples — OpenShell:
+  # env:
+  #   - name: OPENSHELL_GRPC_ADDR
+  #     value: "openshell.my-namespace.svc.cluster.local:8080"
   env: []
   envFrom: []
 
@@ -277,6 +282,10 @@ ui:
   #   additionalForwardedHeaders:
   #     - X-Forwarded-User
   #     - X-Forwarded-Email
+  # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
+  publicBackendUrl: "/api"
+  # Next.js server default when set (BACKEND_INTERNAL_URL). Override if the controller API base differs.
+  backendInternalUrl: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
