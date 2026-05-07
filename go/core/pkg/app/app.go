@@ -312,8 +312,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
-	// TODO setup signal handlers
-	ctx := context.Background()
+	// Reused below for mgr.Start; SetupSignalHandler must be called once per process.
+	ctx := ctrl.SetupSignalHandler()
 
 	cfg.SetFlags(flag.CommandLine)
 
@@ -704,7 +704,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
