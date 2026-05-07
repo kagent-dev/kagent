@@ -7,6 +7,7 @@ describe('URL Generation Utilities', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    delete process.env.BACKEND_INTERNAL_URL;
   });
 
   afterAll(() => {
@@ -36,10 +37,21 @@ describe('URL Generation Utilities', () => {
       });
       expect(getBackendUrl()).toBe('http://localhost:8083/api');
     });
+
+    it('should keep relative NEXT_PUBLIC_BACKEND_URL on the client', () => {
+      process.env.NEXT_PUBLIC_BACKEND_URL = '/api';
+      expect(getBackendUrl()).toBe('/api');
+    });
+
+    it('should prefer BACKEND_INTERNAL_URL when set', () => {
+      process.env.BACKEND_INTERNAL_URL = 'http://controller.ns.svc:8083/api';
+      process.env.NEXT_PUBLIC_BACKEND_URL = '/api';
+      expect(getBackendUrl()).toBe('http://controller.ns.svc:8083/api');
+    });
   });
 
-
 });
+
 
 describe('Time Utilities', () => {
   describe('getRelativeTimeString', () => {

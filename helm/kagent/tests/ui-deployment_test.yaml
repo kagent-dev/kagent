@@ -217,3 +217,41 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should use same-origin public API path and internal controller URL for nginx proxying
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXT_PUBLIC_BACKEND_URL
+            value: "/api"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BACKEND_INTERNAL_URL
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083/api"
+
+  - it: should allow overriding ui.backendInternalUrl
+    template: ui-deployment.yaml
+    set:
+      ui:
+        backendInternalUrl: "http://custom-controller:9090/api"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BACKEND_INTERNAL_URL
+            value: "http://custom-controller:9090/api"
+
+  - it: should allow overriding ui.publicBackendUrl
+    template: ui-deployment.yaml
+    set:
+      ui:
+        publicBackendUrl: "https://example.com/api"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXT_PUBLIC_BACKEND_URL
+            value: "https://example.com/api"

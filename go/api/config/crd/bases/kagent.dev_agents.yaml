@@ -13092,9 +13092,11 @@ spec:
                     properties:
                       key:
                         description: The key of the ConfigMap or Secret.
+                        maxLength: 253
                         type: string
                       name:
                         description: The name of the ConfigMap or Secret.
+                        maxLength: 253
                         type: string
                       type:
                         enum:
@@ -13142,9 +13144,11 @@ spec:
                                 properties:
                                   key:
                                     description: The key of the ConfigMap or Secret.
+                                    maxLength: 253
                                     type: string
                                   name:
                                     description: The name of the ConfigMap or Secret.
+                                    maxLength: 253
                                     type: string
                                   type:
                                     enum:
