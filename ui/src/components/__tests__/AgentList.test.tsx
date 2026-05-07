@@ -1,5 +1,3 @@
-"use client";
-
 import { render, screen } from "@testing-library/react";
 import AgentList from "@/components/AgentList";
 import { AgentsContext, type AgentsContextType } from "@/components/AgentsProvider";
