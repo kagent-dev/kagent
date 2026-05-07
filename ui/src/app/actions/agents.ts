@@ -18,6 +18,7 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
+import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
   return agentFormData.declarativeRuntime === "go" ? "go" : "python";
@@ -464,6 +465,44 @@ export async function deleteAgent(agentName: string, namespace: string): Promise
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
+    if (agentConfig.type === "OpenClawSandbox") {
+      if (update) {
+        throw new Error("Updating an OpenClaw sandbox from this form is not supported.");
+      }
+      if (!agentConfig.openClawSandbox) {
+        throw new Error("OpenClaw sandbox configuration is missing.");
+      }
+      const draft = buildSandboxCRDraft({
+        name: agentConfig.name,
+        namespace: agentConfig.namespace || "",
+        description: agentConfig.description || "",
+        modelRef: agentConfig.modelName || "",
+        openClaw: agentConfig.openClawSandbox,
+      });
+      if ("error" in draft) {
+        throw new Error(draft.error);
+      }
+
+      const response = await fetchApi<BaseResponse<AgentResponse>>(`/agentharnesses`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(draft),
+      });
+
+      const agent = response.data?.agent;
+      if (!agent) {
+        throw new Error("Failed to create OpenClaw sandbox");
+      }
+
+      const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name);
+
+      revalidatePath("/agents");
+      revalidatePath(`/agents/${agentRef}/chat`);
+      return { message: response.message || "Successfully created sandbox", data: agent };
+    }
+
     // Only get the name of the model, not the full ref
     if (agentConfig.modelName) {
       if (k8sRefUtils.isValidRef(agentConfig.modelName)) {

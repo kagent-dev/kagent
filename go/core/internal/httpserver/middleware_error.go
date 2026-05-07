@@ -1,8 +1,11 @@
 package httpserver
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +38,14 @@ func (w *errorResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func (w *errorResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking not supported")
+	}
+	return hijacker.Hijack()
 }
 
 func (w *errorResponseWriter) RespondWithError(err error) {

@@ -18,6 +18,8 @@ import type {
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
+import type { OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
+import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
 import { isResourceNameValid } from "@/lib/utils";
 
 export interface ValidationErrors {
@@ -34,6 +36,7 @@ export interface ValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
+  openClawSandbox?: string;
 }
 
 export interface AgentFormData {
@@ -60,6 +63,8 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
+  /** OpenClaw AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; backend openclaw). */
+  openClawSandbox?: OpenClawSandboxFormSlice;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -181,12 +186,30 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
     }
 
-    if (data.description !== undefined && !data.description.trim()) {
+    const type = data.type || "Declarative";
+
+    if (data.description !== undefined && !data.description.trim() && type !== "OpenClawSandbox") {
       errors.description = "Description is required";
     }
 
-    const type = data.type || "Declarative";
     const byoImage = data.byoImage;
+
+    if (type === "OpenClawSandbox") {
+      if (!data.modelName || data.modelName.trim() === "") {
+        errors.model = "Please select a model config";
+      }
+      if (data.openClawSandbox !== undefined) {
+        const oc = validateOpenClawSandboxForm({
+          openClaw: data.openClawSandbox,
+          modelRef: data.modelName,
+        });
+        if (oc) {
+          errors.openClawSandbox = oc;
+        }
+      }
+      return errors;
+    }
+
     if (formUsesDeclarativeSections(type, byoImage)) {
       if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
         errors.systemPrompt = "Agent instructions are required";

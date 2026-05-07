@@ -62,3 +62,10 @@ tests:
       - notMatchRegex:
           path: data["supervisord.conf"]
           pattern: 'HOSTNAME="0\.0\.0\.0"'
+
+  - it: should proxy api upstream to controller Cluster DNS
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083;'

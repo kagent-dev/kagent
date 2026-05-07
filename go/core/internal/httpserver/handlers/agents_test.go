@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -451,6 +452,54 @@ func TestHandleListAgents(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, response.Data)
 	})
+
+	t.Run("includes openshell AgentHarness CR in agent list", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("list-agent", modelConfig)
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenshell,
+				Description:    "Workload VM for experiments",
+				ModelConfigRef: "test-model-config",
+			},
+			Status: v1alpha2.AgentHarnessStatus{
+				Conditions: []metav1.Condition{
+					{Type: v1alpha2.AgentHarnessConditionTypeAccepted, Status: "True", Reason: "AgentHarnessAccepted"},
+					{Type: v1alpha2.AgentHarnessConditionTypeReady, Status: "True", Reason: "SandboxReady"},
+				},
+				BackendRef: &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenshell, ID: "default-openclaw-1"},
+			},
+		}
+		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 2)
+
+		var found bool
+		for _, row := range response.Data {
+			if row.OpenshellAgentHarness == nil {
+				continue
+			}
+			found = true
+			require.Equal(t, "default-openclaw-1", row.OpenshellAgentHarness.GatewaySandboxName)
+			require.Equal(t, "AgentHarness", row.Agent.Kind)
+			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
+			require.Equal(t, "Workload VM for experiments", row.Agent.Spec.Description)
+			require.True(t, row.Accepted)
+			require.True(t, row.DeploymentReady)
+			require.Equal(t, v1alpha2.ModelProviderOpenAI, row.ModelProvider)
+		}
+		require.True(t, found)
+	})
 }
 
 func TestHandleListSandboxAgents(t *testing.T) {
@@ -732,6 +781,27 @@ func TestHandleDeleteTeam(t *testing.T) {
 		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "shared-name"}, &stillThere)
 		require.NoError(t, err)
 	})
+
+	t.Run("deletes openshell AgentHarness when no Agent with that name", func(t *testing.T) {
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
+		}
+		handler, _ := setupTestHandler(t, sb)
+
+		req := httptest.NewRequest("DELETE", "/api/agents/default/sb-only", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sb-only"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sb-only"}, sb)
+		require.Error(t, err)
+		require.True(t, apierrors.IsNotFound(err))
+	})
 }
 
 func TestHandleDeleteSandboxAgent(t *testing.T) {
@@ -748,5 +818,48 @@ func TestHandleDeleteSandboxAgent(t *testing.T) {
 		handler.HandleDeleteSandboxAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestHandleCreateAgentHarness(t *testing.T) {
+	t.Run("creates openclaw AgentHarness", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		handler, _ := setupTestHandler(t, modelConfig)
+
+		body := map[string]any{
+			"apiVersion": "kagent.dev/v1alpha2",
+			"kind":       "AgentHarness",
+			"metadata": map[string]string{
+				"name":      "my-openclaw",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"backend":        "openclaw",
+				"description":    "test vm",
+				"modelConfigRef": "test-model-config",
+			},
+		}
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/agentharnesses", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleCreateAgentHarness(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+		var response api.StandardResponse[api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Equal(t, "AgentHarness", response.Data.Agent.Kind)
+		require.Equal(t, "my-openclaw", response.Data.Agent.Metadata.Name)
+		require.NotNil(t, response.Data.OpenshellAgentHarness)
+		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, response.Data.OpenshellAgentHarness.Backend)
+
+		var created v1alpha2.AgentHarness
+		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
+		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, created.Spec.Backend)
 	})
 }

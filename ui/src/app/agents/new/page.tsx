@@ -130,6 +130,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
   const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+  const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -339,7 +340,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validateField = (fieldName: keyof AgentFormValidationErrors, value: any) => {
-    const formData: Partial<AgentFormData> = {};
+    const formData: Partial<AgentFormData> = { type: state.agentType };
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
 
     switch (fieldName) {
@@ -387,13 +388,13 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     const fieldErrors = validateAgentData(formData);
     const valueForField = (fieldErrors as Record<string, string | undefined>)[fieldName as string];
-    setState((prev) => ({
-      ...prev,
-      errors: {
+    setState((prev) => {
+      const nextErrors: AgentFormValidationErrors = {
         ...prev.errors,
         [fieldName]: valueForField,
-      },
-    }));
+      };
+      return { ...prev, errors: nextErrors };
+    });
   };
 
   const handleSaveAgent = async () => {
@@ -403,6 +404,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
     try {
       setState((prev) => ({ ...prev, isSubmitting: true }));
+
       if (useDeclarativeAgentFields && !state.selectedModel) {
         throw new Error("Model is required for this agent type.");
       }
@@ -583,12 +585,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
               <FieldRoot>
                 <FieldLabel>Agent type</FieldLabel>
-                <FieldHint>Declarative and sandbox (without a custom image) use the built-in model runtime. BYO or sandbox with a custom image adds container settings.</FieldHint>
+                <FieldHint>
+                  Declarative and sandbox workload (without a custom image) use the in-cluster ADK runtime. BYO or sandbox with a custom image adds
+                  container settings. 
+                </FieldHint>
                 <Select
                   value={state.agentType}
                   onValueChange={(val) => {
                     const next = val as AgentType;
-                    setState((prev) => ({ ...prev, agentType: next }));
+                    setState((prev) => ({
+                      ...prev,
+                      agentType: next,
+                      errors: { ...prev.errors, type: undefined },
+                    }));
                     validateField("type", val);
                   }}
                   disabled={disabled}
@@ -598,7 +607,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Declarative">Declarative</SelectItem>
-                    <SelectItem value="Sandbox">Sandbox</SelectItem>
+                    <SelectItem value="Sandbox">Sandbox workload</SelectItem>
                     <SelectItem value="BYO">BYO</SelectItem>
                   </SelectContent>
                 </Select>
@@ -631,21 +640,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               </FieldRoot>
             </FormSection>
 
-            {useDeclarativeAgentFields && (
+            {showModelAndBehaviorSection && (
               <FormSection
                 title="Model & behavior"
                 description="Instructions, main model, streaming, and optional pod service account for this declarative or sandbox agent."
               >
-                <SystemPromptSection
-                  value={state.systemPrompt}
-                  onChange={(e) => setState((prev) => ({ ...prev, systemPrompt: e.target.value }))}
-                  onBlur={() => validateField("systemPrompt", state.systemPrompt)}
-                  error={state.errors.systemPrompt}
-                  disabled={disabled}
-                  mentionNamespace={state.namespace}
-                  onPickInclude={(pick) => ensureConfigMapSource(pick.configMapName)}
-                  includeSourceIdForConfigMap={includeSourceIdForConfigMap}
-                />
+                {useDeclarativeAgentFields && (
+                  <SystemPromptSection
+                    value={state.systemPrompt}
+                    onChange={(e) => setState((prev) => ({ ...prev, systemPrompt: e.target.value }))}
+                    onBlur={() => validateField("systemPrompt", state.systemPrompt)}
+                    error={state.errors.systemPrompt}
+                    disabled={disabled}
+                    mentionNamespace={state.namespace}
+                    onPickInclude={(pick) => ensureConfigMapSource(pick.configMapName)}
+                    includeSourceIdForConfigMap={includeSourceIdForConfigMap}
+                  />
+                )}
 
                 <ModelSelectionSection
                   allModels={models}
@@ -659,35 +670,39 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   agentNamespace={state.namespace}
                 />
 
-                <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex h-5 shrink-0 items-center self-start">
-                    <Checkbox
-                      id="stream-toggle"
-                      checked={state.stream}
-                      onCheckedChange={(checked) => setState((prev) => ({ ...prev, stream: !!checked }))}
+                {useDeclarativeAgentFields && (
+                  <>
+                    <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                      <div className="flex h-5 shrink-0 items-center self-start">
+                        <Checkbox
+                          id="stream-toggle"
+                          checked={state.stream}
+                          onCheckedChange={(checked) => setState((prev) => ({ ...prev, stream: !!checked }))}
+                          disabled={disabled}
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <Label
+                          htmlFor="stream-toggle"
+                          className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                        >
+                          Stream model output
+                        </Label>
+                        <p className="text-xs leading-snug text-muted-foreground">
+                          Token-by-token responses where the provider supports it
+                        </p>
+                      </div>
+                    </div>
+
+                    <ServiceAccountNameField
+                      value={state.serviceAccountName}
+                      onChange={(v) => setState((prev) => ({ ...prev, serviceAccountName: v }))}
+                      onBlur={() => validateField("serviceAccountName", state.serviceAccountName)}
+                      error={state.errors.serviceAccountName}
                       disabled={disabled}
                     />
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <Label
-                      htmlFor="stream-toggle"
-                      className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
-                    >
-                      Stream model output
-                    </Label>
-                    <p className="text-xs leading-snug text-muted-foreground">
-                      Token-by-token responses where the provider supports it
-                    </p>
-                  </div>
-                </div>
-
-                <ServiceAccountNameField
-                  value={state.serviceAccountName}
-                  onChange={(v) => setState((prev) => ({ ...prev, serviceAccountName: v }))}
-                  onBlur={() => validateField("serviceAccountName", state.serviceAccountName)}
-                  error={state.errors.serviceAccountName}
-                  disabled={disabled}
-                />
+                  </>
+                )}
               </FormSection>
             )}
 

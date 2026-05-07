@@ -1,6 +1,9 @@
 package httpserver
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -56,6 +59,14 @@ func (w *statusResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+func (w *statusResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking not supported")
+	}
+	return hijacker.Hijack()
+}
+
 // Forward RespondWithError to underlying writer if it implements ErrorResponseWriter
 func (w *statusResponseWriter) RespondWithError(err error) {
 	if errWriter, ok := w.ResponseWriter.(handlers.ErrorResponseWriter); ok {
@@ -68,7 +79,7 @@ func (w *statusResponseWriter) RespondWithError(err error) {
 
 func contentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
+		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" && r.URL.Path != APIPathSandboxSSH {
 			w.Header().Set("Content-Type", "application/json")
 		}
 		next.ServeHTTP(w, r)
