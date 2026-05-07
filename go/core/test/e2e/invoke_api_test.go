@@ -1159,7 +1159,7 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 
 	// Create a dummy dockerconfigjson secret.
 	// The kind-registry is unauthenticated, so credentials don't matter —
-	// we're testing that the controller wires up the docker-auth-init container.
+	// we're testing that the controller embeds the credential merge logic into skills-init.
 	dockerConfigJSON := `{"auths":{"kind-registry:5000":{"username":"user","password":"pass","auth":"dXNlcjpwYXNz"}}}`
 	pullSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1186,23 +1186,29 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 		},
 	})
 
-	// Verify the Deployment has the docker-auth-init init container
+	// Verify the Deployment has exactly one init container: skills-init (credential merge is embedded in its script)
 	deployment := &appsv1.Deployment{}
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: agent.Name, Namespace: agent.Namespace}, deployment))
 	initContainers := deployment.Spec.Template.Spec.InitContainers
-	require.Len(t, initContainers, 2, "expected docker-auth-init + skills-init init containers")
-	require.Equal(t, "docker-auth-init", initContainers[0].Name)
-	require.Equal(t, "skills-init", initContainers[1].Name)
+	require.Len(t, initContainers, 1, "expected exactly one init container: skills-init")
+	require.Equal(t, "skills-init", initContainers[0].Name)
 
-	// Verify docker-auth-init mounts all pull secrets
+	// Verify skills-init mounts the pull secret volume and its script contains the merge logic
+	skillsInit := initContainers[0]
 	var foundSecretMount bool
-	for _, vol := range initContainers[0].VolumeMounts {
-		if strings.Contains(vol.Name, "pull-secret") {
+	for _, vm := range skillsInit.VolumeMounts {
+		if strings.Contains(vm.Name, "pull-secret") {
 			foundSecretMount = true
 			break
 		}
 	}
-	require.True(t, foundSecretMount, "docker-auth-init should mount the pull secret volume")
+	require.True(t, foundSecretMount, "skills-init should mount the pull secret volume")
+
+	require.Len(t, skillsInit.Command, 3)
+	script := skillsInit.Command[2]
+	require.Contains(t, script, "jq", "skills-init script should contain jq for credential merge")
+	require.Contains(t, script, ".dockerconfigjson", "skills-init script should reference .dockerconfigjson")
+	require.Contains(t, script, "/tmp/kagent-docker-config", "skills-init script should write merged config to /tmp")
 
 	// Verify the agent works end-to-end with the skill
 	a2aClient := setupA2AClient(t, agent)
