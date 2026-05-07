@@ -47,7 +47,7 @@ const (
 
 // AgentHarnessChannelCredential supplies a token from an inline value or a Secret/ConfigMap key.
 //
-// +kubebuilder:validation:XValidation:rule="has(self.valueFrom) != (has(self.value) && self.value != ”)",message="exactly one of value or valueFrom must be set"
+// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type AgentHarnessChannelCredential struct {
 	// +kubebuilder:validation:MaxLength=8192
 	Value string `json:"value,omitempty"`

@@ -123,9 +123,9 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-validations:
-                          - message: exactly one of value or valueFrom must be set
-                            rule: has(self.valueFrom) != (has(self.value) && self.value
-                              != ”)
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
                         botToken:
                           description: AgentHarnessChannelCredential supplies a token
                             from an inline value or a Secret/ConfigMap key.
@@ -157,9 +157,9 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-validations:
-                          - message: exactly one of value or valueFrom must be set
-                            rule: has(self.valueFrom) != (has(self.value) && self.value
-                              != ”)
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
                         channelAccess:
                           description: AgentHarnessChannelAccess controls whether
                             the bot listens broadly or only on an allowlist.
@@ -242,9 +242,9 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-validations:
-                          - message: exactly one of value or valueFrom must be set
-                            rule: has(self.valueFrom) != (has(self.value) && self.value
-                              != ”)
+                          - message: Exactly one of value or valueFrom must be specified
+                            rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                              && has(self.valueFrom))
                       required:
                       - botToken
                       type: object
