@@ -70,8 +70,13 @@ export default function AgentList() {
     const uniqueNamespaces = new Set(
       (agents || []).map((item) => item.agent.metadata.namespace || "").filter(Boolean),
     );
+
+    if (namespaceFilter !== ALL_NAMESPACES) {
+      uniqueNamespaces.add(namespaceFilter);
+    }
+
     return Array.from(uniqueNamespaces).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [agents]);
+  }, [agents, namespaceFilter]);
 
   const filteredAgents = useMemo(() => {
     if (!agents || namespaceFilter === ALL_NAMESPACES) {
