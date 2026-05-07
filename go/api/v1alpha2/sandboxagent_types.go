@@ -18,6 +18,7 @@ package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // +kubebuilder:object:root=true
@@ -43,5 +44,8 @@ type SandboxAgentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SandboxAgent{}, &SandboxAgentList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &SandboxAgent{}, &SandboxAgentList{})
+		return nil
+	})
 }

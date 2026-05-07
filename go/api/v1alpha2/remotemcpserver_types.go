@@ -24,6 +24,7 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -133,5 +134,8 @@ type RemoteMCPServerList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&RemoteMCPServer{}, &RemoteMCPServerList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &RemoteMCPServer{}, &RemoteMCPServerList{})
+		return nil
+	})
 }

@@ -49,17 +49,28 @@ type ModelConfigResource struct {
 	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
 }
 
+// SecretMaterial describes a Secret key/value pair to create or update alongside a ModelConfig.
+type SecretMaterial struct {
+	Name  string `json:"name"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // CreateModelConfigRequest is a thin wrapper: ref + optional inline apiKey + full CRD spec.
 type CreateModelConfigRequest struct {
-	Ref    string                   `json:"ref"`
-	APIKey string                   `json:"apiKey,omitempty"`
-	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
+	Ref string `json:"ref"`
+	// APIKey is an optional inline API key to store in a generated Secret.
+	APIKey string `json:"apiKey,omitempty"`
+	// Secrets are optional companion Secrets to create or update alongside the ModelConfig.
+	Secrets []SecretMaterial         `json:"secrets,omitempty"`
+	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
 }
 
 // UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
-	APIKey *string                  `json:"apiKey,omitempty"`
-	Spec   v1alpha2.ModelConfigSpec `json:"spec"`
+	APIKey  *string                  `json:"apiKey,omitempty"`
+	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 }
 
 // Agent types
@@ -123,18 +134,29 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
+// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
+// merged into GET /api/agents for UI alongside Agent CRs.
+type OpenshellAgentHarnessListEntry struct {
+	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
+	GatewaySandboxName string                           `json:"gatewaySandboxName"`
+	ModelConfigRef     string                           `json:"modelConfigRef,omitempty"`
+	BackendRefID       string                           `json:"backendRefId,omitempty"`
+	Endpoint           string                           `json:"endpoint,omitempty"`
+}
+
 type AgentResponse struct {
 	ID    string         `json:"id"`
 	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider   v1alpha2.ModelProvider `json:"modelProvider"`
-	Model           string                 `json:"model"`
-	ModelConfigRef  string                 `json:"modelConfigRef"`
-	MemoryRefs      []string               `json:"memoryRefs"`
-	Tools           []*v1alpha2.Tool       `json:"tools"`
-	DeploymentReady bool                   `json:"deploymentReady"`
-	Accepted        bool                   `json:"accepted"`
-	WorkloadMode    v1alpha2.WorkloadMode  `json:"workloadMode,omitempty"`
+	ModelProvider         v1alpha2.ModelProvider          `json:"modelProvider"`
+	Model                 string                          `json:"model"`
+	ModelConfigRef        string                          `json:"modelConfigRef"`
+	MemoryRefs            []string                        `json:"memoryRefs"`
+	Tools                 []*v1alpha2.Tool                `json:"tools"`
+	DeploymentReady       bool                            `json:"deploymentReady"`
+	Accepted              bool                            `json:"accepted"`
+	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
+	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
 }
 
 // Session types

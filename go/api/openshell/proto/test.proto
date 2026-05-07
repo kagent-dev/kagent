@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package openshell.test.v1;
+
+// Simple object for persistence tests.
+message ObjectForTest {
+  string id = 1;
+  string name = 2;
+  uint32 count = 3;
+}

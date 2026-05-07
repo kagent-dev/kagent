@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -379,6 +380,10 @@ type SharedDeploymentSpec struct {
 	// is created, and this config will be applied to it.
 	// +optional
 	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+	// ExtraContainers is a list of additional containers to run alongside the main agent container.
+	// Useful for sidecars such as token proxies, log shippers, or security agents.
+	// +optional
+	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
 }
 
 type ServiceAccountConfig struct {
@@ -551,5 +556,8 @@ type AgentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Agent{}, &AgentList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Agent{}, &AgentList{})
+		return nil
+	})
 }

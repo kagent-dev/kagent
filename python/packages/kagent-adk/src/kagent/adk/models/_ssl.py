@@ -4,6 +4,9 @@ import logging
 import ssl
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -243,3 +246,42 @@ def create_ssl_context(
             ) from e
 
     return ctx
+
+
+class KAgentTLSMixin:
+    """Mixin for model wrappers that accept kagent TLS configuration."""
+
+    tls_disable_verify: Optional[bool] = None
+    tls_ca_cert_path: Optional[str] = None
+    tls_disable_system_cas: Optional[bool] = None
+
+    def _has_tls_config(self) -> bool:
+        """Return True if the model has any TLS config."""
+        return bool(self.tls_disable_verify or self.tls_ca_cert_path or self.tls_disable_system_cas)
+
+    def _tls_verify(self) -> ssl.SSLContext | bool:
+        """Return the SSL context for the model."""
+        if not self._has_tls_config():
+            return None
+        return create_ssl_context(
+            disable_verify=self.tls_disable_verify or False,
+            ca_cert_path=self.tls_ca_cert_path,
+            disable_system_cas=self.tls_disable_system_cas or False,
+        )
+
+    def _tls_httpx_kwargs(self) -> dict[str, object]:
+        """Return the HTTPX kwargs for the model."""
+        verify = self._tls_verify()
+        if verify is None:
+            return {}
+        return {"verify": verify}
+
+    def _httpx_async_client_if_tls(self, client_cls=httpx.AsyncClient, **kwargs) -> httpx.AsyncClient | None:
+        """
+        Return the HTTPX client for the model. If no TLS config is present, return None.
+        If client_cls is provided, use it to create the client. Otherwise, use httpx.AsyncClient.
+        """
+        tls_kwargs = self._tls_httpx_kwargs()
+        if not tls_kwargs:
+            return None
+        return client_cls(**tls_kwargs, **kwargs)

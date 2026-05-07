@@ -156,15 +156,23 @@ export interface ConfiguredModelProviderModelsResponse {
   models: string[];
 }
 
+export interface SecretMaterial {
+  name: string;
+  key: string;
+  value: string;
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   apiKey?: string;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 export interface UpdateModelConfigPayload {
   apiKey?: string | null;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 /**
@@ -250,7 +258,7 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox";
+export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -410,8 +418,18 @@ export interface Agent {
   };
 }
 
+/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openshell). */
+export interface OpenshellAgentHarnessListEntry {
+  backend: string;
+  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
+  gatewaySandboxName: string;
+  modelConfigRef?: string;
+  backendRefId?: string;
+  endpoint?: string;
+}
+
 export interface AgentResponse {
-  id: number;
+  id: number | string;
   agent: Agent;
   model: string;
   modelProvider: string;
@@ -420,6 +438,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
+  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {

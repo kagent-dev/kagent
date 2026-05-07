@@ -1,0 +1,45 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      path: openshell.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+    - file_option: go_package
+      path: sandbox.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+    - file_option: go_package
+      path: datamodel.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+    - file_option: go_package
+      path: compute_driver.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/computev1
+    - file_option: go_package
+      path: inference.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1
+    - file_option: go_package
+      path: test.proto
+      value: github.com/kagent-dev/kagent/go/api/openshell/gen/openshelltestv1
+plugins:
+  - local: protoc-gen-go
+    out: ../gen
+    opt:
+      - module=github.com/kagent-dev/kagent/go/api/openshell/gen
+      - Mopenshell.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+      - Msandbox.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+      - Mdatamodel.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+      - Mcompute_driver.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/computev1
+      - Minference.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1
+      - Mtest.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshelltestv1
+  - local: protoc-gen-go-grpc
+    out: ../gen
+    opt:
+      - module=github.com/kagent-dev/kagent/go/api/openshell/gen
+      - Mopenshell.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1
+      - Msandbox.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1
+      - Mdatamodel.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1
+      - Mcompute_driver.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/computev1
+      - Minference.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1
+      - Mtest.proto=github.com/kagent-dev/kagent/go/api/openshell/gen/openshelltestv1
+inputs:
+  - directory: .

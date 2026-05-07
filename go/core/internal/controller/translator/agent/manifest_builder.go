@@ -460,7 +460,7 @@ func buildPodTemplate(
 			ImagePullSecrets:   dep.ImagePullSecrets,
 			SecurityContext:    dep.PodSecurityContext,
 			InitContainers:     runtimeInputs.initContainers,
-			Containers: []corev1.Container{{
+			Containers: append([]corev1.Container{{
 				Name:            "kagent",
 				Image:           dep.Image,
 				ImagePullPolicy: dep.ImagePullPolicy,
@@ -482,7 +482,7 @@ func buildPodTemplate(
 				},
 				SecurityContext: runtimeInputs.securityContext,
 				VolumeMounts:    runtimeInputs.volumeMounts,
-			}},
+			}}, dep.ExtraContainers...),
 			Volumes:      runtimeInputs.volumes,
 			Tolerations:  dep.Tolerations,
 			Affinity:     dep.Affinity,
