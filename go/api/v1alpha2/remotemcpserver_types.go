@@ -38,11 +38,13 @@ const (
 
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 type RemoteMCPServerSpec struct {
+	// +required
 	Description string `json:"description"`
 	// +kubebuilder:default=STREAMABLE_HTTP
 	// +optional
-	Protocol RemoteMCPServerProtocol `json:"protocol"`
+	Protocol RemoteMCPServerProtocol `json:"protocol,omitempty"`
 	// +kubebuilder:validation:MinLength=1
+	// +required
 	URL string `json:"url"`
 	// +optional
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
@@ -82,14 +84,18 @@ func (t RemoteMCPServerSpec) Value() (driver.Value, error) {
 type RemoteMCPServerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	ObservedGeneration int64              `json:"observedGeneration"`
-	Conditions         []metav1.Condition `json:"conditions"`
-	// +kubebuilder:validation:Optional
-	DiscoveredTools []*MCPTool `json:"discoveredTools"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	DiscoveredTools []*MCPTool `json:"discoveredTools,omitempty"`
 }
 
 type MCPTool struct {
-	Name        string `json:"name"`
+	// +required
+	Name string `json:"name"`
+	// +required
 	Description string `json:"description"`
 }
 
@@ -102,10 +108,13 @@ type MCPTool struct {
 
 // RemoteMCPServer is the Schema for the RemoteMCPServers API.
 type RemoteMCPServer struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   RemoteMCPServerSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec RemoteMCPServerSpec `json:"spec,omitempty"`
+	// +optional
 	Status RemoteMCPServerStatus `json:"status,omitempty"`
 }
 
