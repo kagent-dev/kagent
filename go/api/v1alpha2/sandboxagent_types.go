@@ -27,10 +27,13 @@ import (
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether configuration was accepted."
 // SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox Sandbox CR).
 type SandboxAgent struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec AgentSpec `json:"spec,omitempty"`
+	// +optional
 	Status AgentStatus `json:"status,omitempty"`
 }
 
