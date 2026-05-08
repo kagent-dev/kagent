@@ -304,11 +304,9 @@ jobs:
           go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11.3
-          working-directory: go
+      - name: golangci-lint 
+        working-directory: go
+        run: make lint
 
   python-test:
     env:

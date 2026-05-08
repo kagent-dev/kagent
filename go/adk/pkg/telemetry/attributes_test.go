@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -167,6 +168,76 @@ func TestSetLLMAttributes_EmitsEmptyPayloadWhenContentCaptureDisabled(t *testing
 	}
 	if got := attrs["gcp.vertex.agent.llm_response"].AsString(); got != "{}" {
 		t.Errorf("gcp.vertex.agent.llm_response = %q, want %q", got, "{}")
+	}
+}
+
+func TestSetMessageMetadataAttributes(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "test-span")
+
+	SetMessageMetadataAttributes(ctx, map[string]any{
+		"approver_email": "admin@example.com",
+		"attempt_count":  float64(3),
+		"dry_run":        true,
+		"nested":         map[string]any{"should": "be skipped"},
+		"list_val":       []string{"also", "skipped"},
+		"empty_str":      "",
+	})
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no spans recorded")
+	}
+	attrs := make(map[string]attribute.Value)
+	for _, a := range spans[0].Attributes {
+		attrs[string(a.Key)] = a.Value
+	}
+
+	if got := attrs["a2a.message.metadata.approver_email"].AsString(); got != "admin@example.com" {
+		t.Errorf("approver_email: got %q, want %q", got, "admin@example.com")
+	}
+	if got := attrs["a2a.message.metadata.attempt_count"].AsString(); got != "3" {
+		t.Errorf("attempt_count: got %q, want %q", got, "3")
+	}
+	if got := attrs["a2a.message.metadata.dry_run"].AsBool(); !got {
+		t.Errorf("dry_run: got %v, want true", got)
+	}
+	if _, exists := attrs["a2a.message.metadata.nested"]; exists {
+		t.Error("nested map should not be set as span attribute")
+	}
+	if _, exists := attrs["a2a.message.metadata.list_val"]; exists {
+		t.Error("list value should not be set as span attribute")
+	}
+	if _, exists := attrs["a2a.message.metadata.empty_str"]; exists {
+		t.Error("empty string should not be set as span attribute")
+	}
+}
+
+func TestSetMessageMetadataAttributes_NilAndEmpty(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "test-span")
+
+	SetMessageMetadataAttributes(ctx, nil)
+	SetMessageMetadataAttributes(ctx, map[string]any{})
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no spans recorded")
+	}
+	for _, a := range spans[0].Attributes {
+		if strings.HasPrefix(string(a.Key), "a2a.message.metadata.") {
+			t.Errorf("no metadata attributes expected, got %q", a.Key)
+		}
 	}
 }
 

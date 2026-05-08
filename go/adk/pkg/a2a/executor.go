@@ -138,6 +138,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
 	defer invocationSpan.End()
 
+	telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
+
 	// 3. Initialize skills session path.
 	if e.skillsDirectory != "" && sessionID != "" {
 		if _, err := skills.InitializeSessionPath(sessionID, e.skillsDirectory); err != nil {
