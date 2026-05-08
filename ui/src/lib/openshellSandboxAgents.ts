@@ -1,7 +1,7 @@
 import type { AgentResponse } from "@/types";
 
 export function isOpenshellSandboxRow(item: AgentResponse): boolean {
-  return Boolean(item.openshellAgentHarness?.gatewaySandboxName);
+  return Boolean(item.agentHarness?.gatewaySandboxName);
 }
 
 export type OpenshellTerminalLinkParams = {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
-import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
+import { getAgentWithResolvedKind, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import type {
   Agent,
@@ -18,8 +18,8 @@ import type {
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import type { OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
-import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessFormSlice } from "@/lib/agentHarnessForm";
+import { validateAgentHarnessForm } from "@/lib/agentHarnessForm";
 import { isResourceNameValid } from "@/lib/utils";
 
 export interface ValidationErrors {
@@ -36,7 +36,7 @@ export interface ValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
-  openClawSandbox?: string;
+  agentHarness?: string;
 }
 
 export interface AgentFormData {
@@ -44,6 +44,8 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
+  /** When true, create/update a SandboxAgent CR instead of Agent. */
+  runInSandbox?: boolean;
   /** Python vs Go ADK for declarative / sandbox (non-BYO) workloads. */
   declarativeRuntime?: DeclarativeRuntime;
   // Declarative fields
@@ -63,8 +65,8 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** OpenClaw AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; backend openclaw). */
-  openClawSandbox?: OpenClawSandboxFormSlice;
+  /** AgentHarness CR (kagent.dev/v1alpha2). Form slice uses spec.backend via `backend`. */
+  agentHarness?: AgentHarnessFormSlice;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -188,29 +190,27 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
     const type = data.type || "Declarative";
 
-    if (data.description !== undefined && !data.description.trim() && type !== "OpenClawSandbox") {
+    if (data.description !== undefined && !data.description.trim() && type !== "AgentHarness") {
       errors.description = "Description is required";
     }
 
-    const byoImage = data.byoImage;
-
-    if (type === "OpenClawSandbox") {
+    if (type === "AgentHarness") {
       if (!data.modelName || data.modelName.trim() === "") {
         errors.model = "Please select a model config";
       }
-      if (data.openClawSandbox !== undefined) {
-        const oc = validateOpenClawSandboxForm({
-          openClaw: data.openClawSandbox,
+      if (data.agentHarness !== undefined) {
+        const oc = validateAgentHarnessForm({
+          harness: data.agentHarness,
           modelRef: data.modelName,
         });
         if (oc) {
-          errors.openClawSandbox = oc;
+          errors.agentHarness = oc;
         }
       }
       return errors;
     }
 
-    if (formUsesDeclarativeSections(type, byoImage)) {
+    if (formUsesDeclarativeSections(type)) {
       if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
         errors.systemPrompt = "Agent instructions are required";
       }
@@ -226,7 +226,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
           errors.memoryTtl = "TTL must be at least 1 day";
         }
       }
-    } else if (formUsesByoSections(type, byoImage)) {
+    } else if (formUsesByoSections(type)) {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
       }
@@ -239,7 +239,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
     }
 
-    if (formUsesDeclarativeSections(type, byoImage)) {
+    if (formUsesDeclarativeSections(type)) {
       const sources = (data.promptSources || []).filter((s) => s.name.trim());
       for (const s of sources) {
         if (!isResourceNameValid(s.name.trim())) {
@@ -261,7 +261,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all agents
-      const agentResult = await getAgentAction(name, namespace);
+      const agentResult = await getAgentWithResolvedKind(name, namespace);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
         setError("Failed to get agent");

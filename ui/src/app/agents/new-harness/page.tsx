@@ -5,8 +5,9 @@ import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { defaultOpenClawSandboxFormSlice, type OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
-import type { ModelConfig } from "@/types";
+import { defaultAgentHarnessFormSlice, type AgentHarnessFormSlice } from "@/lib/agentHarnessForm";
+import type { AgentHarnessCrBackend, ModelConfig } from "@/types";
+import { AGENT_HARNESS_MESSENGER_BACKENDS } from "@/types";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { useRouter } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
@@ -17,12 +18,10 @@ import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormSection, FieldRoot, FieldLabel, FieldError } from "@/components/agent-form/form-primitives";
-import { OpenClawSandboxFields } from "@/components/agent-form/OpenClawSandboxFields";
+import { AgentHarnessFields } from "@/components/agent-form/AgentHarnessFields";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
-
-const HARNESS_OPTIONS = [{ value: "nemoclaw-openclaw", label: "NemoClaw (OpenClaw)" }] as const;
 
 function AgentHarnessPageContent() {
   const router = useRouter();
@@ -34,9 +33,8 @@ function AgentHarnessPageContent() {
     name: string;
     namespace: string;
     description: string;
-    harnessType: (typeof HARNESS_OPTIONS)[number]["value"];
     selectedModel: SelectedModelType | null;
-    openClaw: OpenClawSandboxFormSlice;
+    harnessForm: AgentHarnessFormSlice;
     isSubmitting: boolean;
     errors: AgentFormValidationErrors;
   }
@@ -47,9 +45,8 @@ function AgentHarnessPageContent() {
     name: "",
     namespace: "default",
     description: "",
-    harnessType: HARNESS_OPTIONS[0].value,
     selectedModel: null,
-    openClaw: defaultOpenClawSandboxFormSlice(),
+    harnessForm: defaultAgentHarnessFormSlice(),
     isSubmitting: false,
     errors: {},
   });
@@ -68,8 +65,8 @@ function AgentHarnessPageContent() {
   }, [formDirty]);
 
   const validateForm = () => {
-    if (state.harnessType !== "nemoclaw-openclaw") {
-      toast.error("Unsupported harness type.");
+    if (!AGENT_HARNESS_MESSENGER_BACKENDS.includes(state.harnessForm.backend)) {
+      toast.error("Unsupported harness backend.");
       return false;
     }
 
@@ -77,9 +74,9 @@ function AgentHarnessPageContent() {
       name: state.name,
       namespace: state.namespace,
       description: state.description,
-      type: "OpenClawSandbox",
+      type: "AgentHarness",
       modelName: state.selectedModel?.ref || "",
-      openClawSandbox: state.openClaw,
+      agentHarness: state.harnessForm,
     };
 
     const newErrors = validateAgentData(formData);
@@ -96,8 +93,8 @@ function AgentHarnessPageContent() {
   const validateField = useCallback(
     (fieldName: keyof AgentFormValidationErrors, value: string) => {
       const formData: Partial<AgentFormData> = {
-        type: "OpenClawSandbox",
-        openClawSandbox: state.openClaw,
+        type: "AgentHarness",
+        agentHarness: state.harnessForm,
       };
 
       switch (fieldName) {
@@ -124,11 +121,11 @@ function AgentHarnessPageContent() {
           ...prev.errors,
           [fieldName]: valueForField,
         };
-        nextErrors.openClawSandbox = fieldErrors.openClawSandbox;
+        nextErrors.agentHarness = fieldErrors.agentHarness;
         return { ...prev, errors: nextErrors };
       });
     },
-    [state.openClaw, validateAgentData],
+    [state.harnessForm, validateAgentData],
   );
 
   const handleSaveAgent = async () => {
@@ -136,8 +133,8 @@ function AgentHarnessPageContent() {
       return;
     }
 
-    if (state.harnessType !== "nemoclaw-openclaw") {
-      toast.error("Unsupported harness type.");
+    if (!AGENT_HARNESS_MESSENGER_BACKENDS.includes(state.harnessForm.backend)) {
+      toast.error("Unsupported harness backend.");
       return;
     }
 
@@ -152,10 +149,10 @@ function AgentHarnessPageContent() {
         name: state.name,
         namespace: state.namespace,
         description: state.description,
-        type: "OpenClawSandbox",
+        type: "AgentHarness",
         tools: [],
         modelName: state.selectedModel.ref,
-        openClawSandbox: state.openClaw,
+        agentHarness: state.harnessForm,
       };
       const ocResult = await createNewAgent(ocPayload);
       if (ocResult.error) {
@@ -247,13 +244,14 @@ function AgentHarnessPageContent() {
                 </FieldRoot>
 
                 <FieldRoot>
-                  <FieldLabel htmlFor="agent-harness-field-type">Harness type</FieldLabel>
+                  <FieldLabel htmlFor="agent-harness-field-type">Harness backend</FieldLabel>
                   <Select
-                    value={state.harnessType}
+                    value={state.harnessForm.backend}
                     onValueChange={(val) =>
                       setState((prev) => ({
                         ...prev,
-                        harnessType: val as FormState["harnessType"],
+                        harnessForm: { ...prev.harnessForm, backend: val as AgentHarnessCrBackend },
+                        errors: { ...prev.errors, agentHarness: undefined },
                       }))
                     }
                     disabled={disabled}
@@ -262,9 +260,9 @@ function AgentHarnessPageContent() {
                       <SelectValue placeholder="Select harness…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {HARNESS_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
+                      {AGENT_HARNESS_MESSENGER_BACKENDS.map((b) => (
+                        <SelectItem key={b} value={b}>
+                          {b}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -289,10 +287,7 @@ function AgentHarnessPageContent() {
                 </FieldRoot>
               </FormSection>
 
-              <FormSection
-                title="Model & behavior"
-                description="Model for this harness."
-              >
+              <FormSection title="Model & behavior" description="Model for this harness.">
                 <ModelSelectionSection
                   allModels={models}
                   selectedModel={state.selectedModel}
@@ -306,17 +301,17 @@ function AgentHarnessPageContent() {
                 />
               </FormSection>
 
-              <OpenClawSandboxFields
-                value={state.openClaw}
-                onChange={(openClaw) =>
+              <AgentHarnessFields
+                value={state.harnessForm}
+                onChange={(harnessForm) =>
                   setState((prev) => ({
                     ...prev,
-                    openClaw,
-                    errors: { ...prev.errors, openClawSandbox: undefined },
+                    harnessForm,
+                    errors: { ...prev.errors, agentHarness: undefined },
                   }))
                 }
                 disabled={disabled}
-                sectionError={state.errors.openClawSandbox}
+                sectionError={state.errors.agentHarness}
               />
 
               <div className="flex justify-end border-t border-border/50 pt-6">

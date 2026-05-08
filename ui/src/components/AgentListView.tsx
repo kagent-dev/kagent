@@ -17,7 +17,7 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Box, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
 import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 
@@ -44,8 +44,6 @@ function typeLabel(type: string | undefined): string {
   switch (type) {
     case "BYO":
       return "BYO";
-    case "Sandbox":
-      return "Sandbox";
     case "Declarative":
     default:
       return "Declarative";
@@ -103,10 +101,16 @@ function ProviderModelCell({ item }: { item: AgentResponse }) {
   const isBYO = agent.spec?.type === "BYO";
   const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
   if (isBYO) {
+    const imageLabel = byoImage || "—";
     return (
-      <div className="flex min-w-0 max-w-xs flex-col gap-1">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Image</span>
-        <span className="text-sm [overflow-wrap:anywhere] text-muted-foreground">{byoImage || "—"}</span>
+      <div className="flex min-w-0 max-w-xs flex-col gap-0.5">
+        <span className="text-xs font-medium text-foreground [overflow-wrap:anywhere]">Image</span>
+        <span
+          className="text-xs text-muted-foreground [overflow-wrap:anywhere]"
+          title={byoImage ? byoImage : undefined}
+        >
+          {imageLabel}
+        </span>
       </div>
     );
   }
@@ -218,6 +222,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const sshSandbox = isOpenshellSandboxRow(item);
   const agentHarness = isAgentHarness(item);
   const harnessBackend = getAgentHarnessBackend(item);
+  const isSandboxWorkload = item.workloadMode === "sandbox";
 
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
@@ -228,9 +233,9 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const nSkills = countSkills(agent);
 
   const chatPath =
-    sshSandbox && item.openshellAgentHarness
+    sshSandbox && item.agentHarness
       ? openshellTerminalHref({
-          gatewaySandboxName: item.openshellAgentHarness.gatewaySandboxName,
+          gatewaySandboxName: item.agentHarness.gatewaySandboxName,
           namespace,
           crName: name,
           modelConfigRef: item.modelConfigRef,
@@ -290,13 +295,21 @@ function AgentListRow({ item }: { item: AgentResponse }) {
                 <span
                   className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
                   aria-hidden
-                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellAgentHarness?.backend}
+                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.agentHarness?.backend}
                 >
                   🦞
                 </span>
               ) : (
                 <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
               )
+            ) : isSandboxWorkload ? (
+              <span className="inline-flex shrink-0" title="Sandbox workload (SandboxAgent)">
+                <Box
+                  className="h-4 w-4 text-muted-foreground opacity-90"
+                  aria-hidden
+                  strokeWidth={2}
+                />
+              </span>
             ) : (
               <KagentLogo className="h-4 w-4 shrink-0 opacity-80" />
             )}
@@ -379,6 +392,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
           <DeleteButton
             agentName={name}
             namespace={namespace}
+            kubernetesKind={item.agent.kind}
             externalOpen={deleteOpen}
             onExternalOpenChange={setDeleteOpen}
           />

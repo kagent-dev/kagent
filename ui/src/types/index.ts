@@ -258,7 +258,19 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
+export type AgentType = "Declarative" | "BYO" | "AgentHarness";
+
+/**
+ * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
+ */
+export type AgentHarnessCrBackend = "openclaw";
+/**
+ * Subset that supports OpenClaw-style messenger channels (CR validation + channel form).
+ */
+export type AgentHarnessMessengerBackend = Extract<AgentHarnessCrBackend, "openclaw">;
+
+export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = ["openclaw"];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -418,8 +430,8 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openshell). */
-export interface OpenshellAgentHarnessListEntry {
+/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (API-supported backends). */
+export interface AgentHarnessListEntry {
   backend: string;
   /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
   gatewaySandboxName: string;
@@ -438,7 +450,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
-  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
+  agentHarness?: AgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {
