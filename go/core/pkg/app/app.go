@@ -741,14 +741,12 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 		return nil, err
 	}
 
-	osh := openshell.NewOpenshellBackend(kubeClient, clients, oc, nil)
-	ocl, err := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
-	if err != nil {
-		return nil, err
-	}
+	osh := openshell.NewOpenShellBackend(kubeClient, clients, oc, nil)
+	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
 		v1alpha2.AgentHarnessBackendOpenshell: osh,
 		v1alpha2.AgentHarnessBackendOpenClaw:  ocl,
+		v1alpha2.AgentHarnessBackendNemoClaw:  ocl,
 	}, nil
 }
 

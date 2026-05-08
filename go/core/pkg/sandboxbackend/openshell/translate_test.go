@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -23,27 +24,27 @@ func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
 			},
 		},
 	}
-	req, unsupported := buildOpenshellCreateRequest(sbx)
+	req, unsupported := buildAgentHarnessOpenshellCreateRequest(sbx)
 	require.Empty(t, unsupported)
 	pol := req.GetSpec().GetPolicy()
 	require.NotNil(t, pol)
 	require.Equal(t, uint32(1), pol.GetVersion())
 	net := pol.GetNetworkPolicies()
 	require.Len(t, net, 5)
-	require.Contains(t, net, openClawNetworkPolicyKeyClawhub)
-	require.Contains(t, net, openClawNetworkPolicyKeyAPI)
-	require.Contains(t, net, openClawNetworkPolicyKeyDocs)
-	require.Contains(t, net, openClawNetworkPolicyKeyNPMYarn)
-	npm := net[openClawNetworkPolicyKeyNPMYarn]
+	require.Contains(t, net, openclaw.NetworkPolicyKeyClawhub)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyAPI)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyDocs)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyNPMYarn)
+	npm := net[openclaw.NetworkPolicyKeyNPMYarn]
 	require.Equal(t, "npm_yarn", npm.GetName())
 	require.Len(t, npm.GetEndpoints(), 2)
 	require.Equal(t, "registry.npmjs.org", npm.GetEndpoints()[0].GetHost())
 	require.Equal(t, "skip", npm.GetEndpoints()[0].GetTls())
 	require.Equal(t, "registry.yarnpkg.com", npm.GetEndpoints()[1].GetHost())
 
-	clawhub := net[openClawNetworkPolicyKeyClawhub]
+	clawhub := net[openclaw.NetworkPolicyKeyClawhub]
 	require.Len(t, clawhub.GetEndpoints(), 1)
-	require.Equal(t, openClawRegistryHostClawhub, clawhub.GetEndpoints()[0].GetHost())
+	require.Equal(t, openclaw.RegistryHostClawhub, clawhub.GetEndpoints()[0].GetHost())
 	require.Equal(t, []uint32{443}, clawhub.GetEndpoints()[0].GetPorts())
 	require.Len(t, clawhub.GetEndpoints()[0].GetRules(), 2)
 
@@ -84,7 +85,7 @@ func TestBuildOpenshellCreateRequest_NoNetwork_NoPolicy(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
 		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	require.Nil(t, req.GetSpec().GetPolicy())
 }
 
@@ -93,20 +94,20 @@ func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolici
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
 		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	policy := req.GetSpec().GetPolicy()
 	require.NotNil(t, policy.GetFilesystem())
 	net := policy.GetNetworkPolicies()
 	require.Len(t, net, 4)
-	require.Contains(t, net, openClawNetworkPolicyKeyClawhub)
-	require.Contains(t, net, openClawNetworkPolicyKeyNPMYarn)
-	require.Contains(t, net, openClawNetworkPolicyKeyAPI)
-	require.Contains(t, net, openClawNetworkPolicyKeyDocs)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyClawhub)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyNPMYarn)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyAPI)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyDocs)
 	require.NotContains(t, net, kagentAllowedDomainsNetworkPolicyKey)
 	require.Equal(t, "best_effort", policy.GetLandlock().GetCompatibility())
 	require.Equal(t, "sandbox", policy.GetProcess().GetRunAsUser())
 
-	docs := net[openClawNetworkPolicyKeyDocs]
+	docs := net[openclaw.NetworkPolicyKeyDocs]
 	require.Len(t, docs.GetEndpoints()[0].GetRules(), 1)
 	require.Equal(t, "GET", docs.GetEndpoints()[0].GetRules()[0].GetAllow().GetMethod())
 	require.Len(t, docs.GetBinaries(), 1)
@@ -120,13 +121,13 @@ func TestBuildOpenshellCreateRequest_Openshell_AllowedDomains_NoOpenClawDefaults
 			Network: &v1alpha2.AgentHarnessNetwork{AllowedDomains: []string{"example.com"}},
 		},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	policy := req.GetSpec().GetPolicy()
 	require.Nil(t, policy.GetFilesystem())
 	net := policy.GetNetworkPolicies()
 	require.Len(t, net, 1)
 	require.Contains(t, net, kagentAllowedDomainsNetworkPolicyKey)
-	require.NotContains(t, net, openClawNetworkPolicyKeyClawhub)
+	require.NotContains(t, net, openclaw.NetworkPolicyKeyClawhub)
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *testing.T) {
@@ -145,10 +146,10 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *t
 			},
 		},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	net := req.GetSpec().GetPolicy().GetNetworkPolicies()
 	require.Len(t, net, 5)
-	tgPol := net[openClawNetworkPolicyKeyTelegramBot]
+	tgPol := net[openclaw.NetworkPolicyKeyTelegramBot]
 	require.NotNil(t, tgPol)
 	require.Equal(t, "telegram_bot", tgPol.GetName())
 	require.Len(t, tgPol.GetEndpoints(), 1)
@@ -185,13 +186,13 @@ func TestBuildOpenshellCreateRequest_Openshell_TelegramOnly_HasTelegramBotPolicy
 			},
 		},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	policy := req.GetSpec().GetPolicy()
 	require.NotNil(t, policy)
 	require.Nil(t, policy.GetFilesystem())
 	net := policy.GetNetworkPolicies()
 	require.Len(t, net, 1)
-	require.Contains(t, net, openClawNetworkPolicyKeyTelegramBot)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyTelegramBot)
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T) {
@@ -212,9 +213,9 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T)
 			},
 		},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	net := req.GetSpec().GetPolicy().GetNetworkPolicies()
-	s := net[openClawNetworkPolicyKeySlack]
+	s := net[openclaw.NetworkPolicyKeySlack]
 	require.NotNil(t, s)
 	require.Equal(t, "slack", s.GetName())
 	require.Len(t, s.GetEndpoints(), 5)
@@ -242,9 +243,9 @@ func TestBuildOpenshellCreateRequest_OpenClaw_AllowedDomains_OmitsNPMPresetHosts
 			},
 		},
 	}
-	req, _ := buildOpenshellCreateRequest(sbx)
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
 	net := req.GetSpec().GetPolicy().GetNetworkPolicies()
-	require.Contains(t, net, openClawNetworkPolicyKeyNPMYarn)
+	require.Contains(t, net, openclaw.NetworkPolicyKeyNPMYarn)
 	rule := net[kagentAllowedDomainsNetworkPolicyKey]
 	require.NotNil(t, rule)
 	hosts := make([]string, 0, len(rule.GetEndpoints()))
@@ -252,19 +253,4 @@ func TestBuildOpenshellCreateRequest_OpenClaw_AllowedDomains_OmitsNPMPresetHosts
 		hosts = append(hosts, ep.GetHost())
 	}
 	require.ElementsMatch(t, []string{"api.openai.com"}, hosts)
-}
-
-func TestSandboxPolicyFromAllowedDomains_AllInvalidReturnsNil(t *testing.T) {
-	require.Nil(t, sandboxPolicyFromAllowedDomains([]string{"", "https://", "   "}))
-}
-
-func TestSandboxPolicyFromAllowedDomains_GlobsPreserved(t *testing.T) {
-	pol := sandboxPolicyFromAllowedDomains([]string{"**.example.com"})
-	require.NotNil(t, pol)
-	rule := pol.GetNetworkPolicies()[kagentAllowedDomainsNetworkPolicyKey]
-	require.Len(t, rule.GetEndpoints(), 1)
-	ep0 := rule.GetEndpoints()[0]
-	require.Equal(t, "**.example.com", ep0.GetHost())
-	require.Equal(t, "rest", ep0.GetProtocol())
-	require.Equal(t, "full", ep0.GetAccess())
 }

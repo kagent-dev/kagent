@@ -9,11 +9,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// sandboxName is the deterministic name used on the gateway. Format:
-// "<namespace>-<name>". Collisions across clusters sharing one gateway are
-// a known limitation.
-func sandboxName(sbx *v1alpha2.AgentHarness) string {
-	return fmt.Sprintf("%s-%s", sbx.Namespace, sbx.Name)
+// agentHarnessGatewayName is the deterministic OpenShell sandbox name for an AgentHarness. Format:
+// "<namespace>-<name>". Collisions across clusters sharing one gateway are a known limitation.
+func agentHarnessGatewayName(ah *v1alpha2.AgentHarness) string {
+	return fmt.Sprintf("%s-%s", ah.Namespace, ah.Name)
 }
 
 // sandboxBackendHandleID is ObjectMeta.name — the canonical lookup key for
@@ -25,18 +24,17 @@ func sandboxBackendHandleID(sb *openshellv1.Sandbox) string {
 	return strings.TrimSpace(sb.GetMetadata().GetName())
 }
 
-// buildOpenshellCreateRequest maps a kagent AgentHarness into an OpenShell
-// CreateSandboxRequest. unsupported collects fields the gateway
-// cannot currently express so callers can surface them as events.
-func buildOpenshellCreateRequest(sbx *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
+// buildAgentHarnessOpenshellCreateRequest maps an AgentHarness into an OpenShell CreateSandboxRequest.
+// unsupported collects fields the gateway cannot currently express so callers can surface them as events.
+func buildAgentHarnessOpenshellCreateRequest(ah *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
 	unsupported := []string{}
 	tpl := &openshellv1.SandboxTemplate{}
 	env := map[string]string{}
 
-	if sbx.Spec.Image != "" {
-		tpl.Image = sbx.Spec.Image
+	if ah.Spec.Image != "" {
+		tpl.Image = ah.Spec.Image
 	}
-	for _, e := range sbx.Spec.Env {
+	for _, e := range ah.Spec.Env {
 		if e.ValueFrom != nil {
 			unsupported = append(unsupported, "env."+e.Name+".valueFrom")
 			continue
@@ -47,12 +45,12 @@ func buildOpenshellCreateRequest(sbx *v1alpha2.AgentHarness) (*openshellv1.Creat
 		Environment: env,
 		Template:    tpl,
 	}
-	if pol := sandboxPolicyForCreateRequest(sbx); pol != nil {
+	if pol := openShellSandboxPolicyForAgentHarness(ah); pol != nil {
 		spec.Policy = pol
 	}
 
 	return &openshellv1.CreateSandboxRequest{
-		Name: sandboxName(sbx),
+		Name: agentHarnessGatewayName(ah),
 		Spec: spec,
 	}, unsupported
 }

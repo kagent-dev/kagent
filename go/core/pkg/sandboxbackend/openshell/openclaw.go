@@ -6,24 +6,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
+	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// NemoclawSandboxBaseImage is the container image used for OpenClaw
+// NemoclawSandboxBaseImage is the container image used for OpenClaw/NemoClaw harness sandboxes.
 const NemoclawSandboxBaseImage = "ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4"
 
 // ClawBackend implements AsyncBackend and PostReadyBackend for OpenClaw- and
-// NemoClaw-typed AgentHarness resources: gateway provider registration, fixed sandbox
-// image, and post-ready OpenClaw bootstrap when modelConfigRef is set.
+// NemoClaw-typed AgentHarness resources: sync ModelConfig to the OpenShell control plane before create,
+// fixed sandbox image, and post-ready OpenClaw bootstrap when modelConfigRef is set.
 type ClawBackend struct {
-	*grpcBackend
+	*agentHarnessOpenShellBackend
 }
 
 var (
@@ -31,19 +35,107 @@ var (
 	_ sandboxbackend.PostReadyBackend = (*ClawBackend)(nil)
 )
 
-func newClawBackend(
-	kubeClient client.Client,
-	clients *OpenShellClients,
-	cfg Config,
-	recorder record.EventRecorder,
-	name v1alpha2.AgentHarnessBackendType,
-) (*ClawBackend, error) {
-	if name != v1alpha2.AgentHarnessBackendOpenClaw && name != v1alpha2.AgentHarnessBackendNemoClaw {
-		return nil, fmt.Errorf("openshell: claw backend type must be openclaw or nemoclaw, got %q", name)
+// translateModelConfig is the OpenClaw/NemoClaw PreCreateSandboxFunc. When spec.modelConfigRef is set,
+// it loads the ModelConfig CR and applies it to the OpenShell service (provider credentials + cluster
+// inference). This is distinct from translate.go, which maps AgentHarness → CreateSandboxRequest.
+// Other harness backends (e.g. Hermes) can pass their own PreCreateSandboxFunc for the same hook.
+func translateModelConfig(
+	ctx context.Context,
+	ah *v1alpha2.AgentHarness,
+	kube client.Client,
+	oc *OpenShellClients,
+) error {
+	if ah == nil {
+		return fmt.Errorf("AgentHarness is required")
 	}
+	ref := strings.TrimSpace(ah.Spec.ModelConfigRef)
+	if ref == "" {
+		return nil
+	}
+	if oc == nil {
+		return fmt.Errorf("openshell: OpenShell clients required")
+	}
+	inference, osCli := oc.Inference, oc.OpenShell
+	if kube == nil {
+		return fmt.Errorf("openshell: Kubernetes client is required when spec.modelConfigRef is set")
+	}
+	if inference == nil {
+		return fmt.Errorf("openshell: inference client is required when spec.modelConfigRef is set")
+	}
+	if osCli == nil {
+		return fmt.Errorf("openshell: OpenShell client is required when spec.modelConfigRef is set")
+	}
+
+	modelConfigRef, err := utils.ParseRefString(ref, ah.Namespace)
+	if err != nil {
+		return fmt.Errorf("failed to parse ModelConfigRef %s: %w", ref, err)
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{}
+	if err := kube.Get(ctx, modelConfigRef, modelConfig); err != nil {
+		return fmt.Errorf("failed to get ModelConfig %s: %w", modelConfigRef.String(), err)
+	}
+	apiKey, err := openclaw.ResolveModelConfigAPIKey(ctx, kube, modelConfig)
+	if err != nil {
+		return fmt.Errorf("openshell gateway provider: %w", err)
+	}
+
+	providerRecordName := openclaw.GatewayProviderRecordName(modelConfig.Spec.Provider)
+	model := modelConfig.Spec.Model
+
+	getProviderResp, err := osCli.GetProvider(ctx, &openshellv1.GetProviderRequest{Name: providerRecordName})
+	exists := false
+	if err != nil {
+		if status.Code(err) != codes.NotFound {
+			return fmt.Errorf("GetProvider %s: %w", providerRecordName, err)
+		}
+	} else if getProviderResp.GetProvider() != nil {
+		exists = true
+	}
+
+	providerProto := &datamodelv1.Provider{
+		Metadata: &datamodelv1.ObjectMeta{Name: providerRecordName},
+		Type:     providerRecordName,
+		Credentials: map[string]string{
+			"apiKey": apiKey,
+		},
+	}
+
+	if exists {
+		if _, err := osCli.UpdateProvider(ctx, &openshellv1.UpdateProviderRequest{Provider: providerProto}); err != nil {
+			return fmt.Errorf("UpdateProvider %s: %w", providerRecordName, err)
+		}
+		ctrllog.FromContext(ctx).Info("updated gateway provider", "name", providerRecordName)
+	} else {
+		if _, err := osCli.CreateProvider(ctx, &openshellv1.CreateProviderRequest{Provider: providerProto}); err != nil {
+			return fmt.Errorf("CreateProvider %s: %w", providerRecordName, err)
+		}
+		ctrllog.FromContext(ctx).Info("created gateway provider", "name", providerRecordName)
+	}
+
+	if _, err := inference.SetClusterInference(ctx, &inferencev1.SetClusterInferenceRequest{
+		ProviderName: providerRecordName,
+		ModelId:      model,
+		NoVerify:     true,
+	}); err != nil {
+		return fmt.Errorf("cluster inference for model %s: %w", model, err)
+	}
+	ctrllog.FromContext(ctx).Info("set cluster inference", "provider", providerRecordName, "model", model)
+	return nil
+}
+
+// NewOpenClawBackend returns the shared OpenClaw/NemoClaw harness backend. Register the same
+// instance under AgentHarnessBackendOpenClaw and AgentHarnessBackendNemoClaw; the controller
+// records status.backendRef.backend from spec.backend so both types stay distinguishable.
+func NewOpenClawBackend(kubeClient client.Client, clients *OpenShellClients, cfg Config, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
-		grpcBackend: newGRPCBackend(kubeClient, clients, cfg, recorder, name, buildClawCreateRequest, true),
-	}, nil
+		agentHarnessOpenShellBackend: newAgentHarnessOpenShellBackend(
+			kubeClient, clients, cfg, recorder,
+			v1alpha2.AgentHarnessBackendOpenClaw,
+			buildClawCreateRequest,
+			translateModelConfig,
+		),
+	}
 }
 
 const defaultOpenclawGatewayPort = 18800
@@ -51,8 +143,8 @@ const defaultOpenclawGatewayPort = 18800
 // OnAgentHarnessReady writes ~/.openclaw/openclaw.json from ModelConfig and spec.channels,
 // then runs `openclaw gateway start` in the background with injected env (API key + channel secrets).
 // No-ops when modelConfigRef is empty.
-func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.AgentHarness, h sandboxbackend.Handle) error {
-	ref := strings.TrimSpace(sbx.Spec.ModelConfigRef)
+func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.AgentHarness, h sandboxbackend.Handle) error {
+	ref := strings.TrimSpace(ah.Spec.ModelConfigRef)
 	if ref == "" {
 		return nil
 	}
@@ -63,7 +155,7 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.Age
 		return fmt.Errorf("kubernetes client is required for openclaw bootstrap")
 	}
 
-	modelConfigRef, err := utils.ParseRefString(ref, sbx.Namespace)
+	modelConfigRef, err := utils.ParseRefString(ref, ah.Namespace)
 	if err != nil {
 		return fmt.Errorf("parse modelConfigRef: %w", err)
 	}
@@ -76,14 +168,14 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.Age
 	gwPort := defaultOpenclawGatewayPort
 	token := b.cfg.Token
 
-	jsonBytes, env, err := openclaw.BuildBootstrapJSON(ctx, b.kubeClient, sbx.Namespace, sbx, mc, gwPort)
+	jsonBytes, env, err := openclaw.BuildBootstrapJSON(ctx, b.kubeClient, ah.Namespace, ah, mc, gwPort)
 	if err != nil {
 		return fmt.Errorf("build openclaw config: %w", err)
 	}
 
-	idCtx, cancelID := b.callCtx(ctx)
+	idCtx, cancelID := b.CallCtx(ctx)
 	defer cancelID()
-	execID, err := b.execSandboxID(withAuth(idCtx, token), h.ID)
+	execID, err := b.ExecSandboxID(withAuth(idCtx, token), h.ID)
 	if err != nil {
 		return fmt.Errorf("resolve sandbox exec id: %w", err)
 	}
@@ -91,7 +183,7 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.Age
 	installCmd := []string{"sh", "-c", `mkdir -p "$HOME/.openclaw" && cat > "$HOME/.openclaw/openclaw.json"`}
 	installCtx, cancelInstall := context.WithTimeout(ctx, 120*time.Second+15*time.Second)
 	defer cancelInstall()
-	code, stderr, err := b.execSandbox(withAuth(installCtx, token), execID, installCmd, jsonBytes, env, 120)
+	code, stderr, err := b.ExecSandbox(withAuth(installCtx, token), execID, installCmd, jsonBytes, env, 120)
 	if err != nil {
 		return fmt.Errorf("install openclaw.json: %w", err)
 	}
@@ -106,7 +198,7 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.Age
 	gatewayCmd := []string{"sh", "-c", gatewayScript}
 	gwCtx, cancelGW := context.WithTimeout(ctx, 90*time.Second+15*time.Second)
 	defer cancelGW()
-	code, stderr, err = b.execSandbox(withAuth(gwCtx, token), execID, gatewayCmd, nil, env, 90)
+	code, stderr, err = b.ExecSandbox(withAuth(gwCtx, token), execID, gatewayCmd, nil, env, 90)
 	if err != nil {
 		return fmt.Errorf("exec openclaw gateway run: %w", err)
 	}
@@ -115,24 +207,18 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, sbx *v1alpha2.Age
 	}
 
 	ctrllog.FromContext(ctx).Info("openclaw bootstrap completed",
-		"sandbox", sbx.Namespace+"/"+sbx.Name, "providerRecord", providerRecord)
+		"agentHarness", ah.Namespace+"/"+ah.Name, "providerRecord", providerRecord)
 	return nil
 }
 
-func buildClawCreateRequest(sbx *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
-	req, unsupported := buildOpenshellCreateRequest(sbx)
+func buildClawCreateRequest(ah *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
+	req, unsupported := buildAgentHarnessOpenshellCreateRequest(ah)
 	if req.GetSpec().GetTemplate() == nil {
 		req.Spec.Template = &openshellv1.SandboxTemplate{}
 	}
 
-	// If the user has set an image, use it. Otherwise, use our nemoclaw image.
-	if sbx.Spec.Image == "" {
+	if ah.Spec.Image == "" {
 		req.Spec.Template.Image = NemoclawSandboxBaseImage
 	}
 	return req, unsupported
-}
-
-// NewOpenClawBackend returns a backend for Sandbox.spec.backend=openclaw.
-func NewOpenClawBackend(kubeClient client.Client, clients *OpenShellClients, cfg Config, recorder record.EventRecorder) (*ClawBackend, error) {
-	return newClawBackend(kubeClient, clients, cfg, recorder, v1alpha2.AgentHarnessBackendOpenClaw)
 }

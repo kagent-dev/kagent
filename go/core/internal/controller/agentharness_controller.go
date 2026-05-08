@@ -107,7 +107,7 @@ func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{
-		Backend: backend.Name(),
+		Backend: ah.Spec.Backend,
 		ID:      res.Handle.ID,
 	}
 	if res.Endpoint != "" {
