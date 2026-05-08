@@ -252,7 +252,7 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady)
 	})
 
-	t.Run("returns 404 for sandbox agent on agents endpoint", func(t *testing.T) {
+	t.Run("returns 404 for SandboxAgent on GET /api/agents (use /api/sandboxagents)", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("sandbox-only", modelConfig, nil)
 
@@ -279,6 +279,23 @@ func TestHandleGetAgent(t *testing.T) {
 		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	})
+
+	t.Run("returns 404 for AgentHarness on GET /api/agents (use /api/agentharnesses)", func(t *testing.T) {
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-only", Namespace: "default"},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+		}
+		handler, _ := setupTestHandler(t, sb)
+
+		req := httptest.NewRequest("GET", "/api/agents/default/harness-only", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "harness-only"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code)
 	})
 }
 
@@ -328,6 +345,30 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data.WorkloadMode)
+	})
+}
+
+func TestHandleGetAgentHarness(t *testing.T) {
+	t.Run("gets openshell AgentHarness", func(t *testing.T) {
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "gh-get", Namespace: "default"},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+		}
+		handler, _ := setupTestHandler(t, sb)
+
+		req := httptest.NewRequest("GET", "/api/agentharnesses/default/gh-get", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "gh-get"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleGetAgentHarness(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[api.AgentResponse]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		require.Equal(t, "AgentHarness", response.Data.Agent.Kind)
+		require.Equal(t, "gh-get", response.Data.Agent.Metadata.Name)
 	})
 }
 
@@ -636,40 +677,35 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data[0].WorkloadMode)
 	})
 
-	t.Run("same names across kinds are both preserved in unified agent list", func(t *testing.T) {
+	t.Run("same name Agent and SandboxAgent both appear on agents list", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
 		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 
-		agentReq := httptest.NewRequest("GET", "/api/agents", nil)
-		agentReq = setUser(agentReq, "test-user")
-		agentW := httptest.NewRecorder()
-		handler.HandleListAgents(&testErrorResponseWriter{agentW}, agentReq)
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
 
-		sandboxReq := httptest.NewRequest("GET", "/api/sandboxagents", nil)
-		sandboxReq = setUser(sandboxReq, "test-user")
-		sandboxW := httptest.NewRecorder()
-		handler.HandleListSandboxAgents(&testErrorResponseWriter{sandboxW}, sandboxReq)
+		require.Equal(t, http.StatusOK, w.Code)
 
-		require.Equal(t, http.StatusOK, agentW.Code)
-		require.Equal(t, http.StatusOK, sandboxW.Code)
-
-		var agentResp api.StandardResponse[[]api.AgentResponse]
-		var sandboxResp api.StandardResponse[[]api.AgentResponse]
-		require.NoError(t, json.Unmarshal(agentW.Body.Bytes(), &agentResp))
-		require.NoError(t, json.Unmarshal(sandboxW.Body.Bytes(), &sandboxResp))
-		require.Len(t, agentResp.Data, 2)
-		require.Len(t, sandboxResp.Data, 1)
-
-		workloadModes := map[v1alpha2.WorkloadMode]bool{}
-		for _, row := range agentResp.Data {
-			require.Equal(t, "shared-name", row.Agent.Metadata.Name)
-			workloadModes[row.WorkloadMode] = true
+		var resp api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.Len(t, resp.Data, 2)
+		var deploymentCount, sandboxCount int
+		for _, row := range resp.Data {
+			switch row.WorkloadMode {
+			case v1alpha2.WorkloadModeDeployment:
+				deploymentCount++
+				require.Equal(t, "Agent", row.Agent.Kind)
+			case v1alpha2.WorkloadModeSandbox:
+				sandboxCount++
+				require.Equal(t, "SandboxAgent", row.Agent.Kind)
+			}
 		}
-		require.True(t, workloadModes[v1alpha2.WorkloadModeDeployment])
-		require.True(t, workloadModes[v1alpha2.WorkloadModeSandbox])
-		require.Equal(t, v1alpha2.WorkloadModeSandbox, sandboxResp.Data[0].WorkloadMode)
+		require.Equal(t, 1, deploymentCount)
+		require.Equal(t, 1, sandboxCount)
 	})
 }
 
@@ -894,7 +930,25 @@ func TestHandleDeleteTeam(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("deletes openclaw AgentHarness when no Agent with that name", func(t *testing.T) {
+	t.Run("does not delete SandboxAgent via DELETE /api/agents (use /api/sandboxagents)", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		sa := createTestSandboxAgentCRD("sandbox-only-delete", modelConfig, nil)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
+
+		req := httptest.NewRequest("DELETE", "/api/agents/default/sandbox-only-delete", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-only-delete"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code)
+
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sandbox-only-delete"}, sa)
+		require.NoError(t, err)
+	})
+
+	t.Run("does not delete AgentHarness via DELETE /api/agents (use /api/agentharnesses)", func(t *testing.T) {
 		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
 			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
@@ -907,6 +961,51 @@ func TestHandleDeleteTeam(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code)
+
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sb-only"}, sb)
+		require.NoError(t, err)
+	})
+
+	t.Run("does not delete AgentHarness when Agent with same name exists", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("harness-shared", modelConfig)
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-shared", Namespace: "default"},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+		}
+		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("DELETE", "/api/agents/default/harness-shared", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "harness-shared"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "harness-shared"}, sb)
+		require.NoError(t, err)
+	})
+}
+
+func TestHandleDeleteAgentHarness(t *testing.T) {
+	t.Run("deletes openshell AgentHarness", func(t *testing.T) {
+		sb := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+		}
+		handler, _ := setupTestHandler(t, sb)
+
+		req := httptest.NewRequest("DELETE", "/api/agentharnesses/default/sb-only", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sb-only"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleDeleteAgentHarness(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 

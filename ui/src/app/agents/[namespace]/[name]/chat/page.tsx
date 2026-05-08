@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
-import { getAgent } from "@/app/actions/agents";
+import { getAgentWithResolvedKind } from "@/app/actions/agents";
 import { getSessionsForAgent, createSession } from "@/app/actions/sessions";
 import { isSingleSessionSandboxAgent, isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { Loader2 } from "lucide-react";
@@ -27,7 +27,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     let cancelled = false;
     (async () => {
       try {
-        const agentRes = await getAgent(name, namespace);
+        const agentRes = await getAgentWithResolvedKind(name, namespace);
         if (cancelled) return;
         if (agentRes.error || !agentRes.data) {
           setGate("ready");

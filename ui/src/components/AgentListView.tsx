@@ -413,6 +413,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           <DeleteButton
             agentName={name}
             namespace={namespace}
+            kubernetesKind={agent.kind}
             onDeleted={onAgentsChanged}
             externalOpen={deleteOpen}
             onExternalOpenChange={setDeleteOpen}

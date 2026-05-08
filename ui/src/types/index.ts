@@ -258,7 +258,22 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
+export type AgentType = "Declarative" | "BYO" | "AgentHarness";
+
+/**
+ * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
+ */
+export type AgentHarnessCrBackend = "openclaw" | "nemoclaw" | "hermes";
+/**
+ * Subset that supports OpenClaw-style messenger channels (CR validation + channel form).
+ */
+export type AgentHarnessMessengerBackend = Extract<AgentHarnessCrBackend, "openclaw" | "nemoclaw">;
+
+export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
+  "openclaw",
+  "nemoclaw",
+];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {

@@ -4,9 +4,19 @@ import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import { defaultDeclarativeRuntimeForSandboxPlatform, defaultSandboxPlatform, sandboxFieldsFromApiSpec, skillsSupportedForSandboxPlatform } from "@/lib/sandboxAgentForm";
-import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
+import {
+  formUsesByoSections,
+  formUsesDeclarativeSections,
+  formWorkloadKindFromApi,
+  type AgentFormWorkloadKind,
+} from "@/lib/agentFormLayout";
+import {
+  defaultDeclarativeRuntimeForSandboxPlatform,
+  defaultSandboxPlatform,
+  sandboxFieldsFromApiSpec,
+  skillsSupportedForSandboxPlatform,
+} from "@/lib/sandboxAgentForm";
+import { ModelConfig, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { generateId } from "@/lib/utils";
@@ -73,7 +83,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     name: string;
     namespace: string;
     description: string;
-    agentType: AgentType;
+    agentType: AgentFormWorkloadKind;
+    runInSandbox: boolean;
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
     selectedMemoryModel: SelectedModelType | null;
@@ -110,6 +121,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     namespace: initialNamespace,
     description: "",
     agentType: "Declarative",
+    runInSandbox: false,
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedMemoryModel: null,
@@ -146,7 +158,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       return;
     }
     setState((prev) => {
-      if (prev.agentType !== "Sandbox" || prev.sandboxPlatform === "substrate") {
+      if (!prev.runInSandbox || prev.sandboxPlatform === "substrate") {
         return prev;
       }
       return {
@@ -157,14 +169,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     });
   }, [isEditMode, substrateEnabled]);
 
-  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
-  const substrateSandboxAgent = state.agentType === "Sandbox" && state.sandboxPlatform === "substrate";
+  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
+  const substrateSandboxAgent = state.runInSandbox && state.sandboxPlatform === "substrate";
   const showDeclarativeRuntimeField = useDeclarativeAgentFields && !substrateSandboxAgent;
-  const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+  const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const skillsEnabled =
     useDeclarativeAgentFields &&
-    skillsSupportedForSandboxPlatform(state.agentType, state.sandboxPlatform);
+    skillsSupportedForSandboxPlatform(state.runInSandbox, state.sandboxPlatform);
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -229,7 +241,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.workloadMode),
+                agentType: formWorkloadKindFromApi(agent.spec.type),
+                runInSandbox: agentResponse.workloadMode === "sandbox",
               };
               const sandboxFields =
                 agentResponse.workloadMode === "sandbox"
@@ -346,6 +359,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       namespace: state.namespace,
       description: state.description,
       type: state.agentType,
+      runInSandbox: state.runInSandbox,
       systemPrompt: state.systemPrompt,
       promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
       modelName: state.selectedModel?.ref || "",
@@ -357,19 +371,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
         : undefined,
-        context: state.contextConfig,
-        serviceAccountName: state.serviceAccountName,
-        ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
-        ...(state.agentType === "Sandbox"
-          ? {
-              sandboxPlatform: state.sandboxPlatform,
-              substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
-              substrateSnapshotsLocation: state.substrateSnapshotsLocation,
-            }
-          : {}),
-      };
+      context: state.contextConfig,
+      serviceAccountName: state.serviceAccountName,
+      ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
+      ...(state.runInSandbox
+        ? {
+            sandboxPlatform: state.sandboxPlatform,
+            substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
+            substrateSnapshotsLocation: state.substrateSnapshotsLocation,
+          }
+        : {}),
+    };
 
-      const newErrors = validateAgentData(formData);
+    const newErrors = validateAgentData(formData);
 
     if (useDeclarativeAgentFields && skillsEnabled) {
       const skillsInput = {
@@ -395,7 +409,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validateField = (fieldName: keyof AgentFormValidationErrors, value: any) => {
-    const formData: Partial<AgentFormData> = { type: state.agentType };
+    const formData: Partial<AgentFormData> = { type: state.agentType, runInSandbox: state.runInSandbox };
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
 
     switch (fieldName) {
@@ -471,6 +485,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         namespace: state.namespace,
         description: state.description,
         type: state.agentType,
+        runInSandbox: state.runInSandbox,
         systemPrompt: state.systemPrompt,
         promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
         modelName: state.selectedModel?.ref || "",
@@ -526,7 +541,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           })
           .filter((e): e is EnvVar => e !== null),
         serviceAccountName: state.serviceAccountName.trim() || undefined,
-        ...(state.agentType === "Sandbox"
+        ...(state.runInSandbox
           ? {
               sandboxPlatform: state.sandboxPlatform,
               substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
@@ -652,19 +667,15 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               <FieldRoot>
                 <FieldLabel>Agent type</FieldLabel>
                 <FieldHint>
-                  Declarative and sandbox workload (without a custom image) use the in-cluster ADK runtime. BYO or sandbox with a custom image adds
-                  container settings. 
+                  Declarative agents use the in-cluster ADK runtime with model, tools, and prompts. BYO runs your own container image and process.
                 </FieldHint>
                 <Select
                   value={state.agentType}
                   onValueChange={(val) => {
-                    const next = val as AgentType;
+                    const next = val as AgentFormWorkloadKind;
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
-                      ...(next === "Sandbox"
-                        ? { sandboxPlatform: defaultSandboxPlatform(substrateEnabled) }
-                        : {}),
                       errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
@@ -676,13 +687,44 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Declarative">Declarative</SelectItem>
-                    <SelectItem value="Sandbox">Sandbox workload</SelectItem>
                     <SelectItem value="BYO">BYO</SelectItem>
                   </SelectContent>
                 </Select>
               </FieldRoot>
 
-              {state.agentType === "Sandbox" && substrateEnabled && (
+              <FieldRoot>
+                <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                  <div className="flex h-5 shrink-0 items-center self-start">
+                    <Checkbox
+                      id="run-in-sandbox"
+                      checked={state.runInSandbox}
+                      onCheckedChange={(checked) =>
+                        setState((prev) => ({
+                          ...prev,
+                          runInSandbox: !!checked,
+                          ...(checked
+                            ? { sandboxPlatform: defaultSandboxPlatform(substrateEnabled) }
+                            : {}),
+                        }))
+                      }
+                      disabled={disabled || isEditMode}
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-1.5">
+                    <Label
+                      htmlFor="run-in-sandbox"
+                      className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                    >
+                      Run in a sandbox
+                    </Label>
+                    <p className="text-xs leading-snug text-muted-foreground">
+                      Runs the workload in a sandbox (isolated sandbox runtime).
+                    </p>
+                  </div>
+                </div>
+              </FieldRoot>
+
+              {state.runInSandbox && substrateEnabled && (
                 <FieldRoot>
                   <FieldLabel>Sandbox platform</FieldLabel>
                   <FieldHint>
@@ -788,7 +830,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showModelAndBehaviorSection && (
               <FormSection
                 title="Model & behavior"
-                description="Instructions, main model, streaming, and optional pod service account for this declarative or sandbox agent."
+                description="Instructions, main model, streaming, and optional pod service account for this declarative agent."
               >
                 {useDeclarativeAgentFields && (
                   <SystemPromptSection
@@ -854,7 +896,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showByoFields && (
               <FormSection
                 title="Container"
-                description="Image and process for BYO, or a custom image on sandbox. Open the lower panel for pull secrets, scheduling, and environment."
+                description="Image and process for your workload. Open the lower panel for pull secrets, scheduling, and environment."
               >
                 <ByoDeploymentFields
                   byoImage={state.byoImage}

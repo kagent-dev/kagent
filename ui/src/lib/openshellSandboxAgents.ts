@@ -2,7 +2,7 @@ import type { AgentResponse } from "@/types";
 import type { AgentHarnessBackend } from "@/lib/agentHarness";
 
 export function isOpenshellSandboxRow(item: AgentResponse): boolean {
-  return Boolean(item.openshellAgentHarness?.gatewaySandboxName);
+  return Boolean(item.agentHarness?.gatewaySandboxName);
 }
 
 export function isSubstrateHarnessRow(item: AgentResponse): boolean {

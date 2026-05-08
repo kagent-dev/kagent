@@ -68,10 +68,10 @@ export function defaultDeclarativeRuntimeForSandboxPlatform(
 
 /** Skills are not supported on Agent Substrate sandbox agents yet. */
 export function skillsSupportedForSandboxPlatform(
-  agentType: string,
+  runInSandbox: boolean,
   sandboxPlatform: SandboxPlatform
 ): boolean {
-  return !(agentType === "Sandbox" && sandboxPlatform === "substrate");
+  return !(runInSandbox && sandboxPlatform === "substrate");
 }
 
 export type SandboxChatMode = "default" | "single-session" | "multi-session";

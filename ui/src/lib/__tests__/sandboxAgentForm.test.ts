@@ -140,8 +140,8 @@ describe("defaultDeclarativeRuntimeForSandboxPlatform", () => {
 
 describe("skillsSupportedForSandboxPlatform", () => {
   it("disables skills for substrate sandbox agents", () => {
-    expect(skillsSupportedForSandboxPlatform("Sandbox", "substrate")).toBe(false);
-    expect(skillsSupportedForSandboxPlatform("Sandbox", "agent-sandbox")).toBe(true);
-    expect(skillsSupportedForSandboxPlatform("Declarative", "substrate")).toBe(true);
+    expect(skillsSupportedForSandboxPlatform(true, "substrate")).toBe(false);
+    expect(skillsSupportedForSandboxPlatform(true, "agent-sandbox")).toBe(true);
+    expect(skillsSupportedForSandboxPlatform(false, "substrate")).toBe(true);
   });
 });

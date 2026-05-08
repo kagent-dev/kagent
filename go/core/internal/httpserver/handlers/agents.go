@@ -641,6 +641,46 @@ func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	h.handleGetAgentObject(w, r, log, &v1alpha2.Agent{}, "Agent not found", "Successfully retrieved agent")
 }
 
+// HandleGetAgentHarness handles GET /api/agentharnesses/{namespace}/{name} for known backends only.
+func (h *AgentsHandler) HandleGetAgentHarness(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-agentharness")
+	agentName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+	agentNamespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+	log = log.WithValues("agentName", agentName, "agentNamespace", agentNamespace)
+	objKey := client.ObjectKey{Namespace: agentNamespace, Name: agentName}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	ctx := r.Context()
+	sb := &v1alpha2.AgentHarness{}
+	if err := h.KubeClient.Get(ctx, objKey, sb); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError("Failed to get AgentHarness", err))
+		return
+	}
+	if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+		w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
+		return
+	}
+	resp := h.openshellAgentHarnessAgentResponse(ctx, log, sb)
+	log.Info("Successfully retrieved AgentHarness")
+	RespondWithJSON(w, http.StatusOK, api.NewResponse(resp, "Successfully retrieved AgentHarness", false))
+}
+
 // HandleGetSandboxAgent handles GET /api/sandboxagents/{namespace}/{name} requests.
 func (h *AgentsHandler) HandleGetSandboxAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-sandboxagent")
@@ -710,32 +750,55 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 	ctx := r.Context()
 	agent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(ctx, objKey, agent)
-	if err == nil {
-		if err := h.KubeClient.Delete(ctx, agent); err != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 			return
 		}
-		log.Info("Successfully deleted agent")
-		RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
-		return
-	}
-	if !apierrors.IsNotFound(err) {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get Agent", err))
 		return
 	}
+	if err := h.KubeClient.Delete(ctx, agent); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
+		return
+	}
+	log.Info("Successfully deleted agent")
+	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+}
 
+// HandleDeleteAgentHarness handles DELETE /api/agentharnesses/{namespace}/{name} for known backends only.
+func (h *AgentsHandler) HandleDeleteAgentHarness(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "delete-agentharness")
+	agentName, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+	agentNamespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+	log = log.WithValues("agentName", agentName, "agentNamespace", agentNamespace)
+	objKey := client.ObjectKey{Namespace: agentNamespace, Name: agentName}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	ctx := r.Context()
 	sb := &v1alpha2.AgentHarness{}
 	if err := h.KubeClient.Get(ctx, objKey, sb); err != nil {
 		if apierrors.IsNotFound(err) {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
+			w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
 			return
 		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to get AgentHarness", err))
 		return
 	}
-	b := sb.Spec.Backend
-	if !v1alpha2.IsKnownAgentHarnessBackend(b) {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
+	if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+		w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
 		return
 	}
 	if err := h.KubeClient.Delete(ctx, sb); err != nil {
@@ -743,7 +806,7 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 	log.Info("Successfully deleted AgentHarness")
-	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted AgentHarness", false))
 }
 
 func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {
