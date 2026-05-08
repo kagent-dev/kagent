@@ -27,8 +27,10 @@ import (
 
 // ToolServerSpec defines the desired state of ToolServer.
 type ToolServerSpec struct {
-	Description string           `json:"description"`
-	Config      ToolServerConfig `json:"config"`
+	// +required
+	Description string `json:"description"`
+	// +required
+	Config ToolServerConfig `json:"config"`
 }
 
 type ToolServerType string
@@ -43,9 +45,12 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(self.stdio) && !has(self.sse) && !has(self.streamableHttp)) || (!has(self.stdio) && has(self.sse) && !has(self.streamableHttp)) || (!has(self.stdio) && !has(self.sse) && has(self.streamableHttp))",message="Exactly one of stdio, sse, or streamableHttp must be specified"
 type ToolServerConfig struct {
 	// +optional
-	Type           ToolServerType              `json:"type"`
-	Stdio          *StdioMcpServerConfig       `json:"stdio,omitempty"`
-	Sse            *SseMcpServerConfig         `json:"sse,omitempty"`
+	Type ToolServerType `json:"type,omitempty"`
+	// +optional
+	Stdio *StdioMcpServerConfig `json:"stdio,omitempty"`
+	// +optional
+	Sse *SseMcpServerConfig `json:"sse,omitempty"`
+	// +optional
 	StreamableHttp *StreamableHttpServerConfig `json:"streamableHttp,omitempty"`
 }
 
@@ -75,18 +80,21 @@ const (
 // ValueSource defines a source for configuration values from a Secret or ConfigMap
 type ValueSource struct {
 	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	// +required
 	Type ValueSourceType `json:"type"`
 	// The reference to the ConfigMap or Secret. Can either be a reference to a resource in the same namespace,
 	// or a reference to a resource in a different namespace in the form "namespace/name".
 	// If namespace is not provided, the default namespace is used.
 	// +optional
-	ValueRef string `json:"valueRef"`
-	Key      string `json:"key"`
+	ValueRef string `json:"valueRef,omitempty"`
+	// +required
+	Key string `json:"key"`
 }
 
 // ValueRef represents a configuration value
 // +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type ValueRef struct {
+	// +required
 	Name string `json:"name"`
 	// +optional
 	Value string `json:"value,omitempty"`
@@ -95,21 +103,29 @@ type ValueRef struct {
 }
 
 type StdioMcpServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	EnvFrom []ValueRef        `json:"envFrom,omitempty"`
+	// +required
+	Command string `json:"command"`
+	// +optional
+	Args []string `json:"args,omitempty"`
+	// +optional
+	Env map[string]string `json:"env,omitempty"`
+	// +optional
+	EnvFrom []ValueRef `json:"envFrom,omitempty"`
 	// Default value is 10 seconds
 	// +kubebuilder:default:=10
+	// +optional
 	ReadTimeoutSeconds uint8 `json:"readTimeoutSeconds,omitempty"`
 }
 
 type HttpToolServerConfig struct {
+	// +required
 	URL string `json:"url"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
-	Headers     map[string]AnyType `json:"headers,omitempty"`
-	HeadersFrom []ValueRef         `json:"headersFrom,omitempty"`
+	// +optional
+	Headers map[string]AnyType `json:"headers,omitempty"`
+	// +optional
+	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// +optional
@@ -122,35 +138,48 @@ type SseMcpServerConfig struct {
 
 type StreamableHttpServerConfig struct {
 	HttpToolServerConfig `json:",inline"`
-	TerminateOnClose     *bool `json:"terminateOnClose,omitempty"`
+	// +optional
+	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
 }
 
 // ToolServerStatus defines the observed state of ToolServer.
 type ToolServerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	ObservedGeneration int64              `json:"observedGeneration"`
-	Conditions         []metav1.Condition `json:"conditions"`
-	// +kubebuilder:validation:Optional
-	DiscoveredTools []*MCPTool `json:"discoveredTools"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	DiscoveredTools []*MCPTool `json:"discoveredTools,omitempty"`
 }
 
 type MCPTool struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Component   *Component `json:"component,omitempty"`
+	// +required
+	Name string `json:"name"`
+	// +required
+	Description string `json:"description"`
+	// +optional
+	Component *Component `json:"component,omitempty"`
 }
 
 type Component struct {
-	Provider         string `json:"provider"`
-	ComponentType    string `json:"component_type"`
-	Version          int    `json:"version"`
-	ComponentVersion int    `json:"component_version"`
-	Description      string `json:"description"`
-	Label            string `json:"label"`
+	// +required
+	Provider string `json:"provider"`
+	// +required
+	ComponentType string `json:"component_type"`
+	// +required
+	Version int `json:"version"`
+	// +required
+	ComponentVersion int `json:"component_version"`
+	// +required
+	Description string `json:"description"`
+	// +required
+	Label string `json:"label"`
 	// note: this implementation is due to the kubebuilder limitation https://github.com/kubernetes-sigs/controller-tools/issues/636
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Schemaless
+	// +optional
 	Config map[string]AnyType `json:"config,omitempty"`
 }
 
@@ -160,10 +189,13 @@ type Component struct {
 
 // ToolServer is the Schema for the toolservers API.
 type ToolServer struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ToolServerSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec ToolServerSpec `json:"spec,omitempty"`
+	// +optional
 	Status ToolServerStatus `json:"status,omitempty"`
 }
 
