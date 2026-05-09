@@ -413,8 +413,9 @@ func (m *SAPAICoreModel) handleStream(ctx context.Context, body io.Reader, yield
 	slices.Sort(indices)
 
 	finalParts := make([]*genai.Part, 0, 1+len(toolCallsAcc))
-	if aggregatedText.String() != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText.String()})
+	aggregatedTextStr := aggregatedText.String()
+	if aggregatedTextStr != "" {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedTextStr})
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]

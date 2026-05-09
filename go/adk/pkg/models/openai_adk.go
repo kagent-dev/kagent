@@ -417,8 +417,9 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	}
 	slices.Sort(indices)
 	finalParts := make([]*genai.Part, 0, 1+nToolCalls)
-	if aggregatedText.String() != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText.String()})
+	text := aggregatedText.String()
+	if text != "" {
+		finalParts = append(finalParts, &genai.Part{Text: text})
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]

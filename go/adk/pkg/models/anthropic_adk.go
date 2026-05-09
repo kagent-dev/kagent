@@ -332,8 +332,9 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 
 	// Build final response
 	finalParts := make([]*genai.Part, 0, 1+len(toolUseBlocks))
-	if aggregatedText.String() != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText.String()})
+	aggregatedTextValue := aggregatedText.String()
+	if aggregatedTextValue != "" {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedTextValue})
 	}
 	for _, block := range toolUseBlocks {
 		var args map[string]any
