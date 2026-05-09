@@ -188,6 +188,9 @@ func selectAgentsByID(t *testing.T, connStr string, ids []string) []agentRow {
 		}
 		out = append(out, r)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("selectAgentsByID: rows iteration: %v", err)
+	}
 	return out
 }
 
