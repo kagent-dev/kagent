@@ -71,7 +71,7 @@ jobs:
           echo "Version: ${{ steps.vars.outputs.version }}"
       - name: Run make build
         env:
-          DOCKER_BUILDER: "docker buildx"
+          DOCKER_BUILDER: "docker buildx build"
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha
             --cache-to=type=gha,mode=max
