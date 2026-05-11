@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -293,6 +294,32 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 
 		default:
 			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
+		}
+	}
+
+	// Derive the union of allowedHeaders across all MCP tools and propagate it to
+	// every remote agent entry. Any header approved for MCP calls is also safe to
+	// forward across A2A hops to sub-agents. Mirrors Python's AgentConfig.to_agent().
+	if len(cfg.RemoteAgents) > 0 {
+		mcpAllowed := map[string]struct{}{}
+		for _, t := range cfg.HttpTools {
+			for _, h := range t.AllowedHeaders {
+				mcpAllowed[strings.ToLower(h)] = struct{}{}
+			}
+		}
+		for _, t := range cfg.SseTools {
+			for _, h := range t.AllowedHeaders {
+				mcpAllowed[strings.ToLower(h)] = struct{}{}
+			}
+		}
+		if len(mcpAllowed) > 0 {
+			union := make([]string, 0, len(mcpAllowed))
+			for h := range mcpAllowed {
+				union = append(union, h)
+			}
+			for i := range cfg.RemoteAgents {
+				cfg.RemoteAgents[i].AllowedHeaders = union
+			}
 		}
 	}
 

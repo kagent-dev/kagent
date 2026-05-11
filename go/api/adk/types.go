@@ -363,10 +363,11 @@ func ParseModel(bytes []byte) (Model, error) {
 }
 
 type RemoteAgentConfig struct {
-	Name        string            `json:"name"`
-	Url         string            `json:"url"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Description string            `json:"description,omitempty"`
+	Name           string            `json:"name"`
+	Url            string            `json:"url"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Description    string            `json:"description,omitempty"`
+	AllowedHeaders []string          `json:"allowed_headers,omitempty"`
 }
 
 // EmbeddingConfig is the embedding model config for memory tools.

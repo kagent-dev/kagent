@@ -11,23 +11,27 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 )
 
-// userIDContextKey is the context key for passing the session user_id to the subagent.
-type userIDContextKey struct{}
-
-// userIDForwardingInterceptor forwards the session user_id as an x-user-id header.
-type userIDForwardingInterceptor struct {
+// allowedHeadersInterceptor forwards any headers stored in the A2A CallContext of the
+// send context. buildSendContext populates that CallContext with the filtered subset of
+// the incoming request's allowed headers.
+type allowedHeadersInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
-	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
-		req.Meta.Append("x-user-id", uid)
+func (h *allowedHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+		for name, vals := range callCtx.RequestMeta().List() {
+			if len(vals) > 0 && vals[0] != "" {
+				req.Meta.Append(name, vals[0])
+			}
+		}
 	}
 	return ctx, nil
 }
@@ -40,11 +44,12 @@ type remoteA2AInput struct {
 // remoteA2AState holds the mutable state for one remote A2A agent connection.
 // All external interaction goes through the tool.Tool returned by NewKAgentRemoteA2ATool.
 type remoteA2AState struct {
-	name         string
-	description  string
-	baseURL      string
-	httpClient   *http.Client
-	extraHeaders map[string]string
+	name           string
+	description    string
+	baseURL        string
+	httpClient     *http.Client
+	extraHeaders   map[string]string
+	allowedHeaders []string
 
 	a2aClient *a2aclient.Client
 	agentCard *a2atype.AgentCard
@@ -62,18 +67,19 @@ type remoteA2AState struct {
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
 // If httpClient is nil, a default client is created. The client's transport is
 // wrapped with otelhttp to propagate W3C trace context to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string) (tool.Tool, string, error) {
+func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, allowedHeaders []string) (tool.Tool, string, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
-		name:          name,
-		description:   description,
-		baseURL:       baseURL,
-		httpClient:    httpClient,
-		extraHeaders:  extraHeaders,
-		lastContextID: a2atype.NewContextID(),
+		name:           name,
+		description:    description,
+		baseURL:        baseURL,
+		httpClient:     httpClient,
+		extraHeaders:   extraHeaders,
+		allowedHeaders: allowedHeaders,
+		lastContextID:  a2atype.NewContextID(),
 	}
 	ft, err := functiontool.New(functiontool.Config{
 		Name:        name,
@@ -121,7 +127,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		}
 		opts = append(opts, a2aclient.WithInterceptors(
 			a2aclient.NewStaticCallMetaInjector(meta),
-			&userIDForwardingInterceptor{},
+			&allowedHeadersInterceptor{},
 		))
 
 		client, err := a2aclient.NewFromCard(ctx, card, opts...)
@@ -159,7 +165,7 @@ func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (
 	)
 	message.ContextID = s.lastContextID
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx := s.buildSendContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
@@ -209,7 +215,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 		return map[string]any{"error": err.Error()}, nil
 	}
 
-	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx := s.buildSendContext(ctx)
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
@@ -228,6 +234,32 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 		ret["subagent_session_id"] = sessionID
 	}
 	return ret, retErr
+}
+
+// buildSendContext constructs the context for a SendMessage call. It carries the user ID
+// via a context value and, when allowedHeaders is configured, stores the filtered subset
+// of the incoming A2A request's headers in a new A2A CallContext so the
+// allowedHeadersInterceptor can forward them without a custom context key.
+func (s *remoteA2AState) buildSendContext(ctx tool.Context) context.Context {
+	filtered := map[string][]string{}
+	if uid := ctx.UserID(); uid != "" {
+		filtered["x-user-id"] = []string{uid}
+	}
+	if len(s.allowedHeaders) > 0 {
+		if incomingCallCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+			incomingMeta := incomingCallCtx.RequestMeta()
+			for _, name := range s.allowedHeaders {
+				if vals, ok := incomingMeta.Get(strings.ToLower(name)); ok && len(vals) > 0 && vals[0] != "" {
+					filtered[name] = vals
+				}
+			}
+		}
+	}
+	if len(filtered) == 0 {
+		return ctx
+	}
+	sendCtx, _ := a2asrv.WithCallContext(ctx, a2asrv.NewRequestMeta(filtered))
+	return sendCtx
 }
 
 // processResult converts a SendMessageResult into a tool return value.
