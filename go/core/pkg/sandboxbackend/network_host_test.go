@@ -1,4 +1,4 @@
-package openshell
+package sandboxbackend
 
 import (
 	"testing"
@@ -22,7 +22,7 @@ func TestNormalizeAllowedDomainHost(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
-			got, ok := normalizeAllowedDomainHost(tt.raw)
+			got, ok := NormalizeAllowedDomainHost(tt.raw)
 			require.Equal(t, tt.ok, ok)
 			require.Equal(t, tt.want, got)
 		})

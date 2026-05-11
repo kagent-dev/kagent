@@ -1696,6 +1696,11 @@ func (in *SkillForAgent) DeepCopyInto(out *SkillForAgent) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ImagePullSecrets != nil {
+		in, out := &in.ImagePullSecrets, &out.ImagePullSecrets
+		*out = make([]v1.LocalObjectReference, len(*in))
+		copy(*out, *in)
+	}
 	if in.GitAuthSecretRef != nil {
 		in, out := &in.GitAuthSecretRef, &out.GitAuthSecretRef
 		*out = new(v1.LocalObjectReference)
