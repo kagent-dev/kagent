@@ -124,9 +124,19 @@ run: fmt vet ## Run a controller from your host.
 test: ## Run all unit tests.
 	UPDATE_GOLDEN=$(UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
+# Pin e2e tests to the kind cluster so a stray current-context (or an
+# ambient KUBECONFIG) can't leak resources onto a remote cluster. Override
+# KIND_CLUSTER_NAME to target a differently-named kind cluster.
+KIND_CLUSTER_NAME ?= kagent
+
 .PHONY: e2e
 e2e: ## Run end-to-end tests.
-	go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	@kind get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER_NAME)' || { \
+	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
+	  exit 1; \
+	}
+	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
+	KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
 ##@ Dependencies
 
