@@ -22,7 +22,8 @@ import (
 // (client.go) together with Config and optional events: per-RPC timeouts, bearer
 // auth on the context, and helpers that map responses to sandboxbackend types.
 // It does not run backend-specific pre-create work (e.g. translateModelConfig);
-// callers compose that via PreCreateSandboxFunc on the backend.
+// concrete backends compose findExistingSandbox + their own translation step +
+// createSandbox in their own EnsureAgentHarness implementation.
 //
 // Named with an AgentHarness prefix to avoid confusion with OpenShellClients (dial bundle) and
 // openshellv1.OpenShellClient (generated gRPC interface).

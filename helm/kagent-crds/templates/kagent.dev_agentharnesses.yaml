@@ -67,14 +67,12 @@ spec:
               backend:
                 description: Backend selects the control plane to use. Required.
                 enum:
-                - openshell
                 - openclaw
                 - nemoclaw
                 type: string
               channels:
-                description: |-
-                  Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
-                  Only supported when backend is openclaw or nemoclaw.
+                description: Channels configures Telegram and Slack integrations for
+                  OpenClaw inside the harness VM.
                 items:
                   description: AgentHarnessChannel declares one messenger binding
                     inside an OpenClaw/NemoClaw harness VM.
@@ -437,14 +435,13 @@ spec:
                 description: |-
                   Image is the container image to run in the harness VM, if the backend
                   supports per-resource images. Backends openclaw and nemoclaw pin the image
-                  to the NemoClaw sandbox base; openshell uses spec.image when set.
+                  to the NemoClaw sandbox base when this field is empty.
                 type: string
               modelConfigRef:
                 description: |-
                   ModelConfigRef is the reference to the ModelConfig used to configure the harness.
-                  When set with backend openclaw or nemoclaw, the controller registers the gateway provider and,
-                  after the harness is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
-                  It is ignored for backend openshell.
+                  The controller registers the gateway provider and, after the harness is Ready,
+                  writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
                 type: string
               network:
                 description: |-
@@ -461,10 +458,6 @@ spec:
             required:
             - backend
             type: object
-            x-kubernetes-validations:
-            - message: channels may only be set when backend is openclaw or nemoclaw
-              rule: '!has(self.channels) || size(self.channels) == 0 || self.backend
-                == ''openclaw'' || self.backend == ''nemoclaw'''
           status:
             description: AgentHarnessStatus is the observed state of an AgentHarness.
             properties:
@@ -478,7 +471,6 @@ spec:
                       AgentHarnessBackendType selects which sandbox control plane provisions the
                       environment. Additional backends may be added in the future.
                     enum:
-                    - openshell
                     - openclaw
                     - nemoclaw
                     type: string

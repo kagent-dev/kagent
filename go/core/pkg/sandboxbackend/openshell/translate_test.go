@@ -80,15 +80,6 @@ func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
 	require.ElementsMatch(t, []string{"api.openai.com", "api.anthropic.com", "*.slack.com"}, hosts)
 }
 
-func TestBuildOpenshellCreateRequest_NoNetwork_NoPolicy(t *testing.T) {
-	sbx := &v1alpha2.AgentHarness{
-		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
-	}
-	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
-	require.Nil(t, req.GetSpec().GetPolicy())
-}
-
 func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolicies(t *testing.T) {
 	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
@@ -111,23 +102,6 @@ func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolici
 	require.Len(t, docs.GetEndpoints()[0].GetRules(), 1)
 	require.Equal(t, "GET", docs.GetEndpoints()[0].GetRules()[0].GetAllow().GetMethod())
 	require.Len(t, docs.GetBinaries(), 1)
-}
-
-func TestBuildOpenshellCreateRequest_Openshell_AllowedDomains_NoOpenClawDefaults(t *testing.T) {
-	sbx := &v1alpha2.AgentHarness{
-		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Backend: v1alpha2.AgentHarnessBackendOpenshell,
-			Network: &v1alpha2.AgentHarnessNetwork{AllowedDomains: []string{"example.com"}},
-		},
-	}
-	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
-	policy := req.GetSpec().GetPolicy()
-	require.Nil(t, policy.GetFilesystem())
-	net := policy.GetNetworkPolicies()
-	require.Len(t, net, 1)
-	require.Contains(t, net, kagentAllowedDomainsNetworkPolicyKey)
-	require.NotContains(t, net, openclaw.NetworkPolicyKeyClawhub)
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *testing.T) {
@@ -168,31 +142,6 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Telegram_HasTelegramBotPolicy(t *t
 		paths = append(paths, b.GetPath())
 	}
 	require.ElementsMatch(t, []string{"/usr/local/bin/node", "/usr/bin/node", "/usr/bin/curl"}, paths)
-}
-
-func TestBuildOpenshellCreateRequest_Openshell_TelegramOnly_HasTelegramBotPolicy(t *testing.T) {
-	sbx := &v1alpha2.AgentHarness{
-		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Backend: v1alpha2.AgentHarnessBackendOpenshell,
-			Channels: []v1alpha2.AgentHarnessChannel{
-				{
-					Name: "tg",
-					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
-					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
-						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "x"},
-					},
-				},
-			},
-		},
-	}
-	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
-	policy := req.GetSpec().GetPolicy()
-	require.NotNil(t, policy)
-	require.Nil(t, policy.GetFilesystem())
-	net := policy.GetNetworkPolicies()
-	require.Len(t, net, 1)
-	require.Contains(t, net, openclaw.NetworkPolicyKeyTelegramBot)
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T) {

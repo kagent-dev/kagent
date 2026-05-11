@@ -6,15 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
-	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -30,99 +26,7 @@ type ClawBackend struct {
 	*agentHarnessOpenShellBackend
 }
 
-var (
-	_ sandboxbackend.AsyncBackend     = (*ClawBackend)(nil)
-	_ sandboxbackend.PostReadyBackend = (*ClawBackend)(nil)
-)
-
-// translateModelConfig is the OpenClaw/NemoClaw PreCreateSandboxFunc. When spec.modelConfigRef is set,
-// it loads the ModelConfig CR and applies it to the OpenShell service (provider credentials + cluster
-// inference). This is distinct from translate.go, which maps AgentHarness → CreateSandboxRequest.
-// Other harness backends (e.g. Hermes) can pass their own PreCreateSandboxFunc for the same hook.
-func translateModelConfig(
-	ctx context.Context,
-	ah *v1alpha2.AgentHarness,
-	kube client.Client,
-	oc *OpenShellClients,
-) error {
-	if ah == nil {
-		return fmt.Errorf("AgentHarness is required")
-	}
-	ref := strings.TrimSpace(ah.Spec.ModelConfigRef)
-	if ref == "" {
-		return nil
-	}
-	if oc == nil {
-		return fmt.Errorf("openshell: OpenShell clients required")
-	}
-	inference, osCli := oc.Inference, oc.OpenShell
-	if kube == nil {
-		return fmt.Errorf("openshell: Kubernetes client is required when spec.modelConfigRef is set")
-	}
-	if inference == nil {
-		return fmt.Errorf("openshell: inference client is required when spec.modelConfigRef is set")
-	}
-	if osCli == nil {
-		return fmt.Errorf("openshell: OpenShell client is required when spec.modelConfigRef is set")
-	}
-
-	modelConfigRef, err := utils.ParseRefString(ref, ah.Namespace)
-	if err != nil {
-		return fmt.Errorf("failed to parse ModelConfigRef %s: %w", ref, err)
-	}
-
-	modelConfig := &v1alpha2.ModelConfig{}
-	if err := kube.Get(ctx, modelConfigRef, modelConfig); err != nil {
-		return fmt.Errorf("failed to get ModelConfig %s: %w", modelConfigRef.String(), err)
-	}
-	apiKey, err := openclaw.ResolveModelConfigAPIKey(ctx, kube, modelConfig)
-	if err != nil {
-		return fmt.Errorf("openshell gateway provider: %w", err)
-	}
-
-	providerRecordName := openclaw.GatewayProviderRecordName(modelConfig.Spec.Provider)
-	model := modelConfig.Spec.Model
-
-	getProviderResp, err := osCli.GetProvider(ctx, &openshellv1.GetProviderRequest{Name: providerRecordName})
-	exists := false
-	if err != nil {
-		if status.Code(err) != codes.NotFound {
-			return fmt.Errorf("GetProvider %s: %w", providerRecordName, err)
-		}
-	} else if getProviderResp.GetProvider() != nil {
-		exists = true
-	}
-
-	providerProto := &datamodelv1.Provider{
-		Metadata: &datamodelv1.ObjectMeta{Name: providerRecordName},
-		Type:     providerRecordName,
-		Credentials: map[string]string{
-			"apiKey": apiKey,
-		},
-	}
-
-	if exists {
-		if _, err := osCli.UpdateProvider(ctx, &openshellv1.UpdateProviderRequest{Provider: providerProto}); err != nil {
-			return fmt.Errorf("UpdateProvider %s: %w", providerRecordName, err)
-		}
-		ctrllog.FromContext(ctx).Info("updated gateway provider", "name", providerRecordName)
-	} else {
-		if _, err := osCli.CreateProvider(ctx, &openshellv1.CreateProviderRequest{Provider: providerProto}); err != nil {
-			return fmt.Errorf("CreateProvider %s: %w", providerRecordName, err)
-		}
-		ctrllog.FromContext(ctx).Info("created gateway provider", "name", providerRecordName)
-	}
-
-	if _, err := inference.SetClusterInference(ctx, &inferencev1.SetClusterInferenceRequest{
-		ProviderName: providerRecordName,
-		ModelId:      model,
-		NoVerify:     true,
-	}); err != nil {
-		return fmt.Errorf("cluster inference for model %s: %w", model, err)
-	}
-	ctrllog.FromContext(ctx).Info("set cluster inference", "provider", providerRecordName, "model", model)
-	return nil
-}
+var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
 // NewOpenClawBackend returns the shared OpenClaw/NemoClaw harness backend. Register the same
 // instance under AgentHarnessBackendOpenClaw and AgentHarnessBackendNemoClaw; the controller
@@ -133,9 +37,29 @@ func NewOpenClawBackend(kubeClient client.Client, clients *OpenShellClients, cfg
 			kubeClient, clients, cfg, recorder,
 			v1alpha2.AgentHarnessBackendOpenClaw,
 			buildClawCreateRequest,
-			translateModelConfig,
 		),
 	}
+}
+
+// EnsureAgentHarness is the OpenClaw/NemoClaw EnsureAgentHarness flow: idempotent gateway lookup,
+// then translateModelConfig (apply ModelConfigRef onto the gateway) before CreateSandbox.
+// Future backends (e.g. Hermes) follow the same pattern: findExistingSandbox + own translation step
+// + createSandbox, with no callback fields.
+func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
+	if ah == nil {
+		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
+	}
+	ctx, cancel := b.CallCtx(ctx)
+	defer cancel()
+	ctx = withAuth(ctx, b.cfg.Token)
+
+	if res, found, err := b.findExistingSandbox(ctx, ah); err != nil || found {
+		return res, err
+	}
+	if err := translateModelConfig(ctx, ah, b.kubeClient, b.clients); err != nil {
+		return sandboxbackend.EnsureResult{}, err
+	}
+	return b.createSandbox(ctx, ah)
 }
 
 const defaultOpenclawGatewayPort = 18800
