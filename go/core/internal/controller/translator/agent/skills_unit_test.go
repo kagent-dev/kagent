@@ -276,7 +276,7 @@ func Test_prepareSkillsInitData_duplicateNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := prepareSkillsInitData(tt.gitRefs, nil, tt.ociRefs, false)
+			_, err := prepareSkillsInitData(tt.gitRefs, nil, tt.ociRefs, false, nil)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -292,7 +292,7 @@ func Test_prepareSkillsInitData_pathTraversal(t *testing.T) {
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "../escape"},
 		},
-		nil, nil, false,
+		nil, nil, false, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not contain '..'")
@@ -303,7 +303,7 @@ func Test_prepareSkillsInitData_absolutePath(t *testing.T) {
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "/etc/passwd"},
 		},
-		nil, nil, false,
+		nil, nil, false, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be relative")
@@ -313,7 +313,7 @@ func Test_prepareSkillsInitData_authMountPath(t *testing.T) {
 	data, err := prepareSkillsInitData(
 		[]v1alpha2.GitRepo{{URL: "https://github.com/org/repo", Ref: "main"}},
 		&corev1.LocalObjectReference{Name: "my-secret"},
-		nil, false,
+		nil, false, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "/git-auth", data.AuthMountPath)
@@ -329,7 +329,7 @@ func Test_prepareSkillsInitData_sshHosts(t *testing.T) {
 		},
 		&corev1.LocalObjectReference{Name: "ssh-secret"},
 		nil,
-		false,
+		false, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []sshHostData{
@@ -346,7 +346,7 @@ func Test_prepareSkillsInitData_sshHostsDedupesDefaultPort(t *testing.T) {
 		},
 		&corev1.LocalObjectReference{Name: "ssh-secret"},
 		nil,
-		false,
+		false, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []sshHostData{
@@ -362,7 +362,7 @@ func Test_prepareSkillsInitData_noAuthSkipsSSHHosts(t *testing.T) {
 		},
 		nil, // no auth secret
 		nil,
-		false,
+		false, nil,
 	)
 	require.NoError(t, err)
 	assert.Empty(t, data.SSHHosts, "SSH hosts should not be collected when authSecretRef is nil")

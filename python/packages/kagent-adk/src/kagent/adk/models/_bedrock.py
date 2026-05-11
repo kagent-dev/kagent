@@ -31,6 +31,30 @@ logger = logging.getLogger(__name__)
 _BEDROCK_TOOL_ID_VALID = re.compile(r"^[a-zA-Z0-9_.:-]+$")
 _BEDROCK_TOOL_ID_INVALID = re.compile(r"[^a-zA-Z0-9_.:-]")
 
+# Bedrock tool names allow only letters, digits, underscores, and hyphens.
+# Dots, colons, spaces, and other chars (common in MCP server tool names) are invalid.
+_BEDROCK_TOOL_NAME_VALID = re.compile(r"^[a-zA-Z0-9_-]+$")
+_BEDROCK_TOOL_NAME_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _sanitize_tool_name(name: str, name_map: dict[str, str], counter: list[int]) -> str:
+    """Return a valid Bedrock tool name.
+
+    Bedrock requires tool names to match [a-zA-Z0-9_-]+.
+    Dots, colons, spaces, and other chars common in MCP server tool names are invalid.
+    name_map caches original→sanitized for consistency across a single request.
+    counter is a single-element list used as a mutable integer for unique fallback names.
+    """
+    if name and name in name_map:
+        return name_map[name]
+    sanitized = _BEDROCK_TOOL_NAME_INVALID.sub("_", name)
+    if not sanitized or not _BEDROCK_TOOL_NAME_VALID.match(sanitized):
+        counter[0] += 1
+        sanitized = f"tool_fn_{counter[0]}"
+    if name:
+        name_map[name] = sanitized
+    return sanitized
+
 
 def _sanitize_tool_id(tool_id: str, id_map: dict[str, str], counter: list[int]) -> str:
     """Return a valid Bedrock toolUseId.
@@ -84,7 +108,10 @@ def _get_bedrock_client(
     return boto3.client("bedrock-runtime", **kwargs)
 
 
-def _convert_content_to_converse_messages(contents: list[types.Content]) -> list[dict]:
+def _convert_content_to_converse_messages(
+    contents: list[types.Content],
+    tool_name_map: Optional[dict[str, str]] = None,
+) -> list[dict]:
     id_map: dict[str, str] = {}
     counter = [0]
 
@@ -97,11 +124,13 @@ def _convert_content_to_converse_messages(contents: list[types.Content]) -> list
             if part.text:
                 blocks.append({"text": part.text})
             elif part.function_call:
+                raw_name = part.function_call.name or ""
+                sanitized_name = tool_name_map.get(raw_name, raw_name) if tool_name_map else raw_name
                 blocks.append(
                     {
                         "toolUse": {
                             "toolUseId": _sanitize_tool_id(part.function_call.id or "", id_map, counter),
-                            "name": part.function_call.name or "",
+                            "name": sanitized_name,
                             "input": part.function_call.args or {},
                         }
                     }
@@ -170,7 +199,11 @@ def _normalize_schema(schema: dict) -> dict:
     return result
 
 
-def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
+def _convert_tools_to_converse(
+    tools: list[types.Tool],
+    name_map: dict[str, str],
+    counter: list[int],
+) -> list[dict]:
     converse_tools = []
     for tool in tools:
         for func_decl in tool.function_declarations or []:
@@ -182,10 +215,11 @@ def _convert_tools_to_converse(tools: list[types.Tool]) -> list[dict]:
                     properties[prop_name] = _normalize_schema(raw)
                 required = func_decl.parameters.required or []
 
+            sanitized_name = _sanitize_tool_name(func_decl.name or "", name_map, counter)
             converse_tools.append(
                 {
                     "toolSpec": {
-                        "name": func_decl.name or "",
+                        "name": sanitized_name,
                         "description": func_decl.description or "",
                         "inputSchema": {
                             "json": {
@@ -239,9 +273,12 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
         client = self._client
         model_id = llm_request.model or self.model
 
-        messages = _convert_content_to_converse_messages(llm_request.contents or [])
+        # Build the tool name map first so that message history and tool specs
+        # use the same sanitized names throughout the request.
+        tool_name_map: dict[str, str] = {}
+        tool_name_counter = [0]
 
-        kwargs: dict[str, Any] = {"modelId": model_id, "messages": messages}
+        kwargs: dict[str, Any] = {"modelId": model_id}
 
         if llm_request.config and llm_request.config.system_instruction:
             si = llm_request.config.system_instruction
@@ -255,9 +292,15 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
         if llm_request.config and llm_request.config.tools:
             genai_tools = [t for t in llm_request.config.tools if hasattr(t, "function_declarations")]
             if genai_tools:
-                converse_tools = _convert_tools_to_converse(genai_tools)
+                converse_tools = _convert_tools_to_converse(genai_tools, tool_name_map, tool_name_counter)
                 if converse_tools:
                     kwargs["toolConfig"] = {"tools": converse_tools}
+
+        # Reverse map lets us restore original tool names from sanitized names in Bedrock responses.
+        reverse_name_map: dict[str, str] = {v: k for k, v in tool_name_map.items()}
+
+        messages = _convert_content_to_converse_messages(llm_request.contents or [], tool_name_map)
+        kwargs["messages"] = messages
 
         inference_config: dict[str, Any] = {}
         if llm_request.config:
@@ -294,8 +337,9 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                         start = event["contentBlockStart"].get("start", {})
                         if "toolUse" in start:
                             current_tool_id = start["toolUse"]["toolUseId"]
+                            sanitized = start["toolUse"]["name"]
                             tool_uses[current_tool_id] = {
-                                "name": start["toolUse"]["name"],
+                                "name": reverse_name_map.get(sanitized, sanitized),
                                 "input_json": "",
                             }
 
@@ -352,7 +396,9 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                         parts.append(types.Part.from_text(text=block["text"]))
                     elif "toolUse" in block:
                         tool = block["toolUse"]
-                        part = types.Part.from_function_call(name=tool["name"], args=tool.get("input", {}))
+                        sanitized = tool["name"]
+                        original_name = reverse_name_map.get(sanitized, sanitized)
+                        part = types.Part.from_function_call(name=original_name, args=tool.get("input", {}))
                         if part.function_call:
                             part.function_call.id = tool["toolUseId"]
                         parts.append(part)

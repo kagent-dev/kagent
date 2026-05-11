@@ -428,6 +428,181 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 	}
 }
 
+func Test_AdkApiTranslator_SkillsImagePullSecrets(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "default"
+	modelName := "test-model"
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	defaultModel := types.NamespacedName{
+		Namespace: namespace,
+		Name:      modelName,
+	}
+
+	tests := []struct {
+		name                string
+		agent               *v1alpha2.Agent
+		wantImagePullSecret bool
+	}{
+		{
+			name: "OCI skills without imagePullSecrets - single init container, no credential merge",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-no-pull-secret", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{"ghcr.io/org/skill:v1"},
+					},
+				},
+			},
+			wantImagePullSecret: false,
+		},
+		{
+			name: "OCI skills with single imagePullSecret - credential merge in skills-init script",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-one-pull-secret", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs:             []string{"docker.artifactory.example.com/org/skill:v1"},
+						ImagePullSecrets: []corev1.LocalObjectReference{{Name: "registry-credentials"}},
+					},
+				},
+			},
+			wantImagePullSecret: true,
+		},
+		{
+			name: "OCI skills with multiple imagePullSecrets - all auths merged in skills-init script",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "agent-multi-pull-secrets", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type: v1alpha2.AgentType_Declarative,
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "test",
+						ModelConfig:   modelName,
+					},
+					Skills: &v1alpha2.SkillForAgent{
+						Refs: []string{
+							"docker.artifactory.example.com/org/skill-a:v1",
+							"acr.azurecr.io/org/skill-b:v2",
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "artifactory-creds"},
+							{Name: "acr-creds"},
+						},
+					},
+				},
+			},
+			wantImagePullSecret: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig, tt.agent).
+				Build()
+
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+
+			var deployment *appsv1.Deployment
+			for _, obj := range outputs.Manifest {
+				if d, ok := obj.(*appsv1.Deployment); ok {
+					deployment = d
+				}
+			}
+			require.NotNil(t, deployment, "Deployment should be created")
+
+			initContainers := deployment.Spec.Template.Spec.InitContainers
+
+			// Always exactly one init container regardless of imagePullSecrets.
+			assert.Len(t, initContainers, 1, "should always have exactly one init container (skills-init)")
+			require.Equal(t, "skills-init", initContainers[0].Name, "the single init container must be skills-init")
+
+			skillsInitContainer := &initContainers[0]
+			require.Len(t, skillsInitContainer.Command, 3)
+			script := skillsInitContainer.Command[2]
+
+			// No docker-auth-init container should ever exist.
+			for _, c := range initContainers {
+				assert.NotEqual(t, "docker-auth-init", c.Name, "docker-auth-init container must not exist")
+			}
+			// No EmptyDir docker-config volume should exist.
+			for _, v := range deployment.Spec.Template.Spec.Volumes {
+				assert.NotEqual(t, "kagent-docker-config", v.Name, "kagent-docker-config EmptyDir volume must not exist")
+			}
+
+			if tt.wantImagePullSecret {
+				// Script must contain the credential merge logic.
+				assert.Contains(t, script, "jq")
+				assert.Contains(t, script, ".dockerconfigjson")
+				assert.Contains(t, script, "/tmp/kagent-docker-config/config.json")
+				assert.Contains(t, script, "export DOCKER_CONFIG=/tmp/kagent-docker-config")
+
+				require.NotNil(t, tt.agent.Spec.Skills)
+				for _, ps := range tt.agent.Spec.Skills.ImagePullSecrets {
+					volName := "pull-secret-" + ps.Name
+
+					// Secret volume on the pod.
+					hasPullSecretVol := false
+					for _, v := range deployment.Spec.Template.Spec.Volumes {
+						if v.Name == volName && v.Secret != nil && v.Secret.SecretName == ps.Name {
+							hasPullSecretVol = true
+						}
+					}
+					assert.True(t, hasPullSecretVol, "pull-secret volume %q should exist on the pod", volName)
+
+					// Volume mounted on skills-init.
+					hasPullSecretMount := false
+					for _, vm := range skillsInitContainer.VolumeMounts {
+						if vm.Name == volName && vm.MountPath == "/docker-secrets/"+ps.Name && vm.ReadOnly {
+							hasPullSecretMount = true
+						}
+					}
+					assert.True(t, hasPullSecretMount, "skills-init should mount pull-secret %q at /docker-secrets/%s", volName, ps.Name)
+
+					// Script references each secret by name.
+					assert.Contains(t, script, "/docker-secrets/"+ps.Name+"/.dockerconfigjson")
+				}
+			} else {
+				// No credential merge logic in the script.
+				assert.NotContains(t, script, "DOCKER_CONFIG")
+				assert.NotContains(t, script, "kagent-docker-config")
+				// No pull-secret volumes.
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					assert.False(t, len(v.Name) > len("pull-secret-") && v.Name[:len("pull-secret-")] == "pull-secret-",
+						"no pull-secret volumes should exist without imagePullSecrets")
+				}
+			}
+		})
+	}
+}
+
 func Test_AdkApiTranslator_SkillsConfigurableImage(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
