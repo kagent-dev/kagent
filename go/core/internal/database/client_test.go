@@ -241,31 +241,23 @@ func TestListSessionsOrdersByRecentActivity(t *testing.T) {
 
 	userID := "test-user"
 	agentID := "test-agent"
-	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	sessions := []struct {
-		id        string
-		createdAt time.Time
-		updatedAt time.Time
-	}{
-		{id: "old-active", createdAt: base, updatedAt: base.Add(4 * time.Hour)},
-		{id: "new-inactive", createdAt: base.Add(3 * time.Hour), updatedAt: base.Add(3 * time.Hour)},
-		{id: "old-inactive", createdAt: base.Add(time.Hour), updatedAt: base.Add(2 * time.Hour)},
-	}
-
-	for _, s := range sessions {
+	for _, sessionID := range []string{"old-active", "old-inactive", "new-inactive"} {
 		err := client.StoreSession(ctx, &dbpkg.Session{
-			ID:      s.id,
+			ID:      sessionID,
 			UserID:  userID,
 			AgentID: &agentID,
 		})
 		require.NoError(t, err)
-		_, err = db.Exec(ctx, `
-			UPDATE session
-			SET created_at = $1, updated_at = $2
-			WHERE id = $3 AND user_id = $4
-		`, s.createdAt, s.updatedAt, s.id, userID)
-		require.NoError(t, err)
+		time.Sleep(10 * time.Millisecond)
 	}
+
+	err := client.StoreEvents(ctx, &dbpkg.Event{
+		ID:        "event-1",
+		SessionID: "old-active",
+		UserID:    userID,
+		Data:      "{}",
+	})
+	require.NoError(t, err)
 
 	allSessions, err := client.ListSessions(ctx, userID)
 	require.NoError(t, err)
@@ -293,19 +285,15 @@ func TestStoreEventTouchesSessionActivity(t *testing.T) {
 
 	userID := "test-user"
 	sessionID := "active-session"
-	oldActivity := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	err := client.StoreSession(ctx, &dbpkg.Session{
 		ID:     sessionID,
 		UserID: userID,
 	})
 	require.NoError(t, err)
-	_, err = db.Exec(ctx, `
-		UPDATE session
-		SET updated_at = $1
-		WHERE id = $2 AND user_id = $3
-	`, oldActivity, sessionID, userID)
+	before, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
 
 	err = client.StoreEvents(ctx, &dbpkg.Event{
 		ID:        "event-1",
@@ -317,7 +305,7 @@ func TestStoreEventTouchesSessionActivity(t *testing.T) {
 
 	got, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
-	assert.True(t, got.UpdatedAt.After(oldActivity), "session updated_at should advance after storing an event")
+	assert.True(t, got.UpdatedAt.After(before.UpdatedAt), "session updated_at should advance after storing an event")
 }
 
 func TestStoreTaskTouchesSessionActivity(t *testing.T) {
@@ -327,19 +315,15 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 
 	userID := "test-user"
 	sessionID := "active-session"
-	oldActivity := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	err := client.StoreSession(ctx, &dbpkg.Session{
 		ID:     sessionID,
 		UserID: userID,
 	})
 	require.NoError(t, err)
-	_, err = db.Exec(ctx, `
-		UPDATE session
-		SET updated_at = $1
-		WHERE id = $2 AND user_id = $3
-	`, oldActivity, sessionID, userID)
+	before, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
 
 	err = client.StoreTask(ctx, &protocol.Task{
 		ID:        "task-1",
@@ -349,7 +333,7 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 
 	got, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
-	assert.True(t, got.UpdatedAt.After(oldActivity), "session updated_at should advance after storing a task")
+	assert.True(t, got.UpdatedAt.After(before.UpdatedAt), "session updated_at should advance after storing a task")
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
