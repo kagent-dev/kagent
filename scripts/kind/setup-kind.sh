@@ -57,7 +57,7 @@ fi
 
 # 5. Document the local registry
 # https://github.com/kubernetes/enhancements/tree/master/keps/sig-cluster-lifecycle/generic/1755-communicating-a-local-registry
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl --context "kind-${KIND_CLUSTER_NAME}" apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -17,7 +17,7 @@ FROM alpine:3.23
 ARG PYTHON_UID=1001
 ARG PYTHON_GID=1001
 
-RUN apk upgrade --no-cache && apk add --no-cache git
+RUN apk upgrade --no-cache && apk add --no-cache git jq
 COPY --from=krane-builder /build/krane /usr/local/bin/krane
 
 # Run as the same UID/GID as the main agent container (python user) so that
