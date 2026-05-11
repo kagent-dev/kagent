@@ -58,13 +58,18 @@ logger = logging.getLogger("kagent_adk." + __name__)
 _USER_ID_CONTEXT_KEY = "x-user-id"
 _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
+# Key in ClientCallContext.state that carries forwarded request headers
+_FORWARDED_HEADERS_CONTEXT_KEY = "_kagent_forwarded_headers"
+# Session state key where incoming A2A request headers are stored (matches HEADERS_STATE_KEY in types.py)
+_HEADERS_STATE_KEY = "headers"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
     """
-    Injects the authenticated user's ID as an ``x-user-id`` HTTP header and
+    Injects the authenticated user's ID as an ``x-user-id`` HTTP header,
     marks the request as originating from an agent call via
-    ``x-kagent-source: agent`` on every outgoing A2A request.
+    ``x-kagent-source: agent``, and forwards any allowed request headers
+    on every outgoing A2A request.
     """
 
     async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
@@ -73,6 +78,10 @@ class _SubagentInterceptor(ClientCallInterceptor):
         headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
         if context and _USER_ID_CONTEXT_KEY in context.state:
             headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+        # Forward any allowed headers carried in the call context state
+        if context:
+            for name, value in context.state.get(_FORWARDED_HEADERS_CONTEXT_KEY, {}).items():
+                headers[name] = value
         http_kwargs["headers"] = headers
         return request_payload, http_kwargs
 
@@ -140,10 +149,13 @@ class KAgentRemoteA2ATool(BaseTool):
         description: str,
         agent_card_url: str,
         httpx_client: Optional[httpx.AsyncClient] = None,
+        allowed_headers: Optional[list[str]] = None,
     ) -> None:
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
         self._httpx_client = httpx_client
+        # Normalize to lowercase for case-insensitive matching
+        self._allowed_headers: list[str] = [h.lower() for h in allowed_headers] if allowed_headers else []
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
         # Pre-generate context_id for UI session polling
@@ -192,6 +204,19 @@ class KAgentRemoteA2ATool(BaseTool):
         )
         return self._a2a_client
 
+    def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
+        """Build a ClientCallContext with user ID and forwarded allowed headers."""
+        state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+        if self._allowed_headers:
+            session_headers = tool_context.state.get(_HEADERS_STATE_KEY, {})
+            forwarded: dict[str, str] = {}
+            for name, value in session_headers.items():
+                if name.lower() in self._allowed_headers:
+                    forwarded[name] = value
+            if forwarded:
+                state[_FORWARDED_HEADERS_CONTEXT_KEY] = forwarded
+        return ClientCallContext(state=state)
+
     def _get_declaration(self) -> genai_types.FunctionDeclaration:
         """Same schema as AgentTool for agents without an input schema."""
         return genai_types.FunctionDeclaration(
@@ -237,9 +262,7 @@ class KAgentRemoteA2ATool(BaseTool):
             context_id=self._last_context_id,
         )
 
-        # Forward the authenticated user ID so the subagent session is scoped
-        # to the same user as the parent agent session.
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = self._build_call_context(tool_context)
 
         task: Optional[Task] = None
         try:
@@ -381,7 +404,7 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         client = await self._ensure_client()
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = self._build_call_context(tool_context)
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message, context=call_context):
@@ -449,6 +472,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
         description: str,
         agent_card_url: str,
         httpx_client: httpx.AsyncClient,
+        allowed_headers: Optional[list[str]] = None,
     ) -> None:
         super().__init__()
         self._httpx_client = httpx_client
@@ -457,6 +481,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
             description=description,
             agent_card_url=agent_card_url,
             httpx_client=httpx_client,
+            allowed_headers=allowed_headers,
         )
 
     @property

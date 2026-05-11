@@ -3,6 +3,8 @@
 from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 import httpx
 from a2a.types import (
     DataPart,
@@ -23,9 +25,12 @@ from kagent.core.a2a import (
 )
 
 from kagent.adk._remote_a2a_tool import (
+    _FORWARDED_HEADERS_CONTEXT_KEY,
+    _HEADERS_STATE_KEY,
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
     SubagentSessionProvider,
+    _SubagentInterceptor,
 )
 
 # ---------------------------------------------------------------------------
@@ -108,12 +113,17 @@ async def _async_yield(*items) -> AsyncIterator:
         yield item
 
 
-def _make_tool(*, httpx_client: httpx.AsyncClient | None = None) -> KAgentRemoteA2ATool:
+def _make_tool(
+    *,
+    httpx_client: httpx.AsyncClient | None = None,
+    allowed_headers: list[str] | None = None,
+) -> KAgentRemoteA2ATool:
     return KAgentRemoteA2ATool(
         name="k8s_agent",
         description="K8s subagent",
         agent_card_url="http://k8s-agent/.well-known/agent.json",
         httpx_client=httpx_client,
+        allowed_headers=allowed_headers,
     )
 
 
@@ -448,3 +458,57 @@ class TestToolsetLifecycle:
         assert isinstance(tools[0], KAgentRemoteA2ATool)
         assert tools[0].name == "my_agent"
         await mock_client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Allowed header propagation tests
+# ---------------------------------------------------------------------------
+
+
+class TestAllowedHeaderPropagation:
+    """Allowed headers from the parent session are forwarded to sub-agent A2A calls."""
+
+    async def test_allowed_headers_forwarded_and_disallowed_headers_excluded(self):
+        """Only headers in allowed_headers reach the sub-agent; others are dropped."""
+        tool = _make_tool(allowed_headers=["Authorization"])
+        task = _make_task(TaskState.completed, text="ok")
+        captured_contexts: list = []
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = MockToolContext()
+            ctx.state[_HEADERS_STATE_KEY] = {
+                "Authorization": "Bearer myjwt",
+                "x-internal-secret": "should-not-propagate",
+            }
+            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+        finally:
+            p.stop()
+
+        forwarded = captured_contexts[0].state.get(_FORWARDED_HEADERS_CONTEXT_KEY, {})
+        assert forwarded.get("Authorization") == "Bearer myjwt"
+        assert "x-internal-secret" not in forwarded
+
+    async def test_no_allowed_headers_configured_and_no_headers_forwarded(self):
+        """When allowed_headers is not set, no headers are injected into the sub-agent call."""
+        tool = _make_tool()  # no allowed_headers
+        task = _make_task(TaskState.completed, text="ok")
+        captured_contexts: list = []
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = MockToolContext()
+            ctx.state[_HEADERS_STATE_KEY] = {"Authorization": "Bearer myjwt"}
+            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+        finally:
+            p.stop()
+
+        assert _FORWARDED_HEADERS_CONTEXT_KEY not in captured_contexts[0].state

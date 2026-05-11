@@ -338,6 +338,19 @@ class AgentConfig(BaseModel):
                 )
                 if sse_tool.require_approval:
                     tools_requiring_approval.update(sse_tool.require_approval)
+
+        # Collect the union of allowedHeaders from all MCP tools to forward to sub-agents.
+        mcp_allowed_headers: set[str] = set()
+        if self.http_tools:
+            for t in self.http_tools:
+                if t.allowed_headers:
+                    mcp_allowed_headers.update(h.lower() for h in t.allowed_headers)
+        if self.sse_tools:
+            for t in self.sse_tools:
+                if t.allowed_headers:
+                    mcp_allowed_headers.update(h.lower() for h in t.allowed_headers)
+        agent_allowed_headers: list[str] | None = list(mcp_allowed_headers) if mcp_allowed_headers else None
+
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
                 # Prepare httpx client parameters
@@ -406,6 +419,7 @@ class AgentConfig(BaseModel):
                         description=remote_agent.description,
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                         httpx_client=client,
+                        allowed_headers=agent_allowed_headers,
                     )
                 )
 

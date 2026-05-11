@@ -1,9 +1,14 @@
-"""Tests for header propagation to MCP tools."""
+"""Tests for header propagation to MCP tools and sub-agents."""
+
+from unittest.mock import MagicMock, patch
 
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 
 from kagent.adk.types import (
+    AgentConfig,
     HttpMcpServerConfig,
+    OpenAI,
+    RemoteAgentConfig,
     SseMcpServerConfig,
     create_header_provider,
 )
@@ -195,3 +200,71 @@ class TestMcpServerConfigAllowedHeaders:
             params=SseConnectionParams(url="http://localhost:8080"),
         )
         assert config.allowed_headers is None
+
+
+# ---------------------------------------------------------------------------
+# AgentConfig: allowed_headers union forwarded to sub-agents
+# ---------------------------------------------------------------------------
+
+_OPENAI_MODEL = OpenAI(type="openai", model="gpt-4o", base_url="http://localhost:11434")
+
+
+def _make_agent_config(**kwargs) -> AgentConfig:
+    return AgentConfig(
+        model=_OPENAI_MODEL,
+        description="test agent",
+        instruction="you are a test agent",
+        **kwargs,
+    )
+
+
+class TestAgentConfigSubagentAllowedHeaders:
+    """AgentConfig.to_agent() derives allowed_headers for sub-agents from MCP tool configs."""
+
+    def _captured_toolset_kwargs(self, config: AgentConfig) -> list[dict]:
+        calls: list[dict] = []
+        original_init = __import__(
+            "kagent.adk._remote_a2a_tool", fromlist=["KAgentRemoteA2AToolset"]
+        ).KAgentRemoteA2AToolset.__init__
+
+        def capturing_init(self_inner, **kwargs):
+            calls.append(kwargs)
+            original_init(self_inner, **kwargs)
+
+        with patch("kagent.adk.types.KAgentRemoteA2AToolset.__init__", capturing_init):
+            config.to_agent("test_agent")
+        return calls
+
+    def test_union_of_mcp_allowed_headers_forwarded_to_subagents(self):
+        """Union of allowed_headers across all MCP tools is passed to every sub-agent toolset."""
+        config = _make_agent_config(
+            http_tools=[
+                HttpMcpServerConfig(
+                    params=StreamableHTTPConnectionParams(url="http://mcp1:8080"),
+                    allowed_headers=["Authorization"],
+                )
+            ],
+            sse_tools=[
+                SseMcpServerConfig(
+                    params=SseConnectionParams(url="http://mcp2:8080"),
+                    allowed_headers=["X-Tenant-ID"],
+                )
+            ],
+            remote_agents=[
+                RemoteAgentConfig(name="sub1", url="http://sub1:8080"),
+                RemoteAgentConfig(name="sub2", url="http://sub2:8080"),
+            ],
+        )
+        calls = self._captured_toolset_kwargs(config)
+        assert len(calls) == 2
+        for call in calls:
+            assert set(call["allowed_headers"]) == {"authorization", "x-tenant-id"}
+
+    def test_no_mcp_allowed_headers_passes_none_to_subagents(self):
+        """When no MCP tools declare allowed_headers, sub-agents receive None."""
+        config = _make_agent_config(
+            remote_agents=[RemoteAgentConfig(name="sub", url="http://sub:8080")],
+        )
+        calls = self._captured_toolset_kwargs(config)
+        assert len(calls) == 1
+        assert calls[0]["allowed_headers"] is None
