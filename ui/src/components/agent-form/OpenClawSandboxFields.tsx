@@ -11,7 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
-import type { OpenClawChannelRow, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
+import type {
+  OpenClawChannelRow,
+  OpenClawSandboxFormSlice,
+  OpenClawSandboxFormValidationError,
+} from "@/lib/openClawSandboxForm";
 import { newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
 
 const OPENCLAW_DOCS_ROOT = "https://docs.openclaw.ai";
@@ -113,21 +117,27 @@ interface OpenClawSandboxFieldsProps {
   value: OpenClawSandboxFormSlice;
   onChange: (next: OpenClawSandboxFormSlice) => void;
   disabled: boolean;
-  sectionError?: string;
+  /** From {@link validateOpenClawSandboxForm}; includes `section` for placement + focus. */
+  validationError?: OpenClawSandboxFormValidationError;
 }
 
-export function OpenClawSandboxFields({ value, onChange, disabled, sectionError }: OpenClawSandboxFieldsProps) {
+export function OpenClawSandboxFields({ value, onChange, disabled, validationError }: OpenClawSandboxFieldsProps) {
   const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const section = validationError?.section ?? null;
 
   return (
-    <div className="space-y-8">
+    <div id="section-openclaw-sandbox" className="space-y-8">
+      <FieldError>
+        {section === "general" ? validationError?.message : null}
+      </FieldError>
+
       <FormSection
         id="section-openclaw-channels"
         title="Channels integrations"
         description="Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."
       >
-        <FieldError>{sectionError}</FieldError>
+        <FieldError>{section === "channels" ? validationError?.message : null}</FieldError>
 
         <FieldRoot>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -492,6 +502,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
         title="Network"
         description="Restrict outbound HTTP(S) traffic from the harness to a list of allowed domains. Each entry allows all HTTP methods (GET, POST, PUT, DELETE, …) and all paths on that host."
       >
+        <FieldError>{section === "allowedDomains" ? validationError?.message : null}</FieldError>
         <FieldRoot>
           <FieldLabel htmlFor="agent-field-openclaw-allowed-domains">Allowed domains</FieldLabel>
           <FieldHint>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import {
   buildSandboxCRDraft,
   defaultOpenClawSandboxFormSlice,
+  newOpenClawChannelRow,
   parseAllowedDomainsList,
   validateOpenClawSandboxForm,
 } from "../openClawSandboxForm";
@@ -9,6 +10,42 @@ import {
 function withAllowedDomains(allowedDomains: string) {
   return { ...defaultOpenClawSandboxFormSlice(), allowedDomains };
 }
+
+describe("validateOpenClawSandboxForm sections", () => {
+  it("tags missing model as general", () => {
+    expect(
+      validateOpenClawSandboxForm({
+        openClaw: defaultOpenClawSandboxFormSlice(),
+        modelRef: "",
+      }),
+    ).toEqual({
+      section: "general",
+      message: "Please select a model config for this sandbox.",
+    });
+  });
+
+  it("tags allowed domain failures as allowedDomains", () => {
+    const r = validateOpenClawSandboxForm({
+      openClaw: withAllowedDomains("https://api.github.com"),
+      modelRef: "ns/m1",
+    });
+    expect(r?.section).toBe("allowedDomains");
+    expect(r?.message).toContain("not a valid hostname");
+  });
+
+  it("tags channel credential failures as channels", () => {
+    const row = newOpenClawChannelRow();
+    row.name = "slack1";
+    row.channelType = "slack";
+    row.botToken = "";
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+      modelRef: "ns/m1",
+    });
+    expect(r?.section).toBe("channels");
+    expect(r?.message).toContain("slack1");
+  });
+});
 
 describe("openClawSandboxForm allowedDomains", () => {
   describe("parseAllowedDomainsList", () => {
@@ -64,7 +101,8 @@ describe("openClawSandboxForm allowedDomains", () => {
         openClaw: withAllowedDomains(entry),
         modelRef: "ns/m1",
       });
-      expect(result).toMatch(/not a valid hostname/);
+      expect(result?.section).toBe("allowedDomains");
+      expect(result?.message).toMatch(/not a valid hostname/);
     });
   });
 

@@ -112,6 +112,21 @@ export function parseAllowedDomainsList(raw: string): string[] {
   return out;
 }
 
+/** Where to show a harness OpenClaw validation message and which element to focus. */
+export type OpenClawSandboxSectionErrorKind = "allowedDomains" | "channels" | "general";
+
+export interface OpenClawSandboxFormValidationError {
+  message: string;
+  section: OpenClawSandboxSectionErrorKind;
+}
+
+function openClawValidationFail(
+  section: OpenClawSandboxSectionErrorKind,
+  message: string,
+): OpenClawSandboxFormValidationError {
+  return { section, message };
+}
+
 function credentialFromRow(
   source: "inline" | "secret",
   inlineVal: string,
@@ -134,19 +149,22 @@ function credentialFromRow(
   return { valueFrom: { type: "Secret", name: n, key: k } };
 }
 
-/** Client-side validation for OpenClaw Sandbox CR create. Returns a single message or undefined. */
+/** Client-side validation for OpenClaw Sandbox CR create. */
 export function validateOpenClawSandboxForm(args: {
   openClaw: OpenClawSandboxFormSlice;
   modelRef: string | undefined;
-}): string | undefined {
+}): OpenClawSandboxFormValidationError | undefined {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
-    return "Please select a model config for this sandbox.";
+    return openClawValidationFail("general", "Please select a model config for this sandbox.");
   }
 
   for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
     if (!isPlausibleAllowedDomainHost(entry)) {
-      return `Allowed domain "${entry}" is not a valid hostname. Use bare DNS names like api.github.com (no scheme or path).`;
+      return openClawValidationFail(
+        "allowedDomains",
+        `Allowed domain "${entry}" is not a valid hostname. Use bare DNS names like api.github.com (no scheme or path).`,
+      );
     }
   }
 
@@ -159,7 +177,7 @@ export function validateOpenClawSandboxForm(args: {
         (ch.botTokenSource === "secret" && (ch.botSecretName || ch.botSecretKey)) ||
         (ch.appTokenSource === "secret" && (ch.appSecretName || ch.appSecretKey))
       ) {
-        return "Each channel with tokens configured needs a binding name.";
+        return openClawValidationFail("channels", "Each channel with tokens configured needs a binding name.");
       }
       continue;
     }
@@ -172,7 +190,7 @@ export function validateOpenClawSandboxForm(args: {
       `Channel "${cn}" bot token`,
     );
     if ("error" in bot) {
-      return bot.error;
+      return openClawValidationFail("channels", bot.error);
     }
 
     if (ch.channelType === "slack") {
@@ -184,7 +202,7 @@ export function validateOpenClawSandboxForm(args: {
         `Channel "${cn}" Slack app token`,
       );
       if ("error" in app) {
-        return app.error;
+        return openClawValidationFail("channels", app.error);
       }
     }
 
@@ -192,7 +210,10 @@ export function validateOpenClawSandboxForm(args: {
       if (ch.channelAccess === "allowlist") {
         const list = trimSplitList(ch.allowlistChannels);
         if (list.length === 0) {
-          return `Channel "${cn}": allowlist mode requires at least one channel ID.`;
+          return openClawValidationFail(
+            "channels",
+            `Channel "${cn}": allowlist mode requires at least one channel ID.`,
+          );
         }
       }
     }
