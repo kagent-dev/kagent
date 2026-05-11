@@ -267,7 +267,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 	stream := m.Client.Messages.NewStreaming(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
 	defer stream.Close()
 
-	var aggregatedText string
+	var aggregatedText strings.Builder
 	toolUseBlocks := make(map[int]struct {
 		id        string
 		name      string
@@ -299,7 +299,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 			switch delta.Type {
 			case "text_delta":
 				if textDelta, ok := delta.AsAny().(anthropic.TextDelta); ok {
-					aggregatedText += textDelta.Text
+					aggregatedText.WriteString(textDelta.Text)
 					if !yield(&model.LLMResponse{
 						Partial:      true,
 						TurnComplete: false,
@@ -332,8 +332,9 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 
 	// Build final response
 	finalParts := make([]*genai.Part, 0, 1+len(toolUseBlocks))
-	if aggregatedText != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText})
+	aggregatedTextValue := aggregatedText.String()
+	if aggregatedTextValue != "" {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedTextValue})
 	}
 	for _, block := range toolUseBlocks {
 		var args map[string]any
