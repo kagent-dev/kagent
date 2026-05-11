@@ -27,13 +27,13 @@ const meta: Meta<typeof GroupedChats> = {
 export default meta;
 type Story = StoryObj<typeof GroupedChats>;
 
-const createSession = (id: string, name: string, daysAgo: number): Session => ({
+const createSession = (id: string, name: string, createdDaysAgo: number, updatedDaysAgo = createdDaysAgo): Session => ({
   id,
   name,
   agent_id: 'kgent__NS__k8s',
   user_id: "user-1",
-  created_at: new Date(Date.now() - daysAgo * 24 * 3600000).toISOString(),
-  updated_at: new Date(Date.now() - daysAgo * 24 * 3600000).toISOString(),
+  created_at: new Date(Date.now() - createdDaysAgo * 24 * 3600000).toISOString(),
+  updated_at: new Date(Date.now() - updatedDaysAgo * 24 * 3600000).toISOString(),
   deleted_at: "",
 });
 
@@ -78,6 +78,18 @@ export const ManySessions: Story = {
       createSession("session-8", "Older chat 2", 5),
       createSession("session-9", "Older chat 3", 7),
       createSession("session-10", "Older chat 4", 14),
+    ],
+  },
+};
+
+export const RecentlyUpdatedOlderSession: Story = {
+  args: {
+    agentName: "k8s",
+    agentNamespace: "kagent",
+    sessions: [
+      createSession("session-old-active", "Created last week, active today", 7, 0),
+      createSession("session-new-inactive", "Created today, inactive", 0, 0.2),
+      createSession("session-yesterday", "Yesterday chat", 1),
     ],
   },
 };

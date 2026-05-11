@@ -79,15 +79,28 @@ func TestSessionsHandler(t *testing.T) {
 		return session
 	}
 
+	setSessionActivity := func(t *testing.T, sessionID, userID string, createdAt, updatedAt time.Time) {
+		t.Helper()
+		_, err := sharedDB.Exec(context.Background(), `
+			UPDATE session
+			SET created_at = $1, updated_at = $2
+			WHERE id = $3 AND user_id = $4
+		`, createdAt, updatedAt, sessionID, userID)
+		require.NoError(t, err)
+	}
+
 	t.Run("HandleListSessions", func(t *testing.T) {
 		t.Run("Success", func(t *testing.T) {
 			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
+			base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 			// Create test sessions
 			agentID := "1"
 			session1 := createTestSession(t, dbClient, "session-1", userID, agentID)
 			session2 := createTestSession(t, dbClient, "session-2", userID, agentID)
+			setSessionActivity(t, session1.ID, userID, base, base.Add(2*time.Hour))
+			setSessionActivity(t, session2.ID, userID, base.Add(time.Hour), base.Add(time.Hour))
 
 			req := httptest.NewRequest("GET", "/api/sessions?user_id="+userID, nil)
 			req = setUser(req, userID)
@@ -472,6 +485,9 @@ func TestSessionsHandler(t *testing.T) {
 			agent := createTestAgent(t, dbClient, agentRef)
 			session1 := createTestSession(t, dbClient, "session-1", userID, agent.ID)
 			session2 := createTestSession(t, dbClient, "session-2", userID, agent.ID)
+			base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			setSessionActivity(t, session1.ID, userID, base, base.Add(2*time.Hour))
+			setSessionActivity(t, session2.ID, userID, base.Add(time.Hour), base.Add(time.Hour))
 
 			req := httptest.NewRequest("GET", "/api/agents/"+namespace+"/"+agentName+"/sessions", nil)
 			req = mux.SetURLVars(req, map[string]string{"namespace": namespace, "name": agentName})
