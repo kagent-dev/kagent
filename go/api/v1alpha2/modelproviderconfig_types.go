@@ -65,7 +65,6 @@ type SecretReference struct {
 type ModelProviderConfigSpec struct {
 	// Type is the model provider type (OpenAI, Anthropic, etc.)
 	// +required
-	// +kubebuilder:validation:Required
 	Type ModelProvider `json:"type"`
 
 	// Endpoint is the API endpoint URL for the provider.
@@ -135,10 +134,13 @@ type ModelProviderConfigStatus struct {
 // ModelProviderConfig is the Schema for the modelproviderconfigs API.
 // It represents a model provider configuration with automatic model discovery.
 type ModelProviderConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ModelProviderConfigSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec ModelProviderConfigSpec `json:"spec,omitempty"`
+	// +optional
 	Status ModelProviderConfigStatus `json:"status,omitempty"`
 }
 

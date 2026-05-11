@@ -1,4 +1,15 @@
 set -e
+{{- if .ImagePullSecrets }}
+mkdir -p /tmp/kagent-docker-config
+merged='{"auths":{}}'
+{{- range .ImagePullSecrets }}
+if [ -f /docker-secrets/{{ . }}/.dockerconfigjson ]; then
+  merged="$(printf '%s\n%s\n' "$merged" "$(cat /docker-secrets/{{ . }}/.dockerconfigjson)" | jq -s '.[0].auths * .[1].auths | {"auths": .}')"
+fi
+{{- end }}
+printf '%s' "$merged" > /tmp/kagent-docker-config/config.json
+export DOCKER_CONFIG=/tmp/kagent-docker-config
+{{- end }}
 {{- if .AuthMountPath }}
 _auth_mount="$(cat <<'ENDVAL'
 {{ .AuthMountPath }}

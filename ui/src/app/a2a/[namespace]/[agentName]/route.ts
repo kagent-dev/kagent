@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
-import { getAuthHeadersFromRequest } from '@/lib/auth';
+import { getAuthHeadersFromRequest, CORS_ALLOW_HEADERS } from '@/lib/auth';
 
 export async function POST(
   request: NextRequest,
@@ -20,12 +20,12 @@ export async function POST(
     const backendResponse = await fetch(targetUrl, {
       method: 'POST',
       headers: {
+        ...authHeaders,
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'User-Agent': 'kagent-ui',
-        ...authHeaders,
       },
       body: JSON.stringify(a2aRequest),
     });
@@ -51,7 +51,7 @@ export async function POST(
       'Connection': 'keep-alive',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+      'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
     });
 
     const KEEP_ALIVE_INTERVAL_MS = 30000; // 30 seconds
@@ -142,7 +142,7 @@ export async function OPTIONS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+      'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
       'Access-Control-Max-Age': '86400',
     },
   });
