@@ -49,6 +49,7 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
+	// +kubebuilder:default="30s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// +optional
 	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`

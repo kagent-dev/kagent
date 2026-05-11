@@ -143,7 +143,7 @@ func DecodeJSONBody(r *http.Request, target any) error {
 // using json tags as keys.
 func FlattenStructToMap(data any, targetMap map[string]any) {
 	val := reflect.ValueOf(data)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
@@ -169,7 +169,7 @@ func FlattenStructToMap(data any, targetMap map[string]any) {
 		key := tagParts[0]
 
 		// Add to map
-		if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
+		if fieldValue.Kind() == reflect.Pointer && fieldValue.IsNil() {
 			targetMap[key] = nil
 		} else {
 			targetMap[key] = fieldValue.Interface()
