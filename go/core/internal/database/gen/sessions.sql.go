@@ -39,7 +39,7 @@ func (q *Queries) GetSession(ctx context.Context, arg GetSessionParams) (Session
 const listSessions = `-- name: ListSessions :many
 SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
 WHERE user_id = $1 AND deleted_at IS NULL
-ORDER BY created_at ASC
+ORDER BY updated_at DESC, created_at DESC
 `
 
 func (q *Queries) ListSessions(ctx context.Context, userID string) ([]Session, error) {
@@ -75,7 +75,7 @@ const listSessionsForAgent = `-- name: ListSessionsForAgent :many
 SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
 WHERE agent_id = $1 AND user_id = $2 AND deleted_at IS NULL
   AND (source IS NULL OR source != 'agent')
-ORDER BY created_at ASC
+ORDER BY updated_at DESC, created_at DESC
 `
 
 type ListSessionsForAgentParams struct {
@@ -116,7 +116,7 @@ const listSessionsForAgentAllUsers = `-- name: ListSessionsForAgentAllUsers :man
 SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
 WHERE agent_id = $1 AND deleted_at IS NULL
   AND (source IS NULL OR source != 'agent')
-ORDER BY created_at ASC
+ORDER BY updated_at DESC, created_at DESC
 `
 
 func (q *Queries) ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error) {
