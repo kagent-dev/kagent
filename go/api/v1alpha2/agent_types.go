@@ -53,9 +53,9 @@ const (
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
 // +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
 type AgentSpec struct {
-	// +kubebuilder:validation:Enum=Declarative;BYO
 	// +kubebuilder:default=Declarative
-	Type AgentType `json:"type"`
+	// +optional
+	Type AgentType `json:"type,omitempty"`
 
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
@@ -130,7 +130,7 @@ type SkillsInitContainer struct {
 // GitRepo specifies a single Git repository to fetch skills from.
 type GitRepo struct {
 	// URL of the git repository (HTTPS or SSH).
-	// +kubebuilder:validation:Required
+	// +required
 	URL string `json:"url"`
 
 	// Git reference: branch name, tag, or commit SHA.
@@ -157,7 +157,6 @@ type DeclarativeAgentSpec struct {
 	// The runtime determines both the container image and readiness probe configuration.
 	// +optional
 	// +kubebuilder:default=python
-	// +kubebuilder:validation:Enum=python;go
 	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
@@ -184,6 +183,7 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Stream bool `json:"stream,omitempty"`
 	// +kubebuilder:validation:MaxItems=20
+	// +optional
 	Tools []*Tool `json:"tools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
@@ -305,7 +305,7 @@ type PromptSource struct {
 type MemorySpec struct {
 	// ModelConfig is the name of the ModelConfig object whose embedding
 	// provider will be used to generate memory vectors.
-	// +kubebuilder:validation:Required
+	// +required
 	ModelConfig string `json:"modelConfig"`
 
 	// TTLDays controls how many days a stored memory entry remains valid before
@@ -330,6 +330,7 @@ type BYOAgentSpec struct {
 
 type ByoDeploymentSpec struct {
 	// +kubebuilder:validation:MinLength=1
+	// +optional
 	Image string `json:"image,omitempty"`
 	// +optional
 	Cmd *string `json:"cmd,omitempty"`
@@ -407,7 +408,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
 type Tool struct {
-	// +kubebuilder:validation:Enum=McpServer;Agent
+	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
 	// +optional
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
@@ -448,6 +449,7 @@ type McpServerTool struct {
 	// For a list of all the tools provided by the server,
 	// the client can query the status of the ToolServer object after it has been created
 	// +kubebuilder:validation:MaxItems=50
+	// +optional
 	ToolNames []string `json:"toolNames,omitempty"`
 
 	// RequireApproval lists tool names that require human approval before
@@ -475,18 +477,20 @@ type McpServerTool struct {
 
 type TypedLocalReference struct {
 	// +optional
-	Kind string `json:"kind"`
+	Kind string `json:"kind,omitempty"`
 	// +optional
-	ApiGroup string `json:"apiGroup"`
-	Name     string `json:"name"`
+	ApiGroup string `json:"apiGroup,omitempty"`
+	// +required
+	Name string `json:"name"`
 }
 
 type TypedReference struct {
 	// +optional
-	Kind string `json:"kind"`
+	Kind string `json:"kind,omitempty"`
 	// +optional
-	ApiGroup string `json:"apiGroup"`
-	Name     string `json:"name"`
+	ApiGroup string `json:"apiGroup,omitempty"`
+	// +required
+	Name string `json:"name"`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
@@ -512,6 +516,7 @@ func (t *TypedReference) NamespacedName(defaultNamespace string) types.Namespace
 
 type A2AConfig struct {
 	// +kubebuilder:validation:MinItems=1
+	// +optional
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
@@ -525,8 +530,10 @@ const (
 
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -539,10 +546,13 @@ type AgentStatus struct {
 
 // Agent is the Schema for the agents API.
 type Agent struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec AgentSpec `json:"spec,omitempty"`
+	// +optional
 	Status AgentStatus `json:"status,omitempty"`
 }
 
