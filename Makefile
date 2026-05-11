@@ -194,8 +194,8 @@ create-kind-cluster:
 use-kind-cluster:
 	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
 	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
-	kubectl create namespace kagent || true
-	kubectl config set-context --current --namespace kagent || true
+	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
+	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 
 .PHONY: delete-kind-cluster
 delete-kind-cluster:
@@ -425,17 +425,17 @@ kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-p
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
-	kubectl port-forward -n kagent service/kagent-controller 8083:8083
+	kubectl --context kind-$(KIND_CLUSTER_NAME) port-forward -n kagent service/kagent-controller 8083:8083
 
 .PHONY: kagent-ui-port-forward
 kagent-ui-port-forward: use-kind-cluster
 	open http://localhost:8082/
-	kubectl port-forward -n kagent service/kagent-ui 8082:8080
+	kubectl --context kind-$(KIND_CLUSTER_NAME) port-forward -n kagent service/kagent-ui 8082:8080
 
 .PHONY: kagent-addon-install
 kagent-addon-install: use-kind-cluster
 	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
-	istioctl install --set profile=demo -y
+	istioctl install --context kind-$(KIND_CLUSTER_NAME) --set profile=demo -y
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/metrics-server.yaml

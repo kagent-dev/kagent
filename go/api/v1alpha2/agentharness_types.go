@@ -18,13 +18,12 @@ import (
 
 // AgentHarnessBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openshell;openclaw;nemoclaw
+// +kubebuilder:validation:Enum=openclaw;nemoclaw
 type AgentHarnessBackendType string
 
 const (
-	AgentHarnessBackendOpenshell AgentHarnessBackendType = "openshell"
-	AgentHarnessBackendOpenClaw  AgentHarnessBackendType = "openclaw"
-	AgentHarnessBackendNemoClaw  AgentHarnessBackendType = "nemoclaw"
+	AgentHarnessBackendOpenClaw AgentHarnessBackendType = "openclaw"
+	AgentHarnessBackendNemoClaw AgentHarnessBackendType = "nemoclaw"
 )
 
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.
@@ -108,8 +107,6 @@ type AgentHarnessChannel struct {
 // An AgentHarness is distinct from a SandboxAgent: it has no agent runtime baked
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
-//
-// +kubebuilder:validation:XValidation:rule="!has(self.channels) || size(self.channels) == 0 || self.backend == 'openclaw' || self.backend == 'nemoclaw'",message="channels may only be set when backend is openclaw or nemoclaw"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
@@ -121,7 +118,7 @@ type AgentHarnessSpec struct {
 
 	// Image is the container image to run in the harness VM, if the backend
 	// supports per-resource images. Backends openclaw and nemoclaw pin the image
-	// to the NemoClaw sandbox base; openshell uses spec.image when set.
+	// to the NemoClaw sandbox base when this field is empty.
 	// +optional
 	Image string `json:"image,omitempty"`
 
@@ -137,14 +134,12 @@ type AgentHarnessSpec struct {
 	Network *AgentHarnessNetwork `json:"network,omitempty"`
 
 	// ModelConfigRef is the reference to the ModelConfig used to configure the harness.
-	// When set with backend openclaw or nemoclaw, the controller registers the gateway provider and,
-	// after the harness is Ready, writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
-	// It is ignored for backend openshell.
+	// The controller registers the gateway provider and, after the harness is Ready,
+	// writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
 	// +optional
 	ModelConfigRef string `json:"modelConfigRef,omitempty"`
 
 	// Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
-	// Only supported when backend is openclaw or nemoclaw.
 	// +optional
 	Channels []AgentHarnessChannel `json:"channels,omitempty"`
 }
