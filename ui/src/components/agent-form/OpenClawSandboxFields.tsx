@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
@@ -484,6 +485,34 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
           </ul>
         )}
       </FieldRoot>
+      </FormSection>
+
+      <FormSection
+        id="section-openclaw-network"
+        title="Network"
+        description="Restrict outbound HTTP(S) traffic from the harness to a list of allowed domains. Each entry allows all HTTP methods (GET, POST, PUT, DELETE, …) and all paths on that host."
+      >
+        <FieldRoot>
+          <FieldLabel htmlFor="agent-field-openclaw-allowed-domains">Allowed domains</FieldLabel>
+          <FieldHint>
+            One host per line (commas and spaces also work). Use bare DNS names like{" "}
+            <span className="font-mono">api.github.com</span> or glob labels like{" "}
+            <span className="font-mono">*.slack.com</span> — no scheme or path. Domains are merged with the harness baseline and
+            channel-derived egress policies.
+          </FieldHint>
+          <Textarea
+            id="agent-field-openclaw-allowed-domains"
+            name="allowedDomains"
+            value={value.allowedDomains}
+            onChange={(e) => set({ allowedDomains: e.target.value })}
+            placeholder={"api.github.com\nregistry.npmjs.org\n*.slack.com"}
+            rows={4}
+            spellCheck={false}
+            autoComplete="off"
+            disabled={disabled}
+            className="font-mono text-sm"
+          />
+        </FieldRoot>
       </FormSection>
 
       <section className="rounded-lg border border-border/90 bg-card text-card-foreground shadow-sm">

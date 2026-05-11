@@ -48,12 +48,20 @@ export interface OpenClawSandboxFormSlice {
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
   channels: OpenClawChannelRow[];
+  /**
+   * Free-text DNS host list (newline / comma / space separated) that maps to
+   * `AgentHarness.spec.network.allowedDomains`. Each host opens an L7 REST endpoint
+   * allowing all HTTP methods and paths in the OpenShell sandbox policy; the
+   * controller merges these with baseline + channel fragments.
+   */
+  allowedDomains: string;
 }
 
 export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
   return {
     image: "",
     channels: [],
+    allowedDomains: "",
   };
 }
 
@@ -62,6 +70,46 @@ function trimSplitList(raw: string): string[] {
     .split(/[\s,]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * Hostname / glob shape gate for allowedDomains rows. Mirrors what the controller's
+ * `NormalizeAllowedDomainHost` will end up storing: bare DNS names, optional `*` /
+ * `**` glob labels, no schemes, no paths, no whitespace.
+ */
+const ALLOWED_DOMAIN_LABEL_RE = /^(\*\*?|[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)$/;
+
+function isPlausibleAllowedDomainHost(raw: string): boolean {
+  const s = raw.trim();
+  if (!s || s.length > 253) {
+    return false;
+  }
+  if (/[\s/]/.test(s) || s.includes("://")) {
+    return false;
+  }
+  const labels = s.split(".");
+  if (labels.length === 0) {
+    return false;
+  }
+  return labels.every((label) => ALLOWED_DOMAIN_LABEL_RE.test(label));
+}
+
+/**
+ * Splits the textarea contents, dedupes (case-insensitive) and preserves first-seen order.
+ * Caller decides whether to send `spec.network.allowedDomains` based on the result length.
+ */
+export function parseAllowedDomainsList(raw: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of trimSplitList(raw)) {
+    const key = entry.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
 }
 
 function credentialFromRow(
@@ -94,6 +142,12 @@ export function validateOpenClawSandboxForm(args: {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return "Please select a model config for this sandbox.";
+  }
+
+  for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
+    if (!isPlausibleAllowedDomainHost(entry)) {
+      return `Allowed domain "${entry}" is not a valid hostname. Use bare DNS names like api.github.com (no scheme or path).`;
+    }
   }
 
   for (const ch of args.openClaw.channels) {
@@ -253,6 +307,11 @@ export function buildSandboxCRDraft(args: {
   const img = args.openClaw.image.trim();
   if (img) {
     spec.image = img;
+  }
+
+  const allowedDomains = parseAllowedDomainsList(args.openClaw.allowedDomains);
+  if (allowedDomains.length > 0) {
+    spec.network = { allowedDomains };
   }
 
   return {
