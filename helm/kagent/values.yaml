@@ -342,7 +342,8 @@ providers:
     # apiKey: ""
     # -- Use an existing Secret instead of creating one from `apiKey`.
     # When true, the chart will not render a Secret and expects `apiKeySecretRef`
-    # to point to a pre-existing Secret in the release namespace.
+    # to point to a pre-existing Secret in the chart/install namespace
+    # resolved by `kagent.namespace`.
     useExistingSecret: false
   ollama:
     provider: Ollama
