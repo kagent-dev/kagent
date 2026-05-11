@@ -83,7 +83,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
               <span
                 className="h-5 w-5 flex-shrink-0 text-muted-foreground"
                 aria-hidden
-                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellAgentHarness?.backend}
+                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.agentHarness?.backend}
               >
                 🦞
               </span>
@@ -143,15 +143,17 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
           </DropdownMenu>
         </div>
       </CardHeader>
-      <CardContent className="flex flex-col justify-between h-32 relative z-10">
+      <CardContent className="relative z-10 flex h-32 min-w-0 flex-col justify-between">
         <p className="text-sm text-muted-foreground line-clamp-3 overflow-hidden">
           {agent.spec?.description ?? ""}
         </p>
-        <div className="mt-4 flex items-center text-xs text-muted-foreground">
+        <div className="mt-4 flex min-w-0 items-center text-xs text-muted-foreground">
           {isBYO ? (
-            <span title={byoImage} className="truncate">Image: {byoImage}</span>
+            <span title={byoImage} className="min-w-0 truncate text-xs">
+              Image: {byoImage}
+            </span>
           ) : (
-            <span className="truncate">{modelProvider} ({model})</span>
+            <span className="min-w-0 truncate">{modelProvider} ({model})</span>
           )}
         </div>
       </CardContent>
@@ -168,9 +170,9 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
   );
 
   const chatHref =
-    sshSandbox && agentResponse.openshellAgentHarness
+    sshSandbox && agentResponse.agentHarness
       ? openshellTerminalHref({
-          gatewaySandboxName: agentResponse.openshellAgentHarness.gatewaySandboxName,
+          gatewaySandboxName: agentResponse.agentHarness.gatewaySandboxName,
           namespace: agent.metadata.namespace,
           crName: agent.metadata.name,
           modelConfigRef: agentResponse.modelConfigRef,
@@ -192,6 +194,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
         <DeleteButton
           agentName={agent.metadata.name}
           namespace={agent.metadata.namespace || ''}
+          kubernetesKind={agentResponse.agent.kind}
           externalOpen={deleteOpen}
           onExternalOpenChange={setDeleteOpen}
         />

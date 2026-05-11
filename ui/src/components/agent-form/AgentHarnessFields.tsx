@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
-import type { OpenClawChannelRow, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
-import { newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessChannelRow, AgentHarnessFormSlice } from "@/lib/agentHarnessForm";
+import { newAgentHarnessChannelRow } from "@/lib/agentHarnessForm";
+import { agentHarnessBackendSupportsMessengerChannels } from "@/lib/agentHarnessForm";
 
 const OPENCLAW_DOCS_ROOT = "https://docs.openclaw.ai";
 
@@ -37,7 +38,7 @@ function ChannelSetupHint({ title, lines }: { title: string; lines: React.ReactN
   );
 }
 
-function ChannelTypeSetupHints({ channelType }: { channelType: OpenClawChannelRow["channelType"] }) {
+function ChannelTypeSetupHints({ channelType }: { channelType: AgentHarnessChannelRow["channelType"] }) {
   switch (channelType) {
     case "telegram":
       return (
@@ -108,27 +109,39 @@ function ChannelTypeSetupHints({ channelType }: { channelType: OpenClawChannelRo
   }
 }
 
-interface OpenClawSandboxFieldsProps {
-  value: OpenClawSandboxFormSlice;
-  onChange: (next: OpenClawSandboxFormSlice) => void;
+interface AgentHarnessFieldsProps {
+  value: AgentHarnessFormSlice;
+  onChange: (next: AgentHarnessFormSlice) => void;
   disabled: boolean;
   sectionError?: string;
 }
 
-export function OpenClawSandboxFields({ value, onChange, disabled, sectionError }: OpenClawSandboxFieldsProps) {
-  const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
+export function AgentHarnessFields({ value, onChange, disabled, sectionError }: AgentHarnessFieldsProps) {
+  const set = (patch: Partial<AgentHarnessFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const showMessengerChannels = agentHarnessBackendSupportsMessengerChannels(value.backend);
 
   return (
     <div className="space-y-8">
       <FormSection
-        id="section-openclaw-channels"
+        id="section-agent-harness-channels"
         title="Channels integrations"
-        description="Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."
+        description={
+          showMessengerChannels
+            ? "Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."
+            : "Messenger integrations depend on the harness type."
+        }
       >
         <FieldError>{sectionError}</FieldError>
 
-        <FieldRoot>
+        {!showMessengerChannels ? (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            OpenClaw and NemoClaw harnesses can attach Telegram or Slack channels here. Other harness types (for example Hermes, when
+            enabled) will use their own configuration paths—extend the form when those backends are wired up.
+          </p>
+        ) : null}
+
+        <FieldRoot className={showMessengerChannels ? undefined : "hidden"} aria-hidden={!showMessengerChannels}>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <FieldLabel>Channels integrations</FieldLabel>
@@ -138,7 +151,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
               variant="outline"
               size="sm"
               disabled={disabled}
-              onClick={() => set({ channels: [...value.channels, newOpenClawChannelRow()] })}
+              onClick={() => set({ channels: [...value.channels, newAgentHarnessChannelRow()] })}
             >
               <Plus className="mr-1 h-4 w-4" aria-hidden />
               Add channel
@@ -193,7 +206,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                       value={ch.channelType}
                       onValueChange={(v) => {
                         const channels = value.channels.map((c) =>
-                          c.id === ch.id ? { ...c, channelType: v as OpenClawChannelRow["channelType"] } : c,
+                          c.id === ch.id ? { ...c, channelType: v as AgentHarnessChannelRow["channelType"] } : c,
                         );
                         set({ channels });
                       }}
@@ -243,7 +256,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                     </Select>
                     <FieldHint className="text-[11px]">
                       Inline pastes the token into the CR (avoid in shared clusters); Secret references a key in the{" "}
-                      <strong>same namespace</strong> as the Sandbox.
+                      <strong>same namespace</strong> as the AgentHarness.
                     </FieldHint>
                   </FieldRoot>
                   {ch.botTokenSource === "inline" ? (
@@ -412,7 +425,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
                         value={ch.channelAccess}
                         onValueChange={(v) => {
                           const channels = value.channels.map((c) =>
-                            c.id === ch.id ? { ...c, channelAccess: v as OpenClawChannelRow["channelAccess"] } : c,
+                            c.id === ch.id ? { ...c, channelAccess: v as AgentHarnessChannelRow["channelAccess"] } : c,
                           );
                           set({ channels });
                         }}
@@ -507,12 +520,12 @@ export function OpenClawSandboxFields({ value, onChange, disabled, sectionError 
           <CollapsibleContent>
             <div className="space-y-5 p-5">
               <FieldRoot>
-                <FieldLabel htmlFor="agent-field-openclaw-image">Image override</FieldLabel>
+                <FieldLabel htmlFor="agent-field-agent-harness-image">Image override</FieldLabel>
                 <FieldHint>
                   Overrides the container image for the sandbox VM.
                 </FieldHint>
                 <Input
-                  id="agent-field-openclaw-image"
+                  id="agent-field-agent-harness-image"
                   value={value.image}
                   onChange={(e) => set({ image: e.target.value })}
                   className="font-mono text-sm"

@@ -10,13 +10,22 @@ import { useAgents } from "./AgentsProvider";
 interface DeleteButtonProps {
   agentName: string;
   namespace: string;
+  /** Kubernetes CR kind (SandboxAgent, AgentHarness, …) so delete hits the correct API path. */
+  kubernetesKind?: string;
   disabled?: boolean;
   /** When provided, the button is hidden and the dialog is controlled externally. */
   externalOpen?: boolean;
   onExternalOpenChange?: (open: boolean) => void;
 }
 
-export function DeleteButton({ agentName, namespace, disabled = false, externalOpen, onExternalOpenChange }: DeleteButtonProps) {
+export function DeleteButton({
+  agentName,
+  namespace,
+  kubernetesKind,
+  disabled = false,
+  externalOpen,
+  onExternalOpenChange,
+}: DeleteButtonProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { refreshAgents } = useAgents();
@@ -33,7 +42,7 @@ export function DeleteButton({ agentName, namespace, disabled = false, externalO
 
     try {
       setIsDeleting(true);
-      await deleteAgent(agentName, namespace);
+      await deleteAgent(agentName, namespace, kubernetesKind);
 
       await refreshAgents();
     } catch (error) {

@@ -1,15 +1,18 @@
-import type { ValueSource } from "@/types";
+import type { AgentHarnessCrBackend, ValueSource } from "@/types";
+import { AGENT_HARNESS_MESSENGER_BACKENDS } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
-/** Sandbox CR backend; UI always uses openclaw for now. */
-const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
+/** Matches Kubernetes validation: channels only when backend is openclaw or nemoclaw. */
+export function agentHarnessBackendSupportsMessengerChannels(b: AgentHarnessCrBackend): boolean {
+  return (AGENT_HARNESS_MESSENGER_BACKENDS as readonly AgentHarnessCrBackend[]).includes(b);
+}
 
-export type SandboxChannelFormType = "telegram" | "slack";
+export type AgentHarnessChannelFormType = "telegram" | "slack";
 
-export interface OpenClawChannelRow {
+export interface AgentHarnessChannelRow {
   id: string;
   name: string;
-  channelType: SandboxChannelFormType;
+  channelType: AgentHarnessChannelFormType;
   botTokenSource: "inline" | "secret";
   botToken: string;
   botSecretName: string;
@@ -24,7 +27,7 @@ export interface OpenClawChannelRow {
   interactiveReplies: boolean;
 }
 
-export function newOpenClawChannelRow(): OpenClawChannelRow {
+export function newAgentHarnessChannelRow(): AgentHarnessChannelRow {
   return {
     id: crypto.randomUUID(),
     name: "",
@@ -44,14 +47,15 @@ export function newOpenClawChannelRow(): OpenClawChannelRow {
   };
 }
 
-export interface OpenClawSandboxFormSlice {
-  /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
+export interface AgentHarnessFormSlice {
+  backend: AgentHarnessCrBackend;
   image: string;
-  channels: OpenClawChannelRow[];
+  channels: AgentHarnessChannelRow[];
 }
 
-export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
+export function defaultAgentHarnessFormSlice(): AgentHarnessFormSlice {
   return {
+    backend: "openclaw",
     image: "",
     channels: [],
   };
@@ -86,17 +90,32 @@ function credentialFromRow(
   return { valueFrom: { type: "Secret", name: n, key: k } };
 }
 
-/** Client-side validation for OpenClaw Sandbox CR create. Returns a single message or undefined. */
-export function validateOpenClawSandboxForm(args: {
-  openClaw: OpenClawSandboxFormSlice;
+/** Client-side validation for AgentHarness CR create. Returns a single message or undefined. */
+export function validateAgentHarnessForm(args: {
+  harness: AgentHarnessFormSlice;
   modelRef: string | undefined;
 }): string | undefined {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
-    return "Please select a model config for this sandbox.";
+    return "Please select a model config for this AgentHarness.";
   }
 
-  for (const ch of args.openClaw.channels) {
+  const channelBackend = agentHarnessBackendSupportsMessengerChannels(args.harness.backend);
+  if (!channelBackend && args.harness.channels.length > 0) {
+    const hasConfiguredChannel = args.harness.channels.some(
+      (ch) =>
+        ch.name.trim() ||
+        ch.botToken.trim() ||
+        ch.appToken.trim() ||
+        (ch.botTokenSource === "secret" && (ch.botSecretName || ch.botSecretKey)) ||
+        (ch.appTokenSource === "secret" && (ch.appSecretName || ch.appSecretKey)),
+    );
+    if (hasConfiguredChannel) {
+      return "Messenger channels are only supported for OpenClaw and NemoClaw harness types today.";
+    }
+  }
+
+  for (const ch of args.harness.channels) {
     const cn = ch.name.trim();
     if (!cn) {
       if (
@@ -147,14 +166,14 @@ export function validateOpenClawSandboxForm(args: {
   return undefined;
 }
 
-export interface SandboxCRDraft {
+export interface AgentHarnessCRDraft {
   apiVersion: string;
   kind: "AgentHarness";
   metadata: { name: string; namespace: string };
   spec: Record<string, unknown>;
 }
 
-function modelConfigRefForSandbox(agentNamespace: string, modelRef: string): string {
+function modelConfigRefForHarness(agentNamespace: string, modelRef: string): string {
   const t = modelRef.trim();
   if (!t) {
     return "";
@@ -169,75 +188,79 @@ function modelConfigRefForSandbox(agentNamespace: string, modelRef: string): str
   return t;
 }
 
-export function buildSandboxCRDraft(args: {
+export function buildAgentHarnessCRDraft(args: {
   name: string;
   namespace: string;
   description: string;
   modelRef: string;
-  openClaw: OpenClawSandboxFormSlice;
-}): SandboxCRDraft | { error: string } {
-  const modelConfigRef = modelConfigRefForSandbox(args.namespace.trim(), args.modelRef);
+  harness: AgentHarnessFormSlice;
+}): AgentHarnessCRDraft | { error: string } {
+  const modelConfigRef = modelConfigRefForHarness(args.namespace.trim(), args.modelRef);
+
+  const backend = args.harness.backend;
 
   const channels: Record<string, unknown>[] = [];
 
-  for (const ch of args.openClaw.channels) {
-    const cn = ch.name.trim();
-    if (!cn) {
-      continue;
-    }
+  if (agentHarnessBackendSupportsMessengerChannels(args.harness.backend)) {
+    for (const ch of args.harness.channels) {
+      const cn = ch.name.trim();
+      if (!cn) {
+        continue;
+      }
 
-    const bot = credentialFromRow(
-      ch.botTokenSource,
-      ch.botToken,
-      ch.botSecretName,
-      ch.botSecretKey,
-      `Channel "${cn}" bot token`,
-    );
-    if ("error" in bot) {
-      return { error: bot.error };
-    }
-
-    const base: Record<string, unknown> = {
-      name: cn,
-      type: ch.channelType,
-    };
-
-    if (ch.channelType === "telegram") {
-      const allowed = trimSplitList(ch.allowedUserIDs);
-      base.telegram = {
-        botToken: bot,
-        ...(allowed.length > 0 ? { allowedUserIDs: allowed } : {}),
-      };
-    } else if (ch.channelType === "slack") {
-      const app = credentialFromRow(
-        ch.appTokenSource,
-        ch.appToken,
-        ch.appSecretName,
-        ch.appSecretKey,
-        `Channel "${cn}" Slack app token`,
+      const bot = credentialFromRow(
+        ch.botTokenSource,
+        ch.botToken,
+        ch.botSecretName,
+        ch.botSecretKey,
+        `Channel "${cn}" bot token`,
       );
-      if ("error" in app) {
-        return { error: app.error };
+      if ("error" in bot) {
+        return { error: bot.error };
       }
-      const slack: Record<string, unknown> = {
-        botToken: bot,
-        appToken: app,
-        channelAccess: ch.channelAccess,
-        ...(ch.channelAccess === "allowlist"
-          ? { allowlistChannels: trimSplitList(ch.allowlistChannels) }
-          : {}),
-      };
-      if (!ch.interactiveReplies) {
-        slack.interactiveReplies = false;
-      }
-      base.slack = slack;
-    }
 
-    channels.push(base);
+      const base: Record<string, unknown> = {
+        name: cn,
+        type: ch.channelType,
+      };
+
+      if (ch.channelType === "telegram") {
+        const allowed = trimSplitList(ch.allowedUserIDs);
+        base.telegram = {
+          botToken: bot,
+          ...(allowed.length > 0 ? { allowedUserIDs: allowed } : {}),
+        };
+      } else if (ch.channelType === "slack") {
+        const app = credentialFromRow(
+          ch.appTokenSource,
+          ch.appToken,
+          ch.appSecretName,
+          ch.appSecretKey,
+          `Channel "${cn}" Slack app token`,
+        );
+        if ("error" in app) {
+          return { error: app.error };
+        }
+        const slack: Record<string, unknown> = {
+          botToken: bot,
+          appToken: app,
+          channelAccess: ch.channelAccess,
+          ...(ch.channelAccess === "allowlist"
+            ? { allowlistChannels: trimSplitList(ch.allowlistChannels) }
+            : {}),
+        };
+        if (!ch.interactiveReplies) {
+          slack.interactiveReplies = false;
+        }
+        base.slack = slack;
+      }
+
+      channels.push(base);
+    }
   }
 
   const spec: Record<string, unknown> = {
-    backend: SANDBOX_BACKEND_OPENCLAW,
+    backend,
     modelConfigRef,
   };
 
@@ -250,7 +273,7 @@ export function buildSandboxCRDraft(args: {
     spec.channels = channels;
   }
 
-  const img = args.openClaw.image.trim();
+  const img = args.harness.image.trim();
   if (img) {
     spec.image = img;
   }

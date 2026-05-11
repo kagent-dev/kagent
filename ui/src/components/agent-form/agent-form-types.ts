@@ -12,5 +12,5 @@ export interface AgentFormValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
-  openClawSandbox?: string;
+  agentHarness?: string;
 }
