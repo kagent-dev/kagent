@@ -222,7 +222,17 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
+  metrics:
+    enabled: false
+    port: 8443
+    # -- Serve metrics over HTTPS with authn/authz, matching the controller binary default.
+    # Set to false for plain HTTP scraping in environments where TLS is handled externally.
+    secure: true
+    serviceMonitor:
+      enabled: false
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
   # Extra controller env. Examples — OpenShell:
   # env:
   #   - name: OPENSHELL_GRPC_ADDR

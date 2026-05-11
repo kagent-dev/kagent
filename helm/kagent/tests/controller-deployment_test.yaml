@@ -76,6 +76,29 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1
+
+  - it: should add metrics port and env vars when enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 8443
+            protocol: TCP
+        template: controller-deployment.yaml
+      - equal:
+          path: data.METRICS_BIND_ADDRESS
+          value: ":8443"
+        template: controller-configmap.yaml
+      - equal:
+          path: data.METRICS_SECURE
+          value: "true"
+        template: controller-configmap.yaml
 
   - it: should set A2A_BASE_URL with computed default value
     template: controller-configmap.yaml

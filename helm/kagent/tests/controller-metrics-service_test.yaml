@@ -1,0 +1,79 @@
+suite: test controller metrics service
+templates:
+  - controller-metrics-service.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when metrics enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Service
+
+  - it: should always be ClusterIP
+    set:
+      controller.metrics.enabled: true
+      controller.service.type: NodePort
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: should expose only the metrics port
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 1
+      - equal:
+          path: spec.ports[0].name
+          value: metrics
+      - equal:
+          path: spec.ports[0].port
+          value: 8443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8443
+      - equal:
+          path: spec.ports[0].protocol
+          value: TCP
+
+  - it: should have controller-metrics component label
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: controller-metrics
+
+  - it: should use controller pod selector
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: controller
+
+  - it: should be in correct namespace
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+
+  - it: should use custom namespace when overridden
+    set:
+      controller.metrics.enabled: true
+      namespaceOverride: "custom-namespace"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace

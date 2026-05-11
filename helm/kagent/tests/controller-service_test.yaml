@@ -29,6 +29,9 @@ tests:
       - equal:
           path: spec.ports[0].protocol
           value: TCP
+      - lengthEqual:
+          path: spec.ports
+          count: 1
 
   - it: should have correct selector labels
     asserts:
@@ -69,3 +72,14 @@ tests:
       - equal:
           path: metadata.namespace
           value: custom-namespace
+
+  - it: should not expose metrics port on main service when metrics enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 1
+      - equal:
+          path: spec.ports[0].name
+          value: controller
