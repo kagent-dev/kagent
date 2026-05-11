@@ -185,35 +185,29 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-func sampleSandbox() *v1alpha2.AgentHarness {
+func sampleClawSandbox() *v1alpha2.AgentHarness {
 	return &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: "ns1"},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Backend: v1alpha2.AgentHarnessBackendOpenshell,
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Image:   "img:v1",
 			Env:     []corev1.EnvVar{{Name: "FOO", Value: "bar"}},
 		},
 	}
 }
 
-func sampleClawSandbox() *v1alpha2.AgentHarness {
-	sbx := sampleSandbox()
-	sbx.Spec.Backend = v1alpha2.AgentHarnessBackendOpenClaw
-	return sbx
-}
-
 func TestEnsureSandbox_CreatesThenIdempotent(t *testing.T) {
 	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
 
-	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 	require.Equal(t, "ns1-a1", r.Handle.ID)
 	require.Equal(t, "grpc://gw#ns1-a1", r.Endpoint)
 	require.Equal(t, 1, fg.createCalls)
 
-	r2, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	r2, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 	require.Equal(t, r.Handle.ID, r2.Handle.ID)
 	require.Equal(t, 1, fg.createCalls, "second EnsureSandbox must not re-create")
@@ -224,8 +218,8 @@ func TestEnsureSandbox_CreateFails(t *testing.T) {
 	defer cleanup()
 	fg.createErr = status.Error(codes.ResourceExhausted, "quota")
 
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
-	_, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	_, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CreateSandbox")
 }
@@ -233,9 +227,9 @@ func TestEnsureSandbox_CreateFails(t *testing.T) {
 func TestGetStatus_PhaseMapping(t *testing.T) {
 	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -260,7 +254,7 @@ func TestGetStatus_PhaseMapping(t *testing.T) {
 func TestGetStatus_EmptyHandle(t *testing.T) {
 	c, ic, _, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -270,7 +264,7 @@ func TestGetStatus_EmptyHandle(t *testing.T) {
 func TestGetStatus_NotFound(t *testing.T) {
 	c, ic, _, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
 	st, reason, _ := b.GetStatus(context.Background(), sandboxbackend.Handle{ID: "missing"})
 	require.Equal(t, metav1.ConditionUnknown, st)
@@ -280,9 +274,9 @@ func TestGetStatus_NotFound(t *testing.T) {
 func TestDeleteSandbox(t *testing.T) {
 	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteAgentHarness(context.Background(), r.Handle))
@@ -301,8 +295,8 @@ func TestCallTimeout(t *testing.T) {
 	defer cleanup()
 	fg.getErr = status.Error(codes.Unavailable, "backend down")
 
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{CallTimeout: 50 * time.Millisecond}, nil)
-	_, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{CallTimeout: 50 * time.Millisecond}, nil)
+	_, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.Error(t, err)
 }
 
@@ -326,13 +320,12 @@ func TestEnsureSandbox_WithModelConfigRef_RegistersProvider(t *testing.T) {
 
 	c, ic, _, fi, cleanup := startFake(t)
 	defer cleanup()
-	b, err := NewOpenClawBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
-	require.NoError(t, err)
+	b := NewOpenClawBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
 
 	sbx := sampleClawSandbox()
 	sbx.Spec.ModelConfigRef = "m1"
 
-	_, err = b.EnsureAgentHarness(context.Background(), sbx)
+	_, err := b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	fi.mu.Lock()
@@ -344,13 +337,13 @@ func TestEnsureSandbox_WithModelConfigRef_RegistersProvider(t *testing.T) {
 func TestExecSandboxID_UsesGatewayMetadataId(t *testing.T) {
 	c, ic, _, _, cleanup := startFake(t)
 	defer cleanup()
-	b := NewOpenshellBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{}, nil)
 
-	r, err := b.EnsureAgentHarness(context.Background(), sampleSandbox())
+	r, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 
 	ctx := withAuth(context.Background(), "")
-	id, err := b.execSandboxID(ctx, r.Handle.ID)
+	id, err := b.ExecSandboxID(ctx, r.Handle.ID)
 	require.NoError(t, err)
 	require.Equal(t, "id-ns1-a1", id)
 }
@@ -375,8 +368,7 @@ func TestOnSandboxReady_ModelConfigRef(t *testing.T) {
 
 	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b, err := NewOpenClawBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{Token: "tok"}, nil)
-	require.NoError(t, err)
+	b := NewOpenClawBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{Token: "tok"}, nil)
 
 	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: ns},
@@ -416,48 +408,14 @@ func TestOnSandboxReady_ModelConfigRef(t *testing.T) {
 	require.Empty(t, fg.execStdins[1])
 }
 
-func TestEnsureSandbox_Openshell_IgnoresModelConfigRef(t *testing.T) {
-	s := testScheme(t)
-	const ns = "ns1"
-	mc := &v1alpha2.ModelConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: ns},
-		Spec: v1alpha2.ModelConfigSpec{
-			Model:           "gpt-4o",
-			Provider:        v1alpha2.ModelProviderOpenAI,
-			APIKeySecret:    "keysec",
-			APIKeySecretKey: "OPENAI_API_KEY",
-		},
-	}
-	sec := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "keysec", Namespace: ns},
-		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-secret")},
-	}
-	kube := fake.NewClientBuilder().WithScheme(s).WithObjects(mc, sec).Build()
-
-	c, ic, _, fi, cleanup := startFake(t)
-	defer cleanup()
-	b := NewOpenshellBackend(kube, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
-
-	sbx := sampleSandbox()
-	sbx.Spec.ModelConfigRef = "m1"
-
-	_, err := b.EnsureAgentHarness(context.Background(), sbx)
-	require.NoError(t, err)
-
-	fi.mu.Lock()
-	defer fi.mu.Unlock()
-	require.Equal(t, "", fi.lastProvider)
-}
-
 func TestEnsureSandbox_Claw_PinsNemoclawBaseImage(t *testing.T) {
 	c, ic, fg, _, cleanup := startFake(t)
 	defer cleanup()
-	b, err := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
-	require.NoError(t, err)
+	b := NewOpenClawBackend(nil, &OpenShellClients{OpenShell: c, Inference: ic}, Config{GatewayURL: "grpc://gw"}, nil)
 
 	sbx := sampleClawSandbox()
 	sbx.Spec.Image = ""
-	_, err = b.EnsureAgentHarness(context.Background(), sbx)
+	_, err := b.EnsureAgentHarness(context.Background(), sbx)
 	require.NoError(t, err)
 
 	fg.mu.Lock()

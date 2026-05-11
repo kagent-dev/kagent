@@ -707,8 +707,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 }
 
-// buildOpenshellSandboxBackends constructs AsyncBackend values for openshell, openclaw,
-// and nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
+// buildOpenshellSandboxBackends constructs AsyncBackend values for openclaw and
+// nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
 // share that connection (see openshell.OpenShellClients). The connection is not explicitly
 // closed today — same lifetime as the process.
 func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
@@ -738,14 +738,10 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 		return nil, err
 	}
 
-	osh := openshell.NewOpenshellBackend(kubeClient, clients, oc, nil)
-	ocl, err := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
-	if err != nil {
-		return nil, err
-	}
+	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenshell: osh,
-		v1alpha2.AgentHarnessBackendOpenClaw:  ocl,
+		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
+		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
 	}, nil
 }
 
