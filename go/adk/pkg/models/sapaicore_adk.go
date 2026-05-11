@@ -300,7 +300,7 @@ func (m *SAPAICoreModel) handleStream(ctx context.Context, body io.Reader, yield
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-	var aggregatedText string
+	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
 	var promptTokens, completionTokens int64
@@ -345,7 +345,7 @@ func (m *SAPAICoreModel) handleStream(ctx context.Context, body io.Reader, yield
 			}
 			delta, _ := choice["delta"].(map[string]any)
 			if content, ok := delta["content"].(string); ok && content != "" {
-				aggregatedText += content
+				aggregatedText.WriteString(content)
 				if !yield(&model.LLMResponse{
 					Partial:      true,
 					TurnComplete: false,
@@ -413,8 +413,9 @@ func (m *SAPAICoreModel) handleStream(ctx context.Context, body io.Reader, yield
 	slices.Sort(indices)
 
 	finalParts := make([]*genai.Part, 0, 1+len(toolCallsAcc))
-	if aggregatedText != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText})
+	aggregatedTextStr := aggregatedText.String()
+	if aggregatedTextStr != "" {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedTextStr})
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]
