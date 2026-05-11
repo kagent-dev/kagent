@@ -50,6 +50,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type AgentHarnessChannelCredential struct {
 	// +kubebuilder:validation:MaxLength=8192
+	// +optional
 	Value string `json:"value,omitempty"`
 	// +optional
 	ValueFrom *ValueSource `json:"valueFrom,omitempty"`
@@ -59,6 +60,7 @@ type AgentHarnessChannelCredential struct {
 //
 // +kubebuilder:validation:XValidation:rule="!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))",message="allowedUserIDs and allowedUserIDsFrom are mutually exclusive"
 type AgentHarnessTelegramChannelSpec struct {
+	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +optional
 	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
@@ -70,9 +72,11 @@ type AgentHarnessTelegramChannelSpec struct {
 //
 // +kubebuilder:validation:XValidation:rule="self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
 type AgentHarnessSlackChannelSpec struct {
+	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
+	// +required
 	AppToken AgentHarnessChannelCredential `json:"appToken"`
-	// +kubebuilder:validation:Required
+	// +required
 	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess"`
 	// +optional
 	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
@@ -87,8 +91,9 @@ type AgentHarnessSlackChannelSpec struct {
 type AgentHarnessChannel struct {
 	// Name is a stable id for this binding (OpenClaw channels.*.accounts key).
 	// +kubebuilder:validation:MinLength=1
+	// +required
 	Name string `json:"name"`
-	// +kubebuilder:validation:Required
+	// +required
 	Type AgentHarnessChannelType `json:"type"`
 	// +optional
 	Telegram *AgentHarnessTelegramChannelSpec `json:"telegram,omitempty"`
@@ -104,7 +109,7 @@ type AgentHarnessChannel struct {
 // ready to accept incoming commands.
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
-	// +kubebuilder:validation:Required
+	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
 
 	// Description is a short human-readable summary shown in the UI (e.g. agents list).
@@ -156,14 +161,18 @@ type AgentHarnessConnection struct {
 
 // AgentHarnessStatusRef identifies a harness instance on an external control plane.
 type AgentHarnessStatusRef struct {
+	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
-	ID      string                  `json:"id"`
+	// +required
+	ID string `json:"id"`
 }
 
 // AgentHarnessStatus is the observed state of an AgentHarness.
 type AgentHarnessStatus struct {
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// BackendRef points at the harness instance on the backend control
 	// plane, once Ensure has succeeded at least once.
@@ -192,10 +201,13 @@ const (
 // AgentHarness is a generic remote execution environment provisioned by a backend
 // (e.g. OpenShell) and addressable by exec/SSH.
 type AgentHarness struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentHarnessSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec AgentHarnessSpec `json:"spec,omitempty"`
+	// +optional
 	Status AgentHarnessStatus `json:"status,omitempty"`
 }
 

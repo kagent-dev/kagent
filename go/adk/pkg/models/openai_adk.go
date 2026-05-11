@@ -351,7 +351,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	stream := m.Client.Chat.Completions.NewStreaming(ctx, params, openAIPassthroughOpts(ctx, m)...)
 	defer stream.Close()
 
-	var aggregatedText string
+	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
 	var promptTokens, completionTokens int64
@@ -368,7 +368,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		choice := chunk.Choices[0]
 		delta := choice.Delta
 		if delta.Content != "" {
-			aggregatedText += delta.Content
+			aggregatedText.WriteString(delta.Content)
 			if !yield(&model.LLMResponse{
 				Partial:      true,
 				TurnComplete: choice.FinishReason != "",
@@ -417,8 +417,9 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	}
 	slices.Sort(indices)
 	finalParts := make([]*genai.Part, 0, 1+nToolCalls)
-	if aggregatedText != "" {
-		finalParts = append(finalParts, &genai.Part{Text: aggregatedText})
+	text := aggregatedText.String()
+	if text != "" {
+		finalParts = append(finalParts, &genai.Part{Text: text})
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]

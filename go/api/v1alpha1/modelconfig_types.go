@@ -46,7 +46,7 @@ type BaseVertexAIConfig struct {
 
 	// The project location
 	// +required
-	Location string `json:"location,omitempty"`
+	Location string `json:"location"`
 
 	// Temperature
 	// +optional
@@ -148,9 +148,11 @@ type OpenAIConfig struct {
 	Seed *int `json:"seed,omitempty"`
 
 	// N value
+	// +optional
 	N *int `json:"n,omitempty"`
 
 	// Timeout
+	// +optional
 	Timeout *int `json:"timeout,omitempty"`
 }
 
@@ -158,11 +160,11 @@ type OpenAIConfig struct {
 type AzureOpenAIConfig struct {
 	// Endpoint for the Azure OpenAI API
 	// +required
-	Endpoint string `json:"azureEndpoint,omitempty"`
+	Endpoint string `json:"azureEndpoint"`
 
 	// API version for the Azure OpenAI API
 	// +required
-	APIVersion string `json:"apiVersion,omitempty"`
+	APIVersion string `json:"apiVersion"`
 
 	// Deployment name for the Azure OpenAI API
 	// +optional
@@ -213,19 +215,21 @@ type GeminiConfig struct{}
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 type ModelConfigSpec struct {
+	// +required
 	Model string `json:"model"`
 
 	// The provider of the model
 	// +kubebuilder:default=OpenAI
-	Provider ModelProvider `json:"provider"`
+	// +optional
+	Provider ModelProvider `json:"provider,omitempty"`
 
 	// The reference to the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
 	// +optional
-	APIKeySecretRef string `json:"apiKeySecretRef"`
+	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
 
 	// The key in the secret that contains the API key
 	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey"`
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
@@ -270,23 +274,25 @@ type ModelConfigSpec struct {
 // compatible with the kubernetes api.
 type ModelInfo struct {
 	// +optional
-	Vision bool `json:"vision"`
+	Vision bool `json:"vision,omitempty"`
 	// +optional
-	FunctionCalling bool `json:"functionCalling"`
+	FunctionCalling bool `json:"functionCalling,omitempty"`
 	// +optional
-	JSONOutput bool `json:"jsonOutput"`
+	JSONOutput bool `json:"jsonOutput,omitempty"`
 	// +optional
-	Family string `json:"family"`
+	Family string `json:"family,omitempty"`
 	// +optional
-	StructuredOutput bool `json:"structuredOutput"`
+	StructuredOutput bool `json:"structuredOutput,omitempty"`
 	// +optional
-	MultipleSystemMessages bool `json:"multipleSystemMessages"`
+	MultipleSystemMessages bool `json:"multipleSystemMessages,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.
 type ModelConfigStatus struct {
-	Conditions         []metav1.Condition `json:"conditions"`
-	ObservedGeneration int64              `json:"observedGeneration"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -297,10 +303,13 @@ type ModelConfigStatus struct {
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ModelConfigSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec ModelConfigSpec `json:"spec,omitempty"`
+	// +optional
 	Status ModelConfigStatus `json:"status,omitempty"`
 }
 

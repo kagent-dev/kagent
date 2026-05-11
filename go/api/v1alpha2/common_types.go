@@ -115,12 +115,15 @@ const (
 // ValueSource defines a source for configuration values from a Secret or ConfigMap
 type ValueSource struct {
 	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	// +required
 	Type ValueSourceType `json:"type"`
 	// The name of the ConfigMap or Secret.
 	// +kubebuilder:validation:MaxLength=253
+	// +required
 	Name string `json:"name"`
 	// The key of the ConfigMap or Secret.
 	// +kubebuilder:validation:MaxLength=253
+	// +required
 	Key string `json:"key"`
 }
 
@@ -142,6 +145,7 @@ func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespa
 // ValueRef represents a configuration value
 // +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type ValueRef struct {
+	// +required
 	Name string `json:"name"`
 	// +optional
 	Value string `json:"value,omitempty"`

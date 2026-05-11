@@ -75,7 +75,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
-	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
@@ -344,8 +343,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}()
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
-
-	goruntime.SetMaxProcs(logger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

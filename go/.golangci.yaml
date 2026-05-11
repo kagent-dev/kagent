@@ -17,6 +17,7 @@ linters:
     - importas
     - ineffassign
     - iotamixing
+    - kubeapilinter
     - makezero
     - misspell
     - modernize
@@ -26,6 +27,43 @@ linters:
     - unused
     - whitespace
   settings:
+    custom:
+      kubeapilinter:
+        path: "bin/kube-api-linter.so"
+        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
+        original-url: sigs.k8s.io/kube-api-linter
+        settings:
+          linters:
+            enable:
+              - "conflictingmarkers"
+              - "duplicatemarkers"
+              - "nofloats"
+              - "optionalorrequired"
+              - "statussubresource"
+              - "uniquemarkers"
+              - "statusoptional"
+              - "nophase"
+              - "nonullable"
+              - "forbiddenmarkers"
+              - "nomaps"
+            disable:
+              - "*"
+          lintersConfig:
+            conflictingmarkers:
+              conflicts:
+              - name: "default_vs_required"
+                sets:
+                  - ["default", "kubebuilder:default"]
+                  - ["required", "kubebuilder:validation:Required", "k8s:required"]
+                description: "A field with a default value cannot be required"
+            forbiddenmarkers:
+              markers:
+                - identifier: "+kubebuilder:pruning:PreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:XPreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:items:XPreserveUnknownFields"
+                - identifier: "+kubebuilder:validation:EmbeddedResource"
+                - identifier: "+kubebuilder:validation:XEmbeddedResource"
+                - identifier: "+kubebuilder:validation:items:XEmbeddedResource"
     depguard:
       rules:
         forbid-pkg-errors:
@@ -88,6 +126,10 @@ linters:
     paths:
       - zz_generated.*\.go$
       - .*conversion.*\.go$
+    rules:
+      - linters:
+          - kubeapilinter
+        path-except: "api/v1alpha"
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
