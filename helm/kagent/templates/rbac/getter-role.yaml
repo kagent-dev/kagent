@@ -93,6 +93,9 @@
   - get
   - list
   - watch
+{{- with .Values.rbac.extraGetterRules }}
+{{ toYaml . }}
+{{- end -}}
 {{- end -}}
 
 {{- include "kagent.rbac.validate" . -}}

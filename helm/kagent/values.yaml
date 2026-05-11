@@ -132,6 +132,10 @@ rbac:
   # WATCH_NAMESPACES is derived from this list (unless controller.watchNamespaces is set
   # explicitly, which always takes precedence).
   namespaces: []
+  # -- Additional rules appended to the getter ClusterRole/Role.
+  extraGetterRules: []
+  # -- Additional rules appended to the writer ClusterRole/Role.
+  extraWriterRules: []
 
 # ==============================================================================
 # CONTROLLER CONFIGURATION

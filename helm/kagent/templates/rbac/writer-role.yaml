@@ -75,6 +75,9 @@
   - update
   - patch
   - delete
+{{- with .Values.rbac.extraWriterRules }}
+{{ toYaml . }}
+{{- end -}}
 {{- end -}}
 
 {{- include "kagent.rbac.validate" . -}}

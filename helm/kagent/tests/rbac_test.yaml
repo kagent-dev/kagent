@@ -252,3 +252,46 @@ tests:
           path: metadata.namespace
           value: other-ns
         documentIndex: 1
+
+  - it: extraGetterRules are added to getter role
+    set:
+      rbac.extraGetterRules:
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["ingresses"]
+          verbs: ["get", "list", "watch"]
+    template: rbac/getter-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses"]
+            verbs: ["get", "list", "watch"]
+
+  - it: extraWriterRules are added to writer role
+    set:
+      rbac.extraWriterRules:
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["ingresses"]
+          verbs: ["create", "update", "patch", "delete"]
+    template: rbac/writer-role.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses"]
+            verbs: ["create", "update", "patch", "delete"]
+
+  - it: extra rules are empty by default
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+        template: rbac/getter-role.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+        template: rbac/writer-role.yaml
