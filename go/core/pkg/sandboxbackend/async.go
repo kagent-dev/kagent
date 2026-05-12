@@ -42,10 +42,9 @@ type AsyncBackend interface {
 	// DeleteAgentHarness releases the sandbox. NotFound must be treated as
 	// success so the finalizer can be removed idempotently.
 	DeleteAgentHarness(ctx context.Context, h Handle) error
-}
 
-// PostReadyBackend is implemented by backends that run one-time work after the
-// AgentHarness reports Ready (for example ExecSandbox bootstrap inside the VM).
-type PostReadyBackend interface {
+	// OnAgentHarnessReady runs one-time work after the AgentHarness reports
+	// Ready (for example ExecSandbox bootstrap inside the VM). Backends that
+	// have no post-ready work should return nil.
 	OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.AgentHarness, h Handle) error
 }

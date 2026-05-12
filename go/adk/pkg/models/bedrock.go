@@ -20,10 +20,33 @@ import (
 )
 
 // bedrockToolIDValid matches Bedrock's toolUseId constraint: [a-zA-Z0-9_.:-]+
+// bedrockToolNameInvalid matches characters not allowed in Bedrock tool names: [a-zA-Z0-9_-]+
 var (
-	bedrockToolIDValid   = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
-	bedrockToolIDInvalid = regexp.MustCompile(`[^a-zA-Z0-9_.:-]`)
+	bedrockToolIDValid     = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
+	bedrockToolIDInvalid   = regexp.MustCompile(`[^a-zA-Z0-9_.:-]`)
+	bedrockToolNameInvalid = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 )
+
+// sanitizeBedrockToolName returns a valid Bedrock tool name.
+// Bedrock requires tool names to match [a-zA-Z0-9_-]+ and be non-empty.
+// nameMap caches original->sanitized so repeated lookups for the same name are
+// consistent. counter is incremented only when a synthetic name is needed.
+func sanitizeBedrockToolName(name string, nameMap map[string]string, counter *int) string {
+	if name == "" {
+		*counter++
+		return fmt.Sprintf("tool_fn_%d", *counter)
+	}
+	if sanitized, ok := nameMap[name]; ok {
+		return sanitized
+	}
+	sanitized := bedrockToolNameInvalid.ReplaceAllString(name, "_")
+	if sanitized == "" {
+		*counter++
+		sanitized = fmt.Sprintf("tool_fn_%d", *counter)
+	}
+	nameMap[name] = sanitized
+	return sanitized
+}
 
 // sanitizeBedrockToolID returns a valid Bedrock toolUseId.
 // Bedrock requires toolUseId to match [a-zA-Z0-9_.:-]+ and be non-empty.
@@ -121,8 +144,32 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 			modelName = req.Model
 		}
 
-		// Convert content to Bedrock messages
-		messages, systemInstruction := convertGenaiContentsToBedrockMessages(req.Contents)
+		// Build tool configuration first so nameMap is available for message conversion.
+		// convertGenaiToolsToBedrock sanitizes tool names and returns the
+		// original->sanitized mapping so the same mapping can be applied to
+		// conversation history and reversed when restoring names from responses.
+		var toolConfig *types.ToolConfiguration
+		nameMap := make(map[string]string)
+		if req.Config != nil && len(req.Config.Tools) > 0 {
+			tools, nm := convertGenaiToolsToBedrock(req.Config.Tools)
+			nameMap = nm
+			if len(tools) > 0 {
+				toolConfig = &types.ToolConfiguration{
+					Tools: tools,
+				}
+			}
+		}
+
+		// Build reverse map for restoring original tool names from Bedrock responses.
+		reverseNameMap := make(map[string]string, len(nameMap))
+		for orig, sanitized := range nameMap {
+			reverseNameMap[sanitized] = orig
+		}
+
+		// Convert content to Bedrock messages.
+		// nameMap is passed so that any tool call recorded in conversation history
+		// is written with the sanitized name Bedrock already knows about.
+		messages, systemInstruction := convertGenaiContentsToBedrockMessages(req.Contents, nameMap)
 
 		// Build inference config
 		var inferenceConfig *types.InferenceConfiguration
@@ -147,27 +194,15 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 			})
 		}
 
-		// Build tool configuration
-		var toolConfig *types.ToolConfiguration
-		if req.Config != nil && len(req.Config.Tools) > 0 {
-			tools := convertGenaiToolsToBedrock(req.Config.Tools)
-			if len(tools) > 0 {
-				toolConfig = &types.ToolConfiguration{
-					Tools: tools,
-				}
-			}
-		}
-
-		// Build model-specific additional fields (Claude top_k, thinking, etc.)
 		additionalFields := m.buildAdditionalModelRequestFields()
 
 		// Set telemetry attributes
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
 		if stream {
-			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, yield)
+			m.generateStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, reverseNameMap, yield)
 		} else {
-			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, yield)
+			m.generateNonStreaming(ctx, modelName, messages, systemPrompt, inferenceConfig, toolConfig, additionalFields, reverseNameMap, yield)
 		}
 	}
 }
@@ -185,7 +220,8 @@ func (m *BedrockModel) buildAdditionalModelRequestFields() document.Interface {
 
 // generateStreaming handles streaming responses from Bedrock ConverseStream.
 // It properly handles both text and tool use content blocks during streaming.
-func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, yield func(*model.LLMResponse, error) bool) {
+// reverseNameMap maps sanitized Bedrock tool names back to their original names.
+func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.ConverseStream(ctx, &bedrockruntime.ConverseStreamInput{
 		ModelId:                      aws.String(modelId),
 		Messages:                     messages,
@@ -266,11 +302,17 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		if stop, ok := event.(*types.ConverseStreamOutputMemberContentBlockStop); ok {
 			blockIdx := aws.ToInt32(stop.Value.ContentBlockIndex)
 			if tc, ok := toolCalls[blockIdx]; ok {
-				// Tool use block completed - parse the accumulated JSON and create FunctionCall
+				// Tool use block completed - parse the accumulated JSON and create FunctionCall.
+				// Restore the original tool name from the reverse map so the ADK framework
+				// can dispatch to the correctly registered tool.
+				originalName := tc.Name
+				if orig, found := reverseNameMap[tc.Name]; found {
+					originalName = orig
+				}
 				args := tc.parseArgs()
 				functionCall := &genai.FunctionCall{
 					ID:   tc.ID,
-					Name: tc.Name,
+					Name: originalName,
 					Args: args,
 				}
 				completedToolCalls = append(completedToolCalls, &genai.Part{FunctionCall: functionCall})
@@ -338,7 +380,8 @@ func (tc *streamingToolCall) parseArgs() map[string]any {
 }
 
 // generateNonStreaming handles non-streaming responses from Bedrock Converse.
-func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, yield func(*model.LLMResponse, error) bool) {
+// reverseNameMap maps sanitized Bedrock tool names back to their original names.
+func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string, messages []types.Message, systemPrompt []types.SystemContentBlock, inferenceConfig *types.InferenceConfiguration, toolConfig *types.ToolConfiguration, additionalFields document.Interface, reverseNameMap map[string]string, yield func(*model.LLMResponse, error) bool) {
 	output, err := m.Client.Converse(ctx, &bedrockruntime.ConverseInput{
 		ModelId:                      aws.String(modelId),
 		Messages:                     messages,
@@ -366,9 +409,15 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 			}
 			// Handle tool use content
 			if toolUseBlock, ok := block.(*types.ContentBlockMemberToolUse); ok {
+				// Restore the original tool name so the ADK framework can dispatch
+				// to the correctly registered tool.
+				toolName := aws.ToString(toolUseBlock.Value.Name)
+				if orig, found := reverseNameMap[toolName]; found {
+					toolName = orig
+				}
 				functionCall := &genai.FunctionCall{
 					ID:   aws.ToString(toolUseBlock.Value.ToolUseId),
-					Name: aws.ToString(toolUseBlock.Value.Name),
+					Name: toolName,
 				}
 				// Convert document.Interface to map using the String() method and JSON parsing
 				// The document type in AWS SDK implements String() that returns JSON
@@ -425,7 +474,10 @@ func documentToMap(doc document.Interface) map[string]any {
 }
 
 // convertGenaiContentsToBedrockMessages converts genai.Content to Bedrock Converse API message format.
-func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.Message, string) {
+// nameMap is the original->sanitized tool name map produced by convertGenaiToolsToBedrock.
+// Any FunctionCall found in the conversation history is written with the sanitized name so
+// that Bedrock can correlate it with the tool spec it already received. A nil nameMap is safe.
+func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap map[string]string) ([]types.Message, string) {
 	var messages []types.Message
 	var systemInstruction string
 
@@ -465,11 +517,17 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 				continue
 			}
 
-			// Handle function call (tool use in Bedrock terminology)
+			// Handle function call (tool use in Bedrock terminology).
+			// Use the sanitized name from nameMap so Bedrock can correlate the
+			// tool call with the tool spec sent in the same request.
 			if part.FunctionCall != nil {
+				callName := part.FunctionCall.Name
+				if sanitized, ok := nameMap[callName]; ok {
+					callName = sanitized
+				}
 				toolUse := types.ToolUseBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
-					Name:      aws.String(part.FunctionCall.Name),
+					Name:      aws.String(callName),
 					Input:     document.NewLazyDocument(part.FunctionCall.Args),
 				}
 				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
@@ -507,11 +565,16 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content) ([]types.M
 }
 
 // convertGenaiToolsToBedrock converts genai.Tool to Bedrock Tool format.
-func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
+// It sanitizes tool names to satisfy Bedrock's [a-zA-Z0-9_-]+ constraint and
+// returns the original->sanitized name mapping so callers can apply it to
+// conversation history and reverse it when restoring names from responses.
+func convertGenaiToolsToBedrock(tools []*genai.Tool) ([]types.Tool, map[string]string) {
 	if len(tools) == 0 {
-		return nil
+		return nil, nil
 	}
 
+	nameMap := make(map[string]string)
+	nameCounter := 0
 	var bedrockTools []types.Tool
 
 	for _, tool := range tools {
@@ -525,7 +588,7 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 			}
 
 			// Build input schema as JSON document.
-			// MCP tools and built-in local toolsset ParametersJsonSchema
+			// MCP tools and built-in local toolsets set ParametersJsonSchema.
 			var schema map[string]any
 			if decl.ParametersJsonSchema != nil {
 				schema = parametersJsonSchemaToMap(decl.ParametersJsonSchema)
@@ -536,7 +599,7 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 				// then lowercase all type values to match JSON Schema standard.
 				schema = genaiSchemaToMap(decl.Parameters)
 			}
-			// Fallback to empty object if no schema is found
+			// Fallback to empty object if no schema is found.
 			if schema == nil {
 				schema = map[string]any{"type": "object", "properties": map[string]any{}}
 			}
@@ -545,8 +608,12 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 				Value: document.NewLazyDocument(schema),
 			}
 
+			// Sanitize the tool name: MCP tool names often contain dots, colons,
+			// or spaces (e.g. "fetch.get_url") that Bedrock rejects.
+			sanitizedName := sanitizeBedrockToolName(decl.Name, nameMap, &nameCounter)
+
 			toolSpec := types.ToolSpecification{
-				Name:        aws.String(decl.Name),
+				Name:        aws.String(sanitizedName),
 				Description: aws.String(decl.Description),
 				InputSchema: inputSchema,
 			}
@@ -558,7 +625,7 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) []types.Tool {
 		}
 	}
 
-	return bedrockTools
+	return bedrockTools, nameMap
 }
 
 // bedrockStopReasonToGenai maps Bedrock stop reason to genai.FinishReason.

@@ -418,7 +418,7 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openshell). */
+/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openclaw/nemoclaw). */
 export interface OpenshellAgentHarnessListEntry {
   backend: string;
   /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
