@@ -185,7 +185,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
                     </div>
                     <Button
                       type="button"
-                      aria-label={`Remove tool ${mcpToolName}`}
+                      aria-label="Remove tool"
                       variant="ghost"
                       size="sm"
                       className="h-8 w-8 shrink-0 p-0"
@@ -244,7 +244,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button type="button" aria-label={`Remove ${displayName}`} variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
+                    <Button type="button" aria-label="Remove tool" variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
                       <X className="h-4 w-4" aria-hidden />
                     </Button>
                   </div>

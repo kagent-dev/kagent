@@ -102,7 +102,7 @@ describe("ToolsSection inside a <form>", () => {
     });
 
     const removeButton = await screen.findByRole("button", {
-      name: /^remove kagent\/another-agent$/i,
+      name: /^remove tool$/i,
     });
     await user.click(removeButton);
 
@@ -129,7 +129,7 @@ describe("ToolsSection inside a <form>", () => {
     });
 
     const removeButton = await screen.findByRole("button", {
-      name: /^remove tool argocd-get-application$/i,
+      name: /^remove tool$/i,
     });
     await user.click(removeButton);
 
