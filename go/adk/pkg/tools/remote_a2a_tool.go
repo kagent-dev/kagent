@@ -13,6 +13,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
@@ -49,9 +50,8 @@ func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.
 	if meta == nil {
 		return ctx, nil
 	}
-	if vals, ok := meta.Get("authorization"); ok && len(vals) > 0 && vals[0] != "" {
-		req.Meta.Append("authorization", vals[0])
-		slog.Info("forwarding authorization header to sub-agent A2A call", "tool", a.name)
+	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
+		req.Meta.Append(constants.AuthorizationHeader, vals[0])
 	}
 	return ctx, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/tool"
@@ -262,9 +263,8 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	if rt.propagateToken {
 		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
 			if meta := callCtx.RequestMeta(); meta != nil {
-				if vals, ok := meta.Get("authorization"); ok && len(vals) > 0 && vals[0] != "" {
-					req.Header.Set("authorization", vals[0])
-					rt.log.Info("forwarding authorization header to MCP server", "url", req.URL.String())
+				if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
+					req.Header.Set(constants.AuthorizationHeader, vals[0])
 				}
 			}
 		}

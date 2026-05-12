@@ -87,7 +87,6 @@ class _SubagentInterceptor(ClientCallInterceptor):
                 headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
             if self._propagate_token and _AUTHORIZATION_CONTEXT_KEY in context.state:
                 headers["authorization"] = context.state["authorization"]
-                logger.info("forwarding authorization header to sub-agent A2A call")
         http_kwargs["headers"] = headers
         return request_payload, http_kwargs
 
