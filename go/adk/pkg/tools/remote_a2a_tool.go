@@ -29,7 +29,7 @@ func (h *allowedHeadersInterceptor) Before(ctx context.Context, req *a2aclient.R
 	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
 		for name, vals := range callCtx.RequestMeta().List() {
 			if len(vals) > 0 && vals[0] != "" {
-				req.Meta.Append(name, vals[0])
+				req.Meta.Append(name, vals...)
 			}
 		}
 	}
@@ -236,15 +236,12 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 	return ret, retErr
 }
 
-// buildSendContext constructs the context for a SendMessage call. It carries the user ID
-// via a context value and, when allowedHeaders is configured, stores the filtered subset
-// of the incoming A2A request's headers in a new A2A CallContext so the
-// allowedHeadersInterceptor can forward them without a custom context key.
+// buildSendContext constructs the context for a SendMessage call. It stores the user ID
+// as x-user-id in filtered A2A CallContext request metadata and, when
+// allowedHeaders is configured, also stores the filtered subset of the incoming A2A
+// request's headers there so the allowedHeadersInterceptor can forward them using the A2A CallContext.
 func (s *remoteA2AState) buildSendContext(ctx tool.Context) context.Context {
 	filtered := map[string][]string{}
-	if uid := ctx.UserID(); uid != "" {
-		filtered["x-user-id"] = []string{uid}
-	}
 	if len(s.allowedHeaders) > 0 {
 		if incomingCallCtx, ok := a2asrv.CallContextFrom(ctx); ok {
 			incomingMeta := incomingCallCtx.RequestMeta()
@@ -254,6 +251,9 @@ func (s *remoteA2AState) buildSendContext(ctx tool.Context) context.Context {
 				}
 			}
 		}
+	}
+	if uid := ctx.UserID(); uid != "" {
+		filtered["x-user-id"] = []string{uid}
 	}
 	if len(filtered) == 0 {
 		return ctx

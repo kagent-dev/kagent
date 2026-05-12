@@ -1,6 +1,6 @@
 """Tests for header propagation to MCP tools and sub-agents."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 

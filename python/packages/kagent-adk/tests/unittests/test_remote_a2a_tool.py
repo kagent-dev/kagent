@@ -29,8 +29,6 @@ from kagent.adk._remote_a2a_tool import (
     _HEADERS_STATE_KEY,
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
-    SubagentSessionProvider,
-    _SubagentInterceptor,
 )
 
 # ---------------------------------------------------------------------------

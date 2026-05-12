@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -313,10 +314,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 			}
 		}
 		if len(mcpAllowed) > 0 {
-			union := make([]string, 0, len(mcpAllowed))
-			for h := range mcpAllowed {
-				union = append(union, h)
-			}
+			union := slices.Sorted(maps.Keys(mcpAllowed))
 			for i := range cfg.RemoteAgents {
 				cfg.RemoteAgents[i].AllowedHeaders = union
 			}

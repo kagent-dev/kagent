@@ -349,7 +349,7 @@ class AgentConfig(BaseModel):
             for t in self.sse_tools:
                 if t.allowed_headers:
                     mcp_allowed_headers.update(h.lower() for h in t.allowed_headers)
-        agent_allowed_headers: list[str] | None = list(mcp_allowed_headers) if mcp_allowed_headers else None
+        agent_allowed_headers: list[str] | None = sorted(mcp_allowed_headers) if mcp_allowed_headers else None
 
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
