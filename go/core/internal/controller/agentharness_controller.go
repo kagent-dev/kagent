@@ -107,7 +107,7 @@ func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{
-		Backend: backend.Name(),
+		Backend: ah.Spec.Backend,
 		ID:      res.Handle.ID,
 	}
 	if res.Endpoint != "" {
@@ -117,7 +117,7 @@ func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request
 		"AgentHarnessAccepted", "backend accepted sandbox request")
 
 	st, reason, msg := backend.GetStatus(ctx, res.Handle)
-	pending := r.postReadyBootstrapPending(&ah, backend)
+	pending := r.postReadyBootstrapPending(&ah)
 	if st == metav1.ConditionTrue && pending {
 		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 			"BootstrapPending",
@@ -153,10 +153,7 @@ func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *AgentHarnessController) postReadyBootstrapPending(ah *v1alpha2.AgentHarness, async sandboxbackend.AsyncBackend) bool {
-	if _, ok := async.(sandboxbackend.PostReadyBackend); !ok {
-		return false
-	}
+func (r *AgentHarnessController) postReadyBootstrapPending(ah *v1alpha2.AgentHarness) bool {
 	wantGen := strconv.FormatInt(ah.Generation, 10)
 	if ah.Annotations != nil && ah.Annotations[annotationAgentHarnessBootstrapGeneration] == wantGen {
 		return false
@@ -165,12 +162,11 @@ func (r *AgentHarnessController) postReadyBootstrapPending(ah *v1alpha2.AgentHar
 }
 
 func (r *AgentHarnessController) maybePostReadyBootstrap(ctx context.Context, key client.ObjectKey, ah *v1alpha2.AgentHarness, h sandboxbackend.Handle, async sandboxbackend.AsyncBackend) error {
-	if !r.postReadyBootstrapPending(ah, async) {
+	if !r.postReadyBootstrapPending(ah) {
 		return nil
 	}
-	pr := async.(sandboxbackend.PostReadyBackend)
 	wantGen := strconv.FormatInt(ah.Generation, 10)
-	if err := pr.OnAgentHarnessReady(ctx, ah, h); err != nil {
+	if err := async.OnAgentHarnessReady(ctx, ah, h); err != nil {
 		return err
 	}
 	var fresh v1alpha2.AgentHarness

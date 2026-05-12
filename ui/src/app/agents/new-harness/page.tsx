@@ -316,7 +316,7 @@ function AgentHarnessPageContent() {
                   }))
                 }
                 disabled={disabled}
-                sectionError={state.errors.openClawSandbox}
+                validationError={state.errors.openClawSandbox}
               />
 
               <div className="flex justify-end border-t border-border/50 pt-6">

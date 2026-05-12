@@ -273,11 +273,19 @@ ui:
     # Path to redirect users to when they click "Sign in with SSO" on the login page
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
+  env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  # -- Additional request headers (beyond Authorization) the UI proxy will forward
+  # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
+  # Transfer-Encoding, etc.) are silently dropped.
+  additionalForwardedHeaders: []
+  # Example:
+  #   additionalForwardedHeaders:
+  #     - X-Forwarded-User
+  #     - X-Forwarded-Email
   # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
   publicBackendUrl: "/api"
   # Next.js server default when set (BACKEND_INTERNAL_URL). Override if the controller API base differs.
   backendInternalUrl: ""
-  env: {} # Extra UI env vars (do not duplicate NEXT_PUBLIC_BACKEND_URL / BACKEND_INTERNAL_URL keys)
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
