@@ -62,6 +62,7 @@ type mcpServerParams struct {
 	URL                   string
 	Headers               map[string]string
 	AllowedHeaders        []string // header names to forward from incoming request
+	PropagateToken        bool     // when true, Authorization is forwarded independently of AllowedHeaders
 	ServerType            string   // "http" or "sse"
 	Timeout               *float64
 	SseReadTimeout        *float64
@@ -73,7 +74,11 @@ type mcpServerParams struct {
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
 // returning the accumulated toolsets. Errors on individual servers are logged
 // and skipped.
-func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, sseTools []adk.SseMcpServerConfig) []tool.Toolset {
+//
+// When propagateToken is true, Authorization is forwarded to every MCP server
+// independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
+// behaviour triggered by KAGENT_PROPAGATE_TOKEN.
+func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, sseTools []adk.SseMcpServerConfig, propagateToken bool) []tool.Toolset {
 	log := logr.FromContextOrDiscard(ctx)
 	var toolsets []tool.Toolset
 
@@ -83,6 +88,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 			URL:                   httpTool.Params.Url,
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
+			PropagateToken:        propagateToken,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
@@ -103,6 +109,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 			URL:                   sseTool.Params.Url,
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
+			PropagateToken:        propagateToken,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
@@ -200,11 +207,13 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken {
 		httpTransport = &headerRoundTripper{
 			base:           baseTransport,
 			headers:        params.Headers,
 			allowedHeaders: params.AllowedHeaders,
+			propagateToken: params.PropagateToken,
+			log:            log,
 		}
 	}
 
@@ -230,30 +239,43 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 }
 
 // headerRoundTripper wraps an http.RoundTripper to add custom headers to all
-// requests. It supports two sources of headers:
-//   - headers: static key/value pairs configured on the MCP server spec
-//   - allowedHeaders: header names to forward from the incoming A2A request;
-//     values are read on each call via allowedRequestHeaders directly from the
-//     A2A CallContext that is already present in the Go context.
-//
-// Static headers take precedence: if an allowed header has the same name as a
-// static header, the static value wins.
+// requests. It supports three sources of headers, applied in this order so that
+// higher-priority sources win on collision:
+//  1. propagateToken: when true, Authorization is read from the incoming A2A
+//     CallContext and forwarded unconditionally (independent of allowedHeaders).
+//  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
+//  3. headers: static key/value pairs configured on the MCP server spec (highest
+//     priority — always wins).
 type headerRoundTripper struct {
 	base           http.RoundTripper
 	headers        map[string]string
 	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
+	propagateToken bool     // when true, Authorization is forwarded independently
+	log            logr.Logger
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 
-	// Forward allowed headers from the incoming A2A request first so that
-	// static headers can override them if there is a name collision.
+	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
+	// A2A request independently of allowedHeaders.
+	if rt.propagateToken {
+		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
+			if meta := callCtx.RequestMeta(); meta != nil {
+				if vals, ok := meta.Get("authorization"); ok && len(vals) > 0 && vals[0] != "" {
+					req.Header.Set("authorization", vals[0])
+					rt.log.Info("forwarding authorization header to MCP server", "url", req.URL.String())
+				}
+			}
+		}
+	}
+
+	// Forward explicitly allowed headers from the incoming A2A request.
 	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
 		req.Header.Set(k, v)
 	}
 
-	// Apply static headers (override any dynamic ones with the same name).
+	// Apply static headers last — they take precedence over all dynamic sources.
 	for key, value := range rt.headers {
 		req.Header.Set(key, value)
 	}
