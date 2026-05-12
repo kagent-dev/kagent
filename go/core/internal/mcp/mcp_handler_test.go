@@ -8,12 +8,15 @@ import (
 	"net/url"
 	"sync"
 	"testing"
-	"time"
 
+	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
+	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 )
 
 // fakeSession is a minimal auth.Session for testing.
@@ -89,31 +92,41 @@ func (a *authRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return a.base.RoundTrip(r)
 }
 
+// newTestRegistry builds an AgentClientRegistry with a single agent pre-registered,
+// wired to send A2A requests to backendURL and propagate auth via authProvider.
+func newTestRegistry(t *testing.T, namespace, name string, backendURL string, authProvider auth.AuthProvider) *a2a.AgentClientRegistry {
+	t.Helper()
+	agentRef := types.NamespacedName{Namespace: namespace, Name: name}
+	c, err := a2aclient.NewA2AClient(
+		backendURL+"/"+namespace+"/"+name+"/",
+		a2aclient.WithHTTPReqHandler(authimpl.A2ARequestHandler(authProvider, agentRef)),
+	)
+	require.NoError(t, err)
+
+	registry := a2a.NewAgentClientRegistry()
+	registry.Register(namespace, name, c)
+	return registry
+}
+
 // TestInvokeAgent_AuthPropagation exercises the full MCP HTTP stack:
 // the MCP client sends a request with an Authorization header, the handler
 // recovers the auth session from RequestExtra, and the A2A backend receives
 // the token produced by UpstreamAuth.
 func TestInvokeAgent_AuthPropagation(t *testing.T) {
-	// Fake A2A backend — records the Authorization header it receives.
 	backend := newA2ABackend(t)
-
 	authProvider := &fakeAuthProvider{session: &fakeSession{}}
 
-	// Real MCP handler (kubeClient is nil; invoke_agent does not use it).
-	mcpHandler, err := NewMCPHandler(nil, backend.server.URL, authProvider, 5*time.Second)
+	registry := newTestRegistry(t, "default", "test-agent", backend.server.URL, authProvider)
+	mcpHandler, err := NewMCPHandler(nil, registry, authProvider)
 	require.NoError(t, err)
 
 	mcpServer := httptest.NewServer(mcpHandler)
 	t.Cleanup(mcpServer.Close)
 
-	// MCP client whose HTTP transport injects an Authorization header on every request.
 	transport := &mcpsdk.StreamableClientTransport{
 		Endpoint: mcpServer.URL,
 		HTTPClient: &http.Client{
-			Transport: &authRoundTripper{
-				base:  http.DefaultTransport,
-				token: "test-token",
-			},
+			Transport: &authRoundTripper{base: http.DefaultTransport, token: "test-token"},
 		},
 		DisableStandaloneSSE: true,
 	}
@@ -141,10 +154,10 @@ func TestInvokeAgent_AuthPropagation(t *testing.T) {
 // propagated to the A2A backend.
 func TestInvokeAgent_NoAuthPropagationWithoutHeader(t *testing.T) {
 	backend := newA2ABackend(t)
-
 	authProvider := &fakeAuthProvider{session: &fakeSession{}}
 
-	mcpHandler, err := NewMCPHandler(nil, backend.server.URL, authProvider, 5*time.Second)
+	registry := newTestRegistry(t, "default", "test-agent", backend.server.URL, authProvider)
+	mcpHandler, err := NewMCPHandler(nil, registry, authProvider)
 	require.NoError(t, err)
 
 	mcpServer := httptest.NewServer(mcpHandler)
