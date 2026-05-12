@@ -32,6 +32,7 @@ type Agent struct {
 type Principal struct {
 	User   User
 	Agent  Agent
+	Groups []string       // Groups extracted from JWT (e.g. Keycloak groups claim)
 	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
 }
 
