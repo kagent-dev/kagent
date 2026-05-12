@@ -639,6 +639,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "unable to create MCP handler")
 		os.Exit(1)
 	}
+	a2aRegistrar.SetAgentChangeCallback(mcpHandler.NotifyAgentsChanged)
 
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
