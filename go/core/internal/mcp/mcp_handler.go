@@ -183,6 +183,16 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "invoke_agent")
 
+	// The Go MCP SDK detaches the HTTP request context when dispatching to
+	// tool handlers, so auth.AuthSessionFrom(ctx) returns nothing. Recover
+	// the auth session from the HTTP headers preserved in RequestExtra so
+	// that the A2A client's outbound request to the agent carries the user's JWT.
+	if extra := req.GetExtra(); extra != nil {
+		if session, err := h.authenticator.Authenticate(ctx, extra.Header, nil); err == nil {
+			ctx = auth.AuthSessionTo(ctx, session)
+		}
+	}
+
 	// Parse agent reference (namespace/name or just name)
 	agentNS, agentName, ok := strings.Cut(input.Agent, "/")
 	if !ok {
