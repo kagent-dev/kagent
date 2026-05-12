@@ -18,26 +18,12 @@ import type {
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
+import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import type { OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
 import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
 import { isResourceNameValid } from "@/lib/utils";
 
-export interface ValidationErrors {
-  name?: string;
-  namespace?: string;
-  description?: string;
-  type?: string;
-  systemPrompt?: string;
-  model?: string;
-  knowledgeSources?: string;
-  tools?: string;
-  skills?: string;
-  memoryModel?: string;
-  memoryTtl?: string;
-  serviceAccountName?: string;
-  promptSources?: string;
-  openClawSandbox?: string;
-}
+export type ValidationErrors = AgentFormValidationErrors;
 
 export interface AgentFormData {
   name: string;
