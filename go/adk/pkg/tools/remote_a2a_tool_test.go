@@ -19,21 +19,23 @@ type stubToolContext struct {
 	userID string
 }
 
-func (s *stubToolContext) UserID() string                                                           { return s.userID }
-func (s *stubToolContext) FunctionCallID() string                                                  { return "" }
-func (s *stubToolContext) Actions() *session.EventActions                                          { return nil }
-func (s *stubToolContext) SearchMemory(_ context.Context, _ string) (*memory.SearchResponse, error) { return nil, nil }
-func (s *stubToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation                   { return nil }
-func (s *stubToolContext) RequestConfirmation(_ string, _ any) error                               { return nil }
-func (s *stubToolContext) UserContent() *genai.Content                                             { return nil }
-func (s *stubToolContext) InvocationID() string                                                    { return "" }
-func (s *stubToolContext) AgentName() string                                                       { return "" }
-func (s *stubToolContext) ReadonlyState() session.ReadonlyState                                   { return nil }
-func (s *stubToolContext) AppName() string                                                         { return "" }
-func (s *stubToolContext) SessionID() string                                                       { return "" }
-func (s *stubToolContext) Branch() string                                                          { return "" }
-func (s *stubToolContext) Artifacts() agent.Artifacts                                             { return nil }
-func (s *stubToolContext) State() session.State                                                   { return nil }
+func (s *stubToolContext) UserID() string                 { return s.userID }
+func (s *stubToolContext) FunctionCallID() string         { return "" }
+func (s *stubToolContext) Actions() *session.EventActions { return nil }
+func (s *stubToolContext) SearchMemory(_ context.Context, _ string) (*memory.SearchResponse, error) {
+	return nil, nil
+}
+func (s *stubToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation { return nil }
+func (s *stubToolContext) RequestConfirmation(_ string, _ any) error            { return nil }
+func (s *stubToolContext) UserContent() *genai.Content                          { return nil }
+func (s *stubToolContext) InvocationID() string                                 { return "" }
+func (s *stubToolContext) AgentName() string                                    { return "" }
+func (s *stubToolContext) ReadonlyState() session.ReadonlyState                 { return nil }
+func (s *stubToolContext) AppName() string                                      { return "" }
+func (s *stubToolContext) SessionID() string                                    { return "" }
+func (s *stubToolContext) Branch() string                                       { return "" }
+func (s *stubToolContext) Artifacts() agent.Artifacts                           { return nil }
+func (s *stubToolContext) State() session.State                                 { return nil }
 
 // TestBuildSendContext_AllowedHeadersAndUserIDPropagated verifies that x-user-id is always
 // forwarded and that only headers listed in allowedHeaders pass through to the sub-agent.
