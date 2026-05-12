@@ -30,7 +30,6 @@ from a2a.types import (
     Task,
     TaskState,
     TextPart,
-    HEADERS_STATE_KEY,
 )
 from a2a.types import (
     Message as A2AMessage,
@@ -56,6 +55,7 @@ from kagent.core.a2a import (
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
+_HEADERS_STATE_KEY = "headers"
 _USER_ID_CONTEXT_KEY = "x-user-id"
 _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
@@ -207,7 +207,7 @@ class KAgentRemoteA2ATool(BaseTool):
         """Build a ClientCallContext with user ID and forwarded allowed headers."""
         state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
         if self._allowed_headers:
-            session_headers = tool_context.state.get(HEADERS_STATE_KEY, {})
+            session_headers = tool_context.state.get(_HEADERS_STATE_KEY, {})
             forwarded: dict[str, str] = {}
             for name, value in session_headers.items():
                 if name.lower() in self._allowed_headers:
