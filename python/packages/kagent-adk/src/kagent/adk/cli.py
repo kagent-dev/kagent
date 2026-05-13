@@ -24,7 +24,7 @@ app = typer.Typer()
 
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
-propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 

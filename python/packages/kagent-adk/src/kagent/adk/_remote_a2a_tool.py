@@ -61,7 +61,7 @@ _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
 _HEADERS_STATE_KEY = "headers"
 _AUTHORIZATION_CONTEXT_KEY = "authorization"
-_PROPAGATE_TOKEN = bool(os.getenv("KAGENT_PROPAGATE_TOKEN"))
+_PROPAGATE_TOKEN = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
@@ -86,7 +86,7 @@ class _SubagentInterceptor(ClientCallInterceptor):
             if _USER_ID_CONTEXT_KEY in context.state:
                 headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
             if self._propagate_token and _AUTHORIZATION_CONTEXT_KEY in context.state:
-                headers["authorization"] = context.state["authorization"]
+                headers[_AUTHORIZATION_CONTEXT_KEY] = context.state[_AUTHORIZATION_CONTEXT_KEY]
         http_kwargs["headers"] = headers
         return request_payload, http_kwargs
 
@@ -154,7 +154,7 @@ class KAgentRemoteA2ATool(BaseTool):
         description: str,
         agent_card_url: str,
         httpx_client: Optional[httpx.AsyncClient] = None,
-        propagate_token: bool = False,
+        propagate_token: bool = _PROPAGATE_TOKEN,
     ) -> None:
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
@@ -410,7 +410,7 @@ class KAgentRemoteA2ATool(BaseTool):
             if isinstance(incoming, dict):
                 auth = incoming.get("authorization") or incoming.get("Authorization")
                 if auth:
-                    call_context_state["authorization"] = auth
+                    call_context_state[_AUTHORIZATION_CONTEXT_KEY] = auth
         call_context = ClientCallContext(state=call_context_state)
         task: Optional[Task] = None
         try:

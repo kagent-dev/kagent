@@ -214,7 +214,6 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 			headers:        params.Headers,
 			allowedHeaders: params.AllowedHeaders,
 			propagateToken: params.PropagateToken,
-			log:            log,
 		}
 	}
 
@@ -252,7 +251,6 @@ type headerRoundTripper struct {
 	headers        map[string]string
 	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
 	propagateToken bool     // when true, Authorization is forwarded independently
-	log            logr.Logger
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {

@@ -50,6 +50,9 @@ func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.
 	if meta == nil {
 		return ctx, nil
 	}
+	if len(req.Meta.Get(constants.AuthorizationHeader)) > 0 {
+		return ctx, nil
+	}
 	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
 		req.Meta.Append(constants.AuthorizationHeader, vals[0])
 	}
