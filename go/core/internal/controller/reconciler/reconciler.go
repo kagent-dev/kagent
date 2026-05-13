@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
@@ -45,7 +46,24 @@ var (
 const (
 	AgentReadyReasonDeploymentReady = "DeploymentReady"
 	AgentReadyReasonWorkloadReady   = "WorkloadReady"
+
+	// mcpRegistrationTimeout is the default deadline applied to a RemoteMCPServer
+	// registration attempt (header resolution + MCP connect + tool listing) when
+	// .spec.timeout is not set. A hung or unreachable endpoint is bounded to this
+	// duration, ensuring the reconciler goroutine is always released and does not
+	// block subsequent RemoteMCPServer reconciliations.
+	mcpRegistrationTimeout = 30 * time.Second
 )
+
+// remoteMCPRegistrationTimeout returns the effective registration deadline for
+// a RemoteMCPServer. It uses .spec.timeout when set, and falls back to the
+// package-level default otherwise.
+func remoteMCPRegistrationTimeout(s *v1alpha2.RemoteMCPServer) time.Duration {
+	if s != nil && s.Spec.Timeout != nil {
+		return s.Spec.Timeout.Duration
+	}
+	return mcpRegistrationTimeout
+}
 
 type KagentReconciler interface {
 	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
@@ -576,9 +594,11 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		GroupKind:   server.GroupVersionKind().GroupKind().String(),
 	}
 
+	l.Info("registering remote MCP server", "url", server.Spec.URL, "protocol", server.Spec.Protocol)
+	start := time.Now()
 	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, server)
 	if err != nil {
-		l.Error(err, "failed to upsert tool server for remote mcp server")
+		l.Error(err, "failed to upsert tool server for remote mcp server", "duration", time.Since(start))
 
 		// Fetch previously discovered tools from database if possible
 		var discoveryErr error
@@ -586,6 +606,8 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		if discoveryErr != nil {
 			err = multierror.Append(err, discoveryErr)
 		}
+	} else {
+		l.Info("successfully registered remote MCP server", "url", server.Spec.URL, "toolCount", len(tools), "duration", time.Since(start))
 	}
 
 	// update the tool server status as the agents depend on it
@@ -968,12 +990,19 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
 
-	tsp, err := a.createMcpTransport(ctx, remoteMcpServer)
+	// Bound the entire registration sequence (header resolution + MCP connect +
+	// tool listing) to the effective per-resource timeout so that a hung or
+	// unreachable endpoint cannot block this goroutine — and therefore all
+	// subsequent RemoteMCPServer reconciliations — indefinitely.
+	tCtx, cancel := context.WithTimeout(ctx, remoteMCPRegistrationTimeout(remoteMcpServer))
+	defer cancel()
+
+	tsp, err := a.createMcpTransport(tCtx, remoteMcpServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
 
-	tools, err := a.listTools(ctx, tsp, toolServer)
+	tools, err := a.listTools(tCtx, tsp, toolServer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
 	}
@@ -999,7 +1028,7 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
-	httpClient := newHTTPClient(headers)
+	httpClient := newHTTPClient(headers, remoteMCPRegistrationTimeout(s))
 
 	switch s.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
@@ -1017,11 +1046,14 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 
 // go-sdk does not have a WithHeaders option when initializing transport
 // so we need to create a custom HTTP client that adds headers to all requests.
-func newHTTPClient(headers map[string]string) *http.Client {
+func newHTTPClient(headers map[string]string, timeout time.Duration) *http.Client {
 	if len(headers) == 0 {
-		return http.DefaultClient
+		return &http.Client{
+			Timeout: timeout,
+		}
 	}
 	return &http.Client{
+		Timeout: timeout,
 		Transport: &headerTransport{
 			headers: headers,
 			base:    http.DefaultTransport,

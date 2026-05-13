@@ -1216,7 +1216,7 @@ spec:
                             A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
                             The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
                             The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-                            The volume will be mounted read-only (ro) and non-executable files (noexec).
+                            The volume will be mounted read-only (ro).
                             Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
                             The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
                           properties:
@@ -1388,8 +1388,7 @@ spec:
                           description: |-
                             portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
                             Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-                            are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-                            is on.
+                            are redirected to the pxd.portworx.com CSI driver.
                           properties:
                             fsType:
                               description: |-
@@ -2258,14 +2257,10 @@ spec:
                           type: string
                       type: object
                     type:
-                      allOf:
-                      - enum:
-                        - McpServer
-                        - Agent
-                      - enum:
-                        - McpServer
-                        - Agent
                       description: ToolProviderType represents the tool provider type
+                      enum:
+                      - McpServer
+                      - Agent
                       type: string
                   type: object
                   x-kubernetes-validations:
@@ -2348,9 +2343,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-            required:
-            - configHash
-            - observedGeneration
             type: object
         type: object
     served: true
@@ -4682,7 +4674,6 @@ spec:
                                     procMount denotes the type of proc mount to use for the containers.
                                     The default value is Default which uses the container runtime defaults for
                                     readonly paths and masked paths.
-                                    This requires the ProcMountType feature flag to be enabled.
                                     Note that this field cannot be set when spec.os.name is windows.
                                   type: string
                                 readOnlyRootFilesystem:
@@ -5515,7 +5506,6 @@ spec:
                               procMount denotes the type of proc mount to use for the containers.
                               The default value is Default which uses the container runtime defaults for
                               readonly paths and masked paths.
-                              This requires the ProcMountType feature flag to be enabled.
                               Note that this field cannot be set when spec.os.name is windows.
                             type: string
                           readOnlyRootFilesystem:
@@ -6684,7 +6674,7 @@ spec:
                                 A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
                                 The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
                                 The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-                                The volume will be mounted read-only (ro) and non-executable files (noexec).
+                                The volume will be mounted read-only (ro).
                                 Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
                                 The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
                               properties:
@@ -6856,8 +6846,7 @@ spec:
                               description: |-
                                 portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
                                 Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-                                are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-                                is on.
+                                are redirected to the pxd.portworx.com CSI driver.
                               properties:
                                 fsType:
                                   description: |-
@@ -9996,7 +9985,6 @@ spec:
                                     procMount denotes the type of proc mount to use for the containers.
                                     The default value is Default which uses the container runtime defaults for
                                     readonly paths and masked paths.
-                                    This requires the ProcMountType feature flag to be enabled.
                                     Note that this field cannot be set when spec.os.name is windows.
                                   type: string
                                 readOnlyRootFilesystem:
@@ -10828,7 +10816,6 @@ spec:
                               procMount denotes the type of proc mount to use for the containers.
                               The default value is Default which uses the container runtime defaults for
                               readonly paths and masked paths.
-                              This requires the ProcMountType feature flag to be enabled.
                               Note that this field cannot be set when spec.os.name is windows.
                             type: string
                           readOnlyRootFilesystem:
@@ -11997,7 +11984,7 @@ spec:
                                 A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
                                 The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
                                 The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-                                The volume will be mounted read-only (ro) and non-executable files (noexec).
+                                The volume will be mounted read-only (ro).
                                 Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
                                 The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
                               properties:
@@ -12169,8 +12156,7 @@ spec:
                               description: |-
                                 portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
                                 Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-                                are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-                                is on.
+                                are redirected to the pxd.portworx.com CSI driver.
                               properties:
                                 fsType:
                                   description: |-
@@ -13059,19 +13045,15 @@ spec:
                         type: array
                     type: object
                   runtime:
-                    allOf:
-                    - enum:
-                      - python
-                      - go
-                    - enum:
-                      - python
-                      - go
                     default: python
                     description: |-
                       Runtime specifies which ADK implementation to use for this agent.
                       - "python": Uses the Python ADK (default, slower startup, full feature set)
                       - "go": Uses the Go ADK (faster startup, most features supported)
                       The runtime determines both the container image and readiness probe configuration.
+                    enum:
+                    - python
+                    - go
                     type: string
                   stream:
                     description: |-
@@ -13222,15 +13204,11 @@ spec:
                             rule: '!has(self.requireApproval) || self.requireApproval.all(x,
                               has(self.toolNames) && x in self.toolNames)'
                         type:
-                          allOf:
-                          - enum:
-                            - McpServer
-                            - Agent
-                          - enum:
-                            - McpServer
-                            - Agent
                           description: ToolProviderType represents the tool provider
                             type
+                          enum:
+                          - McpServer
+                          - Agent
                           type: string
                       type: object
                       x-kubernetes-validations:
@@ -13322,6 +13300,31 @@ spec:
                       type: object
                     maxItems: 20
                     minItems: 1
+                    type: array
+                  imagePullSecrets:
+                    description: |-
+                      ImagePullSecrets is a list of references to secrets in the same namespace to use for
+                      pulling skill images from private registries. Each referenced secret must be of type
+                      kubernetes.io/dockerconfigjson. The credentials from all secrets are merged and made
+                      available to the skills-init container at /.kagent/.docker/config.json; krane will
+                      use them automatically when pulling images.
+                    items:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    maxItems: 20
                     type: array
                   initContainer:
                     description: Configuration for the skills-init init container.
@@ -13560,18 +13563,12 @@ spec:
                     type: array
                 type: object
               type:
-                allOf:
-                - enum:
-                  - Declarative
-                  - BYO
-                - enum:
-                  - Declarative
-                  - BYO
                 default: Declarative
                 description: AgentType represents the agent type
+                enum:
+                - Declarative
+                - BYO
                 type: string
-            required:
-            - type
             type: object
             x-kubernetes-validations:
             - message: type must be specified
@@ -13644,8 +13641,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-            required:
-            - observedGeneration
             type: object
         type: object
     served: true

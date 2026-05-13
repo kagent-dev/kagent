@@ -64,6 +64,10 @@ spec:
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
+            {{- with .Values.ui.additionalForwardedHeaders }}
+            - name: KAGENT_ADDITIONAL_FORWARDED_HEADERS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.ui.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
