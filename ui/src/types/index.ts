@@ -625,3 +625,46 @@ export interface AdkRequestConfirmationData {
   id: string;
   args: HitlRequestConfirmationArgs;
 }
+
+// --- ScheduledRun CRD types ---
+
+export type ConcurrencyPolicy = "Allow" | "Forbid" | "Replace";
+
+export type RunStatus = "Running" | "Succeeded" | "Failed";
+
+export interface AgentReference {
+  name: string;
+  namespace?: string;
+}
+
+export interface RunHistoryEntry {
+  startTime: string;
+  completionTime?: string;
+  status: RunStatus;
+  sessionId?: string;
+  message?: string;
+}
+
+export interface ScheduledRunSpec {
+  schedule: string;
+  agentRef: AgentReference;
+  prompt: string;
+  suspend?: boolean;
+  concurrencyPolicy?: ConcurrencyPolicy;
+  maxRunHistory?: number;
+}
+
+export interface ScheduledRunStatus {
+  lastRunTime?: string;
+  nextRunTime?: string;
+  active?: number;
+  runHistory?: RunHistoryEntry[];
+}
+
+export interface ScheduledRun {
+  apiVersion?: string;
+  kind?: string;
+  metadata: ResourceMetadata;
+  spec: ScheduledRunSpec;
+  status?: ScheduledRunStatus;
+}
