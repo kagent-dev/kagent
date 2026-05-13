@@ -48,7 +48,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		return nil, nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := os.Getenv("KAGENT_PROPAGATE_TOKEN") != ""
+	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) != "true"
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken)
 	subagentSessionIDs := make(map[string]string)
 
