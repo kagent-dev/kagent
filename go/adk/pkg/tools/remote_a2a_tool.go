@@ -38,7 +38,6 @@ func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient
 // incoming A2A request context to outbound sub-agent A2A calls.
 type authzForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
-	name string
 }
 
 func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
@@ -153,7 +152,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 			&userIDForwardingInterceptor{},
 		}
 		if s.propagateToken {
-			interceptors = append(interceptors, &authzForwardingInterceptor{name: s.name})
+			interceptors = append(interceptors, &authzForwardingInterceptor{})
 		}
 		opts = append(opts, a2aclient.WithInterceptors(interceptors...))
 
