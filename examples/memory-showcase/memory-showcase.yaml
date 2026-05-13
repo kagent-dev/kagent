@@ -1,0 +1,61 @@
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: memory-showcase-chat
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gpt-4.1-mini
+  apiKeySecret: kagent-openai
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    temperature: "0.2"
+    maxTokens: 1024
+  defaultHeaders:
+    User-Agent: kagent/1.0
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: memory-showcase-embedding
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: text-embedding-3-small
+  apiKeySecret: kagent-openai
+  apiKeySecretKey: OPENAI_API_KEY
+  defaultHeaders:
+    User-Agent: kagent/1.0
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: memory-showcase-agent
+  namespace: kagent
+spec:
+  description: Demonstrates saving and retrieving long-term memory.
+  type: Declarative
+  declarative:
+    modelConfig: memory-showcase-chat
+    stream: true
+    systemMessage: |-
+      You are a focused demo agent for kagent long-term memory.
+
+      When the user asks you to remember a fact, call save_memory with only the durable fact to store.
+      After save_memory succeeds, confirm the fact was saved.
+
+      When the user asks for the memory showcase release codename, call load_memory with the query
+      "memory showcase release codename" before answering. If memory contains the codename, answer
+      with the exact codename and mention that it came from memory.
+    memory:
+      modelConfig: memory-showcase-embedding
+      ttlDays: 15
+    deployment:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 684Mi
+        limits:
+          cpu: 3000m
+          memory: 2Gi
+    tools: []
