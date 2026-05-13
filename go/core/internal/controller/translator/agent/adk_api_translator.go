@@ -1180,11 +1180,12 @@ func validateSubPath(p string) error {
 
 // skillsInitData holds the template data for the unified skills-init script.
 type skillsInitData struct {
-	AuthMountPath string        // "/git-auth" or "" (for git auth)
-	GitRefs       []gitRefData  // git repos to clone
-	OCIRefs       []ociRefData  // OCI images to pull
-	InsecureOCI   bool          // --insecure flag for krane
-	SSHHosts      []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
+	AuthMountPath    string        // "/git-auth" or "" (for git auth)
+	GitRefs          []gitRefData  // git repos to clone
+	OCIRefs          []ociRefData  // OCI images to pull
+	InsecureOCI      bool          // --insecure flag for krane
+	SSHHosts         []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
+	ImagePullSecrets []string      // secret names whose .dockerconfigjson are merged by the script
 }
 
 // sshHostData holds the host and optional port for an SSH known_hosts entry.
@@ -1247,9 +1248,11 @@ func prepareSkillsInitData(
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
+	imagePullSecrets []string,
 ) (skillsInitData, error) {
 	data := skillsInitData{
-		InsecureOCI: insecureOCI,
+		InsecureOCI:      insecureOCI,
+		ImagePullSecrets: imagePullSecrets,
 	}
 
 	if authSecretRef != nil {
@@ -1324,6 +1327,9 @@ func prepareSkillsInitData(
 // buildSkillsInitContainer creates the unified init container and associated volumes
 // for fetching skills from both Git repositories and OCI registries.
 // If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
+// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret is mounted
+// under /docker-secrets/<name> and the script merges them into a single config.json in /tmp;
+// krane reads the credentials via the DOCKER_CONFIG env var exported by the script.
 func buildSkillsInitContainer(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
@@ -1332,14 +1338,21 @@ func buildSkillsInitContainer(
 	securityContext *corev1.SecurityContext,
 	env []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
-) (container corev1.Container, volumes []corev1.Volume, err error) {
-	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	imagePullSecrets []corev1.LocalObjectReference,
+) (containers []corev1.Container, volumes []corev1.Volume, err error) {
+	// Collect secret names for the script template.
+	pullSecretNames := make([]string, len(imagePullSecrets))
+	for i, s := range imagePullSecrets {
+		pullSecretNames[i] = s.Name
+	}
+
+	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	script, err := buildSkillsScript(data)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	initSecCtx := securityContext
 	if initSecCtx != nil {
@@ -1350,7 +1363,7 @@ func buildSkillsInitContainer(
 		{Name: "kagent-skills", MountPath: "/skills"},
 	}
 
-	// Mount single auth secret if provided
+	// Mount single auth secret if provided.
 	if authSecretRef != nil {
 		volumes = append(volumes, corev1.Volume{
 			Name: "git-auth",
@@ -1367,7 +1380,26 @@ func buildSkillsInitContainer(
 		})
 	}
 
-	container = corev1.Container{
+	// Mount each imagePullSecret directly into skills-init under /docker-secrets/<name>.
+	// The script merges them into /tmp/kagent-docker-config/config.json and exports DOCKER_CONFIG.
+	for _, secret := range imagePullSecrets {
+		volName := "pull-secret-" + secret.Name
+		volumes = append(volumes, corev1.Volume{
+			Name: volName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secret.Name,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      volName,
+			MountPath: "/docker-secrets/" + secret.Name,
+			ReadOnly:  true,
+		})
+	}
+
+	skillsInitContainer := corev1.Container{
 		Name:            "skills-init",
 		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
@@ -1377,7 +1409,8 @@ func buildSkillsInitContainer(
 		Resources:       resources,
 	}
 
-	return container, volumes, nil
+	containers = append(containers, skillsInitContainer)
+	return containers, volumes, nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {

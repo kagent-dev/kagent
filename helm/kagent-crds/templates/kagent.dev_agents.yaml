@@ -13301,6 +13301,31 @@ spec:
                     maxItems: 20
                     minItems: 1
                     type: array
+                  imagePullSecrets:
+                    description: |-
+                      ImagePullSecrets is a list of references to secrets in the same namespace to use for
+                      pulling skill images from private registries. Each referenced secret must be of type
+                      kubernetes.io/dockerconfigjson. The credentials from all secrets are merged and made
+                      available to the skills-init container at /.kagent/.docker/config.json; krane will
+                      use them automatically when pulling images.
+                    items:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    maxItems: 20
+                    type: array
                   initContainer:
                     description: Configuration for the skills-init init container.
                     properties:
