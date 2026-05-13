@@ -15,8 +15,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// OpenShellClients holds OpenShell and Inference API clients sharing one gRPC
-// connection to the gateway (both services are exposed on the same channel).
+// OpenShellClients is the result of Dial: one gRPC connection plus the generated
+// openshell.v1.OpenShell and inference.v1.Inference stubs. It does not interpret
+// AgentHarness or apply per-call policy; use AgentHarnessOpenShellClient for that
+// (see agentharness_openshell_client.go in this package).
 type OpenShellClients struct {
 	OpenShell openshellv1.OpenShellClient
 	Inference inferencev1.InferenceClient

@@ -453,13 +453,13 @@ func TestHandleListAgents(t *testing.T) {
 		require.Empty(t, response.Data)
 	})
 
-	t.Run("includes openshell AgentHarness CR in agent list", func(t *testing.T) {
+	t.Run("includes openclaw AgentHarness CR in agent list", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("list-agent", modelConfig)
 		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
 			Spec: v1alpha2.AgentHarnessSpec{
-				Backend:        v1alpha2.AgentHarnessBackendOpenshell,
+				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
 				Description:    "Workload VM for experiments",
 				ModelConfigRef: "test-model-config",
 			},
@@ -468,7 +468,7 @@ func TestHandleListAgents(t *testing.T) {
 					{Type: v1alpha2.AgentHarnessConditionTypeAccepted, Status: "True", Reason: "AgentHarnessAccepted"},
 					{Type: v1alpha2.AgentHarnessConditionTypeReady, Status: "True", Reason: "SandboxReady"},
 				},
-				BackendRef: &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenshell, ID: "default-openclaw-1"},
+				BackendRef: &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "default-openclaw-1"},
 			},
 		}
 		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
@@ -782,10 +782,10 @@ func TestHandleDeleteTeam(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("deletes openshell AgentHarness when no Agent with that name", func(t *testing.T) {
+	t.Run("deletes openclaw AgentHarness when no Agent with that name", func(t *testing.T) {
 		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenshell},
+			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
 		}
 		handler, _ := setupTestHandler(t, sb)
 

@@ -177,6 +177,7 @@ spec:
                 default: true
                 type: boolean
               timeout:
+                default: 30s
                 type: string
               url:
                 minLength: 1
