@@ -9,6 +9,7 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	adkagent "google.golang.org/adk/agent"
 	adkmemory "google.golang.org/adk/memory"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
@@ -31,18 +32,32 @@ func CreateRunnerConfig(
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
 ) (runner.Config, map[string]string, error) {
-	var extraTools []adktool.Tool
-	if memoryService != nil {
-		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
-		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
-		}
-		extraTools = append(extraTools, saveTool)
-	}
+	var adkAgent adkagent.Agent
+	var subagentSessionIDs map[string]string
 
-	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
-	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+	if agentConfig.Workflow != nil {
+		// Workflow agents use a different creation path — no extra tools or remote agents.
+		var err error
+		adkAgent, err = agent.CreateWorkflowAgent(ctx, agentConfig, agentNameFromAppName(appName))
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create workflow agent: %w", err)
+		}
+		subagentSessionIDs = make(map[string]string)
+	} else {
+		var extraTools []adktool.Tool
+		if memoryService != nil {
+			saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
+			if err != nil {
+				return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+			}
+			extraTools = append(extraTools, saveTool)
+		}
+
+		var err error
+		adkAgent, subagentSessionIDs, err = agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), extraTools...)
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+		}
 	}
 
 	var adkSessionService adksession.Service

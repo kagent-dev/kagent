@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -126,6 +127,11 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 		return nil
 	}
 
+	// Validate workflow agents
+	if spec.Declarative.Workflow != nil {
+		return a.validateWorkflowAgent(spec.Declarative.Workflow)
+	}
+
 	for _, tool := range spec.Declarative.Tools {
 		switch tool.Type {
 		case v1alpha2.ToolProviderType_Agent:
@@ -157,6 +163,12 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
 	spec := agent.GetAgentSpec()
+
+	// If this is a workflow agent, use the workflow translation path.
+	if spec.Declarative.Workflow != nil {
+		return a.translateWorkflowAgent(ctx, agent)
+	}
+
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
 		return nil, nil, nil, err
@@ -309,6 +321,96 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
 		}
 		cfg.Instruction = resolved
+	}
+
+	return cfg, mdd, secretHashBytes, nil
+}
+
+func (a *adkApiTranslator) validateWorkflowAgent(workflow *v1alpha2.WorkflowSpec) error {
+	// Validate unique sub-agent names
+	names := make(map[string]bool, len(workflow.SubAgents))
+	for _, subAgent := range workflow.SubAgents {
+		if names[subAgent.Name] {
+			return fmt.Errorf("duplicate sub-agent name %q in workflow", subAgent.Name)
+		}
+		names[subAgent.Name] = true
+
+		// Agent-as-tool references are not supported within workflow sub-agents
+		for _, tool := range subAgent.Tools {
+			if tool.Type == v1alpha2.ToolProviderType_Agent {
+				return fmt.Errorf("sub-agent %q: agent-as-tool references are not supported within workflow sub-agents", subAgent.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func (a *adkApiTranslator) translateWorkflowAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
+	spec := agent.GetAgentSpec()
+	workflow := spec.Declarative.Workflow
+
+	// Resolve the default model config (used by sub-agents that don't specify their own).
+	defaultModelConfigName := spec.Declarative.ModelConfig
+	defaultModel, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), defaultModelConfigName)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to translate default model config: %w", err)
+	}
+
+	workflowConfig := &adk.WorkflowAgentConfig{
+		Type:          strings.ToLower(string(workflow.Type)),
+		MaxIterations: workflow.MaxIterations,
+	}
+
+	for _, subAgent := range workflow.SubAgents {
+		subConfig := adk.SubAgentConfig{
+			Name:        subAgent.Name,
+			Description: subAgent.Description,
+			Instruction: subAgent.SystemMessage,
+		}
+
+		// Resolve model: use sub-agent's model if specified, else inherit default.
+		if subAgent.ModelConfig != "" && subAgent.ModelConfig != defaultModelConfigName {
+			subModel, subMdd, subHash, err := a.translateModel(ctx, agent.GetNamespace(), subAgent.ModelConfig)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to translate model for sub-agent %q: %w", subAgent.Name, err)
+			}
+			subConfig.Model = subModel
+			mergeDeploymentData(mdd, subMdd)
+			secretHashBytes = append(secretHashBytes, subHash...)
+		} else {
+			subConfig.Model = defaultModel
+		}
+
+		// Translate MCP tools for this sub-agent.
+		for _, tool := range subAgent.Tools {
+			headers, err := tool.ResolveHeaders(ctx, a.kube, agent.GetNamespace())
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("sub-agent %q: failed to resolve tool headers: %w", subAgent.Name, err)
+			}
+
+			if tool.McpServer != nil {
+				httpTool, sseTool, err := a.translateMCPServerTool(ctx, agent.GetNamespace(), tool.McpServer, headers, a.globalProxyURL)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("sub-agent %q: failed to translate MCP tool: %w", subAgent.Name, err)
+				}
+				if httpTool != nil {
+					subConfig.HttpTools = append(subConfig.HttpTools, *httpTool)
+				}
+				if sseTool != nil {
+					subConfig.SseTools = append(subConfig.SseTools, *sseTool)
+				}
+			}
+		}
+
+		workflowConfig.SubAgents = append(workflowConfig.SubAgents, subConfig)
+	}
+
+	stream := spec.Declarative.Stream
+	cfg := &adk.AgentConfig{
+		Description: spec.Description,
+		Model:       defaultModel,
+		Stream:      &stream,
+		Workflow:    workflowConfig,
 	}
 
 	return cfg, mdd, secretHashBytes, nil
