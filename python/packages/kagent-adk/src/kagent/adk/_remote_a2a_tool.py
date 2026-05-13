@@ -12,7 +12,6 @@ This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purp
 """
 
 import logging
-import os
 import uuid
 from typing import Any, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -61,7 +60,6 @@ _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
 _HEADERS_STATE_KEY = "headers"
 _AUTHORIZATION_CONTEXT_KEY = "authorization"
-_PROPAGATE_TOKEN = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
@@ -154,7 +152,7 @@ class KAgentRemoteA2ATool(BaseTool):
         description: str,
         agent_card_url: str,
         httpx_client: Optional[httpx.AsyncClient] = None,
-        propagate_token: bool = _PROPAGATE_TOKEN,
+        propagate_token: bool = False,
     ) -> None:
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
@@ -475,7 +473,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
         description: str,
         agent_card_url: str,
         httpx_client: httpx.AsyncClient,
-        propagate_token: bool = _PROPAGATE_TOKEN,
+        propagate_token: bool = False,
     ) -> None:
         super().__init__()
         self._httpx_client = httpx_client

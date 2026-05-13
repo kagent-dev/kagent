@@ -298,7 +298,7 @@ class AgentConfig(BaseModel):
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
 
-    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
+    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
@@ -406,6 +406,7 @@ class AgentConfig(BaseModel):
                         description=remote_agent.description,
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                         httpx_client=client,
+                        propagate_token=propagate_token,
                     )
                 )
 
