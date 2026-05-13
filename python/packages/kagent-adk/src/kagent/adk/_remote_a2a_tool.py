@@ -222,6 +222,16 @@ class KAgentRemoteA2ATool(BaseTool):
             ),
         )
 
+    def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
+        state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+        if self._propagate_token:
+            incoming = tool_context.session.state.get(_HEADERS_STATE_KEY) or {}
+            if isinstance(incoming, dict):
+                auth = incoming.get("authorization") or incoming.get("Authorization")
+                if auth:
+                    state[_AUTHORIZATION_CONTEXT_KEY] = auth
+        return ClientCallContext(state=state)
+
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
         """Execute the remote agent tool.
 
@@ -255,14 +265,7 @@ class KAgentRemoteA2ATool(BaseTool):
 
         # Forward the authenticated user ID so the subagent session is scoped
         # to the same user as the parent agent session.
-        call_context_state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
-        if self._propagate_token:
-            incoming = tool_context.session.state.get(_HEADERS_STATE_KEY) or {}
-            if isinstance(incoming, dict):
-                auth = incoming.get("authorization") or incoming.get("Authorization")
-                if auth:
-                    call_context_state[_AUTHORIZATION_CONTEXT_KEY] = auth
-        call_context = ClientCallContext(state=call_context_state)
+        call_context = self._build_call_context(tool_context)
 
         task: Optional[Task] = None
         try:
@@ -404,14 +407,7 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         client = await self._ensure_client()
-        call_context_state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
-        if self._propagate_token:
-            incoming = tool_context.session.state.get(_HEADERS_STATE_KEY) or {}
-            if isinstance(incoming, dict):
-                auth = incoming.get("authorization") or incoming.get("Authorization")
-                if auth:
-                    call_context_state[_AUTHORIZATION_CONTEXT_KEY] = auth
-        call_context = ClientCallContext(state=call_context_state)
+        call_context = self._build_call_context(tool_context)
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message, context=call_context):
