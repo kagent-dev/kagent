@@ -402,13 +402,16 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
+                a2a_header_provider = None
+                if propagate_token:
+                    a2a_header_provider = create_header_provider(allowed_headers=["authorization"])
                 tools.append(
                     KAgentRemoteA2AToolset(
                         name=remote_agent.name,
                         description=remote_agent.description,
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                         httpx_client=client,
-                        propagate_token=propagate_token,
+                        header_provider=a2a_header_provider,
                     )
                 )
 
