@@ -348,6 +348,11 @@ providers:
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
     # apiKey: ""
+    # -- Use an existing Secret instead of creating one from `apiKey`.
+    # When true, the chart will not render a Secret and expects `apiKeySecretRef`
+    # to point to a pre-existing Secret in the chart/install namespace
+    # resolved by `kagent.namespace`.
+    useExistingSecret: false
   ollama:
     provider: Ollama
     model: "llama3.2"
@@ -362,12 +367,16 @@ providers:
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
+    # -- Use an existing Secret instead of creating one from `apiKey`.
+    useExistingSecret: false
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
     apiKeySecretRef: kagent-azure-openai
     apiKeySecretKey: AZUREOPENAI_API_KEY
     # apiKey: ""
+    # -- Use an existing Secret instead of creating one from `apiKey`.
+    useExistingSecret: false
     config:
       apiVersion: "2023-05-15"
       azureAdToken: ""
@@ -379,6 +388,8 @@ providers:
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
+    # -- Use an existing Secret instead of creating one from `apiKey`.
+    useExistingSecret: false
 
 # ==============================================================================
 # KMCP
