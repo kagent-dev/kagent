@@ -56,25 +56,49 @@ from kagent.core.a2a import (
 logger = logging.getLogger("kagent_adk." + __name__)
 
 _USER_ID_CONTEXT_KEY = "x-user-id"
+_HEADERS_CONTEXT_KEY = "headers"
 _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
     """
-    Injects the authenticated user's ID as an ``x-user-id`` HTTP header and
-    marks the request as originating from an agent call via
-    ``x-kagent-source: agent`` on every outgoing A2A request.
+    Injects the authenticated user's ID as an ``x-user-id`` HTTP header,
+    forwards the parent ``Authorization`` header when available, and marks
+    the request as originating from an agent call via ``x-kagent-source:
+    agent`` on every outgoing A2A request.
+
+    Only ``Authorization`` is promoted from parent session headers; all
+    other session headers remain context-only.
     """
 
     async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
         headers = dict(http_kwargs.get("headers", {}))
         # Always mark requests from a parent agent tool as subagent-originated
         headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
-        if context and _USER_ID_CONTEXT_KEY in context.state:
-            headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+        if context:
+            if _USER_ID_CONTEXT_KEY in context.state:
+                headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+
+            request_headers = context.state.get(_HEADERS_CONTEXT_KEY, {})
+            if isinstance(request_headers, dict):
+                for key, value in request_headers.items():
+                    if key.lower() == "authorization":
+                        headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+                        headers[key] = value
+                        break
         http_kwargs["headers"] = headers
         return request_payload, http_kwargs
+
+
+def _build_subagent_call_context(tool_context: ToolContext) -> ClientCallContext:
+    """Build A2A call context for requests delegated to sub-agents."""
+    ctx_state = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+    session_state = getattr(tool_context.session, "state", {}) or {}
+    session_headers = session_state.get(_HEADERS_CONTEXT_KEY, {}) if isinstance(session_state, dict) else {}
+    if session_headers:
+        ctx_state[_HEADERS_CONTEXT_KEY] = session_headers
+    return ClientCallContext(state=ctx_state)
 
 
 def _extract_text_from_task(task: Task) -> str:
@@ -239,7 +263,7 @@ class KAgentRemoteA2ATool(BaseTool):
 
         # Forward the authenticated user ID so the subagent session is scoped
         # to the same user as the parent agent session.
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = _build_subagent_call_context(tool_context)
 
         task: Optional[Task] = None
         try:
@@ -381,7 +405,7 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         client = await self._ensure_client()
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = _build_subagent_call_context(tool_context)
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message, context=call_context):

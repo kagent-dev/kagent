@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+from a2a.client.middleware import ClientCallContext
 from a2a.types import (
     DataPart,
     Role,
@@ -26,6 +27,7 @@ from kagent.adk._remote_a2a_tool import (
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
     SubagentSessionProvider,
+    _SubagentInterceptor,
 )
 
 # ---------------------------------------------------------------------------
@@ -38,8 +40,9 @@ _DEFAULT_USER_ID = "admin@kagent.dev"
 class _MockSession:
     """Minimal session mock providing user_id."""
 
-    def __init__(self, user_id: str = _DEFAULT_USER_ID):
+    def __init__(self, user_id: str = _DEFAULT_USER_ID, state: dict[str, Any] | None = None):
         self.user_id = user_id
+        self.state = state or {}
 
 
 class MockToolContext:
@@ -49,11 +52,12 @@ class MockToolContext:
         self,
         tool_confirmation: ToolConfirmation | None = None,
         user_id: str = _DEFAULT_USER_ID,
+        session_state: dict[str, Any] | None = None,
     ):
         self.state: dict[str, Any] = {}
         self.function_call_id = "outer_fc_1"
         self.tool_confirmation = tool_confirmation
-        self.session = _MockSession(user_id)
+        self.session = _MockSession(user_id, session_state)
         self._confirmations: dict[str, ToolConfirmation] = {}
 
     def request_confirmation(self, *, hint: str = "", payload: dict | None = None) -> None:
@@ -237,6 +241,48 @@ class TestFirstCall:
 
         assert captured_contexts[0].state["x-user-id"] == "alice@example.com"
 
+    async def test_session_headers_forwarded_in_call_context(self):
+        """The parent session's request headers are forwarded via ClientCallContext."""
+        tool = _make_tool()
+        task = _make_task(TaskState.completed, text="ok")
+        captured_contexts: list = []
+        session_headers = {
+            "Authorization": "Bearer user-token",
+            "x-not-forwarded-by-interceptor": "kept-in-context-only",
+        }
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = MockToolContext(session_state={"headers": session_headers})
+            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+        finally:
+            p.stop()
+
+        assert captured_contexts[0].state["headers"] == session_headers
+
+    async def test_call_context_omits_headers_when_session_has_none(self):
+        """Missing session headers do not prevent building a valid ClientCallContext."""
+        tool = _make_tool()
+        task = _make_task(TaskState.completed, text="ok")
+        captured_contexts: list = []
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = MockToolContext(user_id="alice@example.com")
+            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+        finally:
+            p.stop()
+
+        assert captured_contexts[0].state == {"x-user-id": "alice@example.com"}
+
 
 # ---------------------------------------------------------------------------
 # HITL input_required tests
@@ -403,6 +449,84 @@ class TestHITLResume:
         assert result["waiting_for"] == "subagent_approval"
         assert ctx.function_call_id in ctx._confirmations
         assert "restart_pod" in ctx._confirmations[ctx.function_call_id].hint
+
+    async def test_session_headers_forwarded_in_resume_call_context(self):
+        """Resume calls also forward parent session request headers via ClientCallContext."""
+        tool = _make_tool()
+        task = _make_task(TaskState.completed, text="ok")
+        captured_contexts: list = []
+        session_headers = {"Authorization": "Bearer resumed-user-token"}
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            ctx = _approval_ctx(
+                confirmed=True,
+                payload=_RESUME_PAYLOAD,
+                session_state={"headers": session_headers},
+            )
+            await tool.run_async(args={}, tool_context=ctx)
+        finally:
+            p.stop()
+
+        assert captured_contexts[0].state["headers"] == session_headers
+
+
+# ---------------------------------------------------------------------------
+# Subagent interceptor tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentInterceptor:
+    async def test_forwards_authorization_from_context_headers(self):
+        interceptor = _SubagentInterceptor()
+        context = ClientCallContext(
+            state={
+                "x-user-id": "alice@example.com",
+                "headers": {
+                    "Authorization": "Bearer user-token",
+                    "x-secret-header": "should-not-forward",
+                },
+            }
+        )
+
+        _, http_kwargs = await interceptor.intercept(
+            "send_message",
+            {},
+            {"headers": {"authorization": "Bearer stale-token", "accept": "application/json"}},
+            None,
+            context,
+        )
+
+        assert http_kwargs["headers"]["Authorization"] == "Bearer user-token"
+        assert http_kwargs["headers"]["x-user-id"] == "alice@example.com"
+        assert http_kwargs["headers"]["x-kagent-source"] == "agent"
+        assert http_kwargs["headers"]["accept"] == "application/json"
+        assert "authorization" not in http_kwargs["headers"]
+        assert "x-secret-header" not in http_kwargs["headers"]
+
+    async def test_ignores_context_headers_without_authorization(self):
+        interceptor = _SubagentInterceptor()
+        context = ClientCallContext(
+            state={
+                "headers": {
+                    "x-secret-header": "should-not-forward",
+                },
+            }
+        )
+
+        _, http_kwargs = await interceptor.intercept(
+            "send_message",
+            {},
+            {"headers": {}},
+            None,
+            context,
+        )
+
+        assert http_kwargs["headers"] == {"x-kagent-source": "agent"}
 
 
 # ---------------------------------------------------------------------------
