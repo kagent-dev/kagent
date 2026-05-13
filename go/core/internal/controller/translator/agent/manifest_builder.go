@@ -386,13 +386,14 @@ func buildSkillsRuntime(
 		manifestCtx.deployment.SecurityContext,
 		initEnv,
 		getDefaultResources(initResources),
+		spec.Skills.ImagePullSecrets,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build skills init container: %w", err)
 	}
 
 	*volumes = append(*volumes, skillsVolumes...)
-	return []corev1.Container{container}, nil
+	return container, nil
 }
 
 func projectedTokenVolume() corev1.Volume {

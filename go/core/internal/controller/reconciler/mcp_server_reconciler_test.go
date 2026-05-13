@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
@@ -17,6 +18,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 // TestReconcileKagentMCPServer_ErrorPropagation tests that errors from conversion
 // are properly propagated and not silently swallowed. This is a regression test

@@ -55,13 +55,27 @@ export function focusFirstFormError(
         return;
       }
     }
+    if (key === "openClawSandbox") {
+      const err = errors.openClawSandbox;
+      if (err) {
+        const focusId =
+          err.section === "allowedDomains"
+            ? "agent-field-openclaw-allowed-domains"
+            : err.section === "channels"
+              ? "section-openclaw-channels"
+              : "section-openclaw-sandbox";
+        if (focusElementById(focusId)) {
+          return;
+        }
+      }
+      continue;
+    }
     const idMap: Partial<Record<keyof AgentFormValidationErrors, string>> = {
       name: "agent-field-name",
       namespace: "agent-field-namespace",
       description: "agent-desc",
       systemPrompt: "agent-field-system",
       model: "agent-field-model",
-      openClawSandbox: "section-openclaw-channels",
       memoryModel: "agent-field-memory-model",
       memoryTtl: "agent-field-memory-ttl",
       skills: "section-skills",

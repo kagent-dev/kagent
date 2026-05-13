@@ -98,6 +98,15 @@ type SkillForAgent struct {
 	// +optional
 	Refs []string `json:"refs,omitempty"`
 
+	// ImagePullSecrets is a list of references to secrets in the same namespace to use for
+	// pulling skill images from private registries. Each referenced secret must be of type
+	// kubernetes.io/dockerconfigjson. The credentials from all secrets are merged and made
+	// available to the skills-init container at /.kagent/.docker/config.json; krane will
+	// use them automatically when pulling images.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
 	// Reference to a Secret containing git credentials.
 	// Applied to all gitRefs entries.
 	// The secret should contain a `token` key for HTTPS auth,

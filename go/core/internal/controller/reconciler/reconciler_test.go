@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -671,4 +672,64 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRemoteMCPRegistrationTimeout verifies that remoteMCPRegistrationTimeout
+// returns spec.timeout when set and falls back to the package default otherwise.
+func TestRemoteMCPRegistrationTimeout(t *testing.T) {
+	custom := 10 * time.Second
+
+	tests := []struct {
+		name   string
+		server *v1alpha2.RemoteMCPServer
+		want   time.Duration
+	}{
+		{
+			name:   "nil server returns default",
+			server: nil,
+			want:   mcpRegistrationTimeout,
+		},
+		{
+			name:   "nil spec.timeout returns default",
+			server: &v1alpha2.RemoteMCPServer{},
+			want:   mcpRegistrationTimeout,
+		},
+		{
+			name: "spec.timeout overrides default",
+			server: &v1alpha2.RemoteMCPServer{
+				Spec: v1alpha2.RemoteMCPServerSpec{
+					Timeout: &metav1.Duration{Duration: custom},
+				},
+			},
+			want: custom,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, remoteMCPRegistrationTimeout(tt.server))
+		})
+	}
+}
+
+// TestNewHTTPClient verifies that newHTTPClient always produces a client with
+// the supplied timeout, regardless of whether custom headers are present.
+func TestNewHTTPClient(t *testing.T) {
+	timeout := 5 * time.Second
+
+	t.Run("no headers", func(t *testing.T) {
+		c := newHTTPClient(nil, timeout)
+		assert.Equal(t, timeout, c.Timeout)
+	})
+
+	t.Run("empty headers", func(t *testing.T) {
+		c := newHTTPClient(map[string]string{}, timeout)
+		assert.Equal(t, timeout, c.Timeout)
+	})
+
+	t.Run("with headers sets timeout and custom transport", func(t *testing.T) {
+		c := newHTTPClient(map[string]string{"X-Key": "val"}, timeout)
+		assert.Equal(t, timeout, c.Timeout)
+		_, ok := c.Transport.(*headerTransport)
+		assert.True(t, ok, "expected headerTransport")
+	})
 }
