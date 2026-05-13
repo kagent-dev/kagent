@@ -298,7 +298,9 @@ class AgentConfig(BaseModel):
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
 
-    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False) -> Agent:
+    def to_agent(
+        self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False
+    ) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
