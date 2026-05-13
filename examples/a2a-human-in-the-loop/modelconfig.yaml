@@ -1,0 +1,13 @@
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: a2a-hitl-demo-model
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: gpt-4o-mini
+  apiKeySecret: a2a-hitl-openai
+  apiKeySecretKey: api-key
+  openAI:
+    temperature: "0.2"
+    maxTokens: 2048
