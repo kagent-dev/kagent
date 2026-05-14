@@ -13,7 +13,7 @@ This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purp
 
 import logging
 import uuid
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 import httpx
@@ -58,21 +58,28 @@ logger = logging.getLogger("kagent_adk." + __name__)
 _USER_ID_CONTEXT_KEY = "x-user-id"
 _SOURCE_HEADER = "x-kagent-source"
 _SOURCE_SUBAGENT = "agent"
+_HEADERS_STATE_KEY = "headers"
+_EXTRA_HEADERS_CONTEXT_KEY = "_a2a_extra_headers"
 
 
 class _SubagentInterceptor(ClientCallInterceptor):
     """
-    Injects the authenticated user's ID as an ``x-user-id`` HTTP header and
+    Injects the authenticated user's ID as an ``x-user-id`` HTTP header,
     marks the request as originating from an agent call via
-    ``x-kagent-source: agent`` on every outgoing A2A request.
+    ``x-kagent-source: agent``, and forwards any pre-computed propagation
+    headers stored in the call context state under ``_EXTRA_HEADERS_CONTEXT_KEY``.
     """
 
     async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
         headers = dict(http_kwargs.get("headers", {}))
-        # Always mark requests from a parent agent tool as subagent-originated
         headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
-        if context and _USER_ID_CONTEXT_KEY in context.state:
-            headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+
+        if context:
+            if _USER_ID_CONTEXT_KEY in context.state:
+                headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+            extra = context.state.get(_EXTRA_HEADERS_CONTEXT_KEY)
+            if extra:
+                headers.update(extra)
         http_kwargs["headers"] = headers
         return request_payload, http_kwargs
 
@@ -140,10 +147,12 @@ class KAgentRemoteA2ATool(BaseTool):
         description: str,
         agent_card_url: str,
         httpx_client: Optional[httpx.AsyncClient] = None,
+        header_provider: Optional[Callable[[Optional[ReadonlyContext]], dict[str, str]]] = None,
     ) -> None:
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
         self._httpx_client = httpx_client
+        self._header_provider = header_provider
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
         # Pre-generate context_id for UI session polling
@@ -206,6 +215,14 @@ class KAgentRemoteA2ATool(BaseTool):
             ),
         )
 
+    def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
+        state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+        if self._header_provider:
+            extra_headers = self._header_provider(tool_context)
+            if extra_headers:
+                state[_EXTRA_HEADERS_CONTEXT_KEY] = extra_headers
+        return ClientCallContext(state=state)
+
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
         """Execute the remote agent tool.
 
@@ -239,7 +256,7 @@ class KAgentRemoteA2ATool(BaseTool):
 
         # Forward the authenticated user ID so the subagent session is scoped
         # to the same user as the parent agent session.
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = self._build_call_context(tool_context)
 
         task: Optional[Task] = None
         try:
@@ -381,7 +398,7 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         client = await self._ensure_client()
-        call_context = ClientCallContext(state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id})
+        call_context = self._build_call_context(tool_context)
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=decision_message, context=call_context):
@@ -449,6 +466,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
         description: str,
         agent_card_url: str,
         httpx_client: httpx.AsyncClient,
+        header_provider: Optional[Callable[[Optional[ReadonlyContext]], dict[str, str]]] = None,
     ) -> None:
         super().__init__()
         self._httpx_client = httpx_client
@@ -457,6 +475,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
             description=description,
             agent_card_url=agent_card_url,
             httpx_client=httpx_client,
+            header_provider=header_provider,
         )
 
     @property
