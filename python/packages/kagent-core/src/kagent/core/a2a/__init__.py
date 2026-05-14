@@ -1,4 +1,5 @@
 from ._config import get_a2a_max_content_length
+from ._context import get_request_user_id, set_request_user_id
 from ._consts import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
@@ -33,6 +34,8 @@ from ._task_store import KAgentTaskStore
 
 __all__ = [
     "get_a2a_max_content_length",
+    "get_request_user_id",
+    "set_request_user_id",
     "KAgentRequestContextBuilder",
     "KAgentTaskStore",
     "get_kagent_metadata_key",
