@@ -23,7 +23,7 @@ import json
 import logging
 from typing import Optional
 
-from a2a import types as a2a_types
+from a2a.compat.v0_3 import types as a2a_types
 from google.genai import types as genai_types
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,

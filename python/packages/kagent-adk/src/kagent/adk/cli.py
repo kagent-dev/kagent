@@ -7,7 +7,7 @@ from typing import Annotated, Optional
 
 import typer
 import uvicorn
-from a2a.types import AgentCard
+from a2a.compat.v0_3.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader

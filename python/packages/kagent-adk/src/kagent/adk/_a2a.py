@@ -5,10 +5,10 @@ import os
 from typing import Any, Callable, List, Optional
 
 import httpx
-from a2a.server.apps import A2AFastAPIApplication
+from a2a.compat.v0_3.conversions import to_core_agent_card
+from a2a.compat.v0_3.types import AgentCard
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
@@ -25,6 +25,7 @@ from kagent.core.a2a import (
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._server_apps import A2AFastAPIApplication
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
@@ -147,6 +148,7 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=to_core_agent_card(self.agent_card),
             request_context_builder=request_context_builder,
         )
 

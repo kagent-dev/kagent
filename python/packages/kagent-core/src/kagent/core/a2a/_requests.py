@@ -1,10 +1,10 @@
 import logging
 
 from a2a.auth.user import User
+from a2a.compat.v0_3.types import MessageSendParams, Task
 from a2a.server.agent_execution import RequestContext, SimpleRequestContextBuilder
 from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
-from a2a.types import MessageSendParams, Task
 
 from ._context import set_request_user_id
 

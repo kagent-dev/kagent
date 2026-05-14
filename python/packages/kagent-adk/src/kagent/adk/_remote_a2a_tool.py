@@ -11,19 +11,25 @@ decision is forwarded to the remote agent's pending task.
 This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purposes.
 """
 
+# ruff: noqa: E402
+
 import logging
 import uuid
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 import httpx
+from kagent.core.a2a._compat import install_v03_type_aliases
+
+install_v03_type_aliases()
+
 from a2a.client import Client as A2AClient
 from a2a.client.card_resolver import A2ACardResolver
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.client_factory import ClientFactory as A2AClientFactory
 from a2a.client.errors import A2AClientHTTPError
 from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     AgentCard,
     DataPart,
     Role,
@@ -31,13 +37,13 @@ from a2a.types import (
     TaskState,
     TextPart,
 )
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     Message as A2AMessage,
 )
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     Part as A2APart,
 )
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     TransportProtocol as A2ATransport,
 )
 from google.adk.agents.readonly_context import ReadonlyContext
@@ -70,18 +76,23 @@ class _SubagentInterceptor(ClientCallInterceptor):
     headers stored in the call context state under ``_EXTRA_HEADERS_CONTEXT_KEY``.
     """
 
-    async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
-        headers = dict(http_kwargs.get("headers", {}))
+    async def before(self, args) -> None:
+        context = args.context
+        if context is None:
+            return
+        headers = dict(context.service_parameters or {})
         headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
 
-        if context:
-            if _USER_ID_CONTEXT_KEY in context.state:
-                headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
-            extra = context.state.get(_EXTRA_HEADERS_CONTEXT_KEY)
-            if extra:
-                headers.update(extra)
-        http_kwargs["headers"] = headers
-        return request_payload, http_kwargs
+        if _USER_ID_CONTEXT_KEY in context.state:
+            headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
+        extra = context.state.get(_EXTRA_HEADERS_CONTEXT_KEY)
+        if extra:
+            headers.update(extra)
+
+        context.service_parameters = headers
+
+    async def after(self, args) -> None:
+        return None
 
 
 def _extract_text_from_task(task: Task) -> str:

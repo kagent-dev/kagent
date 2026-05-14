@@ -3,7 +3,7 @@
 import json
 from unittest.mock import MagicMock
 
-from a2a.types import DataPart, Message, Part, Role
+from a2a.compat.v0_3.types import DataPart, Message, Part, Role
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation

@@ -1,8 +1,8 @@
 import asyncio
 
 import httpx
+from a2a.compat.v0_3.types import Message, Task
 from a2a.server.tasks import TaskStore
-from a2a.types import Message, Task
 from pydantic import BaseModel
 from typing_extensions import override
 

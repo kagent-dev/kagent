@@ -5,9 +5,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from a2a.compat.v0_3.types import DataPart, Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent, TextPart
+from a2a.compat.v0_3.types import Part as A2APart
 from a2a.server.events import Event as A2AEvent
-from a2a.types import DataPart, Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent, TextPart
-from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME

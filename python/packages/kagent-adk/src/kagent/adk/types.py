@@ -1,8 +1,17 @@
+# ruff: noqa: E402
+
 import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
 from agentsts.adk import ADKTokenPropagationPlugin
+from kagent.core.a2a._compat import install_v03_type_aliases
+
+# google-adk's RemoteA2aAgent still imports the removed v0.3 model names from
+# a2a.types. This import-order guard keeps that transitive import working with
+# a2a-sdk 1.x; keep the google.adk imports below this call.
+install_v03_type_aliases(overwrite=True)
+
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion

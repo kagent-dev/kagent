@@ -17,8 +17,7 @@ except ImportError:
 
     UTC = timezone.utc
 
-from a2a.server.events import Event as A2AEvent
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     DataPart,
     Message,
     Role,
@@ -27,7 +26,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from a2a.types import Part as A2APart
+from a2a.compat.v0_3.types import Part as A2APart
+from a2a.server.events import Event as A2AEvent
 from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
