@@ -2,7 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1412,4 +1414,84 @@ func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 	require.True(t, sawSandbox)
 	require.False(t, sawDeploy)
 	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
+}
+
+// Test_AdkApiTranslator_RemoteMCPServer_NoToolNames asserts that a RemoteMCPServer
+// reference without an explicit toolNames filter materializes to a non-null
+// `tools` JSON array, expanded from the server's discovered tool list. The
+// Python ADK runtime rejects `tools: null` with a pydantic validation error, so
+// the controller must emit an explicit list (https://github.com/kagent-dev/kagent/issues/...).
+func Test_AdkApiTranslator_RemoteMCPServer_NoToolNames(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: "test-ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+	rms := &v1alpha2.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "tools-server", Namespace: "test-ns"},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			Description: "tools server",
+			URL:         "http://tools.example.com/mcp",
+		},
+		Status: v1alpha2.RemoteMCPServerStatus{
+			DiscoveredTools: []*v1alpha2.MCPTool{
+				{Name: "alpha"},
+				{Name: "beta"},
+				nil, // defensive: nil entry must be skipped, not panic
+			},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "ag1", Namespace: "test-ns"},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Description: "agent",
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "test",
+				ModelConfig:   "m1",
+				Tools: []*v1alpha2.Tool{
+					{
+						Type: v1alpha2.ToolProviderType_McpServer,
+						McpServer: &v1alpha2.McpServerTool{
+							TypedReference: v1alpha2.TypedReference{
+								Kind:     "RemoteMCPServer",
+								ApiGroup: "kagent.dev",
+								Name:     "tools-server",
+							},
+							// NOTE: deliberately no ToolNames
+						},
+					},
+				},
+			},
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, modelConfig, rms, agent).
+		Build()
+
+	defaultModel := types.NamespacedName{Namespace: "test-ns", Name: "m1"}
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+	require.NotNil(t, outputs.Config)
+	require.Len(t, outputs.Config.HttpTools, 1)
+	assert.Equal(t, []string{"alpha", "beta"}, outputs.Config.HttpTools[0].Tools)
+
+	// JSON wire format must not contain `"tools":null` (the Python ADK runtime
+	// rejects it with a pydantic validation error).
+	raw, err := json.Marshal(outputs.Config)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"tools":null`)
+	assert.True(t, strings.Contains(string(raw), `"tools":["alpha","beta"]`),
+		"expected tools to be inlined as a JSON array, got: %s", string(raw))
 }
