@@ -1,5 +1,5 @@
+from a2a.compat.v0_3.types import Message, TaskState, TaskStatusUpdateEvent
 from a2a.server.events import Event
-from a2a.types import Message, TaskState, TaskStatusUpdateEvent
 
 
 class TaskResultAggregator:

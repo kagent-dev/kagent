@@ -12,10 +12,10 @@ import os
 from collections.abc import Callable
 
 import httpx
-from a2a.server.apps import A2AFastAPIApplication
+from a2a.compat.v0_3.conversions import to_core_agent_card
+from a2a.compat.v0_3.types import AgentCard
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
@@ -25,6 +25,7 @@ from kagent.core.a2a import (
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._server_apps import A2AFastAPIApplication
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
 from openai import AsyncOpenAI
@@ -145,6 +146,7 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
+            agent_card=to_core_agent_card(self.agent_card),
             request_context_builder=request_context_builder,
         )
 
@@ -218,6 +220,7 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=to_core_agent_card(self.agent_card),
             request_context_builder=request_context_builder,
         )
 

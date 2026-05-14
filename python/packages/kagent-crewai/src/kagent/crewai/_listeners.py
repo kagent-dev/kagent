@@ -3,9 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from a2a.server.agent_execution.context import RequestContext
-from a2a.server.events.event_queue import EventQueue
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     DataPart,
     Message,
     Part,
@@ -15,6 +13,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.events.event_queue import EventQueue
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,

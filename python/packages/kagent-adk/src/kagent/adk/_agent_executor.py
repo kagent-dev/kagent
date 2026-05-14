@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import asyncio
 import inspect
 import logging
@@ -8,9 +9,7 @@ from contextlib import suppress
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
-from a2a.server.agent_execution.context import RequestContext
-from a2a.server.events.event_queue import EventQueue
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     Artifact,
     Message,
     Part,
@@ -21,12 +20,23 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.events.event_queue import EventQueue
+from kagent.core.a2a._compat import install_v03_type_aliases, restore_a2a_type_aliases
+
+# google-adk imports v0.3 A2A types from a2a.types during module import.
+# Keep these imports below the temporary alias install, then restore the 1.x
+# namespace so a2a-sdk internals continue to see their native protobuf types.
+_a2a_type_originals = install_v03_type_aliases(overwrite=True)
+
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutor as UpstreamA2aAgentExecutor,
 )
 from google.adk.a2a.executor.a2a_agent_executor import (
     A2aAgentExecutorConfig as UpstreamA2aAgentExecutorConfig,
 )
+
+restore_a2a_type_aliases(_a2a_type_originals)
 from google.adk.events import Event, EventActions
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.runners import Runner

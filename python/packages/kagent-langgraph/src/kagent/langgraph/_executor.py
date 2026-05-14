@@ -23,10 +23,7 @@ try:
 except ImportError:
     from typing_extensions import override
 
-from a2a.server.agent_execution import AgentExecutor
-from a2a.server.agent_execution.context import RequestContext
-from a2a.server.events.event_queue import EventQueue
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     Artifact,
     DataPart,
     Message,
@@ -38,6 +35,9 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from a2a.server.agent_execution import AgentExecutor
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.events.event_queue import EventQueue
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,

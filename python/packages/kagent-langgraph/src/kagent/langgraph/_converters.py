@@ -16,7 +16,7 @@ except ImportError:
 
     UTC = timezone.utc
 
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     DataPart,
     Message,
     Part,

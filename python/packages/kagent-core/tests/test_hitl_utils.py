@@ -1,6 +1,6 @@
 """Tests for HITL utility functions in kagent.core.a2a._hitl_utils."""
 
-from a2a.types import DataPart, Message, Part, Role, Task, TaskState, TaskStatus
+from a2a.compat.v0_3.types import DataPart, Message, Part, Role, Task, TaskState, TaskStatus
 
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,

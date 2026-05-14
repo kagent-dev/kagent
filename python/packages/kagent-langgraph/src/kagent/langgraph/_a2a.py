@@ -8,9 +8,9 @@ import faulthandler
 import logging
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
+from a2a.compat.v0_3.conversions import to_core_agent_card
+from a2a.compat.v0_3.types import AgentCard
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from kagent.core import KAgentConfig, configure_tracing
@@ -19,6 +19,7 @@ from kagent.core.a2a import (
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._server_apps import A2AStarletteApplication
 
 from langgraph.graph.state import CompiledStateGraph
 
@@ -102,6 +103,7 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=to_core_agent_card(self.agent_card),
             request_context_builder=request_context_builder,
         )
 

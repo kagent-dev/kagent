@@ -1,10 +1,11 @@
 """Tests for KAgentRemoteA2ATool."""
 
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     DataPart,
     Role,
     Task,
@@ -12,8 +13,8 @@ from a2a.types import (
     TaskStatus,
     TextPart,
 )
-from a2a.types import Message as A2AMessage
-from a2a.types import Part as A2APart
+from a2a.compat.v0_3.types import Message as A2AMessage
+from a2a.compat.v0_3.types import Part as A2APart
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -148,22 +149,16 @@ def _approval_ctx(confirmed: bool, payload: dict | None = None, **kwargs) -> Moc
 class TestSubagentInterceptorHeaderPropagation:
     """Tests for header propagation in _SubagentInterceptor via context state."""
 
-    async def _call_intercept(self, interceptor, state: dict) -> dict:
+    async def _call_before(self, interceptor, state: dict) -> dict:
         from a2a.client.middleware import ClientCallContext
 
         ctx = ClientCallContext(state=state)
-        _, http_kwargs = await interceptor.intercept(
-            method_name="message/send",
-            request_payload={},
-            http_kwargs={},
-            agent_card=None,
-            context=ctx,
-        )
-        return http_kwargs.get("headers", {})
+        await interceptor.before(SimpleNamespace(context=ctx))
+        return ctx.service_parameters or {}
 
     async def test_forwards_extra_headers_from_context_state(self):
         interceptor = _SubagentInterceptor()
-        headers = await self._call_intercept(
+        headers = await self._call_before(
             interceptor,
             state={"x-user-id": "user1", "_a2a_extra_headers": {"authorization": "Bearer test-jwt"}},
         )
@@ -171,7 +166,7 @@ class TestSubagentInterceptorHeaderPropagation:
 
     async def test_no_extra_headers_without_state_key(self):
         interceptor = _SubagentInterceptor()
-        headers = await self._call_intercept(
+        headers = await self._call_before(
             interceptor,
             state={"x-user-id": "user1", "authorization": "Bearer test-jwt"},
         )

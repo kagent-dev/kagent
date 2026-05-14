@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
-from a2a.types import TaskState, TaskStatusUpdateEvent
+from a2a.compat.v0_3.types import TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
 from kagent.core.a2a import get_kagent_metadata_key
 

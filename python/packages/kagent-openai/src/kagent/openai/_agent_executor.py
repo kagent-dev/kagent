@@ -25,10 +25,7 @@ try:
 except ImportError:
     from typing_extensions import override
 
-from a2a.server.agent_execution import AgentExecutor
-from a2a.server.agent_execution.context import RequestContext
-from a2a.server.events.event_queue import EventQueue
-from a2a.types import (
+from a2a.compat.v0_3.types import (
     Artifact,
     Message,
     Part,
@@ -39,6 +36,9 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from a2a.server.agent_execution import AgentExecutor
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.events.event_queue import EventQueue
 from agents.agent import Agent
 from agents.run import Runner
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
