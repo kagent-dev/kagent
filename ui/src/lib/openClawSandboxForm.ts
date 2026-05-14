@@ -1,5 +1,6 @@
 import type { ValueSource } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { generateId } from "@/lib/utils";
 
 /** Sandbox CR backend; UI always uses openclaw for now. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
@@ -26,7 +27,7 @@ export interface OpenClawChannelRow {
 
 export function newOpenClawChannelRow(): OpenClawChannelRow {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name: "",
     channelType: "telegram",
     botTokenSource: "inline",
