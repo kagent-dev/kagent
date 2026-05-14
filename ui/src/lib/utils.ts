@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { v4 as uuidv4 } from "uuid";
 import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
@@ -34,6 +35,13 @@ export function getBackendUrl() {
 
   // Fallback for local development
   return "http://localhost:8083/api";
+}
+
+export function generateId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return uuidv4();
 }
 
 export function getRelativeTimeString(date: string | number | Date): string {

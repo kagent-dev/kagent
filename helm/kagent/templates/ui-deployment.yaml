@@ -58,6 +58,8 @@ spec:
           env:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: {{ .Values.ui.publicBackendUrl | quote }}
+            - name: NEXT_PUBLIC_ALLOW_HTTP
+              value: {{ .Values.ui.allowHttp | default false | quote }}
             - name: BACKEND_INTERNAL_URL
               value: {{ .Values.ui.backendInternalUrl | default (include "kagent.controllerInternalHttpApiBase" .) | quote }}
             {{- if .Values.ui.auth }}

@@ -249,6 +249,11 @@ controller:
 
 ui:
   replicas: 1
+  # -- Allow the UI to run over plain HTTP (non-HTTPS).
+  # When false (default), the UI uses crypto.randomUUID() which requires a Secure Context (HTTPS).
+  # Set to true for deployments served over plain HTTP (e.g. internal clusters without TLS).
+  # This switches to a uuid package fallback that uses crypto.getRandomValues() instead.
+  allowHttp: false
   image:
     registry: ""
     repository: kagent-dev/kagent/ui
