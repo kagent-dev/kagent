@@ -540,6 +540,22 @@ func documentToMap(doc document.Interface) map[string]any {
 	return result
 }
 
+const (
+	// historyToolResultMaxLen is the maximum character length of a tool result
+	// in any turn that is NOT the most recent assistant+tool-result pair.
+	// Older tool results are truncated to keep total prompt tokens manageable.
+	// ~4 chars per token → 2000 chars ≈ 500 tokens per historical tool call.
+	historyToolResultMaxLen = 2000
+)
+
+// truncateToolResult truncates s to maxLen characters, appending a note when truncated.
+func truncateToolResult(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + fmt.Sprintf("\n... [truncated, %d chars omitted from history]", len(s)-maxLen)
+}
+
 // convertGenaiContentsToBedrockMessages converts genai.Content to Bedrock Converse API message format.
 // nameMap is the original->sanitized tool name map produced by convertGenaiToolsToBedrock.
 // Any FunctionCall found in the conversation history is written with the sanitized name so
@@ -571,6 +587,24 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 		}
 	}
 
+	// Tool responses (kubectl output, YAML blobs, etc.) can be enormous.
+	// Only the most recent user turn carrying tool results needs full fidelity;
+	// older ones are truncated to prevent token count explosion across sessions.
+	lastToolResultIdx := -1
+	for i, content := range contents {
+		if content == nil {
+			continue
+		}
+		if content.Role == "user" {
+			for _, part := range content.Parts {
+				if part != nil && part.FunctionResponse != nil {
+					lastToolResultIdx = i
+					break
+				}
+			}
+		}
+	}
+
 	for i, content := range contents {
 		if content == nil || len(content.Parts) == 0 {
 			continue
@@ -584,6 +618,8 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 
 		// Only echo thinking blocks for the last assistant turn that contains them.
 		emitThinking := i == lastThinkingAssistantIdx
+		// Truncate tool results in all but the most recent user turn that contains them.
+		truncateTools := i != lastToolResultIdx
 
 		var contentBlocks []types.ContentBlock
 
@@ -659,9 +695,12 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 
 			// Handle function response (tool result in Bedrock terminology)
 			if part.FunctionResponse != nil {
-				// Extract response content
 				result := extractFunctionResponseContent(part.FunctionResponse.Response)
+				if truncateTools {
+					result = truncateToolResult(result, historyToolResultMaxLen)
+				}
 				toolResult := types.ToolResultBlock{
+
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionResponse.ID, idMap, &idCounter)),
 					Content: []types.ToolResultContentBlock{
 						&types.ToolResultContentBlockMemberText{
