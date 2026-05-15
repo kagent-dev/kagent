@@ -100,6 +100,8 @@ func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	var root map[string]any
 	require.NoError(t, json.Unmarshal(raw, &root))
 	require.Contains(t, root, "gateway")
+	gw := root["gateway"].(map[string]any)
+	require.Equal(t, "loopback", gw["bind"])
 	require.Contains(t, root, "models")
 	require.Contains(t, root, "agents")
 	models := root["models"].(map[string]any)

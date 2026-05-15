@@ -1,0 +1,38 @@
+operation: translateAgent
+targetObject: a2a-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: default-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: a2a-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent with A2A enabled
+        systemMessage: You are a helpful assistant.
+        modelConfig: default-model
+        tools: []
+        a2aConfig:
+          skills:
+            - id: summarize
+              name: Summarize
+              description: Summarizes text
