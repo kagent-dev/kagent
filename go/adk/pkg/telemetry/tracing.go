@@ -156,7 +156,7 @@ func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.T
 
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(newTruncatingExporter(exporter)),
 		sdktrace.WithResource(res),
 	), nil
 }
