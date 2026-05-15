@@ -21,6 +21,10 @@ interface MemorySectionProps {
   modelError?: string;
   ttlError?: string;
   isSubmitting?: boolean;
+  /** `id` on the embedding model select trigger. */
+  embeddingSelectId?: string;
+  /** `id` on the TTL number input. */
+  ttlInputId?: string;
 }
 
 export function MemorySection({
@@ -34,6 +38,8 @@ export function MemorySection({
   modelError,
   ttlError,
   isSubmitting,
+  embeddingSelectId = "agent-field-memory-model",
+  ttlInputId = "agent-field-memory-ttl",
 }: MemorySectionProps) {
   const getModelNamespace = (modelRef: string): string => {
     try {
@@ -68,8 +74,12 @@ export function MemorySection({
             }
           }}
         >
-          <SelectTrigger className={`${modelError ? "border-red-500" : ""}`}>
-            <SelectValue placeholder="Select an embedding model" />
+          <SelectTrigger
+            id={embeddingSelectId}
+            className={`${modelError ? "border-red-500" : ""}`}
+            aria-invalid={!!modelError}
+          >
+            <SelectValue placeholder="Select an embedding model…" />
           </SelectTrigger>
           <SelectContent>
             {allModels.map((model, idx) => {
@@ -112,13 +122,18 @@ export function MemorySection({
       <div>
         <Label className="text-sm mb-2 block">Memory TTL (days)</Label>
         <Input
+          id={ttlInputId}
+          name="memoryTtlDays"
           type="number"
           min={1}
+          inputMode="numeric"
           value={ttlDays}
           onChange={(e) => onTtlChange(e.target.value)}
           onBlur={onTtlBlur}
           placeholder="15"
           disabled={isSubmitting}
+          className="tabular-nums"
+          aria-invalid={!!ttlError}
         />
         <p className="text-xs text-muted-foreground mt-2">
           Defaults to 15 days when left empty.

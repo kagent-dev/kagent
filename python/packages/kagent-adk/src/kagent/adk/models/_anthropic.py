@@ -10,11 +10,13 @@ from typing import Optional
 from anthropic import AsyncAnthropic
 from google.adk.models.anthropic_llm import AnthropicLlm
 
+from ._ssl import KAgentTLSMixin
+
 logger = logging.getLogger(__name__)
 
 
-class KAgentAnthropicLlm(AnthropicLlm):
-    """Anthropic model with api_key_passthrough, custom base_url, and header support."""
+class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
+    """Anthropic model with api_key_passthrough, custom base_url, header, and TLS support."""
 
     api_key_passthrough: Optional[bool] = None
 
@@ -27,8 +29,17 @@ class KAgentAnthropicLlm(AnthropicLlm):
     def set_passthrough_key(self, token: str) -> None:
         """Forward the Bearer token from the incoming A2A request as the Anthropic API key."""
         self._api_key = token
-        # Invalidate cached client so it's recreated with the new key
+        # Invalidate cached clients so they're recreated with the new key
         self.__dict__.pop("_anthropic_client", None)
+        self.__dict__.pop("_http_client", None)
+
+    def _create_http_client(self):
+        """Create HTTP client with custom SSL context using Anthropic SDK defaults.
+
+        Returns:
+            httpx.AsyncClient with SSL configuration, or None if no TLS config
+        """
+        return self._httpx_async_client_if_tls()
 
     @cached_property
     def _anthropic_client(self) -> AsyncAnthropic:
@@ -40,4 +51,10 @@ class KAgentAnthropicLlm(AnthropicLlm):
             kwargs["base_url"] = self.base_url
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
+
+        # Use the httpx.AsyncClient with SSL configuration if present
+        http_client = self._create_http_client()
+        if http_client is not None:
+            kwargs["http_client"] = http_client
+
         return AsyncAnthropic(**kwargs)

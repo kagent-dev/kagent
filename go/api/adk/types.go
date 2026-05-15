@@ -103,6 +103,7 @@ const (
 	ModelTypeOllama          = "ollama"
 	ModelTypeGemini          = "gemini"
 	ModelTypeBedrock         = "bedrock"
+	ModelTypeSAPAICore       = "sap_ai_core"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -246,6 +247,10 @@ type Bedrock struct {
 	BaseModel
 	// Region is the AWS region where the model is available
 	Region string `json:"region,omitempty"`
+	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields in the Converse API. Use this for provider-specific
+	// options outside the standard InferenceConfiguration block.
+	AdditionalModelRequestFields map[string]any `json:"additional_model_request_fields,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
@@ -261,6 +266,28 @@ func (b *Bedrock) MarshalJSON() ([]byte, error) {
 
 func (b *Bedrock) GetType() string {
 	return ModelTypeBedrock
+}
+
+type SAPAICore struct {
+	BaseModel
+	BaseUrl       string `json:"base_url"`
+	ResourceGroup string `json:"resource_group,omitempty"`
+	AuthUrl       string `json:"auth_url,omitempty"`
+}
+
+func (s *SAPAICore) MarshalJSON() ([]byte, error) {
+	type Alias SAPAICore
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeSAPAICore,
+		Alias: (*Alias)(s),
+	})
+}
+
+func (s *SAPAICore) GetType() string {
+	return ModelTypeSAPAICore
 }
 
 // GenericModel is a catch-all model type used by the Go ADK when the model
@@ -325,6 +352,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &bedrock, nil
+	case ModelTypeSAPAICore:
+		var sapAICore SAPAICore
+		if err := json.Unmarshal(bytes, &sapAICore); err != nil {
+			return nil, err
+		}
+		return &sapAICore, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -390,6 +423,9 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.Model = v.Model
 	case *Bedrock:
 		e.Model = v.Model
+	case *SAPAICore:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
 	default:
 		e.Model = ""
 	}

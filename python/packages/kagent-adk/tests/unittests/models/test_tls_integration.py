@@ -13,6 +13,7 @@ from unittest import mock
 
 import pytest
 
+from kagent.adk.models._gemini import KAgentGeminiLlm
 from kagent.adk.models._openai import OpenAI
 from kagent.adk.models._ssl import create_ssl_context, get_ssl_troubleshooting_message, validate_certificate
 
@@ -218,7 +219,7 @@ def test_e2e_ssl_error_troubleshooting_message(temp_cert_file):
 
 def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
     """Test OpenAI client reads TLS config from instance fields (agent config)."""
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("httpx.AsyncClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI"):
                 mock_create_ssl.return_value = mock.MagicMock(spec=ssl.SSLContext)
@@ -243,6 +244,25 @@ def test_e2e_openai_client_reads_config_based_tls(temp_cert_file):
                 assert call_kwargs["disable_verify"] is False
                 assert call_kwargs["ca_cert_path"] == temp_cert_file
                 assert call_kwargs["disable_system_cas"] is False
+
+
+def test_e2e_gemini_sets_httpx_and_aiohttp_tls_options(temp_cert_file):
+    """Test Gemini config passes TLS context for both GenAI async transports."""
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
+        ssl_context = mock.MagicMock(spec=ssl.SSLContext)
+        mock_create_ssl.return_value = ssl_context
+
+        gemini_llm = KAgentGeminiLlm(
+            model="gemini-2.5-flash",
+            type="gemini",
+            tls_ca_cert_path=temp_cert_file,
+            tls_disable_system_cas=False,
+        )
+
+        http_options = gemini_llm._http_options()
+
+        assert http_options.client_args == {"verify": ssl_context}
+        assert http_options.async_client_args == {"verify": ssl_context, "ssl": ssl_context}
 
 
 def test_e2e_certificate_validation_expiry_warnings(caplog):
@@ -316,7 +336,7 @@ def test_e2e_structured_logging_at_startup(temp_cert_file, caplog):
 
 def test_e2e_litellm_with_tls(temp_cert_file):
     """Test complete flow: LiteLLM base URL + TLS configuration."""
-    with mock.patch("kagent.adk.models._openai.create_ssl_context") as mock_create_ssl:
+    with mock.patch("kagent.adk.models._ssl.create_ssl_context") as mock_create_ssl:
         with mock.patch("kagent.adk.models._openai.DefaultAsyncHttpxClient") as mock_httpx:
             with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
                 mock_ssl_context = mock.MagicMock(spec=ssl.SSLContext)

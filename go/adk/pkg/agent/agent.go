@@ -48,7 +48,8 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		return nil, nil, fmt.Errorf("agent config is required")
 	}
 
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools)
+	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken)
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool
@@ -57,7 +58,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers)
+		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
@@ -216,7 +217,14 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{APIKey: apiKey})
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+		if err != nil {
+			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
+		}
+		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
+			APIKey:     apiKey,
+			HTTPClient: httpClient,
+		})
 
 	case *adk.GeminiVertexAI:
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
@@ -285,9 +293,10 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic)
 		cfg := &models.BedrockConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
-			Model:           modelName,
-			Region:          region,
+			TransportConfig:              transportConfigFromBase(m.BaseModel, nil),
+			Model:                        modelName,
+			Region:                       region,
+			AdditionalModelRequestFields: m.AdditionalModelRequestFields,
 		}
 		return models.NewBedrockModelWithLogger(ctx, cfg, log)
 
@@ -311,6 +320,16 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Model:           modelName,
 		}
 		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
+
+	case *adk.SAPAICore:
+		cfg := models.SAPAICoreConfig{
+			Model:         m.Model,
+			BaseUrl:       m.BaseUrl,
+			ResourceGroup: m.ResourceGroup,
+			AuthUrl:       m.AuthUrl,
+			Headers:       extractHeaders(m.Headers),
+		}
+		return models.NewSAPAICoreModelWithLogger(cfg, log)
 
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())

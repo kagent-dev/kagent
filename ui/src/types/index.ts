@@ -67,6 +67,12 @@ export interface AnthropicVertexAIConfig {
   maxTokens?: number;
 }
 
+export interface SAPAICoreConfigPayload {
+  baseUrl: string;
+  resourceGroup?: string;
+  authUrl?: string;
+}
+
 export interface BedrockConfig {
   region: string;
 }
@@ -94,6 +100,7 @@ export interface ModelConfigSpec {
   geminiVertexAI?: GeminiVertexAIConfig;
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
+  sapAICore?: SAPAICoreConfigPayload;
 }
 
 export interface ModelConfig {
@@ -149,15 +156,23 @@ export interface ConfiguredModelProviderModelsResponse {
   models: string[];
 }
 
+export interface SecretMaterial {
+  name: string;
+  key: string;
+  value: string;
+}
+
 export interface CreateModelConfigRequest {
   ref: string;
   apiKey?: string;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 export interface UpdateModelConfigPayload {
   apiKey?: string | null;
   spec: ModelConfigSpec;
+  secrets?: SecretMaterial[];
 }
 
 /**
@@ -218,6 +233,9 @@ export interface ToolsResponse {
 export interface ResourceMetadata {
   name: string;
   namespace?: string;
+  /** ISO/RFC3339 from Kubernetes `metadata.creationTimestamp` */
+  creationTimestamp?: string;
+  resourceVersion?: string;
 }
 
 export type ToolProviderType = "McpServer" | "Agent"
@@ -240,11 +258,21 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox";
+export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
+
+/** Single Git repository source for skills. */
+export interface GitRepo {
+  url: string;
+  ref?: string;
+  path?: string;
+  name?: string;
+}
 
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
+  gitAuthSecretRef?: { name: string };
+  gitRefs?: GitRepo[];
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
@@ -294,7 +322,12 @@ export interface PromptTemplateDetail {
   data: Record<string, string>;
 }
 
+/** Which ADK implementation runs the agent (Kubernetes `spec.declarative.runtime`). */
+export type DeclarativeRuntime = "python" | "go";
+
 export interface DeclarativeAgentSpec {
+  /** ADK implementation: Python (default) or Go (faster cold start). */
+  runtime?: DeclarativeRuntime;
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource
@@ -379,12 +412,24 @@ export interface Agent {
       status: string;
       reason?: string;
       message?: string;
+      /** RFC3339 from `lastTransitionTime` on Agent conditions */
+      lastTransitionTime?: string;
     }>;
   };
 }
 
+/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openclaw/nemoclaw). */
+export interface OpenshellAgentHarnessListEntry {
+  backend: string;
+  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
+  gatewaySandboxName: string;
+  modelConfigRef?: string;
+  backendRefId?: string;
+  endpoint?: string;
+}
+
 export interface AgentResponse {
-  id: number;
+  id: number | string;
   agent: Agent;
   model: string;
   modelProvider: string;
@@ -393,6 +438,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
+  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {

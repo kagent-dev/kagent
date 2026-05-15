@@ -6,10 +6,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// When NEXT_PUBLIC_BACKEND_URL is relative (e.g. "/api"), the browser uses same-origin nginx; on the
+// server we call nginx on loopback (helm/kagent/files/nginx.conf listen 8080). Helm still sets
+// BACKEND_INTERNAL_URL to the controller Service for parity / overrides.
+const uiPodNginxHttpOrigin = "http://127.0.0.1:8080";
+
 export function getBackendUrl() {
-  // The NEXT_PUBLIC_BACKEND_URL is set in the Helm chart to the Kubernetes service name
-  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (process.env.BACKEND_INTERNAL_URL) {
+    return process.env.BACKEND_INTERNAL_URL;
+  }
+  const publicUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (publicUrl) {
+    if (publicUrl.startsWith("/")) {
+      // Browser: same-origin path via ingress/UI hostname. Server (actions, route handlers): localhost nginx → controller.
+      if (typeof window === "undefined") {
+        return `${uiPodNginxHttpOrigin}${publicUrl}`;
+      }
+      return publicUrl;
+    }
+    return publicUrl;
   }
 
   if (process.env.NODE_ENV === "production") {

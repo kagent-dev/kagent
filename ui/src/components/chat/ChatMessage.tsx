@@ -3,7 +3,7 @@ import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
-import { ThumbsUp, ThumbsDown, Copy, Check } from "lucide-react";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 import type { TokenStats } from "@/types";
 import { useState } from "react";
@@ -29,7 +29,6 @@ interface ChatMessageProps {
 export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
-  const [copied, setCopied] = useState(false);
 
   if (!message) return null;
 
@@ -151,16 +150,6 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   }
 
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(String(content));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard unavailable */
-    }
-  };
-
   const handleFeedback = (isPositive: boolean) => {
     if (!messageId) {
       console.error("Message ID is undefined, cannot submit feedback.");
@@ -183,13 +172,6 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
       {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
-          <button
-            onClick={handleCopy}
-            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            aria-label="Copy to clipboard"
-          >
-            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-          </button>
           {messageId !== undefined && (
             <>
               <button

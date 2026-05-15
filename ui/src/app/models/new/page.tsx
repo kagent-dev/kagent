@@ -19,6 +19,8 @@ import type {
     GeminiConfig,
     GeminiVertexAIConfig,
     AnthropicVertexAIConfig,
+    BedrockConfig,
+    SAPAICoreConfigPayload,
     ProviderModelsResponse,
 } from "@/types";
 import { toast } from "sonner";
@@ -31,6 +33,8 @@ import { BasicInfoSection } from '@/components/models/new/BasicInfoSection';
 import { AuthSection } from '@/components/models/new/AuthSection';
 import { ParamsSection } from '@/components/models/new/ParamsSection';
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { AppPageFrame } from "@/components/layout/AppPageFrame";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 interface ValidationErrors {
   name?: string;
@@ -244,7 +248,7 @@ function ModelPageContent() {
           const spec = modelData.spec;
           const fetchedParams: Record<string, unknown> =
             (spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? {}) as Record<string, unknown>;
+             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? {}) as Record<string, unknown>;
 
           if (provider?.type === 'Ollama') {
             setModelTag(extractedTag || 'latest');
@@ -602,6 +606,12 @@ function ModelPageContent() {
       case 'AnthropicVertexAI':
         spec.anthropicVertexAI = providerParams as AnthropicVertexAIConfig;
         break;
+      case 'Bedrock':
+        spec.bedrock = providerParams as BedrockConfig;
+        break;
+      case 'SAPAICore':
+        spec.sapAICore = providerParams as SAPAICoreConfigPayload;
+        break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
         toast.error("Internal error: Unsupported provider type.");
@@ -655,18 +665,31 @@ function ModelPageContent() {
   const showLoadingOverlay = isLoading && isEditMode;
 
   return (
-    <div className="min-h-screen p-8 relative">
-      {showLoadingOverlay && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      )}
+    <AppPageFrame ariaLabelledBy="models-form-title" mainClassName="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+      <div className="relative">
+        {showLoadingOverlay && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm" aria-live="polite" aria-busy>
+            <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+            <span className="sr-only">Loading model…</span>
+          </div>
+        )}
 
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-bold mb-8">{isEditMode ? "Edit Model" : "Create New Model"}</h1>
+        <div>
+          <PageHeader
+            titleId="models-form-title"
+            title={isEditMode ? "Edit Model" : "New Model"}
+            className="mb-8"
+          />
 
-        <div className="space-y-6">
-          <BasicInfoSection
+          <form
+            className="space-y-6"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+          >
+            <BasicInfoSection
             name={name}
             isEditingName={isEditingName}
             namespace={namespace}
@@ -742,29 +765,32 @@ function ModelPageContent() {
               title="Custom parameters"
             />
           )}
-        </div>
 
-        <div className="flex justify-end pt-6">
-          <Button
-            variant="default"
-            onClick={handleSubmit}
-            disabled={isSubmitting || isLoading}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {isEditMode ? "Updating..." : "Creating..."}
-              </>
-            ) : isEditMode ? (
-              "Update Model"
-            ) : (
-              "Create Model"
-            )}
-          </Button>
+            <div className="flex justify-end border-t border-border/50 pt-6">
+              <Button
+                type="submit"
+                variant="default"
+                size="lg"
+                className="min-w-[10rem]"
+                disabled={isSubmitting || isLoading}
+                aria-busy={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                    {isEditMode ? "Saving…" : "Creating…"}
+                  </>
+                ) : isEditMode ? (
+                  "Save Changes"
+                ) : (
+                  "Create Model"
+                )}
+              </Button>
+            </div>
+          </form>
         </div>
-
       </div>
-    </div>
+    </AppPageFrame>
   );
 }
 

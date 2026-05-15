@@ -17,7 +17,9 @@ limitations under the License.
 package v1alpha2
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -25,7 +27,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore
 type ModelProvider string
 
 const (
@@ -37,6 +39,7 @@ const (
 	ModelProviderGeminiVertexAI    ModelProvider = "GeminiVertexAI"
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 	ModelProviderBedrock           ModelProvider = "Bedrock"
+	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 )
 
 type BaseVertexAIConfig struct {
@@ -46,7 +49,7 @@ type BaseVertexAIConfig struct {
 
 	// The project location
 	// +required
-	Location string `json:"location,omitempty"`
+	Location string `json:"location"`
 
 	// Temperature
 	// +optional
@@ -128,7 +131,7 @@ type GDCHServiceAccountConfig struct {
 
 // TokenExchangeConfig configures dynamic bearer token acquisition before model calls.
 type TokenExchangeConfig struct {
-	// +kubebuilder:validation:Enum=GDCHServiceAccount
+	// +required
 	Type TokenExchangeType `json:"type"`
 	// +optional
 	GDCHServiceAccount *GDCHServiceAccountConfig `json:"gdchServiceAccount,omitempty"`
@@ -169,9 +172,11 @@ type OpenAIConfig struct {
 	Seed *int `json:"seed,omitempty"`
 
 	// N value
+	// +optional
 	N *int `json:"n,omitempty"`
 
 	// Timeout
+	// +optional
 	Timeout *int `json:"timeout,omitempty"`
 
 	// Reasoning effort
@@ -192,11 +197,11 @@ type OpenAIReasoningEffort string
 type AzureOpenAIConfig struct {
 	// Endpoint for the Azure OpenAI API
 	// +required
-	Endpoint string `json:"azureEndpoint,omitempty"`
+	Endpoint string `json:"azureEndpoint"`
 
 	// API version for the Azure OpenAI API
 	// +required
-	APIVersion string `json:"apiVersion,omitempty"`
+	APIVersion string `json:"apiVersion"`
 
 	// Deployment name for the Azure OpenAI API
 	// +optional
@@ -242,6 +247,31 @@ type BedrockConfig struct {
 	// AWS region where the Bedrock model is available (e.g., us-east-1, us-west-2)
 	// +required
 	Region string `json:"region"`
+
+	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields in the Converse API. Use this for provider-specific
+	// options that are not part of the standard InferenceConfiguration block, such as
+	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
+	// Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
+}
+
+// SAPAICoreConfig contains SAP AI Core-specific configuration options.
+type SAPAICoreConfig struct {
+	// Base URL for the SAP AI Core API (e.g., https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com)
+	// +required
+	BaseURL string `json:"baseUrl"`
+
+	// Resource group in SAP AI Core
+	// +kubebuilder:default="default"
+	// +optional
+	ResourceGroup string `json:"resourceGroup,omitempty"`
+
+	// OAuth2 token endpoint URL (e.g., https://tenant.authentication.eu10.hana.ondemand.com)
+	// +optional
+	AuthURL string `json:"authUrl,omitempty"`
 }
 
 // TLSConfig contains TLS/SSL configuration options for model provider connections.
@@ -290,8 +320,9 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="provider.geminiVertexAI must be nil if the provider is not GeminiVertexAI",rule="!(has(self.geminiVertexAI) && self.provider != 'GeminiVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
+// +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
-// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock provider)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock')"
+// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 // +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey) > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef) == 0))"
@@ -301,15 +332,19 @@ type TLSConfig struct {
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeyPassthrough are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough) && self.apiKeyPassthrough)"
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type == 'GDCHServiceAccount' && !has(self.openAI.tokenExchange.gdchServiceAccount))"
 type ModelConfigSpec struct {
+	// +required
 	Model string `json:"model"`
 
-	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig
+	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
+	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
+	// (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
 	// +optional
-	APIKeySecret string `json:"apiKeySecret"`
+	APIKeySecret string `json:"apiKeySecret,omitempty"`
 
-	// The key in the secret that contains the API key
+	// The key in the secret that contains the API key.
+	// Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
 	// +optional
-	APIKeySecretKey string `json:"apiKeySecretKey"`
+	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
 	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
 	// directly to the LLM provider as the API key. This is useful for organizations
@@ -323,7 +358,8 @@ type ModelConfigSpec struct {
 
 	// The provider of the model
 	// +kubebuilder:default=OpenAI
-	Provider ModelProvider `json:"provider"`
+	// +optional
+	Provider ModelProvider `json:"provider,omitempty"`
 
 	// OpenAI-specific configuration
 	// +optional
@@ -357,6 +393,10 @@ type ModelConfigSpec struct {
 	// +optional
 	Bedrock *BedrockConfig `json:"bedrock,omitempty"`
 
+	// SAP AI Core-specific configuration
+	// +optional
+	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
+
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers
 	// that use self-signed certificates or custom certificate authorities.
@@ -366,9 +406,12 @@ type ModelConfigSpec struct {
 
 // ModelConfigStatus defines the observed state of ModelConfig.
 type ModelConfigStatus struct {
-	Conditions         []metav1.Condition `json:"conditions"`
-	ObservedGeneration int64              `json:"observedGeneration"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// The secret hash stores a hash of any secrets required by the model config (i.e. api key, tls cert) to ensure agents referencing this model config detect changes to these secrets and restart if necessary.
+	// +optional
 	SecretHash string `json:"secretHash,omitempty"`
 }
 
@@ -381,10 +424,13 @@ type ModelConfigStatus struct {
 
 // ModelConfig is the Schema for the modelconfigs API.
 type ModelConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ModelConfigSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec ModelConfigSpec `json:"spec,omitempty"`
+	// +optional
 	Status ModelConfigStatus `json:"status,omitempty"`
 }
 
@@ -398,5 +444,8 @@ type ModelConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ModelConfig{}, &ModelConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &ModelConfig{}, &ModelConfigList{})
+		return nil
+	})
 }

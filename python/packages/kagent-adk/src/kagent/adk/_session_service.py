@@ -49,7 +49,6 @@ class KAgentSessionService(BaseSessionService):
         response = await self.client.post(
             "/api/sessions",
             json=request_data,
-            headers={"X-User-ID": user_id},
         )
         response.raise_for_status()
 
@@ -88,10 +87,7 @@ class KAgentSessionService(BaseSessionService):
                 url += "&limit=-1"
 
             # Make API call to get session
-            response: httpx.Response = await self.client.get(
-                url,
-                headers={"X-User-ID": user_id},
-            )
+            response: httpx.Response = await self.client.get(url)
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -131,7 +127,7 @@ class KAgentSessionService(BaseSessionService):
     @override
     async def list_sessions(self, *, app_name: str, user_id: str) -> ListSessionsResponse:
         # Make API call to list sessions
-        response = await self.client.get(f"/api/sessions?user_id={user_id}", headers={"X-User-ID": user_id})
+        response = await self.client.get(f"/api/sessions?user_id={user_id}")
         response.raise_for_status()
 
         data = response.json()
@@ -151,10 +147,7 @@ class KAgentSessionService(BaseSessionService):
     @override
     async def delete_session(self, *, app_name: str, user_id: str, session_id: str) -> None:
         # Make API call to delete session
-        response = await self.client.delete(
-            f"/api/sessions/{session_id}?user_id={user_id}",
-            headers={"X-User-ID": user_id},
-        )
+        response = await self.client.delete(f"/api/sessions/{session_id}?user_id={user_id}")
         response.raise_for_status()
 
     @override
@@ -172,7 +165,6 @@ class KAgentSessionService(BaseSessionService):
         response = await self.client.post(
             f"/api/sessions/{session.id}/events?user_id={session.user_id}",
             json=event_data,
-            headers={"X-User-ID": session.user_id},
         )
         response.raise_for_status()
 

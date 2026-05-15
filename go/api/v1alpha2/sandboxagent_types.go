@@ -18,6 +18,7 @@ package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // +kubebuilder:object:root=true
@@ -26,10 +27,13 @@ import (
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether configuration was accepted."
 // SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox Sandbox CR).
 type SandboxAgent struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AgentSpec   `json:"spec,omitempty"`
+	// +optional
+	Spec AgentSpec `json:"spec,omitempty"`
+	// +optional
 	Status AgentStatus `json:"status,omitempty"`
 }
 
@@ -43,5 +47,8 @@ type SandboxAgentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SandboxAgent{}, &SandboxAgentList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &SandboxAgent{}, &SandboxAgentList{})
+		return nil
+	})
 }

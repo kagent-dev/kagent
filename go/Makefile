@@ -43,17 +43,28 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
+KAL_SO = $(LOCALBIN)/kube-api-linter.so
+
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint.
+lint: golangci-lint $(KAL_SO) ## Run golangci-lint.
 	$(GOLANGCI_LINT) run
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint with auto-fix.
+lint-fix: golangci-lint $(KAL_SO) ## Run golangci-lint with auto-fix.
 	$(GOLANGCI_LINT) run --fix
 
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration.
 	$(GOLANGCI_LINT) config verify
+
+$(KAL_SO):
+	@mkdir -p $(LOCALBIN)
+	@echo "Building kube-api-linter plugin..."
+	@rm -rf $(LOCALBIN)/golangci-lint-src
+	@git clone --depth 1 --branch $(GOLANGCI_LINT_VERSION) --quiet https://github.com/golangci/golangci-lint.git $(LOCALBIN)/golangci-lint-src
+	@cd $(LOCALBIN)/golangci-lint-src && go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
+	@cd $(LOCALBIN)/golangci-lint-src && go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
+	@rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck.
@@ -99,6 +110,8 @@ core/bin/kagent-windows-amd64.exe.sha256: core/bin/kagent-windows-amd64.exe
 .PHONY: clean
 clean:
 	rm -f core/bin/kagent* && mkdir -p core/bin
+	rm -f $(LOCALBIN)/kube-api-linter.so
+	rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: build
 build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 core/bin/kagent-darwin-amd64.sha256 core/bin/kagent-darwin-arm64.sha256 core/bin/kagent-windows-amd64.exe.sha256
@@ -111,9 +124,19 @@ run: fmt vet ## Run a controller from your host.
 test: ## Run all unit tests.
 	UPDATE_GOLDEN=$(UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
+# Pin e2e tests to the kind cluster so a stray current-context (or an
+# ambient KUBECONFIG) can't leak resources onto a remote cluster. Override
+# KIND_CLUSTER_NAME to target a differently-named kind cluster.
+KIND_CLUSTER_NAME ?= kagent
+
 .PHONY: e2e
 e2e: ## Run end-to-end tests.
-	go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	@kind get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER_NAME)' || { \
+	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
+	  exit 1; \
+	}
+	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
+	KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
 ##@ Dependencies
 
@@ -135,8 +158,11 @@ CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.11.3
+GOLANGCI_LINT_VERSION ?= v2.12.2
+KAL_VERSION ?= v0.0.0-20260423112246-3fa174937a6b
 SQLC_VERSION ?= v1.30.0
+BUF ?= $(LOCALBIN)/buf
+BUF_VERSION ?= v1.52.1
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
@@ -166,6 +192,11 @@ sqlc: $(SQLC) ## Download sqlc locally if necessary.
 $(SQLC): $(LOCALBIN)
 	$(call go-install-tool,$(SQLC),github.com/sqlc-dev/sqlc/cmd/sqlc,$(SQLC_VERSION))
 
+.PHONY: buf
+buf: $(BUF) ## Download buf locally if necessary (OpenShell proto generation).
+$(BUF): $(LOCALBIN)
+	$(call go-install-tool,$(BUF),github.com/bufbuild/buf/cmd/buf,$(BUF_VERSION))
+
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
 # $2 - package url which can be installed
@@ -181,3 +212,7 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+.PHONY: openshell-proto
+openshell-proto: buf ## Regenerate OpenShell stubs from api/openshell/proto (buf; needs protoc-gen-go + protoc-gen-go-grpc on PATH).
+	@cd api/openshell/proto && $(BUF) generate

@@ -13,6 +13,9 @@ export function formUsesDeclarativeSections(
   agentType: AgentType,
   byoImage: string | undefined | null,
 ): boolean {
+  if (agentType === "OpenClawSandbox") {
+    return false;
+  }
   return agentType === "Declarative" || (agentType === "Sandbox" && !isSandboxByoImageChosen(agentType, byoImage));
 }
 
@@ -21,6 +24,9 @@ export function formUsesByoSections(
   agentType: AgentType,
   byoImage: string | undefined | null,
 ): boolean {
+  if (agentType === "OpenClawSandbox") {
+    return false;
+  }
   return agentType === "BYO" || isSandboxByoImageChosen(agentType, byoImage);
 }
 

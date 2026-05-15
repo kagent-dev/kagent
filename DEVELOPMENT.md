@@ -17,7 +17,7 @@ Before you can run kagent in Kubernetes, you need to have the following tools in
 - **Kind** (v0.27.0+)
 - **kubectl** (v1.33.4+)
 - **Helm**
-- **Go** (v1.24.6+)
+- **Go** (v1.26.1+)
 - **Docker**
 - **Docker Buildx** (v0.23.0+)
 - **Make**

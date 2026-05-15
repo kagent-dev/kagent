@@ -9,6 +9,7 @@ spec:
   description: Cilium debug agent can help with debugging, troubleshooting, and advanced diagnostics of Cilium installations in Kubernetes clusters.
   type: Declarative
   declarative:
+    runtime: {{ .Values.runtime | default "python" }}
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
     systemMessage: |
       You are the Cilium Debug Agent, a specialized assistant for debugging, troubleshooting,

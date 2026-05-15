@@ -34,7 +34,7 @@ func ObjectsEqual(obj1, obj2 runtime.Object) bool {
 		return false
 	}
 
-	if value1.Kind() == reflect.Ptr {
+	if value1.Kind() == reflect.Pointer {
 		value1 = value1.Elem()
 		value2 = value2.Elem()
 	}
@@ -111,7 +111,7 @@ func mapStringEqual(map1, map2 map[string]string) bool {
 // if i is a struct passed in by value, make a new instance of the type and copy the contents to that and return
 // the pointer to that.
 func mkPointer(val reflect.Value) any {
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		return val.Interface()
 	}
 	if val.CanAddr() {

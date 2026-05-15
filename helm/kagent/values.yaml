@@ -125,11 +125,12 @@ database:
 # ==============================================================================
 
 rbac:
-  # -- If true, creates ClusterRole and ClusterRoleBinding resources.
-  # If false, creates Role and RoleBinding resources instead.
-  clusterScoped: true
-  # -- When clusterScoped is false, specify additional namespaces to create Roles and RoleBindings in.
-  # If empty, defaults to the release namespace.
+  # -- Namespaces in which to create Role and RoleBinding resources.
+  # If empty (default), the chart creates cluster-scoped ClusterRole and ClusterRoleBinding
+  # resources and the controller watches all namespaces.
+  # If set, the chart creates a Role + RoleBinding per listed namespace and the controller's
+  # WATCH_NAMESPACES is derived from this list (unless controller.watchNamespaces is set
+  # explicitly, which always takes precedence).
   namespaces: []
 
 # ==============================================================================
@@ -221,6 +222,11 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
+  # Extra controller env. Examples — OpenShell:
+  # env:
+  #   - name: OPENSHELL_GRPC_ADDR
+  #     value: "openshell.my-namespace.svc.cluster.local:8080"
   env: []
   envFrom: []
 
@@ -260,6 +266,7 @@ ui:
     ports:
       port: 8080
       targetPort: 8080
+    annotations: {}
   # Authentication redirect configuration
   # Change this if using a different auth proxy (e.g., Pomerium, Authelia)
   auth:
@@ -267,6 +274,18 @@ ui:
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  # -- Additional request headers (beyond Authorization) the UI proxy will forward
+  # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
+  # Transfer-Encoding, etc.) are silently dropped.
+  additionalForwardedHeaders: []
+  # Example:
+  #   additionalForwardedHeaders:
+  #     - X-Forwarded-User
+  #     - X-Forwarded-Email
+  # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
+  publicBackendUrl: "/api"
+  # Next.js server default when set (BACKEND_INTERNAL_URL). Override if the controller API base differs.
+  backendInternalUrl: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -381,11 +400,10 @@ kagent-tools:
   replicaCount: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m
+      memory: 128Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      memory: 256Mi
   tools:
     loglevel: "debug"
     metrics:
@@ -409,109 +427,94 @@ proxy:
 # ==============================================================================
 # AGENTS
 # ==============================================================================
-agents:
-  k8s-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  kgateway-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  istio-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  promql-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  observability-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  argo-rollouts-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  helm-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-policy-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-manager-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-  cilium-debug-agent:
-    enabled: true
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
+
+k8s-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+kgateway-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+istio-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+promql-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+observability-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+argo-rollouts-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+helm-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-policy-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-manager-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+cilium-debug-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS
 # ==============================================================================
 
-tools:
-  grafana-mcp:
-    enabled: true
-  querydoc:
-    enabled: true
-
 grafana-mcp:
+  enabled: true
   grafana:
     url: "grafana.kagent:3000/api"
     serviceAccountToken: ""
@@ -526,6 +529,7 @@ grafana-mcp:
       memory: 512Mi
 
 querydoc:
+  enabled: true
   replicas: 1
   image:
     registry: ghcr.io

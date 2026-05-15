@@ -57,6 +57,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -74,7 +75,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
-	"github.com/kagent-dev/kagent/go/core/internal/goruntime"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
@@ -139,6 +139,15 @@ type Config struct {
 		UrlFile       string
 		VectorEnabled bool
 	}
+	Openshell struct {
+		GatewayURL  string
+		Token       string
+		TokenFile   string
+		CAFile      string
+		Insecure    bool
+		DialTimeout time.Duration
+		CallTimeout time.Duration
+	}
 }
 
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
@@ -189,6 +198,14 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+
+	commandLine.StringVar(&cfg.Openshell.GatewayURL, "openshell-gateway-url", "", "gRPC target for the OpenShell sandbox gateway (e.g. dns:///openshell.openshell.svc:443). When empty, the Sandbox controller is disabled.")
+	commandLine.StringVar(&cfg.Openshell.Token, "openshell-token", "", "Static bearer token for the OpenShell gateway. Prefer --openshell-token-file for secrets.")
+	commandLine.StringVar(&cfg.Openshell.TokenFile, "openshell-token-file", "", "Path to a file containing the OpenShell gateway bearer token. Takes precedence over --openshell-token.")
+	commandLine.StringVar(&cfg.Openshell.CAFile, "openshell-tls-ca-file", "", "Path to a PEM file containing CA bundle for verifying the OpenShell gateway TLS certificate. Optional.")
+	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
+	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
+	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
@@ -294,8 +311,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
-	// TODO setup signal handlers
-	ctx := context.Background()
+	// Reused below for mgr.Start; SetupSignalHandler must be called once per process.
+	ctx := ctrl.SetupSignalHandler()
 
 	cfg.SetFlags(flag.CommandLine)
 
@@ -326,8 +343,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}()
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
-
-	goruntime.SetMaxProcs(logger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -548,6 +563,25 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	if cfg.Openshell.GatewayURL != "" {
+		kubeClient := mgr.GetClient()
+		openshellBackends, err := buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
+		if err != nil {
+			setupLog.Error(err, "unable to build openshell sandbox backends")
+			os.Exit(1)
+		}
+		if err := (&controller.AgentHarnessController{
+			Client:   kubeClient,
+			Recorder: mgr.GetEventRecorder("agentharness-controller"),
+			Backends: openshellBackends,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("AgentHarness controller disabled: --openshell-gateway-url not set")
+	}
+
 	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
@@ -667,10 +701,48 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// buildOpenshellSandboxBackends constructs AsyncBackend values for openclaw and
+// nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
+// share that connection (see openshell.OpenShellClients). The connection is not explicitly
+// closed today — same lifetime as the process.
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+	oc := openshell.Config{
+		GatewayURL:  cfg.Openshell.GatewayURL,
+		Token:       cfg.Openshell.Token,
+		Insecure:    cfg.Openshell.Insecure,
+		DialTimeout: cfg.Openshell.DialTimeout,
+		CallTimeout: cfg.Openshell.CallTimeout,
+	}
+	if cfg.Openshell.TokenFile != "" {
+		data, err := os.ReadFile(cfg.Openshell.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("read openshell token file: %w", err)
+		}
+		oc.Token = strings.TrimSpace(string(data))
+	}
+	if cfg.Openshell.CAFile != "" {
+		data, err := os.ReadFile(cfg.Openshell.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read openshell CA file: %w", err)
+		}
+		oc.TLSCAPEM = data
+	}
+	clients, err := openshell.Dial(ctx, oc)
+	if err != nil {
+		return nil, err
+	}
+
+	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
+	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
+		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
+		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
+	}, nil
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

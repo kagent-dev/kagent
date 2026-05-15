@@ -140,9 +140,10 @@ tests:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
 
-  - it: should render Roles when clusterScoped is false
+  - it: should render Roles when rbac.namespaces is set
     set:
-      rbac.clusterScoped: false
+      rbac.namespaces:
+        - NAMESPACE
     asserts:
       - isKind:
           of: Role
@@ -151,9 +152,10 @@ tests:
           of: Role
         template: rbac/writer-role.yaml
 
-  - it: should render RoleBindings when clusterScoped is false
+  - it: should render RoleBindings when rbac.namespaces is set
     set:
-      rbac.clusterScoped: false
+      rbac.namespaces:
+        - NAMESPACE
     asserts:
       - isKind:
           of: RoleBinding
@@ -162,11 +164,30 @@ tests:
           of: RoleBinding
         template: rbac/writer-rolebinding.yaml
 
-  - it: should render multiple roles and bindings when namespaces are specified and clusterScoped is false
+  - it: should render a single role/binding in the listed namespace only (no release-ns fallback)
     set:
-      rbac.clusterScoped: false
       rbac.namespaces:
-        - ns1
+        - NAMESPACE
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: rbac/getter-role.yaml
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        template: rbac/getter-role.yaml
+      - hasDocuments:
+          count: 1
+        template: rbac/writer-rolebinding.yaml
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        template: rbac/writer-rolebinding.yaml
+
+  - it: should render multiple roles and bindings when namespaces are specified
+    set:
+      rbac.namespaces:
+        - NAMESPACE
         - ns2
     asserts:
       - hasDocuments:
@@ -174,7 +195,7 @@ tests:
         template: rbac/getter-role.yaml
       - equal:
           path: metadata.namespace
-          value: ns1
+          value: NAMESPACE
         template: rbac/getter-role.yaml
         documentIndex: 0
       - equal:
@@ -187,11 +208,47 @@ tests:
         template: rbac/getter-rolebinding.yaml
       - equal:
           path: metadata.namespace
-          value: ns1
+          value: NAMESPACE
         template: rbac/getter-rolebinding.yaml
         documentIndex: 0
       - equal:
           path: metadata.namespace
           value: ns2
         template: rbac/getter-rolebinding.yaml
+        documentIndex: 1
+
+  - it: should fail rendering if the removed rbac.clusterScoped field is set
+    set:
+      rbac.clusterScoped: false
+    template: rbac/writer-rolebinding.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "rbac.clusterScoped has been removed. Leave rbac.namespaces empty for cluster-scoped RBAC, or set rbac.namespaces=[<ns>, ...] for namespaced RBAC."
+
+  - it: should fail rendering if rbac.namespaces is set but does not include the install namespace
+    set:
+      rbac.namespaces:
+        - some-other-ns
+    template: rbac/writer-rolebinding.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: "rbac.namespaces is set but does not include the install namespace \"NAMESPACE\""
+
+  - it: should accept a custom install namespace when listed in rbac.namespaces
+    set:
+      namespaceOverride: my-ns
+      rbac.namespaces:
+        - my-ns
+        - other-ns
+    template: rbac/getter-role.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.namespace
+          value: my-ns
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: other-ns
         documentIndex: 1

@@ -36,7 +36,7 @@ app = KAgentApp(
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"]
     },
-    kagent_url="http://localhost:8080",
+    kagent_url="http://localhost:8083",
     app_name="my-agent"
 )
 

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 export type IncludePick = { configMapName: string; key: string };
 
 export interface PromptInstructionsTextareaProps {
+  id?: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onBlur?: () => void;
@@ -40,6 +41,7 @@ export interface PromptInstructionsTextareaProps {
 }
 
 export function PromptInstructionsTextarea({
+  id: textAreaId = "agent-field-system",
   value,
   onChange,
   onBlur,
@@ -316,6 +318,7 @@ export function PromptInstructionsTextarea({
       >
         <div className="relative">
           <Textarea
+            id={textAreaId}
             ref={taRef}
             value={value}
             onChange={handleChange}
@@ -337,6 +340,7 @@ export function PromptInstructionsTextarea({
             spellCheck={false}
             autoComplete="off"
             name="systemMessage"
+            aria-invalid={!!error}
           />
           <PopoverAnchor asChild>
             <span

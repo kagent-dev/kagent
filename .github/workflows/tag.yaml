@@ -50,7 +50,7 @@ jobs:
     - name: 'Build Images'
       env:
         DOCKER_BUILD_ARGS: "--push --platform linux/amd64,linux/arm64"
-        DOCKER_BUILDER: "docker buildx"
+        DOCKER_BUILDER: "docker buildx build"
         DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |
         # if workflow_dispatch is used, use the version input
@@ -159,7 +159,7 @@ jobs:
         make build-cli
         make helm-version
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       if: startsWith(github.ref, 'refs/tags/')
       with:
         generate_release_notes: true

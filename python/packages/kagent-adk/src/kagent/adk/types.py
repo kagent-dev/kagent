@@ -18,6 +18,7 @@ from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
+from kagent.adk.models._gemini import KAgentGeminiLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
@@ -235,10 +236,21 @@ class Gemini(BaseLLM):
 
 class Bedrock(BaseLLM):
     region: str | None = None
+    # additional_model_request_fields passes model-specific parameters to Bedrock's
+    # additionalModelRequestFields in the Converse API. Use this for provider-specific
+    # options outside the standard InferenceConfiguration block.
+    additional_model_request_fields: dict | None = None
     type: Literal["bedrock"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock]
+class SAPAICore(BaseLLM):
+    base_url: str | None = None
+    resource_group: str = "default"
+    auth_url: str | None = None
+    type: Literal["sap_ai_core"]
+
+
+ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -293,7 +305,9 @@ class AgentConfig(BaseModel):
     context_config: ContextConfig | None = None
     ask_user: AskUserConfig | None = None
 
-    def to_agent(self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None) -> Agent:
+    def to_agent(
+        self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False
+    ) -> Agent:
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
@@ -395,12 +409,16 @@ class AgentConfig(BaseModel):
                         timeout=timeout,
                     )
 
+                a2a_header_provider = None
+                if propagate_token:
+                    a2a_header_provider = create_header_provider(allowed_headers=["authorization"])
                 tools.append(
                     KAgentRemoteA2AToolset(
                         name=remote_agent.name,
                         description=remote_agent.description,
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                         httpx_client=client,
+                        header_provider=a2a_header_provider,
                     )
                 )
 
@@ -488,6 +506,26 @@ class AgentConfig(BaseModel):
             logger.error("Failed to inject memory configuration: %s", e)
 
 
+def _transport_kwargs(model_config: BaseLLM) -> dict[str, Any]:
+    """Extract TLS/transport kwargs shared by most model types.
+
+    Returns a dict with api_key_passthrough and TLS fields so callers
+    can spread them with ``**_transport_kwargs(model_config)`` instead of
+    repeating the same four lines in every branch of
+    ``_create_llm_from_model_config``.
+    """
+    kwargs: dict[str, Any] = {}
+    if model_config.api_key_passthrough is not None:
+        kwargs["api_key_passthrough"] = model_config.api_key_passthrough
+    if model_config.tls_disable_verify is not None:
+        kwargs["tls_disable_verify"] = model_config.tls_disable_verify
+    if model_config.tls_ca_cert_path is not None:
+        kwargs["tls_ca_cert_path"] = model_config.tls_ca_cert_path
+    if model_config.tls_disable_system_cas is not None:
+        kwargs["tls_disable_system_cas"] = model_config.tls_disable_system_cas
+    return kwargs
+
+
 def _create_llm_from_model_config(model_config: ModelUnion):
     extra_headers = model_config.headers or {}
     base_url = getattr(model_config, "base_url", None)
@@ -528,18 +566,15 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             temperature=model_config.temperature,
             timeout=model_config.timeout,
             top_p=model_config.top_p,
-            tls_disable_verify=model_config.tls_disable_verify,
-            tls_ca_cert_path=model_config.tls_ca_cert_path,
-            tls_disable_system_cas=model_config.tls_disable_system_cas,
-            api_key_passthrough=model_config.api_key_passthrough,
             token_exchange=token_exchange,
+            **_transport_kwargs(model_config),
         )
     if model_config.type == "anthropic":
         return KAgentAnthropicLlm(
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
-            api_key_passthrough=model_config.api_key_passthrough,
+            **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":
         return GeminiLLM(model=model_config.model)
@@ -552,24 +587,37 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             options=ollama_options,
             extra_headers=extra_headers,
+            **_transport_kwargs(model_config),
         )
     if model_config.type == "azure_openai":
         return OpenAIAzure(
             model=model_config.model,
             type="azure_openai",
             default_headers=extra_headers,
-            tls_disable_verify=model_config.tls_disable_verify,
-            tls_ca_cert_path=model_config.tls_ca_cert_path,
-            tls_disable_system_cas=model_config.tls_disable_system_cas,
-            api_key_passthrough=model_config.api_key_passthrough,
+            **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini":
-        return model_config.model
+        return KAgentGeminiLlm(
+            model=model_config.model,
+            extra_headers=extra_headers,
+            **_transport_kwargs(model_config),
+        )
     if model_config.type == "bedrock":
-        # api key passthrough is not applicable for bedrock
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            additional_model_request_fields=model_config.additional_model_request_fields,
+            **_transport_kwargs(model_config),
+        )
+    if model_config.type == "sap_ai_core":
+        from .models._sap_ai_core import KAgentSAPAICoreLlm
+
+        return KAgentSAPAICoreLlm(
+            model=model_config.model,
+            base_url=base_url,
+            resource_group=model_config.resource_group,
+            auth_url=model_config.auth_url,
+            **_transport_kwargs(model_config),
         )
     raise ValueError(f"Invalid model type: {model_config.type}")
 

@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -683,12 +684,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				}
 			}
 		}
+		var additionalFields map[string]any
+		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
+			if err := json.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, &additionalFields); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
+			}
+		}
 		bedrock := &adk.Bedrock{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
 				Headers: model.Spec.DefaultHeaders,
 			},
-			Region: model.Spec.Bedrock.Region,
+			Region:                       model.Spec.Bedrock.Region,
+			AdditionalModelRequestFields: additionalFields,
 		}
 
 		// Populate TLS fields in BaseModel
@@ -696,6 +704,55 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderSAPAICore:
+		if model.Spec.SAPAICore == nil {
+			return nil, nil, nil, fmt.Errorf("sapAICore model config is required")
+		}
+
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			secret := &corev1.Secret{}
+			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to get SAP AI Core credentials secret: %w", err)
+			}
+
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.SAPAICoreClientID.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: "client_id",
+					},
+				},
+			})
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.SAPAICoreClientSecret.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: "client_secret",
+					},
+				},
+			})
+		}
+
+		sapAICore := &adk.SAPAICore{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+			BaseUrl:       model.Spec.SAPAICore.BaseURL,
+			ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
+			AuthUrl:       model.Spec.SAPAICore.AuthURL,
+		}
+
+		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
+		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		return sapAICore, modelDeploymentData, secretHashBytes, nil
 	default:
 		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
@@ -1031,12 +1088,16 @@ func isCommitSHA(ref string) bool {
 }
 
 // gitSkillName returns the directory name for a git skill ref.
-// If Name is set, it is used; otherwise the last path segment of the repo URL
-// (with any .git suffix stripped) is used.
-// Query parameters and fragments are stripped before extracting the base name.
+// If Name is set, it is used. Otherwise, if Path (in-repo directory) is set, the
+// last path segment of Path is used. If Path is empty, the last path segment of
+// the repo URL (with any .git suffix stripped) is used.
+// Query parameters and fragments are stripped before extracting the base name from the URL.
 func gitSkillName(ref v1alpha2.GitRepo) string {
-	if ref.Name != "" {
-		return ref.Name
+	if n := strings.TrimSpace(ref.Name); n != "" {
+		return n
+	}
+	if p := strings.Trim(strings.TrimSpace(ref.Path), "/"); p != "" {
+		return path.Base(p)
 	}
 	// Parse the URL to strip query params and fragments
 	u := ref.URL
@@ -1119,11 +1180,12 @@ func validateSubPath(p string) error {
 
 // skillsInitData holds the template data for the unified skills-init script.
 type skillsInitData struct {
-	AuthMountPath string        // "/git-auth" or "" (for git auth)
-	GitRefs       []gitRefData  // git repos to clone
-	OCIRefs       []ociRefData  // OCI images to pull
-	InsecureOCI   bool          // --insecure flag for krane
-	SSHHosts      []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
+	AuthMountPath    string        // "/git-auth" or "" (for git auth)
+	GitRefs          []gitRefData  // git repos to clone
+	OCIRefs          []ociRefData  // OCI images to pull
+	InsecureOCI      bool          // --insecure flag for krane
+	SSHHosts         []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
+	ImagePullSecrets []string      // secret names whose .dockerconfigjson are merged by the script
 }
 
 // sshHostData holds the host and optional port for an SSH known_hosts entry.
@@ -1186,9 +1248,11 @@ func prepareSkillsInitData(
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
+	imagePullSecrets []string,
 ) (skillsInitData, error) {
 	data := skillsInitData{
-		InsecureOCI: insecureOCI,
+		InsecureOCI:      insecureOCI,
+		ImagePullSecrets: imagePullSecrets,
 	}
 
 	if authSecretRef != nil {
@@ -1263,6 +1327,9 @@ func prepareSkillsInitData(
 // buildSkillsInitContainer creates the unified init container and associated volumes
 // for fetching skills from both Git repositories and OCI registries.
 // If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
+// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret is mounted
+// under /docker-secrets/<name> and the script merges them into a single config.json in /tmp;
+// krane reads the credentials via the DOCKER_CONFIG env var exported by the script.
 func buildSkillsInitContainer(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
@@ -1271,14 +1338,21 @@ func buildSkillsInitContainer(
 	securityContext *corev1.SecurityContext,
 	env []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
-) (container corev1.Container, volumes []corev1.Volume, err error) {
-	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI)
+	imagePullSecrets []corev1.LocalObjectReference,
+) (containers []corev1.Container, volumes []corev1.Volume, err error) {
+	// Collect secret names for the script template.
+	pullSecretNames := make([]string, len(imagePullSecrets))
+	for i, s := range imagePullSecrets {
+		pullSecretNames[i] = s.Name
+	}
+
+	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	script, err := buildSkillsScript(data)
 	if err != nil {
-		return corev1.Container{}, nil, err
+		return nil, nil, err
 	}
 	initSecCtx := securityContext
 	if initSecCtx != nil {
@@ -1289,7 +1363,7 @@ func buildSkillsInitContainer(
 		{Name: "kagent-skills", MountPath: "/skills"},
 	}
 
-	// Mount single auth secret if provided
+	// Mount single auth secret if provided.
 	if authSecretRef != nil {
 		volumes = append(volumes, corev1.Volume{
 			Name: "git-auth",
@@ -1306,7 +1380,26 @@ func buildSkillsInitContainer(
 		})
 	}
 
-	container = corev1.Container{
+	// Mount each imagePullSecret directly into skills-init under /docker-secrets/<name>.
+	// The script merges them into /tmp/kagent-docker-config/config.json and exports DOCKER_CONFIG.
+	for _, secret := range imagePullSecrets {
+		volName := "pull-secret-" + secret.Name
+		volumes = append(volumes, corev1.Volume{
+			Name: volName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secret.Name,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      volName,
+			MountPath: "/docker-secrets/" + secret.Name,
+			ReadOnly:  true,
+		})
+	}
+
+	skillsInitContainer := corev1.Container{
 		Name:            "skills-init",
 		Image:           DefaultSkillsInitImageConfig.Image(),
 		Command:         []string{"/bin/sh", "-c", script},
@@ -1316,7 +1409,8 @@ func buildSkillsInitContainer(
 		Resources:       resources,
 	}
 
-	return container, volumes, nil
+	containers = append(containers, skillsInitContainer)
+	return containers, volumes, nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {

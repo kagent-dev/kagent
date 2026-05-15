@@ -153,3 +153,20 @@ var (
 		ComponentAgentRuntime,
 	)
 )
+
+// SAP AI Core
+var (
+	SAPAICoreClientID = RegisterStringVar(
+		"SAP_AI_CORE_CLIENT_ID",
+		"",
+		"OAuth2 client ID for SAP AI Core authentication.",
+		ComponentAgentRuntime,
+	)
+
+	SAPAICoreClientSecret = RegisterStringVar(
+		"SAP_AI_CORE_CLIENT_SECRET",
+		"",
+		"OAuth2 client secret for SAP AI Core authentication.",
+		ComponentAgentRuntime,
+	)
+)
