@@ -20,7 +20,17 @@ serviceAccount:
   annotations: {}
   name: ""
 
-securityContext: {}
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
   
 tolerations: []
 
