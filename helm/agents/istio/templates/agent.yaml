@@ -227,6 +227,10 @@ spec:
             - "The sidecar injection is not working for pods in 'app-ns'. What should I check?"
             - "query_documentation for best practices on Istio performance tuning."
             - "Describe the Istio ingress gateway pods in 'istio-system' namespace."
+    {{- if .Values.compaction }}
+    context:
+      compaction: {{- toYaml .Values.compaction | nindent 8 }}
+    {{- end }}
     deployment:
       {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:

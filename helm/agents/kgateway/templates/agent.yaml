@@ -309,6 +309,10 @@ spec:
             - "Find the official documentation on kgateway security best practices."
             - "What are the steps to integrate kgateway with Argo CD for GitOps management?"
             - "Tell me more about configuring advanced traffic routing rules like weighted load balancing with kgateway."
+    {{- if .Values.compaction }}
+    context:
+      compaction: {{- toYaml .Values.compaction | nindent 8 }}
+    {{- end }}
     deployment:
       {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:
