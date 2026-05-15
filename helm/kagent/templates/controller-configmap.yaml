@@ -56,6 +56,10 @@ data:
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
+  {{- if .Values.controller.metrics.enabled }}
+  METRICS_BIND_ADDRESS: ":{{ .Values.controller.metrics.port }}"
+  METRICS_SECURE: {{ .Values.controller.metrics.secure | quote }}
+  {{- end }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
   {{- $agentHost := "" }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}
