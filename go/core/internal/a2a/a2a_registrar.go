@@ -26,10 +26,12 @@ import (
 type A2ARegistrar struct {
 	cache          crcache.Cache
 	handlerMux     A2AHandlerMux
+	clientRegistry *AgentClientRegistry
 	a2aBaseURL     string
 	sandboxA2AURL  string
 	authenticator  auth.AuthProvider
 	a2aBaseOptions []a2aclient.Option
+	onAgentChange  func(ctx context.Context)
 }
 
 var _ manager.Runnable = (*A2ARegistrar)(nil)
@@ -45,11 +47,12 @@ func NewA2ARegistrar(
 	streamingTimeout time.Duration,
 ) *A2ARegistrar {
 	reg := &A2ARegistrar{
-		cache:         cache,
-		handlerMux:    mux,
-		a2aBaseURL:    a2aBaseUrl,
-		sandboxA2AURL: sandboxA2ABaseURL,
-		authenticator: authenticator,
+		cache:          cache,
+		handlerMux:     mux,
+		clientRegistry: NewAgentClientRegistry(),
+		a2aBaseURL:     a2aBaseUrl,
+		sandboxA2AURL:  sandboxA2ABaseURL,
+		authenticator:  authenticator,
 		a2aBaseOptions: []a2aclient.Option{
 			a2aclient.WithTimeout(streamingTimeout),
 			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
@@ -58,6 +61,25 @@ func NewA2ARegistrar(
 	}
 
 	return reg
+}
+
+// ClientRegistry returns the registry of A2A clients for direct agent
+// invocation, populated as agents are registered and deregistered.
+func (a *A2ARegistrar) ClientRegistry() *AgentClientRegistry {
+	return a.clientRegistry
+}
+
+// SetAgentChangeCallback registers a function called whenever an agent is
+// added, updated, or removed. The callback receives the context from the
+// informer event so it can propagate cancellation.
+func (a *A2ARegistrar) SetAgentChangeCallback(fn func(ctx context.Context)) {
+	a.onAgentChange = fn
+}
+
+func (a *A2ARegistrar) notifyAgentChange(ctx context.Context) {
+	if a.onAgentChange != nil {
+		a.onAgentChange(ctx)
+	}
 }
 
 func (a *A2ARegistrar) NeedLeaderElection() bool {
@@ -96,7 +118,9 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
 				log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
+				return
 			}
+			a.notifyAgentChange(ctx)
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			oldAgent, ok1 := informerAgentObject(oldObj)
@@ -107,7 +131,9 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			if oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent) {
 				if err := a.upsertAgentHandler(ctx, newAgent, log); err != nil {
 					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(newAgent))
+					return
 				}
+				a.notifyAgentChange(ctx)
 			}
 		},
 		DeleteFunc: func(obj any) {
@@ -117,7 +143,9 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			ref := a2aRouteKey(agent)
 			a.handlerMux.RemoveAgentHandler(ref)
+			a.clientRegistry.delete(ref)
 			log.V(1).Info("removed A2A handler", "agent", ref)
+			a.notifyAgentChange(ctx)
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to add informer event handler for %T: %w", prototype, err)
@@ -182,9 +210,12 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	cardCopy := *card
 	cardCopy.URL = a.a2aRouteURL(agent)
 
-	if err := a.handlerMux.SetAgentHandler(a2aRouteKey(agent), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
+	routeRef := a2aRouteKey(agent)
+	if err := a.handlerMux.SetAgentHandler(routeRef, client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
 		return fmt.Errorf("set handler for %s: %w", agentRef, err)
 	}
+
+	a.clientRegistry.set(routeRef, client)
 
 	log.V(1).Info("registered/updated A2A handler", "agent", agentRef)
 	return nil
