@@ -1,10 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getCurrentUser, CurrentUser } from "@/app/actions/auth";
+import { getCurrentUser, getUserIdClaim, CurrentUser } from "@/app/actions/auth";
 
 interface AuthContextValue {
   user: CurrentUser | null;
+  userIdClaim: string;
   isLoading: boolean;
   error: Error | null;
   refetch: () => Promise<void>;
@@ -14,6 +15,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [userIdClaim, setUserIdClaim] = useState<string>("sub");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -21,8 +23,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const currentUser = await getCurrentUser();
+      const [currentUser, claim] = await Promise.all([getCurrentUser(), getUserIdClaim()]);
       setUser(currentUser);
+      setUserIdClaim(claim);
     } catch (e) {
       setError(e instanceof Error ? e : new Error("Failed to fetch user"));
     } finally {
@@ -35,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, error, refetch: fetchUser }}>
+    <AuthContext.Provider value={{ user, userIdClaim, isLoading, error, refetch: fetchUser }}>
       {children}
     </AuthContext.Provider>
   );
