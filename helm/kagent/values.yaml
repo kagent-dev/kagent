@@ -37,14 +37,17 @@ labels: {}
 # -- Security context for all pods
 podSecurityContext:
   runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
 # fsGroup: 2000
 
 # -- Security context for all containers
 securityContext:
+  allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
-# capabilities:
-#   drop:
-#   - ALL
+  capabilities:
+    drop:
+      - ALL
 # runAsUser: 1000
 
 # ==============================================================================
@@ -117,8 +120,6 @@ database:
         capabilities:
           drop:
             - ALL
-        seccompProfile:
-          type: RuntimeDefault
 
 # ==============================================================================
 # RBAC CONFIGURATION
@@ -398,6 +399,16 @@ kagent-tools:
   enabled: true
   nameOverride: tools
   replicaCount: 1
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
   resources:
     requests:
       cpu: 50m
@@ -407,7 +418,7 @@ kagent-tools:
   tools:
     loglevel: "debug"
     metrics:
-      port: 8085  # Use a different port than the main service port (8084) to avoid duplicate port definitions
+      port: 8085 # Use a different port than the main service port (8084) to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION

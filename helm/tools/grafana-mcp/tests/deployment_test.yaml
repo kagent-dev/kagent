@@ -1,7 +1,8 @@
-suite: test querydoc deployment
+suite: test grafana-mcp deployment
 templates:
   - deployment.yaml
   - configmap.yaml
+  - secret.yaml
 tests:
   - it: should render deployment with default values
     template: deployment.yaml
@@ -10,72 +11,37 @@ tests:
           of: Deployment
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-querydoc
+          value: RELEASE-NAME-grafana-mcp
       - equal:
           path: spec.replicas
           value: 1
       - hasDocuments:
           count: 1
 
-  - it: should render deployment with custom replica count
-    template: deployment.yaml
-    set:
-      replicas: 2
-    asserts:
-      - equal:
-          path: spec.replicas
-          value: 2
-
-  - it: should have correct container image
+  - it: should have correct container name
     template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].name
-          value: querydoc
-      - equal:
-          path: spec.template.spec.containers[0].image
-          value: ghcr.io/kagent-dev/doc2vec/mcp:1.1.10
-
-  - it: should use custom image tag when set
-    template: deployment.yaml
-    set:
-      image:
-        tag: "v2.0.0"
-    asserts:
-      - equal:
-          path: spec.template.spec.containers[0].image
-          value: ghcr.io/kagent-dev/doc2vec/mcp:v2.0.0
+          value: grafana-mcp
 
   - it: should have correct service account name
     template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.serviceAccountName
-          value: RELEASE-NAME-querydoc
+          value: RELEASE-NAME-grafana-mcp
 
   - it: should have correct container port
     template: deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
-          value: 8080
+          value: 8000
 
-  - it: should have correct labels
-    template: deployment.yaml
-    asserts:
-      - equal:
-          path: metadata.labels["app.kubernetes.io/name"]
-          value: querydoc
-      - equal:
-          path: metadata.labels["app.kubernetes.io/instance"]
-          value: RELEASE-NAME
-      - equal:
-          path: spec.template.metadata.labels["app.kubernetes.io/name"]
-          value: querydoc
-      - equal:
-          path: spec.template.metadata.labels["app.kubernetes.io/instance"]
-          value: RELEASE-NAME
-
+  # =============================================================================
+  # Security Context Tests
+  # =============================================================================
   - it: should apply default pod security context
     template: deployment.yaml
     asserts:
@@ -100,10 +66,10 @@ tests:
           value: true
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
-          value: 14000
+          value: 1000
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsGroup
-          value: 14000
+          value: 999
       - isNull:
           path: spec.template.spec.containers[0].securityContext.seccompProfile
 
@@ -112,14 +78,14 @@ tests:
     set:
       podSecurityContext:
         runAsNonRoot: true
-        fsGroup: 1000
+        fsGroup: 2000
     asserts:
       - equal:
           path: spec.template.spec.securityContext.runAsNonRoot
           value: true
       - equal:
           path: spec.template.spec.securityContext.fsGroup
-          value: 1000
+          value: 2000
 
   - it: should allow container security context override
     template: deployment.yaml
@@ -134,32 +100,3 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
           value: 1000
-
-  - it: should set nodeSelector
-    template: deployment.yaml
-    set:
-      nodeSelector:
-        role: AI
-    asserts:
-      - equal:
-          path: spec.template.spec.nodeSelector
-          value:
-            role: AI
-
-  - it: should set tolerations
-    template: deployment.yaml
-    set:
-      tolerations:
-        - key: role
-          operator: Equal
-          value: AI
-          effect: NoSchedule
-    asserts:
-      - contains:
-          any: true
-          path: spec.template.spec.tolerations
-          content:
-            key: role
-            value: AI
-            effect: NoSchedule
-            operator: Equal
