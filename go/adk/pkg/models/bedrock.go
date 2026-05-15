@@ -553,7 +553,25 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 	idMap := make(map[string]string)
 	idCounter := 0
 
-	for _, content := range contents {
+	// AWS requires thinking blocks only for the last assistant turn before tool results.
+	// Preserving them in earlier turns causes token counts to explode across multi-turn
+	// conversations. Find the last assistant content index that contains thinking parts.
+	lastThinkingAssistantIdx := -1
+	for i, content := range contents {
+		if content == nil {
+			continue
+		}
+		if content.Role == "model" || content.Role == "assistant" {
+			for _, part := range content.Parts {
+				if part != nil && part.Thought {
+					lastThinkingAssistantIdx = i
+					break
+				}
+			}
+		}
+	}
+
+	for i, content := range contents {
 		if content == nil || len(content.Parts) == 0 {
 			continue
 		}
@@ -563,6 +581,9 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 		if content.Role == "model" || content.Role == "assistant" {
 			role = types.ConversationRoleAssistant
 		}
+
+		// Only echo thinking blocks for the last assistant turn that contains them.
+		emitThinking := i == lastThinkingAssistantIdx
 
 		var contentBlocks []types.ContentBlock
 
@@ -588,7 +609,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 			// can maintain reasoning continuity across tool-result turns.
 			// AWS docs: "you must pass thinking blocks back to the API for the last
 			// assistant message … include the complete unmodified block."
+			// Earlier turns have thinking stripped to prevent token explosion.
 			if part.Thought {
+				if !emitThinking {
+					continue
+				}
 				if len(part.ThoughtSignature) > 0 && part.Text == "" {
 					// Redacted block
 					contentBlocks = append(contentBlocks, &types.ContentBlockMemberReasoningContent{
