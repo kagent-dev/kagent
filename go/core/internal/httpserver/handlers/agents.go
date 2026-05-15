@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -64,6 +65,60 @@ func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request)
 	}
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))
+	data := api.NewResponse(agentsWithID, "Successfully listed agents", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleListAgentsForNamespace handles GET /api/agents/{namespace} requests.
+// It returns only Agent and AgentHarness rows that belong to the given namespace.
+// The namespace value is validated as a Kubernetes DNS-1123 label; invalid values return 400.
+func (h *AgentsHandler) HandleListAgentsForNamespace(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-namespace")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	if errs := utilvalidation.IsDNS1123Label(namespace); len(errs) > 0 {
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("invalid namespace %q: %s", namespace, strings.Join(errs, "; ")),
+			nil,
+		))
+		return
+	}
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	nsOpt := client.InNamespace(namespace)
+
+	agentList := &v1alpha2.AgentList{}
+	if err := h.KubeClient.List(r.Context(), agentList, nsOpt); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list Agents from Kubernetes", err))
+		return
+	}
+
+	agentsWithID := make([]api.AgentResponse, 0)
+	h.appendAgentResponses(r.Context(), log, agentObjects(agentList.Items), &agentsWithID)
+
+	harnessList := &v1alpha2.AgentHarnessList{}
+	if err := h.KubeClient.List(r.Context(), harnessList, nsOpt); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err))
+		return
+	}
+	for i := range harnessList.Items {
+		sb := &harnessList.Items[i]
+		if sb.Spec.Backend != v1alpha2.AgentHarnessBackendOpenClaw && sb.Spec.Backend != v1alpha2.AgentHarnessBackendNemoClaw {
+			continue
+		}
+		agentsWithID = append(agentsWithID, h.openshellAgentHarnessAgentResponse(r.Context(), log, sb))
+	}
+
+	log.Info("Successfully listed agents for namespace", "namespace", namespace, "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed agents", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }

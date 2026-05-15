@@ -821,6 +821,82 @@ func TestHandleDeleteSandboxAgent(t *testing.T) {
 	})
 }
 
+func TestHandleListAgentsForNamespace(t *testing.T) {
+	t.Run("returns only Agent rows in the given namespace", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agentDefault := createTestAgent("agent-in-default", modelConfig)
+		agentOther := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "agent-in-other", Namespace: "other"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig: modelConfig.Name,
+				},
+			},
+		}
+		handler, _ := setupTestHandler(t, agentDefault, agentOther, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents/default", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgentsForNamespace(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 1)
+		require.Equal(t, "agent-in-default", response.Data[0].Agent.Metadata.Name)
+		require.Equal(t, "default", response.Data[0].Agent.Metadata.Namespace)
+	})
+
+	t.Run("excludes AgentHarness rows from other namespaces", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		sbDefault := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-default", Namespace: "default"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+				ModelConfigRef: "test-model-config",
+			},
+		}
+		sbOther := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-other", Namespace: "other"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+				ModelConfigRef: "test-model-config",
+			},
+		}
+		handler, _ := setupTestHandler(t, sbDefault, sbOther, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents/default", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgentsForNamespace(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 1)
+		require.Equal(t, "harness-default", response.Data[0].Agent.Metadata.Name)
+	})
+
+	t.Run("returns 400 for invalid namespace path value", func(t *testing.T) {
+		handler, _ := setupTestHandler(t)
+
+		req := httptest.NewRequest("GET", "/api/agents/INVALID_NS!", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "INVALID_NS!"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgentsForNamespace(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
 func TestHandleCreateAgentHarness(t *testing.T) {
 	t.Run("creates openclaw AgentHarness", func(t *testing.T) {
 		modelConfig := createTestModelConfig()

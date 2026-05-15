@@ -11,6 +11,7 @@ import (
 // Agent defines the agent operations
 type Agent interface {
 	ListAgents(ctx context.Context) (*api.StandardResponse[[]api.AgentResponse], error)
+	ListAgentsForNamespace(ctx context.Context, namespace string) (*api.StandardResponse[[]api.AgentResponse], error)
 	CreateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
 	GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error)
 	UpdateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
@@ -35,6 +36,27 @@ func (c *agentClient) ListAgents(ctx context.Context) (*api.StandardResponse[[]a
 	}
 
 	resp, err := c.client.Get(ctx, "/api/agents", userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var response api.StandardResponse[[]api.AgentResponse]
+	if err := DecodeResponse(resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+// ListAgentsForNamespace lists agents in the given namespace.
+func (c *agentClient) ListAgentsForNamespace(ctx context.Context, namespace string) (*api.StandardResponse[[]api.AgentResponse], error) {
+	userID := c.client.GetUserIDOrDefault("")
+	if userID == "" {
+		return nil, fmt.Errorf("userID is required")
+	}
+
+	path := fmt.Sprintf("/api/agents/%s", namespace)
+	resp, err := c.client.Get(ctx, path, userID)
 	if err != nil {
 		return nil, err
 	}
