@@ -28,3 +28,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   return claims as CurrentUser;
 }
+
+export async function getUserIdClaim(): Promise<string> {
+  return process.env.KAGENT_USER_ID_CLAIM || "sub";
+}
