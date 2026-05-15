@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { OnboardingWizard } from "./onboarding/OnboardingWizard";
+import { useAuth } from "@/contexts/AuthContext";
+import { useUserStore } from "@/lib/userStore";
 
 const LOCAL_STORAGE_KEY = "kagent-onboarding";
 
@@ -10,6 +12,15 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
   /** `null` = not read yet (must match server + first client paint to avoid hydration mismatch) */
   const [isOnboarding, setIsOnboarding] = useState<boolean | null>(null);
   const pathname = usePathname();
+  const { user, userIdClaim } = useAuth();
+  const setUserId = useUserStore((s) => s.setUserId);
+
+  useEffect(() => {
+    const identity = user?.[userIdClaim] as string | undefined;
+    if (identity) {
+      setUserId(identity);
+    }
+  }, [user, userIdClaim, setUserId]);
 
   useEffect(() => {
     const hasOnboarded = localStorage.getItem(LOCAL_STORAGE_KEY) === "true";
