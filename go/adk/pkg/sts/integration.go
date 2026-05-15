@@ -3,6 +3,7 @@ package sts
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 // GetSubjectTokenFunc is a function type for extracting subject tokens.
@@ -30,6 +31,7 @@ type STSIntegration struct {
 	fetchActorToken   FetchActorTokenFunc
 	getSubjectToken   GetSubjectTokenFunc
 	staticActorToken  string // cached static actor token from service
+	actorTokenMu      sync.Mutex
 }
 
 // NewSTSIntegration creates a new STS integration.
@@ -96,6 +98,9 @@ func (i *STSIntegration) getActorToken(ctx context.Context) (string, error) {
 		return i.fetchActorToken(ctx)
 	}
 
+	i.actorTokenMu.Lock()
+	defer i.actorTokenMu.Unlock()
+
 	// Use cached static token if available
 	if i.staticActorToken != "" {
 		return i.staticActorToken, nil
@@ -117,10 +122,7 @@ func (i *STSIntegration) getActorToken(ctx context.Context) (string, error) {
 func (i *STSIntegration) actorTokenForExchange(ctx context.Context) (string, error) {
 	actorToken, err := i.getActorToken(ctx)
 	if err != nil {
-		if i.fetchActorToken != nil {
-			return "", fmt.Errorf("failed to fetch actor token dynamically: %w", err)
-		}
-		return "", nil
+		return "", fmt.Errorf("failed to fetch actor token: %w", err)
 	}
 	if actorToken == "" {
 		return "", nil
@@ -134,8 +136,8 @@ func (i *STSIntegration) ExchangeToken(
 	ctx context.Context,
 	subjectToken string,
 	subjectTokenType TokenType,
-	resource interface{},
-	audience interface{},
+	resource any,
+	audience any,
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {
@@ -155,8 +157,8 @@ func (i *STSIntegration) ExchangeTokenWithActorToken(
 	subjectToken string,
 	subjectTokenType TokenType,
 	actorToken string,
-	resource interface{},
-	audience interface{},
+	resource any,
+	audience any,
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {

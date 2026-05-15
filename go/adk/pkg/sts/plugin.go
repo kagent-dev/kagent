@@ -235,7 +235,6 @@ func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
 		p.logger.V(1).Info("Removing expired actor token from cache")
 		p.actorTokenCache = nil
 	}
-
 }
 
 // HeaderProvider returns a map of headers to inject into MCP tool HTTP requests.
@@ -312,31 +311,19 @@ func extractJWTExpiry(token string) int64 {
 		return 0
 	}
 
-	// Parse without signature verification — we only need the exp claim.
-	parsed, err := jwt.Parse(token,
-		func(t *jwt.Token) (interface{}, error) { return nil, nil },
-		jwt.WithoutClaimsValidation(),
-	)
-	// err is expected (no key), but parsed may still carry the claims.
-	if parsed == nil || parsed.Claims == nil {
-		if err != nil {
-			// Truly unparseable token (not a JWT, etc.)
-			return 0
-		}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
+		return 0
 	}
 
-	if parsed != nil {
-		if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
-			if exp, ok := claims["exp"]; ok {
-				switch v := exp.(type) {
-				case float64:
-					return int64(v)
-				case int64:
-					return v
-				case int:
-					return int64(v)
-				}
-			}
+	if exp, ok := claims["exp"]; ok {
+		switch v := exp.(type) {
+		case float64:
+			return int64(v)
+		case int64:
+			return v
+		case int:
+			return int64(v)
 		}
 	}
 

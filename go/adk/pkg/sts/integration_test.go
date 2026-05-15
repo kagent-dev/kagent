@@ -82,3 +82,22 @@ func TestSTSIntegrationStaticActorTokenCached(t *testing.T) {
 		t.Fatalf("second getActorToken() = %q, want cached %q", got2, "static-token")
 	}
 }
+
+func TestSTSIntegrationStaticActorTokenErrorPropagates(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "empty-token")
+	if err := os.WriteFile(tokenPath, []byte(" \n\t "), 0o600); err != nil {
+		t.Fatalf("failed to write token file: %v", err)
+	}
+
+	i, err := NewSTSIntegration("http://example.com/.well-known", tokenPath, nil, nil, 5, true, false)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+
+	_, err = i.actorTokenForExchange(context.Background())
+	if err == nil {
+		t.Fatalf("actorTokenForExchange() error = nil, want non-nil")
+	}
+}

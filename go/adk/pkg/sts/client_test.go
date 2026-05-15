@@ -209,6 +209,25 @@ func TestSTSClientInitializeRetriesAfterDiscoveryFailure(t *testing.T) {
 	}
 }
 
+func TestTransportWithTLSVerificationClonesDefaultTransport(t *testing.T) {
+	t.Parallel()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Skip("http.DefaultTransport is not *http.Transport")
+	}
+
+	transport := transportWithTLSVerification(false)
+	if transport == defaultTransport {
+		t.Fatal("transportWithTLSVerification returned http.DefaultTransport directly")
+	}
+	if transport.TLSHandshakeTimeout != defaultTransport.TLSHandshakeTimeout {
+		t.Fatalf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, defaultTransport.TLSHandshakeTimeout)
+	}
+	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("TLSClientConfig.InsecureSkipVerify = false, want true")
+	}
+}
+
 func TestSTSClientDelegateWithoutSubjectToken(t *testing.T) {
 	t.Parallel()
 	client := NewSTSClient(STSConfig{
