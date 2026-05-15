@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -99,6 +100,41 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 			checkMsg: func(t *testing.T, msgs []types.Message) {
 				if msgs[0].Role != types.ConversationRoleUser {
 					t.Errorf("expected user role, got %s", msgs[0].Role)
+				}
+			},
+		},
+		{
+			name: "thinking block preserved as ReasoningContent",
+			contents: []*genai.Content{
+				{
+					Role: "model",
+					Parts: []*genai.Part{
+						{Thought: true, Text: "let me think", ThoughtSignature: []byte("sig123")},
+						{FunctionCall: &genai.FunctionCall{ID: "c1", Name: "get_weather", Args: map[string]any{"location": "Paris"}}},
+					},
+				},
+			},
+			wantMsgCount: 1,
+			checkMsg: func(t *testing.T, msgs []types.Message) {
+				if len(msgs[0].Content) != 2 {
+					t.Fatalf("expected 2 blocks (thinking + toolUse), got %d", len(msgs[0].Content))
+				}
+				rb, ok := msgs[0].Content[0].(*types.ContentBlockMemberReasoningContent)
+				if !ok {
+					t.Fatalf("block 0: want *ContentBlockMemberReasoningContent, got %T", msgs[0].Content[0])
+				}
+				rt, ok := rb.Value.(*types.ReasoningContentBlockMemberReasoningText)
+				if !ok {
+					t.Fatalf("reasoning value: want *ReasoningContentBlockMemberReasoningText, got %T", rb.Value)
+				}
+				if *rt.Value.Text != "let me think" {
+					t.Errorf("text: want %q, got %q", "let me think", *rt.Value.Text)
+				}
+				if *rt.Value.Signature != "sig123" {
+					t.Errorf("signature: want %q, got %q", "sig123", *rt.Value.Signature)
+				}
+				if _, ok := msgs[0].Content[1].(*types.ContentBlockMemberToolUse); !ok {
+					t.Errorf("block 1: want *ContentBlockMemberToolUse, got %T", msgs[0].Content[1])
 				}
 			},
 		},
@@ -419,6 +455,129 @@ func TestStreamingToolCallParseArgs(t *testing.T) {
 			for k, want := range tt.wantKeys {
 				if got, ok := result[k]; !ok || got != want {
 					t.Errorf("key %q: expected %v, got %v (present=%v)", k, want, got, ok)
+				}
+			}
+		})
+	}
+}
+
+func TestThinkingOnlyInLastAssistantTurn(t *testing.T) {
+	contents := []*genai.Content{
+		{
+			Role: "model",
+			Parts: []*genai.Part{
+				{Thought: true, Text: "first think", ThoughtSignature: []byte("sig1")},
+				{FunctionCall: &genai.FunctionCall{ID: "c1", Name: "tool_a", Args: map[string]any{}}},
+			},
+		},
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "tool_a", Response: map[string]any{"r": "v1"}}}},
+		},
+		{
+			Role: "model",
+			Parts: []*genai.Part{
+				{Thought: true, Text: "second think", ThoughtSignature: []byte("sig2")},
+				{FunctionCall: &genai.FunctionCall{ID: "c2", Name: "tool_b", Args: map[string]any{}}},
+			},
+		},
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "c2", Name: "tool_b", Response: map[string]any{"r": "v2"}}}},
+		},
+	}
+
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil)
+	if len(msgs) != 4 {
+		t.Fatalf("want 4 messages, got %d", len(msgs))
+	}
+
+	// First assistant turn must NOT contain reasoning content.
+	for _, block := range msgs[0].Content {
+		if _, ok := block.(*types.ContentBlockMemberReasoningContent); ok {
+			t.Error("first assistant turn must not contain reasoning content")
+		}
+	}
+
+	// Last assistant turn (index 2) must contain reasoning content.
+	hasReasoning := false
+	for _, block := range msgs[2].Content {
+		if _, ok := block.(*types.ContentBlockMemberReasoningContent); ok {
+			hasReasoning = true
+		}
+	}
+	if !hasReasoning {
+		t.Error("last assistant turn must contain reasoning content")
+	}
+}
+
+func TestHistoricalToolResultTruncation(t *testing.T) {
+	longOutput := strings.Repeat("x", historyToolResultMaxLen+500)
+	contents := []*genai.Content{
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "c1", Name: "tool_a", Response: map[string]any{"result": longOutput}}}},
+		},
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "c2", Name: "tool_b", Response: map[string]any{"result": longOutput}}}},
+		},
+	}
+
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil)
+	if len(msgs) != 2 {
+		t.Fatalf("want 2 messages, got %d", len(msgs))
+	}
+
+	extractText := func(msg types.Message) string {
+		for _, block := range msg.Content {
+			if tr, ok := block.(*types.ContentBlockMemberToolResult); ok {
+				for _, c := range tr.Value.Content {
+					if txt, ok := c.(*types.ToolResultContentBlockMemberText); ok {
+						return txt.Value
+					}
+				}
+			}
+		}
+		return ""
+	}
+
+	first := extractText(msgs[0])
+	if len(first) >= len(longOutput) {
+		t.Errorf("historical tool result should be truncated, got len=%d", len(first))
+	}
+
+	last := extractText(msgs[1])
+	if len(last) != len(longOutput) {
+		t.Errorf("latest tool result must not be truncated, got len=%d want %d", len(last), len(longOutput))
+	}
+}
+
+func TestTruncateToolResult(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		maxLen  int
+		wantLen int
+		wantMsg bool
+	}{
+		{"no truncation needed", "short", 100, 5, false},
+		{"exact boundary", strings.Repeat("a", 100), 100, 100, false},
+		{"truncated", strings.Repeat("a", 150), 100, -1, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncateToolResult(tc.input, tc.maxLen)
+			if tc.wantMsg {
+				if len(got) <= tc.maxLen {
+					t.Errorf("expected truncated result longer than maxLen, got %d", len(got))
+				}
+				if !strings.Contains(got, "truncated") {
+					t.Error("truncated result must contain truncation notice")
+				}
+			} else {
+				if len(got) != tc.wantLen {
+					t.Errorf("want len %d, got %d", tc.wantLen, len(got))
 				}
 			}
 		})
