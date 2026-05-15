@@ -41,15 +41,15 @@ type TokenExchangeRequest struct {
 	// ActorTokenType is the type of the actor_token (required if ActorToken is set)
 	ActorTokenType TokenType `json:"actor_token_type,omitempty"`
 	// Resource is the logical name of the target service or resource (optional)
-	Resource interface{} `json:"resource,omitempty"` // Can be string or []string
+	Resource any `json:"resource,omitempty"` // Can be string or []string
 	// Audience is the logical name of the target service or resource (optional)
-	Audience interface{} `json:"audience,omitempty"` // Can be string or []string
+	Audience any `json:"audience,omitempty"` // Can be string or []string
 	// Scope is the scope of the requested token (optional)
 	Scope string `json:"scope,omitempty"`
 	// RequestedTokenType is the type of the requested token (optional)
 	RequestedTokenType TokenType `json:"requested_token_type,omitempty"`
 	// AdditionalParameters contains additional parameters for the request (optional)
-	AdditionalParameters map[string]interface{} `json:"-"` // Not serialized directly, merged into form data
+	AdditionalParameters map[string]any `json:"-"` // Not serialized directly, merged into form data
 }
 
 // IsDelegationRequest checks if this is a delegation request (has actor_token).
@@ -77,7 +77,7 @@ type TokenExchangeResponse struct {
 	// RefreshToken is the refresh token if applicable (optional)
 	RefreshToken string `json:"refresh_token,omitempty"`
 	// AdditionalParameters contains additional response parameters (optional)
-	AdditionalParameters map[string]interface{} `json:"-"`
+	AdditionalParameters map[string]any `json:"-"`
 }
 
 // TokenExchangeErrorResponse represents an RFC 8693 Token Exchange Error response.
@@ -89,7 +89,7 @@ type TokenExchangeErrorResponse struct {
 	// ErrorURI is a URI identifying the error (optional)
 	ErrorURI string `json:"error_uri,omitempty"`
 	// AdditionalParameters contains additional error parameters (optional)
-	AdditionalParameters map[string]interface{} `json:"-"`
+	AdditionalParameters map[string]any `json:"-"`
 }
 
 // WellKnownConfiguration represents OAuth 2.0 Authorization Server Metadata.
@@ -103,7 +103,7 @@ type WellKnownConfiguration struct {
 	// TokenEndpointAuthSigningAlgValuesSupported is the list of supported signing algorithms (optional)
 	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
 	// AdditionalParameters contains additional configuration parameters (optional)
-	AdditionalParameters map[string]interface{} `json:"-"`
+	AdditionalParameters map[string]any `json:"-"`
 }
 
 // STSConfig holds configuration for the STS client.
@@ -123,11 +123,7 @@ func DefaultSTSConfig(wellKnownURI string) STSConfig {
 	return STSConfig{
 		WellKnownURI:  wellKnownURI,
 		Timeout:       5,
-		VerifySSL:     boolPtr(true),
+		VerifySSL:     new(true),
 		UseIssuerHost: false,
 	}
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }

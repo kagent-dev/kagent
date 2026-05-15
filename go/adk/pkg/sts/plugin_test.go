@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/golang-jwt/jwt/v5"
 	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/session"
@@ -135,5 +136,20 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 	if exchangeCount != 2 {
 		t.Fatalf("token exchange calls = %d, want 2", exchangeCount)
+	}
+}
+
+func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
+	t.Parallel()
+	want := time.Now().Add(time.Hour).Unix()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"exp": want,
+	}).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+
+	if got := extractJWTExpiry(token); got != want {
+		t.Fatalf("extractJWTExpiry() = %d, want %d", got, want)
 	}
 }

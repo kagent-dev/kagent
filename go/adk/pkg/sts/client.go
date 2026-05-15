@@ -2,7 +2,6 @@ package sts
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,7 +32,7 @@ func normalizeSTSConfig(config STSConfig) STSConfig {
 		config.Timeout = 5
 	}
 	if config.VerifySSL == nil {
-		config.VerifySSL = boolPtr(true)
+		config.VerifySSL = new(true)
 	}
 	return config
 }
@@ -63,13 +62,9 @@ func (c *STSClient) initialize(ctx context.Context) error {
 	}
 
 	if c.httpClient == nil {
-		transport := &http.Transport{}
-		if !*c.config.VerifySSL {
-			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		}
 		c.httpClient = &http.Client{
 			Timeout:   time.Duration(c.config.Timeout) * time.Second,
-			Transport: transport,
+			Transport: transportWithTLSVerification(*c.config.VerifySSL),
 		}
 	}
 
@@ -144,11 +139,11 @@ func (c *STSClient) ExchangeToken(
 	subjectTokenType TokenType,
 	actorToken string,
 	actorTokenType TokenType,
-	resource interface{},
-	audience interface{},
+	resource any,
+	audience any,
 	scope string,
 	requestedTokenType TokenType,
-	additionalParameters map[string]interface{},
+	additionalParameters map[string]any,
 ) (*TokenExchangeResponse, error) {
 	if err := c.initialize(ctx); err != nil {
 		return nil, err
@@ -197,7 +192,7 @@ func (c *STSClient) ExchangeToken(
 	}
 
 	// Parse error response
-	var responseData map[string]interface{}
+	var responseData map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&responseData); err != nil {
 		// Could not parse error as JSON
 		return nil, NewTokenExchangeError(
@@ -226,11 +221,11 @@ func (c *STSClient) Impersonate(
 	ctx context.Context,
 	subjectToken string,
 	subjectTokenType TokenType,
-	resource interface{},
-	audience interface{},
+	resource any,
+	audience any,
 	scope string,
 	requestedTokenType TokenType,
-	additionalParameters map[string]interface{},
+	additionalParameters map[string]any,
 ) (*TokenExchangeResponse, error) {
 	return c.ExchangeToken(
 		ctx,
@@ -253,11 +248,11 @@ func (c *STSClient) Delegate(
 	subjectTokenType TokenType,
 	actorToken string,
 	actorTokenType TokenType,
-	resource interface{},
-	audience interface{},
+	resource any,
+	audience any,
 	scope string,
 	requestedTokenType TokenType,
-	additionalParameters map[string]interface{},
+	additionalParameters map[string]any,
 ) (*TokenExchangeResponse, error) {
 	if subjectToken == "" {
 		return nil, NewAuthenticationError("subject token required for delegation")

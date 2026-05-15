@@ -22,13 +22,8 @@ const (
 // NOTE: This makes an HTTP request. Callers should cache the result.
 func FetchWellKnownConfiguration(ctx context.Context, wellKnownURI string, timeout int, verifySSL bool, useIssuerHost bool) (*WellKnownConfiguration, error) {
 	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-	}
-
-	if !verifySSL {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		Timeout:   time.Duration(timeout) * time.Second,
+		Transport: transportWithTLSVerification(verifySSL),
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wellKnownURI, nil)
@@ -46,7 +41,7 @@ func FetchWellKnownConfiguration(ctx context.Context, wellKnownURI string, timeo
 		return nil, NewNetworkError(fmt.Sprintf("failed to fetch well-known configuration: HTTP %d", resp.StatusCode), nil)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, NewConfigurationError(fmt.Sprintf("invalid well-known configuration response: %v", err))
 	}
@@ -103,7 +98,7 @@ func FetchWellKnownConfiguration(ctx context.Context, wellKnownURI string, timeo
 }
 
 // ParseTokenExchangeError parses a token exchange error response.
-func ParseTokenExchangeError(responseData map[string]interface{}) *TokenExchangeError {
+func ParseTokenExchangeError(responseData map[string]any) *TokenExchangeError {
 	errorCode := "unknown_error"
 	if ec, ok := responseData["error"].(string); ok {
 		errorCode = ec
@@ -117,16 +112,16 @@ func ParseTokenExchangeError(responseData map[string]interface{}) *TokenExchange
 	return NewTokenExchangeError(errorCode, errorDescription, 0)
 }
 
-// Helper functions to safely extract values from map[string]interface{}
-func getString(m map[string]interface{}, key string) string {
+// Helper functions to safely extract values from map[string]any
+func getString(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func getStringSlice(m map[string]interface{}, key string) []string {
-	if v, ok := m[key].([]interface{}); ok {
+func getStringSlice(m map[string]any, key string) []string {
+	if v, ok := m[key].([]any); ok {
 		result := make([]string, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {
@@ -136,4 +131,27 @@ func getStringSlice(m map[string]interface{}, key string) []string {
 		return result
 	}
 	return nil
+}
+
+func transportWithTLSVerification(verifySSL bool) *http.Transport {
+	transport := cloneDefaultHTTPTransport()
+	if verifySSL {
+		return transport
+	}
+
+	tlsConfig := &tls.Config{}
+	if transport.TLSClientConfig != nil {
+		tlsConfig = transport.TLSClientConfig.Clone()
+	}
+	tlsConfig.InsecureSkipVerify = true
+	transport.TLSClientConfig = tlsConfig
+	return transport
+}
+
+func cloneDefaultHTTPTransport() *http.Transport {
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{}
+	}
+	return defaultTransport.Clone()
 }

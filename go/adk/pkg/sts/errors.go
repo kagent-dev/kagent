@@ -68,9 +68,9 @@ type NetworkError struct {
 
 func (e *NetworkError) Error() string {
 	if e.Cause != nil {
-		return fmt.Sprintf("STS network error: %s: %v", e.STSError.Message, e.Cause)
+		return fmt.Sprintf("STS network error: %s: %v", e.Message, e.Cause)
 	}
-	return fmt.Sprintf("STS network error: %s", e.STSError.Message)
+	return fmt.Sprintf("STS network error: %s", e.Message)
 }
 
 // Unwrap returns the underlying error for errors.Is/As support.
