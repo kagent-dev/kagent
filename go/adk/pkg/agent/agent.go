@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"google.golang.org/adk/agent"
@@ -33,7 +34,7 @@ const (
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, extraTools...)
+	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
 	return a, err
 }
 
@@ -41,7 +42,8 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 // map of remote-subagent tool name → A2A context session ID (for stamping
 // outbound A2A events). Callers that only need the agent can use
 // CreateGoogleADKAgent.
-func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
+// Optional stsPlugin can be provided for token propagation to MCP tools.
+func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -49,7 +51,11 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	}
 
 	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken)
+	var dynamicHeaderProvider mcp.DynamicHeaderProvider
+	if stsPlugin != nil {
+		dynamicHeaderProvider = stsPlugin.HeaderProvider
+	}
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool
@@ -104,6 +110,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	// Strip synthetic HITL tool messages from the model request to avoid unnecessary token usage.
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
+
 	if len(approvalSet) > 0 {
 		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))

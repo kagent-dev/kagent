@@ -18,6 +18,11 @@ import (
 	"google.golang.org/adk/tool/mcptoolset"
 )
 
+// DynamicHeaderProvider is a function that returns headers to inject into MCP requests.
+// It receives the context and should return a map of headers.
+// This is used for dynamic token injection (e.g., STS tokens) per session.
+type DynamicHeaderProvider func(ctx context.Context) map[string]string
+
 const (
 	// Default timeout matching Python KAGENT_REMOTE_AGENT_TIMEOUT
 	defaultTimeout = 30 * time.Minute
@@ -62,9 +67,10 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 type mcpServerParams struct {
 	URL                   string
 	Headers               map[string]string
-	AllowedHeaders        []string // header names to forward from incoming request
-	PropagateToken        bool     // when true, Authorization is forwarded independently of AllowedHeaders
-	ServerType            string   // "http" or "sse"
+	AllowedHeaders        []string              // header names to forward from incoming request
+	PropagateToken        bool                  // when true, Authorization is forwarded independently of AllowedHeaders
+	HeaderProvider        DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
+	ServerType            string                // "http" or "sse"
 	Timeout               *float64
 	SseReadTimeout        *float64
 	TLSInsecureSkipVerify *bool
@@ -79,7 +85,16 @@ type mcpServerParams struct {
 // When propagateToken is true, Authorization is forwarded to every MCP server
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
 // behaviour triggered by KAGENT_PROPAGATE_TOKEN.
-func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, sseTools []adk.SseMcpServerConfig, propagateToken bool) []tool.Toolset {
+//
+// Optional headerProvider can be used to inject per-request headers
+// derived from invocation context (e.g., STS exchanged access tokens).
+func CreateToolsets(
+	ctx context.Context,
+	httpTools []adk.HttpMcpServerConfig,
+	sseTools []adk.SseMcpServerConfig,
+	propagateToken bool,
+	headerProvider DynamicHeaderProvider,
+) []tool.Toolset {
 	log := logr.FromContextOrDiscard(ctx)
 	var toolsets []tool.Toolset
 
@@ -90,6 +105,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
+			HeaderProvider:        headerProvider,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
@@ -111,6 +127,7 @@ func CreateToolsets(ctx context.Context, httpTools []adk.HttpMcpServerConfig, ss
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
+			HeaderProvider:        headerProvider,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
@@ -208,12 +225,13 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil {
 		httpTransport = &headerRoundTripper{
 			base:           baseTransport,
 			headers:        params.Headers,
 			allowedHeaders: params.AllowedHeaders,
 			propagateToken: params.PropagateToken,
+			headerProvider: params.HeaderProvider,
 		}
 	}
 
@@ -239,18 +257,20 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 }
 
 // headerRoundTripper wraps an http.RoundTripper to add custom headers to all
-// requests. It supports three sources of headers, applied in this order so that
+// requests. It supports four sources of headers, applied in this order so that
 // higher-priority sources win on collision:
 //  1. propagateToken: when true, Authorization is read from the incoming A2A
 //     CallContext and forwarded unconditionally (independent of allowedHeaders).
 //  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
-//  3. headers: static key/value pairs configured on the MCP server spec (highest
+//  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
+//  4. headers: static key/value pairs configured on the MCP server spec (highest
 //     priority — always wins).
 type headerRoundTripper struct {
 	base           http.RoundTripper
 	headers        map[string]string
 	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
 	propagateToken bool     // when true, Authorization is forwarded independently
+	headerProvider DynamicHeaderProvider
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -271,6 +291,13 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	// Forward explicitly allowed headers from the incoming A2A request.
 	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
 		req.Header.Set(k, v)
+	}
+
+	// Dynamic headers (e.g., STS access tokens) override propagated/allowed headers.
+	if rt.headerProvider != nil {
+		for key, value := range rt.headerProvider(req.Context()) {
+			req.Header.Set(key, value)
+		}
 	}
 
 	// Apply static headers last — they take precedence over all dynamic sources.
