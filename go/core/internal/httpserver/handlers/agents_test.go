@@ -575,6 +575,20 @@ func TestHandleListAgents(t *testing.T) {
 
 		require.Equal(t, http.StatusBadRequest, w.Code)
 	})
+
+	t.Run("returns 400 for namespace path value with leading or trailing whitespace", func(t *testing.T) {
+		handler, _ := setupTestHandler(t)
+
+		req := httptest.NewRequest("GET", "/api/agents/%20default", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": " default"})
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgentsForNamespace(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Contains(t, w.Body.String(), "must not contain leading or trailing whitespace")
+	})
 }
 
 func TestHandleListSandboxAgents(t *testing.T) {

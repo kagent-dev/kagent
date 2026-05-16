@@ -35,6 +35,10 @@ func NewAgentClient(client *BaseClient) Agent {
 
 // ListAgents lists all agents for a user. When Namespace is set, only agents in that namespace are returned.
 func (c *agentClient) ListAgents(ctx context.Context, opts ...ListAgentsOptions) (*api.StandardResponse[[]api.AgentResponse], error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("ListAgents accepts at most one options argument")
+	}
+
 	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")

@@ -49,7 +49,14 @@ func (h *AgentsHandler) HandleListAgentsForNamespace(w ErrorResponseWriter, r *h
 		return
 	}
 
-	namespace = strings.TrimSpace(namespace)
+	if strings.TrimSpace(namespace) != namespace {
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("invalid namespace %q: must not contain leading or trailing whitespace", namespace),
+			nil,
+		))
+		return
+	}
+
 	if errs := utilvalidation.IsDNS1123Label(namespace); len(errs) > 0 {
 		w.RespondWithError(errors.NewBadRequestError(
 			fmt.Sprintf("invalid namespace %q: %s", namespace, strings.Join(errs, "; ")),
