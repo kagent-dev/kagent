@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -10,12 +11,16 @@ import (
 
 // Agent defines the agent operations
 type Agent interface {
-	ListAgents(ctx context.Context) (*api.StandardResponse[[]api.AgentResponse], error)
-	ListAgentsForNamespace(ctx context.Context, namespace string) (*api.StandardResponse[[]api.AgentResponse], error)
+	ListAgents(ctx context.Context, opts ...ListAgentsOptions) (*api.StandardResponse[[]api.AgentResponse], error)
 	CreateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
 	GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error)
 	UpdateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
 	DeleteAgent(ctx context.Context, agentRef string) error
+}
+
+// ListAgentsOptions configures ListAgents requests.
+type ListAgentsOptions struct {
+	Namespace string
 }
 
 // agentClient handles agent-related requests
@@ -28,34 +33,18 @@ func NewAgentClient(client *BaseClient) Agent {
 	return &agentClient{client: client}
 }
 
-// ListAgents lists all agents for a user
-func (c *agentClient) ListAgents(ctx context.Context) (*api.StandardResponse[[]api.AgentResponse], error) {
+// ListAgents lists all agents for a user. When Namespace is set, only agents in that namespace are returned.
+func (c *agentClient) ListAgents(ctx context.Context, opts ...ListAgentsOptions) (*api.StandardResponse[[]api.AgentResponse], error) {
 	userID := c.client.GetUserIDOrDefault("")
 	if userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
 
-	resp, err := c.client.Get(ctx, "/api/agents", userID)
-	if err != nil {
-		return nil, err
+	path := "/api/agents"
+	if len(opts) > 0 && opts[0].Namespace != "" {
+		path += "/" + url.PathEscape(opts[0].Namespace)
 	}
 
-	var response api.StandardResponse[[]api.AgentResponse]
-	if err := DecodeResponse(resp, &response); err != nil {
-		return nil, err
-	}
-
-	return &response, nil
-}
-
-// ListAgentsForNamespace lists agents in the given namespace.
-func (c *agentClient) ListAgentsForNamespace(ctx context.Context, namespace string) (*api.StandardResponse[[]api.AgentResponse], error) {
-	userID := c.client.GetUserIDOrDefault("")
-	if userID == "" {
-		return nil, fmt.Errorf("userID is required")
-	}
-
-	path := fmt.Sprintf("/api/agents/%s", namespace)
 	resp, err := c.client.Get(ctx, path, userID)
 	if err != nil {
 		return nil, err
