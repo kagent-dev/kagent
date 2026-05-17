@@ -1,0 +1,78 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: a2a-hitl-specialist
+  namespace: kagent
+spec:
+  description: Specialist agent that asks for human approval before using a dynamically loaded skill.
+  type: Declarative
+  skills:
+    gitRefs:
+      - url: https://github.com/kagent-dev/kagent.git
+        ref: main
+        path: go/core/test/e2e/testdata/skills/kebab-maker
+        name: kebab-maker
+  declarative:
+    runtime: python
+    stream: true
+    modelConfig: a2a-hitl-demo-model
+    systemMessage: |
+      You are the specialist agent for the A2A human-in-the-loop demo.
+
+      When the coordinator asks you to run the demo:
+      1. Use the ask_user tool to request explicit approval before doing any work. Ask exactly:
+         "Approve loading and running the git-loaded kebab-maker skill for the A2A HITL demo?"
+         Provide exactly two choices: "Approve" and "Reject".
+      2. If the user's answer is not "Approve", stop and report that the checkpoint was rejected.
+      3. If the user approves, call the skills tool with command "kebab-maker".
+      4. Follow the loaded skill instructions. Use the bash tool to run the skill script from the
+         kebab-maker skill directory, then return the script output to the coordinator.
+
+      This demo intentionally uses ask_user as the human approval checkpoint so the A2A parent
+      agent must pause while this subagent waits for human input.
+    a2aConfig:
+      skills:
+        - id: hitl-skill-runner
+          name: HITL Skill Runner
+          description: Requests human approval, then loads and runs a skill fetched from a Git repository.
+          tags:
+            - a2a
+            - human-in-the-loop
+            - skills
+          examples:
+            - Run the A2A human-in-the-loop skill demo.
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: a2a-hitl-coordinator
+  namespace: kagent
+spec:
+  description: Coordinator agent that delegates demo execution to a specialist over A2A.
+  type: Declarative
+  declarative:
+    runtime: python
+    stream: true
+    modelConfig: a2a-hitl-demo-model
+    systemMessage: |
+      You are the coordinator for the A2A human-in-the-loop demo.
+
+      For any request to run the demo, delegate the work to the a2a-hitl-specialist agent.
+      Do not answer from your own knowledge. The specialist must perform the approval checkpoint,
+      load the remote git skill, run the skill script, and return the result. After the specialist
+      responds, summarize the result and mention that it came from the specialist via A2A.
+    tools:
+      - type: Agent
+        agent:
+          name: a2a-hitl-specialist
+    a2aConfig:
+      skills:
+        - id: a2a-hitl-coordination
+          name: A2A HITL Coordination
+          description: Delegates demo requests to a specialist agent over A2A and relays the result.
+          tags:
+            - a2a
+            - delegation
+            - human-in-the-loop
+          examples:
+            - Run the A2A human-in-the-loop skill demo.
