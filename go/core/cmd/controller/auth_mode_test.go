@@ -29,6 +29,16 @@ func TestGetAuthenticator(t *testing.T) {
 			authCfg:  app.AuthConfig{Mode: "trusted-proxy", UserIDClaim: "user_id"},
 			wantType: "*auth.ProxyAuthenticator",
 		},
+		{
+			name: "external-bearer mode uses ExternalBearerAuthenticator",
+			authCfg: app.AuthConfig{
+				Mode: "external-bearer",
+				ExternalBearer: app.ExternalBearerAuthConfig{
+					URL: "https://auth.example.com/validate",
+				},
+			},
+			wantType: "*auth.ExternalBearerAuthenticator",
+		},
 	}
 
 	for _, tt := range tests {
@@ -42,13 +52,13 @@ func TestGetAuthenticator(t *testing.T) {
 	}
 }
 
-func TestGetAuthenticatorPanicsOnExternalBearerPlaceholder(t *testing.T) {
+func TestGetAuthenticatorPanicsOnExternalBearerMissingURL(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Fatal("expected panic for external-bearer placeholder, got none")
+			t.Fatal("expected panic for external-bearer missing URL, got none")
 		}
-		if got, want := r.(string), "auth mode external-bearer is recognized but not implemented in this slice"; got != want {
+		if got, want := r.(string), "external-bearer auth requires auth-external-bearer-url"; got != want {
 			t.Fatalf("panic = %q, want %q", got, want)
 		}
 	}()
@@ -74,6 +84,8 @@ func getTypeName(v auth.AuthProvider) string {
 		return "*auth.UnsecureAuthenticator"
 	case *authimpl.ProxyAuthenticator:
 		return "*auth.ProxyAuthenticator"
+	case *authimpl.ExternalBearerAuthenticator:
+		return "*auth.ExternalBearerAuthenticator"
 	default:
 		return "unknown"
 	}
