@@ -50,16 +50,7 @@ func getAuthenticator(authCfg app.AuthConfig) pkgauth.AuthProvider {
 	case "unsecure":
 		return &auth.UnsecureAuthenticator{}
 	case "external-bearer":
-		authenticator, err := auth.NewExternalBearerAuthenticator(auth.ExternalBearerAuthenticatorConfig{
-			URL:                     authCfg.ExternalBearer.URL,
-			Timeout:                 authCfg.ExternalBearer.Timeout,
-			UserIDClaim:             authCfg.UserIDClaim,
-			ValidationAuthorization: authCfg.ExternalBearer.ValidationAuthorization,
-		})
-		if err != nil {
-			panic(err.Error())
-		}
-		return authenticator
+		panic("auth mode external-bearer is recognized but not implemented in this slice")
 	default:
 		panic(fmt.Sprintf("unknown auth mode: %s (valid modes: unsecure, trusted-proxy, external-bearer)", authCfg.Mode))
 	}
