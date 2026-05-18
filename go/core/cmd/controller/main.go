@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -41,13 +43,15 @@ func main() {
 	}, nil)
 }
 
-func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthProvider {
+func getAuthenticator(authCfg app.AuthConfig) pkgauth.AuthProvider {
 	switch authCfg.Mode {
 	case "trusted-proxy":
 		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
 	case "unsecure":
 		return &auth.UnsecureAuthenticator{}
+	case "external-bearer":
+		panic("auth mode external-bearer is recognized but not implemented in this slice")
 	default:
-		panic("unknown auth mode: " + authCfg.Mode + " (valid modes: unsecure, trusted-proxy)")
+		panic(fmt.Sprintf("unknown auth mode: %s (valid modes: unsecure, trusted-proxy, external-bearer)", authCfg.Mode))
 	}
 }

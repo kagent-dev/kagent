@@ -1,3 +1,5 @@
+{{- $externalBearerPolicy := .Values.controller.auth.externalBearer.policy -}}
+{{- $externalBearerPolicyEnabled := or $externalBearerPolicy.inline $externalBearerPolicy.existingConfigMap.name -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +17,9 @@ spec:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/controller-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/postgresql-secret.yaml") . | sha256sum }}
+        {{- if $externalBearerPolicy.inline }}
+        checksum/external-bearer-policy: {{ include (print $.Template.BasePath "/external-bearer-policy-configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.controller.podAnnotations | default .Values.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -30,10 +35,18 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if gt (len .Values.controller.volumes) 0 }}
+      {{- if or (gt (len .Values.controller.volumes) 0) $externalBearerPolicyEnabled }}
       volumes:
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if $externalBearerPolicyEnabled }}
+      - name: external-bearer-policy
+        configMap:
+          name: {{ default (printf "%s-external-bearer-policy" (include "kagent.fullname" .)) $externalBearerPolicy.existingConfigMap.name | quote }}
+          items:
+            - key: {{ default "policy.json" $externalBearerPolicy.existingConfigMap.key | quote }}
+              path: policy.json
       {{- end }}
       {{- end }}
       {{- with .Values.controller.nodeSelector }}
@@ -66,6 +79,39 @@ spec:
             {{- if .Values.controller.auth.userIdClaim }}
             - name: AUTH_USER_ID_CLAIM
               value: {{ .Values.controller.auth.userIdClaim | quote }}
+            {{- end }}
+            {{- with .Values.controller.auth.externalBearer.url }}
+            - name: AUTH_EXTERNAL_BEARER_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.auth.externalBearer.timeout }}
+            - name: AUTH_EXTERNAL_BEARER_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.auth.externalBearer.cacheTTL }}
+            - name: AUTH_EXTERNAL_BEARER_CACHE_TTL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if gt (int .Values.controller.auth.externalBearer.cacheMaxEntries) 0 }}
+            - name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
+              value: {{ .Values.controller.auth.externalBearer.cacheMaxEntries | quote }}
+            {{- end }}
+            {{- if .Values.controller.auth.externalBearer.propagateToken }}
+            - name: AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN
+              value: "true"
+            {{- end }}
+            {{- with .Values.controller.auth.externalBearer.validationAuthorization.secretRef }}
+            {{- if and .name .key }}
+            - name: AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if $externalBearerPolicyEnabled }}
+            - name: AUTH_EXTERNAL_BEARER_POLICY_FILE
+              value: "/etc/kagent/external-bearer/policy.json"
             {{- end }}
             {{- if .Values.database.postgres.urlFile }}
             - name: POSTGRES_DATABASE_URL_FILE
@@ -114,9 +160,15 @@ spec:
               path: /health
               port: http
             periodSeconds: 30
-          {{- if gt (len .Values.controller.volumeMounts) 0 }}
+          {{- if or (gt (len .Values.controller.volumeMounts) 0) $externalBearerPolicyEnabled }}
           volumeMounts:
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if $externalBearerPolicyEnabled }}
+            - name: external-bearer-policy
+              mountPath: /etc/kagent/external-bearer/policy.json
+              subPath: policy.json
+              readOnly: true
             {{- end }}
           {{- end }}

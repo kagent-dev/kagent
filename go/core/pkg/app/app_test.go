@@ -390,21 +390,30 @@ func TestMapValueWithLoadFromEnvEqualsInValue(t *testing.T) {
 
 func TestLoadFromEnvIntegration(t *testing.T) {
 	envVars := map[string]string{
-		"METRICS_BIND_ADDRESS":           ":9090",
-		"HEALTH_PROBE_BIND_ADDRESS":      ":8081",
-		"LEADER_ELECT":                   "true",
-		"METRICS_SECURE":                 "false",
-		"ENABLE_HTTP2":                   "true",
-		"DEFAULT_MODEL_CONFIG_NAME":      "custom-model",
-		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
-		"HTTP_SERVER_ADDRESS":            ":9000",
-		"A2A_BASE_URL":                   "http://example.com:9000",
-		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
-		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
-		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
-		"STREAMING_TIMEOUT":              "120s",
-		"STREAMING_MAX_BUF_SIZE":         "2Mi",
-		"STREAMING_INITIAL_BUF_SIZE":     "8Ki",
+		"METRICS_BIND_ADDRESS":                          ":9090",
+		"HEALTH_PROBE_BIND_ADDRESS":                     ":8081",
+		"LEADER_ELECT":                                  "true",
+		"METRICS_SECURE":                                "false",
+		"ENABLE_HTTP2":                                  "true",
+		"DEFAULT_MODEL_CONFIG_NAME":                     "custom-model",
+		"DEFAULT_MODEL_CONFIG_NAMESPACE":                "custom-ns",
+		"HTTP_SERVER_ADDRESS":                           ":9000",
+		"A2A_BASE_URL":                                  "http://example.com:9000",
+		"PROXY_URL":                                     "http://proxy.kagent.svc.cluster.local:8080",
+		"POSTGRES_DATABASE_URL":                         "postgres://localhost:5432/testdb",
+		"WATCH_NAMESPACES":                              "ns1,ns2,ns3",
+		"STREAMING_TIMEOUT":                             "120s",
+		"STREAMING_MAX_BUF_SIZE":                        "2Mi",
+		"STREAMING_INITIAL_BUF_SIZE":                    "8Ki",
+		"AUTH_MODE":                                     "external-bearer",
+		"AUTH_USER_ID_CLAIM":                            "email",
+		"AUTH_EXTERNAL_BEARER_URL":                      "https://auth.example.com/validate",
+		"AUTH_EXTERNAL_BEARER_TIMEOUT":                  "3s",
+		"AUTH_EXTERNAL_BEARER_CACHE_TTL":                "30s",
+		"AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES":        "42",
+		"AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN":          "true",
+		"AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION": "Bearer validation-token",
+		"AUTH_EXTERNAL_BEARER_POLICY_FILE":              "/etc/kagent/external-bearer/policy.json",
 	}
 
 	for k, v := range envVars {
@@ -458,6 +467,33 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.Streaming.Timeout != 120*time.Second {
 		t.Errorf("Streaming.Timeout = %v, want 120s", cfg.Streaming.Timeout)
+	}
+	if cfg.Auth.Mode != "external-bearer" {
+		t.Errorf("Auth.Mode = %v, want external-bearer", cfg.Auth.Mode)
+	}
+	if cfg.Auth.UserIDClaim != "email" {
+		t.Errorf("Auth.UserIDClaim = %v, want email", cfg.Auth.UserIDClaim)
+	}
+	if cfg.Auth.ExternalBearer.URL != "https://auth.example.com/validate" {
+		t.Errorf("Auth.ExternalBearer.URL = %v, want https://auth.example.com/validate", cfg.Auth.ExternalBearer.URL)
+	}
+	if cfg.Auth.ExternalBearer.Timeout != 3*time.Second {
+		t.Errorf("Auth.ExternalBearer.Timeout = %v, want 3s", cfg.Auth.ExternalBearer.Timeout)
+	}
+	if cfg.Auth.ExternalBearer.CacheTTL != 30*time.Second {
+		t.Errorf("Auth.ExternalBearer.CacheTTL = %v, want 30s", cfg.Auth.ExternalBearer.CacheTTL)
+	}
+	if cfg.Auth.ExternalBearer.CacheMaxEntries != 42 {
+		t.Errorf("Auth.ExternalBearer.CacheMaxEntries = %v, want 42", cfg.Auth.ExternalBearer.CacheMaxEntries)
+	}
+	if !cfg.Auth.ExternalBearer.PropagateToken {
+		t.Errorf("Auth.ExternalBearer.PropagateToken = false, want true")
+	}
+	if cfg.Auth.ExternalBearer.ValidationAuthorization != "Bearer validation-token" {
+		t.Errorf("Auth.ExternalBearer.ValidationAuthorization = %v, want Bearer validation-token", cfg.Auth.ExternalBearer.ValidationAuthorization)
+	}
+	if cfg.Auth.ExternalBearer.PolicyFile != "/etc/kagent/external-bearer/policy.json" {
+		t.Errorf("Auth.ExternalBearer.PolicyFile = %v, want /etc/kagent/external-bearer/policy.json", cfg.Auth.ExternalBearer.PolicyFile)
 	}
 
 	// Check quantity values

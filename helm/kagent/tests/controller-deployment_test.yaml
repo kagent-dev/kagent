@@ -3,6 +3,7 @@ templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
   - postgresql-secret.yaml
+  - external-bearer-policy-configmap.yaml
 tests:
   - it: should render controller deployment with default values
     template: controller-deployment.yaml
@@ -93,6 +94,151 @@ tests:
       - equal:
           path: data.A2A_BASE_URL
           value: "https://kagent.example.com"
+
+  - it: should not render external bearer env by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_URL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_POLICY_FILE
+
+  - it: should render external bearer auth env when configured
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/validate"
+            timeout: "3s"
+            cacheTTL: "30s"
+            cacheMaxEntries: 42
+            propagateToken: true
+            validationAuthorization:
+              secretRef:
+                name: "validation-auth"
+                key: "authorization"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_MODE
+            value: "external-bearer"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_URL
+            value: "https://auth.example.com/validate"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_TIMEOUT
+            value: "3s"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CACHE_TTL
+            value: "30s"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
+            value: "42"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION
+            valueFrom:
+              secretKeyRef:
+                name: "validation-auth"
+                key: "authorization"
+
+  - it: should render external bearer inline policy configmap and mount
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          externalBearer:
+            policy:
+              inline: |
+                {"serviceActors":{}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_POLICY_FILE
+            value: "/etc/kagent/external-bearer/policy.json"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: external-bearer-policy
+            configMap:
+              name: "RELEASE-NAME-external-bearer-policy"
+              items:
+                - key: "policy.json"
+                  path: policy.json
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: external-bearer-policy
+            mountPath: /etc/kagent/external-bearer/policy.json
+            subPath: policy.json
+            readOnly: true
+
+  - it: should render external bearer existing policy configmap mount
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          externalBearer:
+            policy:
+              existingConfigMap:
+                name: "existing-policy"
+                key: "custom.json"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: external-bearer-policy
+            configMap:
+              name: "existing-policy"
+              items:
+                - key: "custom.json"
+                  path: policy.json
+
+  - it: should render external bearer inline policy configmap
+    template: external-bearer-policy-configmap.yaml
+    set:
+      controller:
+        auth:
+          externalBearer:
+            policy:
+              inline: |
+                {"serviceActors":{}}
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-external-bearer-policy
+      - equal:
+          path: data["policy.json"]
+          value: |
+            {"serviceActors":{}}
 
   - it: should set PROXY_URL when set
     template: controller-configmap.yaml

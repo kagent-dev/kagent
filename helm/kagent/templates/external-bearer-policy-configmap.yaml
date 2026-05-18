@@ -1,0 +1,12 @@
+{{- with .Values.controller.auth.externalBearer.policy.inline }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" $ }}-external-bearer-policy
+  namespace: {{ include "kagent.namespace" $ }}
+  labels:
+    {{- include "kagent.controller.labels" $ | nindent 4 }}
+data:
+  policy.json: |
+{{ . | indent 4 }}
+{{- end }}
