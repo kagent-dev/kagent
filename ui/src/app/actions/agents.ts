@@ -562,12 +562,14 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
 }
 
 /**
- * Gets all agents
- * @returns A promise with all agents
+ * Gets all agents, optionally filtered by namespace.
+ * @param opts.namespace When set, calls `/agents?namespace=<ns>`; otherwise calls `/agents`.
+ * @returns A promise with the matching agents
  */
-export async function getAgents(): Promise<BaseResponse<AgentResponse[]>> {
+export async function getAgents(opts: { namespace?: string } = {}): Promise<BaseResponse<AgentResponse[]>> {
   try {
-    const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents`);
+    const path = opts.namespace ? `/agents?namespace=${encodeURIComponent(opts.namespace)}` : `/agents`;
+    const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(path);
 
     const sortedData = data?.sort((a, b) => {
       const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
