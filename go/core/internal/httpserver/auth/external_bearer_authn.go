@@ -116,6 +116,9 @@ func (a *ExternalBearerAuthenticator) Authenticate(ctx context.Context, reqHeade
 	}
 
 	if isServiceTokenClaims(claims) {
+		// Service actor policy/classification is handled in a later slice. Until then,
+		// positively identified service-token claims must not fall through to human
+		// user propagation via username/sub fallbacks.
 		return nil, ErrUnauthenticated
 	}
 
@@ -127,7 +130,7 @@ func (a *ExternalBearerAuthenticator) Authenticate(ctx context.Context, reqHeade
 	return &externalBearerSession{
 		P: auth.Principal{
 			User:   auth.User{ID: userID},
-			Claims: claims,
+			Claims: claimsWithoutRawBearerToken(claims, token),
 		},
 		bearerToken: token,
 		expiresAt:   expiresAt,
@@ -275,6 +278,47 @@ func isJSONContentType(contentType string) bool {
 func isServiceTokenClaims(claims map[string]any) bool {
 	grantType, _ := claims["grant_type"].(string)
 	return strings.EqualFold(grantType, "client_credentials")
+}
+
+func claimsWithoutRawBearerToken(claims map[string]any, token string) map[string]any {
+	if token == "" {
+		return claims
+	}
+	sanitized := make(map[string]any, len(claims))
+	for key, value := range claims {
+		if sanitizedValue, ok := sanitizeClaimValue(value, token); ok {
+			sanitized[key] = sanitizedValue
+		}
+	}
+	return sanitized
+}
+
+func sanitizeClaimValue(value any, token string) (any, bool) {
+	switch typed := value.(type) {
+	case string:
+		if strings.Contains(typed, token) {
+			return nil, false
+		}
+		return typed, true
+	case []any:
+		sanitized := make([]any, 0, len(typed))
+		for _, item := range typed {
+			if sanitizedItem, ok := sanitizeClaimValue(item, token); ok {
+				sanitized = append(sanitized, sanitizedItem)
+			}
+		}
+		return sanitized, true
+	case map[string]any:
+		sanitized := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if sanitizedItem, ok := sanitizeClaimValue(item, token); ok {
+				sanitized[key] = sanitizedItem
+			}
+		}
+		return sanitized, true
+	default:
+		return value, true
+	}
 }
 
 func identityFromClaims(claims map[string]any, userIDClaim string) string {
