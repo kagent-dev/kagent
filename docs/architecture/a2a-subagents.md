@@ -42,7 +42,7 @@ On success, `run_async` returns:
 
 On the subagent side, `KAgentRequestContextBuilder` reads these headers and passes them through to `_prepare_session`, which calls `KAgentSessionService.create_session()` with `source="subagent"`. The Go layer stores this in a `Source` column and excludes such sessions from `ListSessionsForAgent`.
 
-The planned `external-bearer` auth mode keeps this user-continuity boundary generic: A2A/subagent calls continue to use `X-User-Id`, while forwarding the inbound bearer token is configurable and opt-in.
+The planned `external-bearer` auth mode keeps this user-continuity boundary generic for human users: A2A/subagent calls may continue to use `X-User-Id` for user continuity, while forwarding the inbound bearer token is configurable and opt-in. Validated service actors should not receive a human-looking `X-User-Id` by default; they require explicit service-actor semantics and local A2A policy bounds.
 
 ---
 

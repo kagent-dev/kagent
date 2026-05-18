@@ -151,7 +151,8 @@ Authentication to the introspection endpoint should support the existing generic
 Credential precedence must be explicit:
 
 - if `ValidationAuthorization` is set, use that value exactly as the introspection `Authorization` header and reject simultaneous `ClientID`/`ClientSecret` config;
-- otherwise, if `ClientID` and `ClientSecret` are set, use HTTP Basic auth;
+- otherwise, if `ClientID` and `ClientSecret` are both set, use HTTP Basic auth;
+- reject partial Basic-auth config when exactly one of `ClientID` or `ClientSecret` is set;
 - otherwise, fail startup unless unauthenticated introspection is explicitly enabled for tests or local development.
 
 The implementation should cap the introspection response body size before JSON decoding; 64 KiB is sufficient for normal introspection responses and prevents unbounded reads from a configured external endpoint. The introspection URL should require HTTPS by default for non-localhost endpoints.
@@ -162,7 +163,7 @@ Response mapping uses the same internal validation model:
 - `username` is a user ID candidate.
 - `sub` is the subject and user ID fallback.
 - `client_id` is a service-actor policy input for client-credentials/service-token use cases, but not sufficient by itself to classify a service actor.
-- `exp` maps to `expires_at`.
+- `exp` maps to `expires_at`; if present and already expired, fail closed as defense-in-depth and never cache past `exp`.
 - `scope`, `aud`, `iss`, `grant_type`, and any additional response fields are preserved in `Principal.Claims`.
 - `aud` matching must support both string and list-of-strings response forms.
 - `scope` matching should implement the RFC space-separated string form and may tolerate provider-specific array forms as an extension.
@@ -178,7 +179,9 @@ Direct RFC 7662 integration should not depend on a custom validator returning de
 - allowed issuers, matched against `iss` when present;
 - service-actor allowlists keyed by composite claim predicates such as `client_id` plus `grant_type`, `scope`, `aud`, or another scalar claim returned by introspection.
 
-These checks are optional for human-user authentication. Service-actor classification is stricter: service actors require explicit local policy and at least one positive kagent-specific binding, such as required scope, allowed audience, issuer plus client identity, or another configured token-class claim. If no service-actor policy matches, the request remains a user-authenticated request when a user identity is resolvable, or is rejected when no user identity is resolvable.
+These checks are optional for human-user authentication. Service-actor classification is stricter: service actors require explicit local policy and at least one positive kagent-specific binding, such as required scope, allowed audience, issuer plus client identity, or another configured token-class claim.
+
+If the introspection response positively indicates a service/client-credentials token — for example `grant_type=client_credentials`, a configured token-class claim, or another configured service-token indicator — then failure to match `serviceActors[*].match.allOf` must reject the request. Such a token must not fall back to user authentication through `sub`, `username`, or another user ID fallback. If no service-token indicator is present and no service-actor policy matches, the request may remain a user-authenticated request when a user identity is resolvable.
 
 For RFC 7662, `active: true` is necessary but not sufficient for service-actor access. kagent still applies configured generic claim checks and local A2A policy before allowing bounded service-actor traffic.
 
@@ -255,7 +258,9 @@ Rules:
 - Top-level `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are optional for user authentication. Service actors require explicit local policy and at least one positive kagent-specific binding through scope, audience, issuer plus client identity, or another configured claim.
 - `serviceActors` maps a local stable actor ID to provider-neutral claim predicates.
 - `match.allOf` is required for service actors and contains one or more predicate objects.
-- Supported predicate operators are `value` for exact scalar/list membership and `contains` for scope membership or list membership.
+- Supported predicate operators are `value` for exact scalar/list membership and `contains` for exact scope-token membership or list membership. Scope `contains` must split RFC space-separated scope strings and must not use substring matching.
+- `requiredScopes` means all listed scopes must be present.
+- `allowedAudiences` and `allowedIssuers` mean any configured value may match; when configured, a missing corresponding claim fails.
 - `client_id` alone is not sufficient to classify a service actor unless the deployment can prove that client can only issue client-credentials tokens; prefer matching `client_id` plus `grant_type`, scope, audience, or another token-class claim.
 - `namespace`, `name`, and `workloadType` are required for each `allowedA2A` target.
 - `workloadType` values are `agent`, `sandbox`, or `*`.
@@ -263,6 +268,7 @@ Rules:
 - User actors are allowed through this A2A-specific check.
 - Service actors are denied A2A access unless explicitly matched and allowed.
 - If no policy file is configured, service actors are denied all A2A access.
+- Policy validation rejects empty `match.allOf`, predicate objects that specify both `value` and `contains`, unknown predicate operators, unknown `workloadType`, and partial wildcards such as `foo*`.
 - Service actors are denied non-A2A API access by default in this plan.
 - The first policy implementation should bound A2A targets and add the default-deny non-A2A service-actor guard; broad human-user API authorization remains out of scope.
 
@@ -272,12 +278,12 @@ The A2A mux hook only protects A2A dispatch. It does not see `/api/me`, general 
 
 ```text
 if session is an external-bearer service actor
-  and request path is not /api/a2a/*
-  and request path is not /api/a2a-sandboxes/*
+  and request path is not an exact route-segment match under /api/a2a/{namespace}/{name}
+  and request path is not an exact route-segment match under /api/a2a-sandboxes/{namespace}/{name}
 then return 403
 ```
 
-This guard should run before general API handlers. Existing user sessions and existing auth modes are unaffected. A2A and A2A sandbox paths continue into the A2A mux, where the target-specific `A2AAccessProvider` check applies.
+This guard should run before general API handlers. Existing user sessions and existing auth modes are unaffected. A2A and A2A sandbox paths continue into the A2A mux, where the target-specific `A2AAccessProvider` check applies. The guard must not use naive string prefixes; add negative tests for `/api/a2aevil`, `/api/a2a-sandboxesevil`, encoded paths, and paths missing namespace/name segments.
 
 ### Minimal A2A access seam
 
@@ -361,6 +367,7 @@ Defaults:
 - `app.Config.Auth` uses a named `AuthConfig` with existing `Mode` and `UserIDClaim` fields preserved.
 - `ExternalBearerAuthConfig` exists with URL, timeout, cache, token propagation, validation authorization, RFC 7662 client authentication, unauthenticated-introspection opt-in, and policy file fields.
 - Startup rejects ambiguous introspection auth config, including simultaneous `ValidationAuthorization` and `ClientID`/`ClientSecret`.
+- Startup rejects partial Basic-auth config when exactly one of `ClientID` or `ClientSecret` is set.
 - Startup rejects unauthenticated introspection unless the explicit test/local-development opt-in is set.
 - Flags/env load correctly for:
   - `--auth-external-bearer-url` / `AUTH_EXTERNAL_BEARER_URL`
@@ -401,7 +408,7 @@ Defaults:
 - It maps `Principal.User.ID`, optional `Principal.Agent.ID`, and raw `Principal.Claims` from the validation response.
 - It does not trust `X-Agent-Name`, `X-User-Id`, or `user_id` query params as identity sources.
 - Cache behavior is not implemented in this item; cache config remains reserved for a later slice.
-- Unit tests cover active/inactive tokens, missing `active`, malformed responses, unsupported content, `401`/`403`/`500` responses, slow responses, oversized responses, missing identity, service actor metadata, identity fallback order, RFC 7662 request shape, Basic auth, auth-header precedence conflicts, HTTPS enforcement, RFC 7662 field mapping, `aud` string/list handling, `scope` string handling, and preservation of `client_id`/`scope`/`aud`/`iss` claims for later policy evaluation.
+- Unit tests cover active/inactive tokens, missing `active`, malformed responses, unsupported content, `401`/`403`/`500` responses, slow responses, oversized responses, missing identity, service actor metadata, service-token fallthrough rejection, identity fallback order, RFC 7662 request shape, Basic auth, partial Basic-auth config rejection, auth-header precedence conflicts, HTTPS enforcement, expired `exp` defense-in-depth, RFC 7662 field mapping, `aud` string/list handling, `scope` exact token handling, and preservation of `client_id`/`scope`/`aud`/`iss` claims for later policy evaluation.
 
 **Key files:**
 
@@ -474,12 +481,13 @@ Defaults:
 - Invalid policy JSON fails controller startup.
 - Optional `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are evaluated against validation/introspection claims before the session is accepted.
 - Service actors are identified by matching composite configured claim predicates such as `client_id` plus `grant_type`, scope, audience, or another token-class claim, not by trusting caller-supplied headers.
+- A token that positively indicates a service/client-credentials token but fails to match `serviceActors[*].match.allOf` is rejected and must not fall back to user authentication through `sub` or `username`.
 - A token that matches only `client_id` is not classified as a service actor unless the policy explicitly documents and tests that the client is service-only.
 - Service actors are denied A2A by default.
 - A concrete post-auth middleware or `AuthnMiddleware` guard denies external-bearer service actors on non-A2A paths before general API handlers run.
 - User actors pass the A2A-specific policy check and continue through normal API auth behavior.
 - Exact matching and whole-field `*` wildcards work for namespace, name, and workload type.
-- Tests cover no policy file, required-scope pass/fail, audience/issuer pass/fail, composite service actor claim match, client-id-only non-match, allowed exact target, denied A2A target, denied non-A2A API route, wildcard target, sandbox target, malformed policy, and missing session metadata.
+- Tests cover no policy file, required-scope pass/fail, audience/issuer pass/fail including missing configured claims, exact scope-token matching, composite service actor claim match, service-token fallthrough rejection, client-id-only non-match, allowed exact target, denied A2A target, route-segment non-A2A guard negatives, wildcard target, sandbox target, malformed policy, empty `allOf`, invalid predicate objects, partial wildcards, unknown workload type, and missing session metadata.
 
 **Key files:**
 
@@ -618,7 +626,7 @@ Defaults:
 
 ## Open Questions
 
-None blocking for the first implementation slice. The plan chooses a single-validator external-bearer mode using RFC 7662 token introspection, private service-actor session metadata, composite service-actor policy matching, deterministic cache expiry, and a concrete non-A2A service-actor deny guard. Provider-specific integrations, provider registries, local JWT/JWKS validation, and custom validator protocols remain out of scope.
+None blocking for the first implementation slice. The plan chooses a single-validator external-bearer mode using RFC 7662 token introspection, private service-actor session metadata, composite service-actor policy matching with service-token fallthrough rejection, deterministic cache expiry, and a concrete route-aware non-A2A service-actor deny guard. Provider-specific integrations, provider registries, local JWT/JWKS validation, and custom validator protocols remain out of scope.
 
 ## References
 
