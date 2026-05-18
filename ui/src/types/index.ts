@@ -289,7 +289,6 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
-  memory?: MemorySpec;
 }
 
 export interface DeclarativeDeploymentSpec {
