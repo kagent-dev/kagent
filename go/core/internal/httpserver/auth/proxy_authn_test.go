@@ -159,74 +159,7 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 	}
 }
 
-func TestProxyAuthenticator_JWTWithAgentHeader(t *testing.T) {
-	tests := []struct {
-		name        string
-		claims      map[string]any
-		agentName   string
-		wantUserID  string
-		wantAgentID string
-	}{
-		{
-			name: "extracts agent identity from header when JWT is present",
-			claims: map[string]any{
-				"sub": "system:serviceaccount:kagent:kebab-agent",
-				"iss": "https://kubernetes.default.svc.cluster.local",
-				"aud": []any{"kagent"},
-			},
-			agentName:   "kagent__NS__kebab_agent",
-			wantUserID:  "system:serviceaccount:kagent:kebab-agent",
-			wantAgentID: "kagent__NS__kebab_agent",
-		},
-		{
-			name: "works with OIDC JWT and agent header",
-			claims: map[string]any{
-				"sub":   "user123",
-				"email": "user@example.com",
-			},
-			agentName:   "kagent__NS__my_agent",
-			wantUserID:  "user123",
-			wantAgentID: "kagent__NS__my_agent",
-		},
-		{
-			name: "handles JWT without agent header",
-			claims: map[string]any{
-				"sub": "user123",
-			},
-			agentName:   "",
-			wantUserID:  "user123",
-			wantAgentID: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			auth := authimpl.NewProxyAuthenticator("")
-
-			headers := http.Header{}
-			token := createTestJWT(tt.claims)
-			headers.Set("Authorization", "Bearer "+token)
-			if tt.agentName != "" {
-				headers.Set("X-Agent-Name", tt.agentName)
-			}
-
-			session, err := auth.Authenticate(context.Background(), headers, url.Values{})
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			principal := session.Principal()
-			if principal.User.ID != tt.wantUserID {
-				t.Errorf("User.ID = %q, want %q", principal.User.ID, tt.wantUserID)
-			}
-			if principal.Agent.ID != tt.wantAgentID {
-				t.Errorf("Agent.ID = %q, want %q", principal.Agent.ID, tt.wantAgentID)
-			}
-		})
-	}
-}
-
-func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
+func TestProxyAuthenticator_AgentCalls(t *testing.T) {
 	tests := []struct {
 		name        string
 		headers     map[string]string
@@ -236,35 +169,53 @@ func TestProxyAuthenticator_ServiceAccountFallback(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "authenticates via user_id query param with agent name",
-			queryParams: map[string]string{
-				"user_id": "system:serviceaccount:kagent:kebab-agent",
-			},
+			name: "agent with SA Bearer token and X-User-Id header uses header identity",
 			headers: map[string]string{
-				"X-Agent-Name": "kagent/kebab-agent",
+				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
+				"X-Agent-Name":  "kagent/test-agent",
+				"X-User-Id":     "user@example.com",
 			},
-			wantUserID:  "system:serviceaccount:kagent:kebab-agent",
-			wantAgentID: "kagent/kebab-agent",
-			wantErr:     false,
+			wantUserID:  "user@example.com",
+			wantAgentID: "kagent/test-agent",
 		},
 		{
-			name: "authenticates via X-User-Id header with agent name",
+			name: "agent with SA Bearer token and user_id query param uses query identity",
 			headers: map[string]string{
-				"X-User-Id":    "system:serviceaccount:kagent:test-agent",
-				"X-Agent-Name": "kagent/test-agent",
+				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
+				"X-Agent-Name":  "kagent/test-agent",
+			},
+			queryParams: map[string]string{
+				"user_id": "user@example.com",
+			},
+			wantUserID:  "user@example.com",
+			wantAgentID: "kagent/test-agent",
+		},
+		{
+			name: "agent with no X-User-Id falls back to SA sub claim",
+			headers: map[string]string{
+				"Authorization": "Bearer " + createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:test-agent"}),
+				"X-Agent-Name":  "kagent/test-agent",
 			},
 			wantUserID:  "system:serviceaccount:kagent:test-agent",
 			wantAgentID: "kagent/test-agent",
-			wantErr:     false,
 		},
+		// Error cases.
 		{
-			name:    "returns error when no auth method available",
+			name: "agent without Bearer token is rejected",
+			headers: map[string]string{
+				"X-Agent-Name": "kagent/test-agent",
+				"X-User-Id":    "user@example.com",
+			},
 			wantErr: true,
 		},
 		{
-			name: "returns error when no X-Agent-Name header for fallback",
+			name:    "no token and no X-Agent-Name is rejected",
+			wantErr: true,
+		},
+		{
+			name: "user_id without X-Agent-Name is rejected",
 			queryParams: map[string]string{
-				"user_id": "system:serviceaccount:kagent:kebab-agent",
+				"user_id": "user@example.com",
 			},
 			wantErr: true,
 		},
@@ -338,5 +289,10 @@ func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
 	// Verify the Authorization header was forwarded
 	if got := req.Header.Get("Authorization"); got != authHeader {
 		t.Errorf("Authorization header = %q, want %q", got, authHeader)
+	}
+
+	// Verify X-User-Id is forwarded so downstream A2A runtimes receive the real user identity
+	if got := req.Header.Get("X-User-Id"); got != "user123" {
+		t.Errorf("X-User-Id header = %q, want %q", got, "user123")
 	}
 }

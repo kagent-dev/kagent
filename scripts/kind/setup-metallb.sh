@@ -14,7 +14,18 @@ kubectl --context "kind-${KIND_CLUSTER_NAME}" rollout status -n metallb-system d
 kubectl --context "kind-${KIND_CLUSTER_NAME}" rollout status -n metallb-system daemonset/speaker --timeout 5m
 kubectl --context "kind-${KIND_CLUSTER_NAME}" wait -n metallb-system  pod -l app=metallb --for=condition=Ready --timeout=10s
 
-SUBNET=$(docker network inspect kind | jq -r '.[].IPAM.Config[].Subnet | select(contains(":") | not)' | cut -d '.' -f1,2)
+CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}
+# Docker uses .[].IPAM.Config[].Subnet, Podman uses .[].subnets[].subnet
+SUBNET=$("${CONTAINER_RUNTIME}" network inspect kind | jq -r '
+  [ .[].IPAM.Config[]?.Subnet, .[].subnets[]?.subnet ]
+  | map(select(. != null and (contains(":") | not)))
+  | .[0]
+' | cut -d '.' -f1,2)
+if [ -z "${SUBNET}" ] || [ "${SUBNET}" = "null" ]; then
+  echo "ERROR: could not detect IPv4 subnet for the 'kind' network."
+  echo "       Ensure the kind cluster is running and '${CONTAINER_RUNTIME} network inspect kind' returns a valid subnet."
+  exit 1
+fi
 MIN=${SUBNET}.255.0
 MAX=${SUBNET}.255.231
 

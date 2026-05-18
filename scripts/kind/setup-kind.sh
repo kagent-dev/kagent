@@ -6,28 +6,25 @@ set -o pipefail
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.35.0}
 
+# Auto-detect container runtime: prefer CONTAINER_RUNTIME env var,
+# fall back to podman if available, then docker.
+CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}
+
 # 1. Create registry container unless it already exists
 reg_name='kind-registry'
 reg_port='5001'
-if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != 'true' ]; then
-  docker run \
+if [ "$("${CONTAINER_RUNTIME}" inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != 'true' ]; then
+  "${CONTAINER_RUNTIME}" run \
     -d --restart=always -p "127.0.0.1:${reg_port}:5000" --network bridge --name "${reg_name}" \
     registry:2
 fi
 
 # 2. Create kind cluster with containerd registry config dir enabled
-#
-# NOTE: the containerd config patch is not necessary with images from kind v0.27.0+
-# It may enable some older images to work similarly.
-# If you're only supporting newer releases, you can just use `kind create cluster` here.
-#
-# See:
-# https://github.com/kubernetes-sigs/kind/issues/2875
-# https://github.com/containerd/containerd/blob/main/docs/cri/config.md#registry-configuration
-# See: https://github.com/containerd/containerd/blob/main/docs/hosts.md
 if kind get clusters | grep -qx "${KIND_CLUSTER_NAME}"; then
   echo "Kind cluster '${KIND_CLUSTER_NAME}' already exists; skipping create."
 else
+  # When using podman, set the KIND_EXPERIMENTAL_PROVIDER
+  export KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_RUNTIME}"
   kind create cluster --name "${KIND_CLUSTER_NAME}" \
     --config scripts/kind/kind-config.yaml \
     --image="kindest/node:v${KIND_IMAGE_VERSION}"
@@ -43,16 +40,16 @@ fi
 # alias localhost:${reg_port} to the registry container when pulling images
 REGISTRY_DIR="/etc/containerd/certs.d/localhost:${reg_port}"
 for node in $(kind get nodes --name "${KIND_CLUSTER_NAME}"); do
-  docker exec "${node}" mkdir -p "${REGISTRY_DIR}"
-  cat <<EOF | docker exec -i "${node}" cp /dev/stdin "${REGISTRY_DIR}/hosts.toml"
+  "${CONTAINER_RUNTIME}" exec "${node}" mkdir -p "${REGISTRY_DIR}"
+  cat <<EOF | "${CONTAINER_RUNTIME}" exec -i "${node}" cp /dev/stdin "${REGISTRY_DIR}/hosts.toml"
 [host."http://${reg_name}:5000"]
 EOF
 done
 
 # 4. Connect the registry to the cluster network if not already connected
 # This allows kind to bootstrap the network but ensures they're on the same network
-if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
-  docker network connect "kind" "${reg_name}"
+if [ "$("${CONTAINER_RUNTIME}" inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
+  "${CONTAINER_RUNTIME}" network connect "kind" "${reg_name}"
 fi
 
 # 5. Document the local registry

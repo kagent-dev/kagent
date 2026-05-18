@@ -288,7 +288,7 @@ jobs:
             --platform=linux/amd64,linux/arm64
             --push
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
-          DOCKER_BUILDER: "docker buildx"
+          DOCKER_BUILDER: "docker buildx build"
         run: make build-${{ matrix.image }}
         working-directory: ./
 

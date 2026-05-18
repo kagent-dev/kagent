@@ -24,7 +24,7 @@ app = typer.Typer()
 
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
-propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN")
+propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
@@ -79,7 +79,7 @@ def static(
         plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
 
         maybe_add_skills_with_config(root_agent, agent_config)
 
@@ -218,7 +218,7 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         plugins = [sts_integration]
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration)
+        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
         maybe_add_skills_with_config(root_agent, agent_config)
         return root_agent
 
