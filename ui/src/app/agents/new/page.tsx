@@ -200,7 +200,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
-                const memorySpec = decl?.memory ?? (agent.spec as { memory?: { modelConfig: string; ttlDays?: number } })?.memory;
+                const memorySpec = decl?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";

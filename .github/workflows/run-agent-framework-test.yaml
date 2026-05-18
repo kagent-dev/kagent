@@ -78,7 +78,7 @@ jobs:
     - name: 'Build Images'
       env:
         DOCKER_BUILD_ARGS: "--load --platform linux/amd64"
-        DOCKER_BUILDER: "docker buildx"
+        DOCKER_BUILDER: "docker buildx build"
         BUILD_ARGS: "--platform linux/amd64"
       run: |
         bash .github/data/agent-framework/0.setup.sh

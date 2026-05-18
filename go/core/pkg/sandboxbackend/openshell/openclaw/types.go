@@ -13,6 +13,7 @@ type bootstrapDocument struct {
 
 type gatewaySection struct {
 	Mode string      `json:"mode"`
+	Bind string      `json:"bind"`
 	Auth gatewayAuth `json:"auth"`
 	Port int         `json:"port"`
 }

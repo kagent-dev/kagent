@@ -26,6 +26,7 @@ from kagent.adk._remote_a2a_tool import (
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
     SubagentSessionProvider,
+    _SubagentInterceptor,
 )
 
 # ---------------------------------------------------------------------------
@@ -137,6 +138,44 @@ def _patch_client(tool: KAgentRemoteA2ATool, send_side_effect):
 def _approval_ctx(confirmed: bool, payload: dict | None = None, **kwargs) -> MockToolContext:
     confirmation = ToolConfirmation(confirmed=confirmed, payload=payload or {})
     return MockToolContext(tool_confirmation=confirmation, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# _SubagentInterceptor header propagation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentInterceptorHeaderPropagation:
+    """Tests for header propagation in _SubagentInterceptor via context state."""
+
+    async def _call_intercept(self, interceptor, state: dict) -> dict:
+        from a2a.client.middleware import ClientCallContext
+
+        ctx = ClientCallContext(state=state)
+        _, http_kwargs = await interceptor.intercept(
+            method_name="message/send",
+            request_payload={},
+            http_kwargs={},
+            agent_card=None,
+            context=ctx,
+        )
+        return http_kwargs.get("headers", {})
+
+    async def test_forwards_extra_headers_from_context_state(self):
+        interceptor = _SubagentInterceptor()
+        headers = await self._call_intercept(
+            interceptor,
+            state={"x-user-id": "user1", "_a2a_extra_headers": {"authorization": "Bearer test-jwt"}},
+        )
+        assert headers.get("authorization") == "Bearer test-jwt"
+
+    async def test_no_extra_headers_without_state_key(self):
+        interceptor = _SubagentInterceptor()
+        headers = await self._call_intercept(
+            interceptor,
+            state={"x-user-id": "user1", "authorization": "Bearer test-jwt"},
+        )
+        assert "authorization" not in headers
 
 
 # ---------------------------------------------------------------------------

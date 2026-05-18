@@ -23,13 +23,29 @@ KUBECONFIG_PERM ?= $(shell \
   fi)
 
 
-# Docker buildx configuration
+# Container runtime: "docker" (default) or "podman".
+# Set CONTAINER_RUNTIME=podman to use Podman for all container operations.
+CONTAINER_RUNTIME ?= docker
+
+# Buildx configuration
 BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
-DOCKER_BUILDER ?= docker buildx
-DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+ifeq ($(CONTAINER_RUNTIME),podman)
+  DOCKER_BUILDER ?= $(CONTAINER_RUNTIME) build
+  DOCKER_BUILD_ARGS ?= --platform linux/$(LOCALARCH)
+  # Podman needs a separate push step (no --push on build).
+  # --tls-verify=false is needed for local insecure registries (e.g. kind-registry).
+  # Override PODMAN_TLS_VERIFY=true when pushing to a remote TLS registry.
+  PODMAN_TLS_VERIFY ?= false
+  DOCKER_PUSH = $(CONTAINER_RUNTIME) push --tls-verify=$(PODMAN_TLS_VERIFY)
+else
+  DOCKER_BUILDER ?= $(CONTAINER_RUNTIME) buildx build
+  DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
+  # Docker buildx --push handles push inline; no separate push step needed.
+  DOCKER_PUSH = @true
+endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
@@ -159,36 +175,45 @@ check-api-key:
 
 .PHONY: buildx-create
 buildx-create:
-	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
-	docker buildx use $(BUILDX_BUILDER_NAME) || true
+ifeq ($(CONTAINER_RUNTIME),podman)
+	@echo "Podman detected; skipping buildx builder setup (using built-in buildx)."
+else
+	$(CONTAINER_RUNTIME) buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
+	$(CONTAINER_RUNTIME) buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	$(CONTAINER_RUNTIME) buildx use $(BUILDX_BUILDER_NAME) || true
+endif
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
 build-all: buildx-create
-	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
-	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
-	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
-	$(DOCKER_BUILDER) build $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: push-test-agent
 push-test-agent: buildx-create build-kagent-adk
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) build --push $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
 
 .PHONY: create-kind-cluster
 create-kind-cluster:
-	bash ./scripts/kind/setup-kind.sh
-	bash ./scripts/kind/setup-metallb.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster:
@@ -203,22 +228,24 @@ delete-kind-cluster:
 
 .PHONY: clean
 clean: prune-kind-cluster
-clean: prune-docker-images
-	docker buildx rm $(BUILDX_BUILDER_NAME)  -f || true
+clean: prune-images
+ifneq ($(CONTAINER_RUNTIME),podman)
+	$(CONTAINER_RUNTIME) buildx rm $(BUILDX_BUILDER_NAME)  -f || true
+endif
 	rm -rf ./go/core/bin
 
 .PHONY: prune-kind-cluster
 prune-kind-cluster:
-	echo "Pruning dangling docker images from kind  ..."
-	docker exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
-	grep '<none>' | awk '{print $3}' | xargs -r -n1 docker exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
+	echo "Pruning dangling container images from kind  ..."
+	$(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
+	grep '<none>' | awk '{print $$3}' | xargs -r -n1 $(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
 
-.PHONY: prune-docker-images
-prune-docker-images:
-	echo "Pruning dangling docker images ..."
-	docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
-	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $2}' | xargs -r docker rmi || :
-	docker images --filter dangling=true -q | xargs -r docker rmi || :
+.PHONY: prune-images
+prune-images:
+	echo "Pruning dangling container images ..."
+	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
+	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
+	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
 
 .PHONY: build
 build: buildx-create build-controller build-ui build-app build-golang-adk build-golang-adk-full build-skills-init
@@ -233,7 +260,11 @@ build: buildx-create build-controller build-ui build-app build-golang-adk build-
 
 .PHONY: build-monitor
 build-monitor: buildx-create
-	watch docker exec -t  buildx_buildkit_$(BUILDX_BUILDER_NAME)0  ps
+ifeq ($(CONTAINER_RUNTIME),podman)
+	@echo "build-monitor is not supported with Podman (no external buildkit container)"
+else
+	watch $(CONTAINER_RUNTIME) exec -t  buildx_buildkit_$(BUILDX_BUILDER_NAME)0  ps
+endif
 
 .PHONY: build-cli
 build-cli:
@@ -270,31 +301,38 @@ controller-manifests:
 
 .PHONY: build-controller
 build-controller: buildx-create controller-manifests
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
 .PHONY: build-ui
 build-ui: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: buildx-create
-		$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-app
 build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_PUSH) $(APP_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
 .PHONY: build-golang-adk-full
 build-golang-adk-full: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
+	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
 
 .PHONY: build-skills-init
 build-skills-init: buildx-create
-	$(DOCKER_BUILDER) build $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
 .PHONY: helm-cleanup
 helm-cleanup:
@@ -450,16 +488,16 @@ open-dev-container:
 
 .PHONY: otel-local
 otel-local:
-	docker rm -f jaeger-desktop || true
-	docker run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
+	$(CONTAINER_RUNTIME) rm -f jaeger-desktop || true
+	$(CONTAINER_RUNTIME) run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
 	@echo "Jaeger UI available at http://localhost:16686/"
 
 .PHONY: kind-debug
 kind-debug:
 	@echo "Debugging the kind cluster..."
 	@echo "Enter the kind cluster control plane container..."
-	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
-	docker exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
+	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
+	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
 .PHONY: audit
 audit:
@@ -473,7 +511,7 @@ audit:
 .PHONY: report/image-cve
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
-	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
-	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
-	grype docker:$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
+	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
+	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
+	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
+	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv

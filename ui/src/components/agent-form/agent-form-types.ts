@@ -1,3 +1,5 @@
+import type { OpenClawSandboxFormValidationError } from "@/lib/openClawSandboxForm";
+
 export interface AgentFormValidationErrors {
   name?: string;
   namespace?: string;
@@ -12,5 +14,5 @@ export interface AgentFormValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
-  openClawSandbox?: string;
+  openClawSandbox?: OpenClawSandboxFormValidationError;
 }
