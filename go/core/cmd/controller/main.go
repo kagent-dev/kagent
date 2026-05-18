@@ -33,7 +33,10 @@ import (
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
-		authenticator := getAuthenticator(bootstrap.Config.Auth)
+		authenticator, err := getAuthenticator(bootstrap.Config.Auth)
+		if err != nil {
+			return nil, err
+		}
 		return &app.ExtensionConfig{
 			Authenticator:  authenticator,
 			Authorizer:     authorizer,
@@ -43,15 +46,24 @@ func main() {
 	}, nil)
 }
 
-func getAuthenticator(authCfg app.AuthConfig) pkgauth.AuthProvider {
+func getAuthenticator(authCfg app.AuthConfig) (pkgauth.AuthProvider, error) {
 	switch authCfg.Mode {
 	case "trusted-proxy":
-		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
+		return auth.NewProxyAuthenticator(authCfg.UserIDClaim), nil
 	case "unsecure":
-		return &auth.UnsecureAuthenticator{}
+		return &auth.UnsecureAuthenticator{}, nil
 	case "external-bearer":
-		panic("auth mode external-bearer is recognized but not implemented in this slice")
+		return auth.NewExternalBearerAuthenticator(auth.ExternalBearerAuthenticatorConfig{
+			URL:                               authCfg.ExternalBearer.URL,
+			Timeout:                           authCfg.ExternalBearer.Timeout,
+			PropagateToken:                    authCfg.ExternalBearer.PropagateToken,
+			ValidationAuthorization:           authCfg.ExternalBearer.ValidationAuthorization,
+			ClientID:                          authCfg.ExternalBearer.ClientID,
+			ClientSecret:                      authCfg.ExternalBearer.ClientSecret,
+			AllowUnauthenticatedIntrospection: authCfg.ExternalBearer.AllowUnauthenticatedIntrospection,
+			UserIDClaim:                       authCfg.UserIDClaim,
+		})
 	default:
-		panic(fmt.Sprintf("unknown auth mode: %s (valid modes: unsecure, trusted-proxy, external-bearer)", authCfg.Mode))
+		return nil, fmt.Errorf("unknown auth mode: %s (valid modes: unsecure, trusted-proxy, external-bearer)", authCfg.Mode)
 	}
 }

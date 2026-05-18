@@ -109,6 +109,18 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_ID
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_SECRET
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: AUTH_EXTERNAL_BEARER_POLICY_FILE
 
   - it: should render external bearer auth env when configured
@@ -127,6 +139,7 @@ tests:
               secretRef:
                 name: "validation-auth"
                 key: "authorization"
+            allowUnauthenticatedIntrospection: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -166,6 +179,47 @@ tests:
               secretKeyRef:
                 name: "validation-auth"
                 key: "authorization"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
+            value: "true"
+
+  - it: should render external bearer RFC 7662 client credentials env from values and secret
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            clientId: "kagent-client"
+            clientSecret:
+              secretRef:
+                name: "introspection-client"
+                key: "client-secret"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_ID
+            value: "kagent-client"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: "introspection-client"
+                key: "client-secret"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
 
   - it: should render external bearer inline policy configmap and mount
     template: controller-deployment.yaml

@@ -364,6 +364,22 @@ func TestMapValueString(t *testing.T) {
 	assert.Equal(t, "env=prod,team=platform", mv.String())
 }
 
+func TestConfigRedactedForLog(t *testing.T) {
+	cfg := Config{}
+	cfg.Auth.ExternalBearer.ValidationAuthorization = "Bearer validation-token"
+	cfg.Auth.ExternalBearer.ClientID = "client-id"
+	cfg.Auth.ExternalBearer.ClientSecret = "client-secret"
+	cfg.Auth.ExternalBearer.URL = "https://auth.example.com/introspect"
+
+	redacted := cfg.redactedForLog()
+	assert.Equal(t, "<redacted>", redacted.Auth.ExternalBearer.ValidationAuthorization)
+	assert.Equal(t, "<redacted>", redacted.Auth.ExternalBearer.ClientSecret)
+	assert.Equal(t, "client-id", redacted.Auth.ExternalBearer.ClientID)
+	assert.Equal(t, "https://auth.example.com/introspect", redacted.Auth.ExternalBearer.URL)
+	assert.Equal(t, "Bearer validation-token", cfg.Auth.ExternalBearer.ValidationAuthorization)
+	assert.Equal(t, "client-secret", cfg.Auth.ExternalBearer.ClientSecret)
+}
+
 func TestMapValueWithLoadFromEnv(t *testing.T) {
 	t.Setenv("DEFAULT_AGENT_POD_LABELS", "team=platform,env=prod")
 
@@ -413,7 +429,10 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES":        "42",
 		"AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN":          "true",
 		"AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION": "Bearer validation-token",
-		"AUTH_EXTERNAL_BEARER_POLICY_FILE":              "/etc/kagent/external-bearer/policy.json",
+		"AUTH_EXTERNAL_BEARER_CLIENT_ID":                "kagent-client",
+		"AUTH_EXTERNAL_BEARER_CLIENT_SECRET":            "kagent-secret",
+		"AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION": "true",
+		"AUTH_EXTERNAL_BEARER_POLICY_FILE":                         "/etc/kagent/external-bearer/policy.json",
 	}
 
 	for k, v := range envVars {
@@ -491,6 +510,15 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.Auth.ExternalBearer.ValidationAuthorization != "Bearer validation-token" {
 		t.Errorf("Auth.ExternalBearer.ValidationAuthorization = %v, want Bearer validation-token", cfg.Auth.ExternalBearer.ValidationAuthorization)
+	}
+	if cfg.Auth.ExternalBearer.ClientID != "kagent-client" {
+		t.Errorf("Auth.ExternalBearer.ClientID = %v, want kagent-client", cfg.Auth.ExternalBearer.ClientID)
+	}
+	if cfg.Auth.ExternalBearer.ClientSecret != "kagent-secret" {
+		t.Errorf("Auth.ExternalBearer.ClientSecret = %v, want kagent-secret", cfg.Auth.ExternalBearer.ClientSecret)
+	}
+	if !cfg.Auth.ExternalBearer.AllowUnauthenticatedIntrospection {
+		t.Errorf("Auth.ExternalBearer.AllowUnauthenticatedIntrospection = false, want true")
 	}
 	if cfg.Auth.ExternalBearer.PolicyFile != "/etc/kagent/external-bearer/policy.json" {
 		t.Errorf("Auth.ExternalBearer.PolicyFile = %v, want /etc/kagent/external-bearer/policy.json", cfg.Auth.ExternalBearer.PolicyFile)
