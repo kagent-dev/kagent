@@ -102,6 +102,22 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+type ExternalBearerAuthConfig struct {
+	URL                     string
+	Timeout                 time.Duration
+	CacheTTL                time.Duration
+	CacheMaxEntries         int
+	PropagateToken          bool
+	ValidationAuthorization string
+	PolicyFile              string
+}
+
+type AuthConfig struct {
+	Mode           string
+	UserIDClaim    string
+	ExternalBearer ExternalBearerAuthConfig
+}
+
 type Config struct {
 	Metrics struct {
 		Addr     string
@@ -122,10 +138,7 @@ type Config struct {
 	Proxy struct {
 		URL string
 	}
-	Auth struct {
-		Mode        string
-		UserIDClaim string
-	}
+	Auth               AuthConfig
 	LeaderElection     bool
 	ProbeAddr          string
 	SecureMetrics      bool
@@ -186,8 +199,15 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
 
-	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
+	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure, trusted-proxy, or external-bearer")
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.URL, "auth-external-bearer-url", "", "External bearer token validation endpoint URL")
+	commandLine.DurationVar(&cfg.Auth.ExternalBearer.Timeout, "auth-external-bearer-timeout", 5*time.Second, "Timeout for external bearer token validation requests")
+	commandLine.DurationVar(&cfg.Auth.ExternalBearer.CacheTTL, "auth-external-bearer-cache-ttl", 0, "Maximum TTL for external bearer token validation cache entries; 0 disables caching")
+	commandLine.IntVar(&cfg.Auth.ExternalBearer.CacheMaxEntries, "auth-external-bearer-cache-max-entries", 1000, "Maximum number of external bearer token validation cache entries")
+	commandLine.BoolVar(&cfg.Auth.ExternalBearer.PropagateToken, "auth-external-bearer-propagate-token", false, "Forward inbound bearer token to upstream agent requests when using external-bearer auth")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.ValidationAuthorization, "auth-external-bearer-validation-authorization", "", "Authorization header value for external bearer validation service requests")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.PolicyFile, "auth-external-bearer-policy-file", "", "Path to external bearer service-actor A2A policy file")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")

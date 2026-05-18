@@ -42,6 +42,8 @@ On success, `run_async` returns:
 
 On the subagent side, `KAgentRequestContextBuilder` reads these headers and passes them through to `_prepare_session`, which calls `KAgentSessionService.create_session()` with `source="subagent"`. The Go layer stores this in a `Source` column and excludes such sessions from `ListSessionsForAgent`.
 
+The planned `external-bearer` auth mode keeps this user-continuity boundary generic: A2A/subagent calls continue to use `X-User-Id`, while forwarding the inbound bearer token is configurable and opt-in.
+
 ---
 
 ## Live activity viewing
