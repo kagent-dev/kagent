@@ -109,6 +109,23 @@ spec:
                   key: {{ .key | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.controller.auth.externalBearer.clientId }}
+            - name: AUTH_EXTERNAL_BEARER_CLIENT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.auth.externalBearer.clientSecret.secretRef }}
+            {{- if and .name .key }}
+            - name: AUTH_EXTERNAL_BEARER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.controller.auth.externalBearer.allowUnauthenticatedIntrospection }}
+            - name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
+              value: "true"
+            {{- end }}
             {{- if $externalBearerPolicyEnabled }}
             - name: AUTH_EXTERNAL_BEARER_POLICY_FILE
               value: "/etc/kagent/external-bearer/policy.json"

@@ -103,13 +103,16 @@ func init() {
 }
 
 type ExternalBearerAuthConfig struct {
-	URL                     string
-	Timeout                 time.Duration
-	CacheTTL                time.Duration
-	CacheMaxEntries         int
-	PropagateToken          bool
-	ValidationAuthorization string
-	PolicyFile              string
+	URL                               string
+	Timeout                           time.Duration
+	CacheTTL                          time.Duration
+	CacheMaxEntries                   int
+	PropagateToken                    bool
+	ValidationAuthorization           string
+	ClientID                          string
+	ClientSecret                      string
+	AllowUnauthenticatedIntrospection bool
+	PolicyFile                        string
 }
 
 type AuthConfig struct {
@@ -163,6 +166,17 @@ type Config struct {
 	}
 }
 
+func (cfg Config) redactedForLog() Config {
+	redacted := cfg
+	if redacted.Auth.ExternalBearer.ValidationAuthorization != "" {
+		redacted.Auth.ExternalBearer.ValidationAuthorization = "<redacted>"
+	}
+	if redacted.Auth.ExternalBearer.ClientSecret != "" {
+		redacted.Auth.ExternalBearer.ClientSecret = "<redacted>"
+	}
+	return redacted
+}
+
 func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Metrics.Addr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -206,7 +220,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Auth.ExternalBearer.CacheTTL, "auth-external-bearer-cache-ttl", 0, "Maximum TTL for external bearer token validation cache entries; 0 disables caching")
 	commandLine.IntVar(&cfg.Auth.ExternalBearer.CacheMaxEntries, "auth-external-bearer-cache-max-entries", 1000, "Maximum number of external bearer token validation cache entries")
 	commandLine.BoolVar(&cfg.Auth.ExternalBearer.PropagateToken, "auth-external-bearer-propagate-token", false, "Forward inbound bearer token to upstream agent requests when using external-bearer auth")
-	commandLine.StringVar(&cfg.Auth.ExternalBearer.ValidationAuthorization, "auth-external-bearer-validation-authorization", "", "Authorization header value for external bearer validation service requests")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.ValidationAuthorization, "auth-external-bearer-validation-authorization", "", "Authorization header value for external bearer validation/introspection service requests")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.ClientID, "auth-external-bearer-client-id", "", "Client ID for HTTP Basic auth to the external bearer introspection endpoint")
+	commandLine.StringVar(&cfg.Auth.ExternalBearer.ClientSecret, "auth-external-bearer-client-secret", "", "Client secret for HTTP Basic auth to the external bearer introspection endpoint")
+	commandLine.BoolVar(&cfg.Auth.ExternalBearer.AllowUnauthenticatedIntrospection, "auth-external-bearer-allow-unauthenticated-introspection", false, "Allow unauthenticated external bearer introspection endpoint calls; use only for local development and tests")
 	commandLine.StringVar(&cfg.Auth.ExternalBearer.PolicyFile, "auth-external-bearer-policy-file", "", "Path to external bearer service-actor A2A policy file")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
@@ -362,7 +379,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		}
 	}()
 
-	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
+	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg.redactedForLog())
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

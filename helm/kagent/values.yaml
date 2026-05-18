@@ -149,12 +149,11 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your identity provider uses a different claim.
     userIdClaim: ""
-    # externalBearer is a planned additive auth mode for deployments that validate
-    # inbound bearer tokens through one external validation service.
-    # This chart renders configuration for the mode, but the controller authenticator
-    # implementation is intentionally not included in this release slice.
+    # externalBearer validates inbound bearer tokens by calling one RFC 7662-compatible
+    # OAuth token introspection endpoint. Providers without compatible introspection
+    # should be integrated through a validating proxy/gateway/adapter or future auth mode.
     externalBearer:
-      # Validation endpoint URL used by AUTH_EXTERNAL_BEARER_URL.
+      # RFC 7662 token introspection endpoint URL used by AUTH_EXTERNAL_BEARER_URL.
       url: ""
       # Timeout for validation requests, for example "5s".
       timeout: ""
@@ -164,12 +163,24 @@ controller:
       cacheMaxEntries: 0
       # Forward inbound bearer tokens to upstream agent requests. Defaults to false.
       propagateToken: false
-      # Credential for the validation service. Only Secret references are supported;
+      # Exact Authorization header credential for the introspection endpoint.
+      # Mutually exclusive with clientId/clientSecret. Only Secret references are supported;
       # inline secret values are intentionally not accepted by this chart.
       validationAuthorization:
         secretRef:
           name: ""
           key: ""
+      # OAuth client_id for RFC 7662 HTTP Basic authentication to the introspection endpoint.
+      # When set, clientSecret.secretRef must also be set. Mutually exclusive with validationAuthorization.
+      clientId: ""
+      # OAuth client_secret for RFC 7662 HTTP Basic authentication to the introspection endpoint.
+      # Only Secret references are supported; inline secret values are intentionally not accepted.
+      clientSecret:
+        secretRef:
+          name: ""
+          key: ""
+      # Allow unauthenticated introspection endpoint calls. Use only for local development/tests.
+      allowUnauthenticatedIntrospection: false
       # Optional service-actor A2A policy. The controller consumes this as a local file.
       policy:
         inline: ""
