@@ -97,7 +97,7 @@ The external auth service owns:
 - provider-specific protocol details;
 - provider-native token metadata such as issuer, audience, scopes, client identity, subject, username, and grant type.
 
-For direct standards-based introspection, kagent should not require a provider-specific adapter. Instead, kagent consumes the RFC 7662 response and applies generic local bounds where needed: required scopes/audiences/issuers when configured, service-actor identity mapping from configured claims such as `client_id`, and A2A target allowlists. A deployment may still put a provider-normalizing validator in front of kagent, but that is optional, not required for providers that expose RFC 7662-compatible introspection.
+For providers that expose an RFC 7662-compatible token introspection endpoint for the tokens presented to kagent, no provider-specific adapter is required. kagent consumes the introspection response and applies generic local bounds where needed: required scopes/audiences/issuers when configured, service-actor identity mapping from configured claims, and A2A target allowlists. Providers that do not expose compatible introspection should be integrated through a validating proxy, gateway, or adapter, or through a future local JWT/JWKS mode.
 
 The validation/introspection service must return `active: true` only when the token is cryptographically valid, time-valid, and not revoked according to the provider. kagent then verifies that the active token is acceptable for the configured kagent deployment/API using generic claim checks and local service-actor policy. This keeps provider-specific validation outside kagent while avoiding a custom adapter requirement for standard OAuth deployments.
 
@@ -109,7 +109,7 @@ Initial supported protocol:
 
 - `rfc7662`: OAuth 2.0 Token Introspection request/response handling for providers that expose a compatible introspection endpoint.
 
-This makes the first implementation standards-based for upstream users and avoids a custom validation protocol. kagent still does not own provider-specific token validation, token issuance, or OAuth grant flows.
+This makes the first implementation standards-based for upstream users whose providers expose RFC 7662-compatible introspection and avoids a custom validation protocol. It does not claim direct compatibility with every identity provider; JWT/JWKS-only providers remain future work or require an external validating adapter. kagent still does not own provider-specific token validation, token issuance, or OAuth grant flows.
 
 ### Standards-first deployment model
 
@@ -148,18 +148,26 @@ Authentication to the introspection endpoint should support the existing generic
 - `clientSecret` from a Secret/env source
 - Basic auth derived from `clientId:clientSecret` when both are configured
 
-The implementation should cap the introspection response body size before JSON decoding; 64 KiB is sufficient for normal introspection responses and prevents unbounded reads from a configured external endpoint.
+Credential precedence must be explicit:
+
+- if `ValidationAuthorization` is set, use that value exactly as the introspection `Authorization` header and reject simultaneous `ClientID`/`ClientSecret` config;
+- otherwise, if `ClientID` and `ClientSecret` are set, use HTTP Basic auth;
+- otherwise, fail startup unless unauthenticated introspection is explicitly enabled for tests or local development.
+
+The implementation should cap the introspection response body size before JSON decoding; 64 KiB is sufficient for normal introspection responses and prevents unbounded reads from a configured external endpoint. The introspection URL should require HTTPS by default for non-localhost endpoints.
 
 Response mapping uses the same internal validation model:
 
 - `active` maps to validation activity; `false` or missing active is unauthenticated.
 - `username` is a user ID candidate.
 - `sub` is the subject and user ID fallback.
-- `client_id` is a service actor ID candidate for client-credentials/service-token use cases.
+- `client_id` is a service-actor policy input for client-credentials/service-token use cases, but not sufficient by itself to classify a service actor.
 - `exp` maps to `expires_at`.
 - `scope`, `aud`, `iss`, `grant_type`, and any additional response fields are preserved in `Principal.Claims`.
+- `aud` matching must support both string and list-of-strings response forms.
+- `scope` matching should implement the RFC space-separated string form and may tolerate provider-specific array forms as an extension.
 
-For client-credentials service actors, `client_id` is the recommended default service-actor identity claim. Deployments can then bind that client identity to a specific A2A allowlist in kagent policy. If a provider exposes a different stable client identifier, the policy should be able to match that claim instead without changing Go code.
+For client-credentials service actors, `client_id` is a useful identity input but must not be the only proof that the token represents a service actor. User-delegated tokens can also contain a `client_id`. Service-actor classification therefore requires a composite policy match, such as `client_id` plus `grant_type=client_credentials`, a kagent-specific scope, an audience, or another deployment-specific token-class claim. If a provider exposes a different stable client identifier, the policy should be able to match that claim without changing Go code.
 
 #### Generic post-introspection checks
 
@@ -168,9 +176,9 @@ Direct RFC 7662 integration should not depend on a custom validator returning de
 - required scopes, matched against the RFC 7662 `scope` string or equivalent claim;
 - allowed audiences, matched against `aud` when present;
 - allowed issuers, matched against `iss` when present;
-- service-actor allowlists keyed by a configured claim such as `client_id`, `sub`, or another scalar claim returned by introspection.
+- service-actor allowlists keyed by composite claim predicates such as `client_id` plus `grant_type`, `scope`, `aud`, or another scalar claim returned by introspection.
 
-These checks are optional config/policy inputs. If unset, kagent only requires `active: true` plus a resolvable principal identity. For service actors, A2A access is still denied unless the local service-actor policy explicitly allows the matched actor to reach the target.
+These checks are optional for human-user authentication. Service-actor classification is stricter: service actors require explicit local policy and at least one positive kagent-specific binding, such as required scope, allowed audience, issuer plus client identity, or another configured token-class claim. If no service-actor policy matches, the request remains a user-authenticated request when a user identity is resolvable, or is rejected when no user identity is resolvable.
 
 For RFC 7662, `active: true` is necessary but not sufficient for service-actor access. kagent still applies configured generic claim checks and local A2A policy before allowing bounded service-actor traffic.
 
@@ -219,8 +227,11 @@ Policy shape:
   "serviceActors": {
     "service-actor-id": {
       "match": {
-        "claim": "client_id",
-        "value": "service-client-id"
+        "allOf": [
+          { "claim": "client_id", "value": "service-client-id" },
+          { "claim": "grant_type", "value": "client_credentials" },
+          { "claim": "scope", "contains": "kagent:a2a" }
+        ]
       },
       "allowedA2A": [
         {
@@ -241,17 +252,32 @@ Policy shape:
 
 Rules:
 
-- Top-level `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are optional. When present, they are evaluated against introspection/validation claims before accepting the session.
-- `serviceActors` maps a local stable actor ID to a provider-neutral claim matcher. The default and recommended claim for client-credentials tokens is `client_id`, but deployments may match any scalar claim returned by the selected protocol.
-- `match.claim` and `match.value` are required for service actors.
+- Top-level `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are optional for user authentication. Service actors require explicit local policy and at least one positive kagent-specific binding through scope, audience, issuer plus client identity, or another configured claim.
+- `serviceActors` maps a local stable actor ID to provider-neutral claim predicates.
+- `match.allOf` is required for service actors and contains one or more predicate objects.
+- Supported predicate operators are `value` for exact scalar/list membership and `contains` for scope membership or list membership.
+- `client_id` alone is not sufficient to classify a service actor unless the deployment can prove that client can only issue client-credentials tokens; prefer matching `client_id` plus `grant_type`, scope, audience, or another token-class claim.
 - `namespace`, `name`, and `workloadType` are required for each `allowedA2A` target.
 - `workloadType` values are `agent`, `sandbox`, or `*`.
 - `*` is supported only as the whole field value.
 - User actors are allowed through this A2A-specific check.
 - Service actors are denied A2A access unless explicitly matched and allowed.
 - If no policy file is configured, service actors are denied all A2A access.
-- Service actors are denied non-A2A API access by default unless a later explicit policy grants specific non-A2A paths.
+- Service actors are denied non-A2A API access by default in this plan.
 - The first policy implementation should bound A2A targets and add the default-deny non-A2A service-actor guard; broad human-user API authorization remains out of scope.
+
+### Non-A2A service-actor deny seam
+
+The A2A mux hook only protects A2A dispatch. It does not see `/api/me`, general REST APIs, admin APIs, or future non-A2A routes. To make the service-actor default-deny guarantee real, add a concrete post-auth guard in `AuthnMiddleware` or a new middleware directly after authentication:
+
+```text
+if session is an external-bearer service actor
+  and request path is not /api/a2a/*
+  and request path is not /api/a2a-sandboxes/*
+then return 403
+```
+
+This guard should run before general API handlers. Existing user sessions and existing auth modes are unaffected. A2A and A2A sandbox paths continue into the A2A mux, where the target-specific `A2AAccessProvider` check applies.
 
 ### Minimal A2A access seam
 
@@ -310,6 +336,7 @@ Recommended fields:
 - `ValidationAuthorization`
 - `ClientID`
 - `ClientSecret` or `ClientSecretRef` at deployment/rendering layers
+- `AllowUnauthenticatedIntrospection` for tests/local development only
 - `PolicyFile`
 
 Defaults:
@@ -320,6 +347,7 @@ Defaults:
 - propagate token: `false`
 - validation authorization: empty
 - client ID/client secret: empty
+- unauthenticated introspection: `false`
 - policy file: empty
 
 ## Work Items
@@ -331,7 +359,9 @@ Defaults:
 **Done when:**
 
 - `app.Config.Auth` uses a named `AuthConfig` with existing `Mode` and `UserIDClaim` fields preserved.
-- `ExternalBearerAuthConfig` exists with URL, timeout, cache, token propagation, validation authorization, RFC 7662 client authentication, and policy file fields.
+- `ExternalBearerAuthConfig` exists with URL, timeout, cache, token propagation, validation authorization, RFC 7662 client authentication, unauthenticated-introspection opt-in, and policy file fields.
+- Startup rejects ambiguous introspection auth config, including simultaneous `ValidationAuthorization` and `ClientID`/`ClientSecret`.
+- Startup rejects unauthenticated introspection unless the explicit test/local-development opt-in is set.
 - Flags/env load correctly for:
   - `--auth-external-bearer-url` / `AUTH_EXTERNAL_BEARER_URL`
   - `--auth-external-bearer-timeout` / `AUTH_EXTERNAL_BEARER_TIMEOUT`
@@ -341,6 +371,7 @@ Defaults:
   - `--auth-external-bearer-validation-authorization` / `AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION`
   - `--auth-external-bearer-client-id` / `AUTH_EXTERNAL_BEARER_CLIENT_ID`
   - `--auth-external-bearer-client-secret` / `AUTH_EXTERNAL_BEARER_CLIENT_SECRET`
+  - `--auth-external-bearer-allow-unauthenticated-introspection` / `AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION`
   - `--auth-external-bearer-policy-file` / `AUTH_EXTERNAL_BEARER_POLICY_FILE`
 - Existing `unsecure` and `trusted-proxy` defaults remain unchanged.
 
@@ -365,11 +396,12 @@ Defaults:
 - Missing or non-bearer `Authorization` returns unauthenticated.
 - The authenticator sends an RFC 7662 form-encoded token introspection request.
 - RFC 7662 requests set `Accept: application/json`, cap response reads before decoding, and use Basic auth when client ID and client secret are configured.
-- It fails closed on timeout, network errors, invalid JSON, inactive tokens, and incomplete identity mappings.
+- It requires HTTPS for non-localhost introspection endpoints.
+- It fails closed on timeout, network errors, invalid JSON, missing or false `active`, non-2xx responses, oversized responses, and incomplete identity mappings.
 - It maps `Principal.User.ID`, optional `Principal.Agent.ID`, and raw `Principal.Claims` from the validation response.
 - It does not trust `X-Agent-Name`, `X-User-Id`, or `user_id` query params as identity sources.
 - Cache behavior is not implemented in this item; cache config remains reserved for a later slice.
-- Unit tests cover active/inactive tokens, malformed responses, oversized responses, missing identity, service actor metadata, identity fallback order, RFC 7662 request shape, Basic auth, RFC 7662 field mapping, and preservation of `client_id`/`scope`/`aud`/`iss` claims for later policy evaluation.
+- Unit tests cover active/inactive tokens, missing `active`, malformed responses, unsupported content, `401`/`403`/`500` responses, slow responses, oversized responses, missing identity, service actor metadata, identity fallback order, RFC 7662 request shape, Basic auth, auth-header precedence conflicts, HTTPS enforcement, RFC 7662 field mapping, `aud` string/list handling, `scope` string handling, and preservation of `client_id`/`scope`/`aud`/`iss` claims for later policy evaluation.
 
 **Key files:**
 
@@ -434,24 +466,26 @@ Defaults:
 
 ### Item 5 — Load and enforce service-actor request policy
 
-**Goal:** Allow `ExternalBearerAuthenticator` to enforce bounded A2A access for validated service actors and default-deny service actors on non-A2A API routes.
+**Goal:** Allow `ExternalBearerAuthenticator` to classify service actors through composite claim predicates, enforce bounded A2A access, and default-deny service actors on non-A2A API routes.
 
 **Done when:**
 
 - Policy file is loaded when constructing `ExternalBearerAuthenticator`.
 - Invalid policy JSON fails controller startup.
 - Optional `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are evaluated against validation/introspection claims before the session is accepted.
-- Service actors are identified by matching configured scalar claims such as `client_id`, not by trusting caller-supplied headers.
+- Service actors are identified by matching composite configured claim predicates such as `client_id` plus `grant_type`, scope, audience, or another token-class claim, not by trusting caller-supplied headers.
+- A token that matches only `client_id` is not classified as a service actor unless the policy explicitly documents and tests that the client is service-only.
 - Service actors are denied A2A by default.
-- Service actors are denied non-A2A API access by default unless a later explicit policy grants specific non-A2A paths.
+- A concrete post-auth middleware or `AuthnMiddleware` guard denies external-bearer service actors on non-A2A paths before general API handlers run.
 - User actors pass the A2A-specific policy check and continue through normal API auth behavior.
 - Exact matching and whole-field `*` wildcards work for namespace, name, and workload type.
-- Tests cover no policy file, required-scope pass/fail, audience/issuer pass/fail, service actor claim match, allowed exact target, denied A2A target, denied non-A2A API route, wildcard target, sandbox target, malformed policy, and missing session metadata.
+- Tests cover no policy file, required-scope pass/fail, audience/issuer pass/fail, composite service actor claim match, client-id-only non-match, allowed exact target, denied A2A target, denied non-A2A API route, wildcard target, sandbox target, malformed policy, and missing session metadata.
 
 **Key files:**
 
 - `go/core/internal/httpserver/auth/external_bearer_authn.go`
 - `go/core/internal/httpserver/auth/external_bearer_authn_test.go`
+- `go/core/internal/httpserver/auth/authn.go` or a new post-auth middleware for the non-A2A service-actor deny guard
 - `go/core/internal/a2a/a2a_handler_mux.go`
 
 **Dependencies:** Items 2, 4, and 6. Mode construction must pass loaded policy into the authenticator.
@@ -505,7 +539,7 @@ Defaults:
 
 **Done when:**
 
-- `helm/kagent/values.yaml` adds `controller.auth.externalBearer` fields for URL, timeout, cache, token propagation, validation-service credential secret ref, RFC 7662 client credential Secret ref, and service-actor policy.
+- `helm/kagent/values.yaml` adds `controller.auth.externalBearer` fields for RFC 7662 introspection endpoint URL, timeout, cache, token propagation, validation-service credential secret ref, RFC 7662 client credential Secret ref, unauthenticated-introspection test/local opt-in, and service-actor policy.
 - `controller-deployment.yaml` renders env vars for external-bearer fields.
 - Sensitive validation-service authorization is rendered only from a Secret ref, not inline values.
 - Inline or existing ConfigMap policy is mounted at a fixed implementation-chosen path.
@@ -530,8 +564,9 @@ Defaults:
 **Done when:**
 
 - Documentation covers the mode name, required env/Helm fields, RFC 7662 token introspection behavior, identity mapping rules, propagation behavior, and service-actor policy format.
-- Docs present `external-bearer` as a standards-based OAuth protected-resource mode using RFC 7662 token introspection.
-- Docs state that `AUTH_EXTERNAL_BEARER_URL` points to an RFC 7662-compatible token introspection endpoint.
+- Docs present `external-bearer` as a standards-based OAuth protected-resource mode using RFC 7662 token introspection for providers that expose compatible introspection for the tokens sent to kagent.
+- Docs state that providers without compatible introspection need a validating proxy/gateway/adapter or a future JWT/JWKS mode.
+- Docs state that `AUTH_EXTERNAL_BEARER_URL` points to an RFC 7662-compatible token introspection endpoint, not a token endpoint, userinfo endpoint, discovery URL, or debug tokeninfo endpoint.
 - Docs state that `active: true` means provider validation succeeded, and kagent still applies configured generic claim checks plus service-actor policy before accepting/bounding the request.
 - Existing trusted-proxy docs are clarified as documenting the upstream-proxy-authenticated boundary, not the only secure auth mode.
 - A2A/subagent docs mention that external-bearer forwards human user continuity separately from service-actor identity, while bearer forwarding is configurable.
@@ -583,7 +618,7 @@ Defaults:
 
 ## Open Questions
 
-None blocking for the first implementation slice. The plan chooses a single-validator external-bearer mode using RFC 7662 token introspection, private service-actor session metadata, deterministic cache expiry, and service-actor default-deny outside explicitly allowed A2A targets. Provider-specific integrations, provider registries, local JWT/JWKS validation, and custom validator protocols remain out of scope.
+None blocking for the first implementation slice. The plan chooses a single-validator external-bearer mode using RFC 7662 token introspection, private service-actor session metadata, composite service-actor policy matching, deterministic cache expiry, and a concrete non-A2A service-actor deny guard. Provider-specific integrations, provider registries, local JWT/JWKS validation, and custom validator protocols remain out of scope.
 
 ## References
 
