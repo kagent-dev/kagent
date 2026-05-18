@@ -59,6 +59,7 @@ func buildCoreBootstrapDocument(mc *v1alpha2.ModelConfig, gwPort int, apiKeyEnv,
 	return bootstrapDocument{
 		Gateway: gatewaySection{
 			Mode: "local",
+			Bind: "loopback",
 			Auth: gatewayAuth{Mode: "none"},
 			Port: gwPort,
 		},

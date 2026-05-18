@@ -516,6 +516,16 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 		return sbObjs, nil
 	}
 
+	svcPort := corev1.ServicePort{
+		Name:       "http",
+		Port:       manifestCtx.deployment.Port,
+		TargetPort: intstr.FromInt(int(manifestCtx.deployment.Port)),
+	}
+	if s := manifestCtx.agent.GetAgentSpec(); s != nil && s.Declarative != nil && s.Declarative.A2AConfig != nil {
+		proto := "kgateway.dev/a2a"
+		svcPort.AppProtocol = &proto
+	}
+
 	return []client.Object{
 		&appsv1.Deployment{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -538,12 +548,8 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 			ObjectMeta: manifestCtx.objectMeta(),
 			Spec: corev1.ServiceSpec{
 				Selector: manifestCtx.selectorLabels,
-				Ports: []corev1.ServicePort{{
-					Name:       "http",
-					Port:       manifestCtx.deployment.Port,
-					TargetPort: intstr.FromInt(int(manifestCtx.deployment.Port)),
-				}},
-				Type: corev1.ServiceTypeClusterIP,
+				Ports:    []corev1.ServicePort{svcPort},
+				Type:     corev1.ServiceTypeClusterIP,
 			},
 		},
 	}, nil

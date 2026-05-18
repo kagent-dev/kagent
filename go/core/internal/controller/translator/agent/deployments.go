@@ -259,9 +259,6 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 	}
 
 	replicas := spec.Replicas
-	if replicas == nil {
-		replicas = new(int32(1))
-	}
 
 	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
 		return nil, err
