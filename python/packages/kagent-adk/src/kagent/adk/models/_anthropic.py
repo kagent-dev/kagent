@@ -44,11 +44,12 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
     @cached_property
     def _anthropic_client(self) -> AsyncAnthropic:
         api_key = self._api_key or os.environ.get("ANTHROPIC_API_KEY")
+        base_url = self.base_url or os.environ.get("ANTHROPIC_BASE_URL")
         kwargs = {}
         if api_key:
             kwargs["api_key"] = api_key
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
+        if base_url:
+            kwargs["base_url"] = base_url
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
 

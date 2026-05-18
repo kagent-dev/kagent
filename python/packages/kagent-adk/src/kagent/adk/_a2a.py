@@ -52,6 +52,19 @@ def thread_dump(request: Request) -> PlainTextResponse:
 kagent_url_override = os.getenv("KAGENT_URL")
 
 
+def _configure_anthropic_client() -> None:
+    """
+    Configure the Anthropic client to use ANTHROPIC_BASE_URL.
+
+    Reads ANTHROPIC_BASE_URL from the environment (matching the Go-side
+    env.AnthropicAPIBaseURL registration) and logs its presence. The Anthropic
+    SDK natively reads ANTHROPIC_BASE_URL, so no explicit remapping is needed.
+    """
+    anthropic_api_base = os.getenv("ANTHROPIC_BASE_URL")
+    if anthropic_api_base:
+        logger.info(f"Configured Anthropic client with base URL: {anthropic_api_base}")
+
+
 class KAgentApp:
     def __init__(
         self,
@@ -86,6 +99,8 @@ class KAgentApp:
         self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
+        _configure_anthropic_client()
+
         session_service = InMemorySessionService()
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None

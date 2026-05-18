@@ -35,6 +35,13 @@ var (
 		"API key for Anthropic.",
 		ComponentAgentRuntime,
 	)
+
+	AnthropicAPIBaseURL = RegisterStringVar(
+		"ANTHROPIC_BASE_URL",
+		"",
+		"Custom base URL for the Anthropic API.",
+		ComponentAgentRuntime,
+	)
 )
 
 // Azure OpenAI

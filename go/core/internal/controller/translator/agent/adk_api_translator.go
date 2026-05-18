@@ -434,6 +434,12 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
+			if model.Spec.Anthropic.BaseURL != "" {
+				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+					Name:  env.AnthropicAPIBaseURL.Name(),
+					Value: model.Spec.Anthropic.BaseURL,
+				})
+			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:

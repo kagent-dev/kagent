@@ -35,6 +35,23 @@ class TestKAgentAnthropicLlm:
             _ = llm._anthropic_client
             assert mock_anthropic.call_args.kwargs["base_url"] == "https://proxy.internal/anthropic"
 
+    def test_client_falls_back_to_env_base_url(self):
+        llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229")
+        with mock.patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "https://env-proxy.internal/anthropic"}):
+            with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic") as mock_anthropic:
+                mock_anthropic.return_value = mock.MagicMock(spec=AsyncAnthropic)
+                _ = llm._anthropic_client
+                assert mock_anthropic.call_args.kwargs["base_url"] == "https://env-proxy.internal/anthropic"
+
+    def test_explicit_base_url_takes_precedence_over_env(self):
+        llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229", base_url="https://explicit.internal/anthropic")
+        with mock.patch.dict("os.environ", {"ANTHROPIC_BASE_URL": "https://env.internal/anthropic"}):
+            with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic") as mock_anthropic:
+                mock_anthropic.return_value = mock.MagicMock(spec=AsyncAnthropic)
+                _ = llm._anthropic_client
+                # Explicit base_url wins over env
+                assert mock_anthropic.call_args.kwargs["base_url"] == "https://explicit.internal/anthropic"
+
     def test_client_uses_extra_headers(self):
         llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229", extra_headers={"X-Org": "test-org"})
         with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic") as mock_anthropic:
