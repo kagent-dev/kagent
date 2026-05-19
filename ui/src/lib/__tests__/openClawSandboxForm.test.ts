@@ -149,5 +149,33 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.kind).toBe("AgentHarness");
       expect(draft.spec.backend).toBe("openclaw");
     });
+
+    it("writes Hermes slack allowedUserIDs without OpenClaw channel access fields", () => {
+      const row = newOpenClawChannelRow();
+      row.name = "slack-main";
+      row.channelType = "slack";
+      row.botToken = "xoxb-test";
+      row.appToken = "xapp-test";
+      row.allowedSlackUserIDs = "U01234567 U89ABCDEF";
+      row.slackHomeChannel = "C01234567890";
+      row.slackHomeChannelName = "general";
+      const draft = buildSandboxCRDraft({
+        name: "h1",
+        namespace: "ns",
+        description: "",
+        modelRef: "m1",
+        backend: "hermes",
+        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+      });
+      expect("error" in draft).toBe(false);
+      if ("error" in draft) return;
+      const channels = draft.spec.channels as { slack: Record<string, unknown> }[];
+      expect(channels[0].slack.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
+      expect(channels[0].slack.homeChannel).toBe("C01234567890");
+      expect(channels[0].slack.homeChannelName).toBe("general");
+      expect(channels[0].slack.channelAccess).toBeUndefined();
+      expect(channels[0].slack.allowlistChannels).toBeUndefined();
+      expect(channels[0].slack.interactiveReplies).toBeUndefined();
+    });
   });
 });

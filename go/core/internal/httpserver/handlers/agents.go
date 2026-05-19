@@ -121,7 +121,7 @@ func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger,
 	h.appendAgentResponses(ctx, log, agentObjects(agentList.Items), &result)
 	for i := range harnessList.Items {
 		sb := &harnessList.Items[i]
-		if sb.Spec.Backend != v1alpha2.AgentHarnessBackendOpenClaw && sb.Spec.Backend != v1alpha2.AgentHarnessBackendNemoClaw {
+		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
 			continue
 		}
 		result = append(result, h.openshellAgentHarnessAgentResponse(ctx, log, sb))
@@ -684,7 +684,7 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 	b := sb.Spec.Backend
-	if b != v1alpha2.AgentHarnessBackendOpenClaw && b != v1alpha2.AgentHarnessBackendNemoClaw {
+	if !v1alpha2.IsKnownAgentHarnessBackend(b) {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 		return
 	}

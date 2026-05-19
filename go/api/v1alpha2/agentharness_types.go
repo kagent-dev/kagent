@@ -18,13 +18,24 @@ import (
 
 // AgentHarnessBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openclaw;nemoclaw
+// +kubebuilder:validation:Enum=openclaw;nemoclaw;hermes
 type AgentHarnessBackendType string
 
 const (
 	AgentHarnessBackendOpenClaw AgentHarnessBackendType = "openclaw"
 	AgentHarnessBackendNemoClaw AgentHarnessBackendType = "nemoclaw"
+	AgentHarnessBackendHermes   AgentHarnessBackendType = "hermes"
 )
+
+// IsKnownAgentHarnessBackend reports backends the OpenShell harness controller and API expose.
+func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
+	switch b {
+	case AgentHarnessBackendOpenClaw, AgentHarnessBackendNemoClaw, AgentHarnessBackendHermes:
+		return true
+	default:
+		return false
+	}
+}
 
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.
 // +kubebuilder:validation:Enum=telegram;slack
@@ -70,19 +81,37 @@ type AgentHarnessTelegramChannelSpec struct {
 
 // AgentHarnessSlackChannelSpec configures Slack when AgentHarnessChannel.type is Slack.
 //
-// +kubebuilder:validation:XValidation:rule="self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
+// OpenClaw and NemoClaw use channelAccess, allowlistChannels, and interactiveReplies.
+// Hermes uses allowedUserIDs (SLACK_ALLOWED_USERS), homeChannel (SLACK_HOME_CHANNEL),
+// and homeChannelName (SLACK_HOME_CHANNEL_NAME) in the sandbox .env.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.channelAccess) || self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
+// +kubebuilder:validation:XValidation:rule="!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))",message="allowedUserIDs and allowedUserIDsFrom are mutually exclusive"
 type AgentHarnessSlackChannelSpec struct {
 	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +required
 	AppToken AgentHarnessChannelCredential `json:"appToken"`
-	// +required
-	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess"`
+	// ChannelAccess controls OpenClaw routing (open, allowlist, disabled). Omit for Hermes harnesses.
+	// +optional
+	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess,omitempty"`
+	// AllowlistChannels is required when channelAccess is allowlist (OpenClaw / NemoClaw only).
 	// +optional
 	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
 	// +optional
 	// +kubebuilder:default=true
 	InteractiveReplies *bool `json:"interactiveReplies,omitempty"`
+	// AllowedUserIDs restricts which Slack user IDs may interact with the bot (Hermes: SLACK_ALLOWED_USERS).
+	// +optional
+	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
+	// +optional
+	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
+	// HomeChannel is the default Slack channel ID for Hermes cron/scheduled messages (SLACK_HOME_CHANNEL).
+	// +optional
+	HomeChannel string `json:"homeChannel,omitempty"`
+	// HomeChannelName is a human-readable label for HomeChannel (SLACK_HOME_CHANNEL_NAME).
+	// +optional
+	HomeChannelName string `json:"homeChannelName,omitempty"`
 }
 
 // AgentHarnessChannel declares one messenger binding inside an OpenClaw/NemoClaw harness VM.
@@ -118,7 +147,8 @@ type AgentHarnessSpec struct {
 
 	// Image is the container image to run in the harness VM, if the backend
 	// supports per-resource images. Backends openclaw and nemoclaw pin the image
-	// to the NemoClaw sandbox base when this field is empty.
+	// to the NemoClaw sandbox base when this field is empty; backend hermes pins
+	// to the Hermes sandbox base image when empty.
 	// +optional
 	Image string `json:"image,omitempty"`
 

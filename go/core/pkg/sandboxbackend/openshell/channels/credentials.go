@@ -1,0 +1,101 @@
+package channels
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// PutChannelCredential resolves a channel credential into env[envKey].
+func PutChannelCredential(ctx context.Context, kube client.Client, namespace string, cred v1alpha2.AgentHarnessChannelCredential, envKey string, env map[string]string) error {
+	if strings.TrimSpace(cred.Value) != "" {
+		env[envKey] = strings.TrimSpace(cred.Value)
+		return nil
+	}
+	if cred.ValueFrom == nil {
+		return fmt.Errorf("channel credential requires value or valueFrom")
+	}
+	v, err := cred.ValueFrom.Resolve(ctx, kube, namespace)
+	if err != nil {
+		return fmt.Errorf("resolve credential %s: %w", envKey, err)
+	}
+	env[envKey] = v
+	return nil
+}
+
+// TelegramAllowFrom returns allowed Telegram user IDs from the channel spec.
+func TelegramAllowFrom(ctx context.Context, kube client.Client, namespace string, spec *v1alpha2.AgentHarnessTelegramChannelSpec) ([]string, error) {
+	if len(spec.AllowedUserIDs) > 0 {
+		out := make([]string, 0, len(spec.AllowedUserIDs))
+		for _, id := range spec.AllowedUserIDs {
+			s := strings.TrimSpace(id)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	}
+	if spec.AllowedUserIDsFrom != nil {
+		raw, err := spec.AllowedUserIDsFrom.Resolve(ctx, kube, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("resolve allowedUserIDsFrom: %w", err)
+		}
+		return SplitAllowedList(raw), nil
+	}
+	return nil, nil
+}
+
+// SlackAllowedUsers returns allowed Slack user IDs from the channel spec (Hermes SLACK_ALLOWED_USERS).
+func SlackAllowedUsers(ctx context.Context, kube client.Client, namespace string, spec *v1alpha2.AgentHarnessSlackChannelSpec) ([]string, error) {
+	if len(spec.AllowedUserIDs) > 0 {
+		out := make([]string, 0, len(spec.AllowedUserIDs))
+		for _, id := range spec.AllowedUserIDs {
+			s := strings.TrimSpace(id)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	}
+	if spec.AllowedUserIDsFrom != nil {
+		raw, err := spec.AllowedUserIDsFrom.Resolve(ctx, kube, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("resolve allowedUserIDsFrom: %w", err)
+		}
+		return SplitAllowedList(raw), nil
+	}
+	return nil, nil
+}
+
+// SplitAllowedList parses comma/newline/semicolon-separated ID lists.
+func SplitAllowedList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == ';'
+	}) {
+		s := strings.TrimSpace(part)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// TrimNonEmptyStrings returns trimmed non-empty strings from ss.
+func TrimNonEmptyStrings(ss []string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}

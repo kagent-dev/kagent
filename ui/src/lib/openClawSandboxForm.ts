@@ -1,8 +1,10 @@
 import type { ValueSource } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 
-/** Sandbox CR backend; UI always uses openclaw for now. */
+/** Default Sandbox CR backend when the harness form does not specify one. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
+
+export type AgentHarnessSandboxBackend = "openclaw" | "nemoclaw" | "hermes";
 
 export type SandboxChannelFormType = "telegram" | "slack";
 
@@ -20,7 +22,14 @@ export interface OpenClawChannelRow {
   appSecretKey: string;
   channelAccess: "allowlist" | "open" | "disabled";
   allowlistChannels: string;
+  /** Telegram: maps to spec.channels[].telegram.allowedUserIDs */
   allowedUserIDs: string;
+  /** Hermes Slack: maps to spec.channels[].slack.allowedUserIDs → SLACK_ALLOWED_USERS */
+  allowedSlackUserIDs: string;
+  /** Hermes Slack: maps to spec.channels[].slack.homeChannel → SLACK_HOME_CHANNEL */
+  slackHomeChannel: string;
+  /** Hermes Slack: maps to spec.channels[].slack.homeChannelName → SLACK_HOME_CHANNEL_NAME */
+  slackHomeChannelName: string;
   interactiveReplies: boolean;
 }
 
@@ -40,8 +49,15 @@ export function newOpenClawChannelRow(): OpenClawChannelRow {
     channelAccess: "open",
     allowlistChannels: "",
     allowedUserIDs: "",
+    allowedSlackUserIDs: "",
+    slackHomeChannel: "",
+    slackHomeChannelName: "",
     interactiveReplies: true,
   };
+}
+
+export function isClawHarnessBackend(backend: AgentHarnessSandboxBackend | undefined): boolean {
+  return backend === "openclaw" || backend === "nemoclaw";
 }
 
 export interface OpenClawSandboxFormSlice {
@@ -153,7 +169,9 @@ function credentialFromRow(
 export function validateOpenClawSandboxForm(args: {
   openClaw: OpenClawSandboxFormSlice;
   modelRef: string | undefined;
+  backend?: AgentHarnessSandboxBackend;
 }): OpenClawSandboxFormValidationError | undefined {
+  const clawBackend = isClawHarnessBackend(args.backend);
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
@@ -206,7 +224,7 @@ export function validateOpenClawSandboxForm(args: {
       }
     }
 
-    if (ch.channelType === "slack") {
+    if (ch.channelType === "slack" && clawBackend) {
       if (ch.channelAccess === "allowlist") {
         const list = trimSplitList(ch.allowlistChannels);
         if (list.length === 0) {
@@ -250,6 +268,7 @@ export function buildSandboxCRDraft(args: {
   description: string;
   modelRef: string;
   openClaw: OpenClawSandboxFormSlice;
+  backend?: AgentHarnessSandboxBackend;
 }): SandboxCRDraft | { error: string } {
   const modelConfigRef = modelConfigRefForSandbox(args.namespace.trim(), args.modelRef);
 
@@ -297,13 +316,29 @@ export function buildSandboxCRDraft(args: {
       const slack: Record<string, unknown> = {
         botToken: bot,
         appToken: app,
-        channelAccess: ch.channelAccess,
-        ...(ch.channelAccess === "allowlist"
-          ? { allowlistChannels: trimSplitList(ch.allowlistChannels) }
-          : {}),
       };
-      if (!ch.interactiveReplies) {
-        slack.interactiveReplies = false;
+      const backend = args.backend ?? SANDBOX_BACKEND_OPENCLAW;
+      if (isClawHarnessBackend(backend)) {
+        slack.channelAccess = ch.channelAccess;
+        if (ch.channelAccess === "allowlist") {
+          slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
+        }
+        if (!ch.interactiveReplies) {
+          slack.interactiveReplies = false;
+        }
+      } else {
+        const allowedSlack = trimSplitList(ch.allowedSlackUserIDs);
+        if (allowedSlack.length > 0) {
+          slack.allowedUserIDs = allowedSlack;
+        }
+        const homeChannel = ch.slackHomeChannel.trim();
+        if (homeChannel) {
+          slack.homeChannel = homeChannel;
+          const homeName = ch.slackHomeChannelName.trim();
+          if (homeName) {
+            slack.homeChannelName = homeName;
+          }
+        }
       }
       base.slack = slack;
     }
@@ -311,8 +346,9 @@ export function buildSandboxCRDraft(args: {
     channels.push(base);
   }
 
+  const backend = args.backend ?? SANDBOX_BACKEND_OPENCLAW;
   const spec: Record<string, unknown> = {
-    backend: SANDBOX_BACKEND_OPENCLAW,
+    backend,
     modelConfigRef,
   };
 
