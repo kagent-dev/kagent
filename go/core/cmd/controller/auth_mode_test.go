@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -37,6 +38,7 @@ func TestGetAuthenticator(t *testing.T) {
 				ExternalBearer: app.ExternalBearerAuthConfig{
 					URL:                               "http://localhost/introspect",
 					AllowUnauthenticatedIntrospection: true,
+					PolicyFile:                        writeExternalBearerPolicyFile(t),
 				},
 			},
 			wantType: "*auth.ExternalBearerAuthenticator",
@@ -104,6 +106,15 @@ func TestGetAuthenticatorReturnsErrorOnUnknownMode(t *testing.T) {
 	if got, want := err.Error(), "unknown auth mode: proxy (valid modes: unsecure, trusted-proxy, external-bearer)"; got != want {
 		t.Fatalf("error = %q, want %q", got, want)
 	}
+}
+
+func writeExternalBearerPolicyFile(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/external-bearer-policy.json"
+	if err := os.WriteFile(path, []byte(`{"allowedIssuers":["https://issuer.example.com"]}`), 0o600); err != nil {
+		t.Fatalf("writing external bearer policy file: %v", err)
+	}
+	return path
 }
 
 func getTypeName(v auth.AuthProvider) string {

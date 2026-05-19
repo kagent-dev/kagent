@@ -18,6 +18,12 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
+const externalBearerTestIssuer = "https://issuer.example.com"
+
+func minimalExternalBearerPolicyJSON() string {
+	return fmt.Sprintf(`{"allowedIssuers":[%q]}`, externalBearerTestIssuer)
+}
+
 func TestExternalBearerAuthenticatorRFC7662RequestShapeAndClaimPreservation(t *testing.T) {
 	var sawRequest bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +140,14 @@ func TestExternalBearerAuthenticatorEndpointAuthConfig(t *testing.T) {
 			wantErr: "requires introspection endpoint authentication",
 		},
 		{
+			name: "missing policy file rejected",
+			cfg: authimpl.ExternalBearerAuthenticatorConfig{
+				URL:                     "https://auth.example.com/introspect",
+				ValidationAuthorization: "Bearer validation-token",
+			},
+			wantErr: "AUTH_EXTERNAL_BEARER_POLICY_FILE",
+		},
+		{
 			name: "http non-localhost rejected",
 			cfg: authimpl.ExternalBearerAuthenticatorConfig{
 				URL:                               "http://auth.example.com/introspect",
@@ -181,7 +195,11 @@ func TestExternalBearerAuthenticatorEndpointAuthConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := authimpl.NewExternalBearerAuthenticator(tt.cfg)
+			cfg := tt.cfg
+			if tt.wantErr == "" && cfg.PolicyFile == "" {
+				cfg.PolicyFile = writePolicyFile(t, minimalExternalBearerPolicyJSON())
+			}
+			_, err := authimpl.NewExternalBearerAuthenticator(cfg)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -237,7 +255,7 @@ func TestExternalBearerAuthenticatorRejectsServiceTokenClaimsInThisSlice(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, tt.claims)
+				writeJSON(t, w, http.StatusOK, addExternalBearerTestIssuer(tt.claims))
 			}))
 			defer server.Close()
 
@@ -273,7 +291,7 @@ func TestExternalBearerAuthenticatorContentTypeValidation(t *testing.T) {
 					w.Header().Set("Content-Type", tt.contentType)
 				}
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"active":true,"sub":"user123"}`))
+				_, _ = w.Write([]byte(`{"active":true,"sub":"user123","iss":"https://issuer.example.com"}`))
 			}))
 			defer server.Close()
 
@@ -299,7 +317,7 @@ func TestExternalBearerAuthenticatorUsesBasicAuth(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != want {
 			t.Errorf("Authorization = %q, want %q", got, want)
 		}
-		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123"})
+		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "iss": externalBearerTestIssuer})
 	}))
 	defer server.Close()
 
@@ -325,7 +343,7 @@ func TestExternalBearerAuthenticatorFailClosed(t *testing.T) {
 		{name: "trailing json garbage", statusCode: http.StatusOK, body: `{"active":true,"sub":"user123"} trailing`},
 		{name: "missing active", statusCode: http.StatusOK, body: `{"sub":"user123"}`},
 		{name: "false active", statusCode: http.StatusOK, body: `{"active":false,"sub":"user123"}`},
-		{name: "missing identity", statusCode: http.StatusOK, body: `{"active":true}`},
+		{name: "missing identity", statusCode: http.StatusOK, body: `{"active":true,"iss":"https://issuer.example.com"}`},
 		{name: "expired exp", statusCode: http.StatusOK, body: fmt.Sprintf(`{"active":true,"sub":"user123","exp":%d}`, time.Now().Add(-time.Hour).Unix())},
 		{name: "oversized response", statusCode: http.StatusOK, body: strings.Repeat(" ", 64*1024+1)},
 	}
@@ -354,7 +372,7 @@ func TestExternalBearerAuthenticatorRedirectFailsClosed(t *testing.T) {
 	redirected := false
 	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirected = true
-		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123"})
+		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "iss": externalBearerTestIssuer})
 	}))
 	defer redirectTarget.Close()
 
@@ -407,7 +425,7 @@ func TestExternalBearerAuthenticatorInboundBearerParsing(t *testing.T) {
 			t.Errorf("body is not form encoded: %v", err)
 		}
 		gotToken = form.Get("token")
-		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123"})
+		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "iss": externalBearerTestIssuer})
 	}))
 	defer server.Close()
 
@@ -506,7 +524,7 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, tt.claims)
+				writeJSON(t, w, http.StatusOK, addExternalBearerTestIssuer(tt.claims))
 			}))
 			defer server.Close()
 
@@ -529,7 +547,7 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 
 func TestExternalBearerAuthenticatorDoesNotTrustInboundIdentityHeadersOrQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{"active": true})
+		writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "iss": externalBearerTestIssuer})
 	}))
 	defer server.Close()
 
@@ -553,6 +571,7 @@ func TestExternalBearerAuthenticatorClaimsDoNotExposeRawBearerToken(t *testing.T
 		writeJSON(t, w, http.StatusOK, map[string]any{
 			"active":           true,
 			"sub":              "user123",
+			"iss":              externalBearerTestIssuer,
 			"token":            "inbound-token",
 			"access_token":     "inbound-token",
 			"auth_header_echo": "Bearer inbound-token",
@@ -608,7 +627,7 @@ func TestExternalBearerAuthenticatorAudStringAndListAreAcceptedAndPreserved(t *t
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "aud": tt.aud})
+				writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "aud": tt.aud, "iss": externalBearerTestIssuer})
 			}))
 			defer server.Close()
 
@@ -637,6 +656,24 @@ func TestExternalBearerAuthenticatorPolicyValidation(t *testing.T) {
 		{name: "invalid JSON policy rejected", policy: `{`, wantErr: "invalid external-bearer policy file"},
 		{name: "trailing JSON policy rejected", policy: `{} {}`, wantErr: "trailing JSON after policy object"},
 		{name: "unknown top-level field rejected", policy: `{"allowedAudience":["kagent"]}`, wantErr: "unknown field"},
+		{name: "empty policy rejected", policy: `{}`, wantErr: "at least one top-level resource-binding control"},
+		{
+			name: "service actors without top-level resource binding rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "at least one top-level resource-binding control",
+		},
 		{name: "empty required scope rejected", policy: `{"requiredScopes":[""]}`, wantErr: "requiredScopes[0] must not be empty"},
 		{name: "whitespace required scope rejected", policy: `{"requiredScopes":["kagent:a2a", " \t\n "]}`, wantErr: "requiredScopes[1] must not be empty"},
 		{name: "empty allowed audience rejected", policy: `{"allowedAudiences":[""]}`, wantErr: "allowedAudiences[0] must not be empty"},
@@ -847,6 +884,7 @@ func TestExternalBearerAuthenticatorPolicyTopLevelChecks(t *testing.T) {
 
 func TestExternalBearerAuthenticatorServiceActorClassificationAndA2AAccess(t *testing.T) {
 	policy := `{
+		"allowedIssuers": ["https://issuer.example.com"],
 		"serviceActors": {
 			"svc-a": {
 				"match": {"allOf": [
@@ -863,7 +901,7 @@ func TestExternalBearerAuthenticatorServiceActorClassificationAndA2AAccess(t *te
 	}`
 	claims := map[string]any{
 		"active": true, "sub": "service-subject", "client_id": "svc-client",
-		"grant_type": "client_credentials", "scope": "read kagent:a2a",
+		"grant_type": "client_credentials", "scope": "read kagent:a2a", "iss": externalBearerTestIssuer,
 	}
 	authn, err := newExternalBearerForClaims(t, claims, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
@@ -900,7 +938,7 @@ func TestExternalBearerAuthenticatorServiceActorClassificationAndA2AAccess(t *te
 		})
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "user123"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "user123", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -921,6 +959,7 @@ func TestExternalBearerAuthenticatorServiceActorClassificationAndA2AAccess(t *te
 
 func TestExternalBearerAuthenticatorRejectsAmbiguousServiceActorMatch(t *testing.T) {
 	policy := `{
+		"allowedIssuers": ["https://issuer.example.com"],
 		"serviceActors": {
 			"svc-a": {
 				"match": {"allOf": [
@@ -942,7 +981,7 @@ func TestExternalBearerAuthenticatorRejectsAmbiguousServiceActorMatch(t *testing
 			}
 		}
 	}`
-	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "client_id": "svc-client", "grant_type": "client_credentials"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "client_id": "svc-client", "grant_type": "client_credentials", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
 	}
@@ -953,6 +992,7 @@ func TestExternalBearerAuthenticatorRejectsAmbiguousServiceActorMatch(t *testing
 
 func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *testing.T) {
 	policy := `{
+		"allowedIssuers": ["https://issuer.example.com"],
 		"serviceActors": {
 			"svc": {
 				"match": {"allOf": [
@@ -966,7 +1006,7 @@ func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *te
 			}
 		}
 	}`
-	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "username": "service-looking-user", "client_id": "other-client", "token_class": "service", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "username": "service-looking-user", "client_id": "other-client", "token_class": "service", "scope": "kagent:a2a", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
 	}
@@ -974,7 +1014,7 @@ func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *te
 		t.Fatal("expected token matching configured service-token indicator but not full service actor policy to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -989,6 +1029,7 @@ func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *te
 
 func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 	policy := `{
+		"allowedIssuers": ["https://issuer.example.com"],
 		"serviceActors": {
 			"svc": {
 				"match": {"allOf": [
@@ -1003,7 +1044,7 @@ func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 		}
 	}`
 
-	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "client_id": "svc-client", "grant_type": "client_credentials", "scope": "read"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "client_id": "svc-client", "grant_type": "client_credentials", "scope": "read", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
 	}
@@ -1011,7 +1052,7 @@ func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 		t.Fatal("expected unmatched client_credentials token with sub to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code", "iss": externalBearerTestIssuer}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -1053,7 +1094,7 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123"})
+				writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123", "iss": externalBearerTestIssuer})
 			}))
 			defer server.Close()
 
@@ -1093,6 +1134,7 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 
 func TestExternalBearerAuthenticatorUpstreamAuthClearsStaleXUserIDForServiceActor(t *testing.T) {
 	policy := `{
+		"allowedIssuers": ["https://issuer.example.com"],
 		"serviceActors": {
 			"svc": {
 				"match": {"allOf": [
@@ -1108,7 +1150,7 @@ func TestExternalBearerAuthenticatorUpstreamAuthClearsStaleXUserIDForServiceActo
 	}`
 	claims := map[string]any{
 		"active": true, "sub": "service-subject", "client_id": "svc-client",
-		"grant_type": "client_credentials", "scope": "read kagent:a2a",
+		"grant_type": "client_credentials", "scope": "read kagent:a2a", "iss": externalBearerTestIssuer,
 	}
 	authn, err := newExternalBearerForClaims(t, claims, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
 	if err != nil {
@@ -1176,6 +1218,10 @@ func TestExternalBearerAuthenticatorUpstreamAuthPreservesNilAndNonExternalBehavi
 
 func newExternalBearerForClaims(t *testing.T, claims map[string]any, cfg authimpl.ExternalBearerAuthenticatorConfig) (*authimpl.ExternalBearerAuthenticator, error) {
 	t.Helper()
+	if cfg.PolicyFile == "" {
+		cfg.PolicyFile = writePolicyFile(t, minimalExternalBearerPolicyJSON())
+		claims = addExternalBearerTestIssuer(claims)
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, claims)
 	}))
@@ -1183,6 +1229,18 @@ func newExternalBearerForClaims(t *testing.T, claims map[string]any, cfg authimp
 	cfg.URL = server.URL
 	cfg.AllowUnauthenticatedIntrospection = true
 	return authimpl.NewExternalBearerAuthenticator(cfg)
+}
+
+func addExternalBearerTestIssuer(claims map[string]any) map[string]any {
+	if _, ok := claims["iss"]; ok {
+		return claims
+	}
+	withIssuer := make(map[string]any, len(claims)+1)
+	for key, value := range claims {
+		withIssuer[key] = value
+	}
+	withIssuer["iss"] = externalBearerTestIssuer
+	return withIssuer
 }
 
 func writePolicyFile(t *testing.T, policy string) string {
@@ -1196,6 +1254,9 @@ func writePolicyFile(t *testing.T, policy string) string {
 
 func newExternalBearerForTest(t *testing.T, cfg authimpl.ExternalBearerAuthenticatorConfig) *authimpl.ExternalBearerAuthenticator {
 	t.Helper()
+	if cfg.PolicyFile == "" {
+		cfg.PolicyFile = writePolicyFile(t, minimalExternalBearerPolicyJSON())
+	}
 	authn, err := authimpl.NewExternalBearerAuthenticator(cfg)
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)

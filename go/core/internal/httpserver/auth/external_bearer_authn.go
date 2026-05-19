@@ -361,7 +361,7 @@ func (p *externalBearerPredicate) UnmarshalJSON(data []byte) error {
 
 func loadExternalBearerPolicyFile(path string) (*externalBearerPolicy, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, nil
+		return nil, errors.New("external-bearer auth requires AUTH_EXTERNAL_BEARER_POLICY_FILE")
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -431,6 +431,9 @@ func (p *externalBearerPolicy) validate() error {
 				return fmt.Errorf("service actor %q allowedA2A[%d]: %w", actorID, i, err)
 			}
 		}
+	}
+	if len(p.RequiredScopes) == 0 && len(p.AllowedAudiences) == 0 && len(p.AllowedIssuers) == 0 {
+		return errors.New("policy must configure at least one top-level resource-binding control: requiredScopes, allowedAudiences, or allowedIssuers")
 	}
 	return nil
 }
