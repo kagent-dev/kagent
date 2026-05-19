@@ -14,6 +14,7 @@ import (
 	"time"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestExternalBearerAuthenticatorRFC7662RequestShapeAndClaimPreservation(t *testing.T) {
@@ -181,6 +182,10 @@ func TestExternalBearerAuthenticatorEndpointAuthConfig(t *testing.T) {
 }
 
 func TestExternalBearerAuthenticatorRejectsServiceTokenClaimsInThisSlice(t *testing.T) {
+	// The policy slice will introduce constructible service-actor sessions and
+	// service-specific upstream semantics. In this propagation slice, clear
+	// service-token claims are rejected before they can receive human X-User-Id
+	// propagation via username/sub fallbacks.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, map[string]any{
 			"active":     true,
@@ -478,6 +483,54 @@ func TestExternalBearerAuthenticatorDoesNotTrustInboundIdentityHeadersOrQuery(t 
 	}
 }
 
+func TestExternalBearerAuthenticatorClaimsDoNotExposeRawBearerToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"active":           true,
+			"sub":              "user123",
+			"token":            "inbound-token",
+			"access_token":     "inbound-token",
+			"auth_header_echo": "Bearer inbound-token",
+			"debug":            "prefix inbound-token suffix",
+			"safe_claim":       "safe inbound claim",
+			"nested": map[string]any{
+				"token":      "inbound-token",
+				"authHeader": "Bearer inbound-token",
+				"safe":       "preserved",
+			},
+			"token_list": []string{"safe", "inbound-token", "Bearer inbound-token"},
+		})
+	}))
+	defer server.Close()
+
+	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
+		URL:                               server.URL,
+		AllowUnauthenticatedIntrospection: true,
+	})
+	headers := http.Header{"Authorization": []string{"Bearer inbound-token"}}
+	session, err := authn.Authenticate(context.Background(), headers, url.Values{})
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	claims := session.Principal().Claims
+	if claimContainsString(claims, "inbound-token") {
+		t.Fatalf("Principal.Claims exposes raw inbound bearer token: %#v", claims)
+	}
+	assertClaimString(t, claims, "safe_claim", "safe inbound claim")
+	nested, ok := claims["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("Claims[nested] = %#v, want map", claims["nested"])
+	}
+	assertClaimString(t, nested, "safe", "preserved")
+	tokenList, ok := claims["token_list"].([]any)
+	if !ok {
+		t.Fatalf("Claims[token_list] = %#v, want list", claims["token_list"])
+	}
+	if len(tokenList) != 1 || tokenList[0] != "safe" {
+		t.Fatalf("Claims[token_list] = %#v, want only safe entry", tokenList)
+	}
+}
+
 func TestExternalBearerAuthenticatorAudStringAndListAreAcceptedAndPreserved(t *testing.T) {
 	tests := []struct {
 		name string
@@ -511,8 +564,30 @@ func TestExternalBearerAuthenticatorAudStringAndListAreAcceptedAndPreserved(t *t
 }
 
 func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
-	for _, propagate := range []bool{false, true} {
-		t.Run(fmt.Sprintf("propagate=%t", propagate), func(t *testing.T) {
+	tests := []struct {
+		name        string
+		propagate   bool
+		wantAuthz   string
+		wantUserID  string
+		preexisting string
+	}{
+		{
+			name:        "user session with PropagateToken=false sets X-User-Id only",
+			propagate:   false,
+			wantUserID:  "user123",
+			preexisting: "Bearer stale-preexisting-token",
+		},
+		{
+			name:        "user session with PropagateToken=true sets X-User-Id and forwards bearer",
+			propagate:   true,
+			wantAuthz:   "Bearer inbound-token",
+			wantUserID:  "user123",
+			preexisting: "Bearer stale-preexisting-token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				writeJSON(t, w, http.StatusOK, map[string]any{"active": true, "sub": "user123"})
 			}))
@@ -520,7 +595,7 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 
 			authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
 				URL:                               server.URL,
-				PropagateToken:                    propagate,
+				PropagateToken:                    tt.propagate,
 				AllowUnauthenticatedIntrospection: true,
 			})
 			headers := http.Header{"Authorization": []string{"Bearer inbound-token"}}
@@ -533,19 +608,48 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRequest() error = %v", err)
 			}
-			req.Header.Set("Authorization", "Bearer stale-preexisting-token")
+			if tt.preexisting != "" {
+				req.Header.Set("Authorization", tt.preexisting)
+			}
 			if err := authn.UpstreamAuth(req, session, session.Principal()); err != nil {
 				t.Fatalf("UpstreamAuth() error = %v", err)
 			}
-			if got := req.Header.Get("X-User-Id"); got != "user123" {
-				t.Fatalf("X-User-Id = %q, want user123", got)
+			if got := req.Header.Get("X-User-Id"); got != tt.wantUserID {
+				t.Fatalf("X-User-Id = %q, want %q", got, tt.wantUserID)
 			}
-			wantAuth := ""
-			if propagate {
-				wantAuth = "Bearer inbound-token"
+			if got := req.Header.Get("Authorization"); got != tt.wantAuthz {
+				t.Fatalf("Authorization = %q, want %q", got, tt.wantAuthz)
 			}
-			if got := req.Header.Get("Authorization"); got != wantAuth {
-				t.Fatalf("Authorization = %q, want %q", got, wantAuth)
+		})
+	}
+}
+
+func TestExternalBearerAuthenticatorUpstreamAuthNoopForNilAndEmptyPrincipal(t *testing.T) {
+	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
+		URL:                               "http://localhost:8080/introspect",
+		AllowUnauthenticatedIntrospection: true,
+	})
+
+	for _, tt := range []struct {
+		name    string
+		session auth.Session
+	}{
+		{name: "nil session"},
+		{name: "empty principal", session: staticSession{principal: auth.Principal{}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+			if err != nil {
+				t.Fatalf("NewRequest() error = %v", err)
+			}
+			if err := authn.UpstreamAuth(req, tt.session, auth.Principal{}); err != nil {
+				t.Fatalf("UpstreamAuth() error = %v", err)
+			}
+			if got := req.Header.Get("X-User-Id"); got != "" {
+				t.Fatalf("X-User-Id = %q, want empty", got)
+			}
+			if got := req.Header.Get("Authorization"); got != "" {
+				t.Fatalf("Authorization = %q, want empty", got)
 			}
 		})
 	}
@@ -575,4 +679,32 @@ func assertClaimString(t *testing.T, claims map[string]any, claim string, want s
 	if !ok || got != want {
 		t.Fatalf("Claims[%s] = %#v, want %q", claim, claims[claim], want)
 	}
+}
+
+type staticSession struct {
+	principal auth.Principal
+}
+
+func (s staticSession) Principal() auth.Principal {
+	return s.principal
+}
+
+func claimContainsString(value any, want string) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.Contains(typed, want)
+	case []any:
+		for _, item := range typed {
+			if claimContainsString(item, want) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if claimContainsString(item, want) {
+				return true
+			}
+		}
+	}
+	return false
 }
