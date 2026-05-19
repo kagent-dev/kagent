@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 type Verb string
@@ -95,7 +94,28 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }
 
-func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
+type A2APathPredicate func(escapedPath string) bool
+
+type authnMiddlewareOptions struct {
+	a2aPathPredicate A2APathPredicate
+}
+
+type AuthnMiddlewareOption func(*authnMiddlewareOptions)
+
+func WithA2APathPredicate(predicate A2APathPredicate) AuthnMiddlewareOption {
+	return func(opts *authnMiddlewareOptions) {
+		opts.a2aPathPredicate = predicate
+	}
+}
+
+func AuthnMiddleware(authn AuthProvider, options ...AuthnMiddlewareOption) func(http.Handler) http.Handler {
+	opts := authnMiddlewareOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&opts)
+		}
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip authentication for health and version endpoints (used by probes)
@@ -109,7 +129,7 @@ func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 				return
 			}
 			if session != nil {
-				if a2aOnly, ok := session.(A2AOnlySession); ok && a2aOnly.A2AOnly() && !isA2ARequestPath(r.URL.EscapedPath()) {
+				if a2aOnly, ok := session.(A2AOnlySession); ok && a2aOnly.A2AOnly() && !isAllowedA2AOnlyPath(opts.a2aPathPredicate, r.URL.EscapedPath()) {
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				}
@@ -120,17 +140,6 @@ func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	}
 }
 
-func isA2ARequestPath(escapedPath string) bool {
-	lowerPath := strings.ToLower(escapedPath)
-	if strings.Contains(lowerPath, "%2f") || strings.Contains(lowerPath, "%5c") {
-		return false
-	}
-	segments := strings.Split(strings.Trim(escapedPath, "/"), "/")
-	if len(segments) < 4 || segments[0] != "api" {
-		return false
-	}
-	if segments[1] != "a2a" && segments[1] != "a2a-sandboxes" {
-		return false
-	}
-	return segments[2] != "" && segments[3] != ""
+func isAllowedA2AOnlyPath(predicate A2APathPredicate, escapedPath string) bool {
+	return predicate != nil && predicate(escapedPath)
 }

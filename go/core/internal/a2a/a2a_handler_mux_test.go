@@ -195,6 +195,33 @@ func TestHandlerMuxExistingRouteExtractionBehavior(t *testing.T) {
 	}
 }
 
+func TestHandlerMuxA2AOnlyPathPredicate(t *testing.T) {
+	m := newTestHandlerMux(&testAuthProvider{})
+	tests := []struct {
+		name        string
+		escapedPath string
+		want        bool
+	}{
+		{name: "agent route", escapedPath: "/api/a2a/default/agent-one", want: true},
+		{name: "agent subroute", escapedPath: "/api/a2a/default/agent-one/tasks", want: true},
+		{name: "sandbox route", escapedPath: "/api/a2a-sandboxes/default/sandbox-one", want: true},
+		{name: "non a2a api", escapedPath: "/api/me", want: false},
+		{name: "evil agent prefix", escapedPath: "/api/a2aevil/default/agent-one", want: false},
+		{name: "evil sandbox prefix", escapedPath: "/api/a2a-sandboxesevil/default/sandbox-one", want: false},
+		{name: "missing name segment", escapedPath: "/api/a2a/default", want: false},
+		{name: "encoded slash", escapedPath: "/api/a2a/default%2Fagent-one/tasks", want: false},
+		{name: "encoded backslash", escapedPath: "/api/a2a/default%5Cagent-one/tasks", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := m.isA2ARequestPath(tt.escapedPath); got != tt.want {
+				t.Fatalf("isA2ARequestPath(%q) = %v, want %v", tt.escapedPath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandlerMuxDeniesBeforeMissingHandlerLookup(t *testing.T) {
 	provider := &testA2AAccessProvider{err: errors.New("denied")}
 	m := newTestHandlerMux(provider)

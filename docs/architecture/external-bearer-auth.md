@@ -21,7 +21,7 @@ token=<bearer-token-without-prefix>&token_type_hint=access_token
 
 A compatible response includes `active: true` plus identity and policy inputs such as `sub`, `username`, `client_id`, `scope`, `aud`, `iss`, `grant_type`, and `exp`. kagent preserves introspection response fields in the authenticated principal claims, supports RFC space-separated `scope` strings, and accepts `aud` as either a string or list.
 
-`active: true` means the external auth service has validated the token according to the provider. It is necessary but not sufficient for all access: kagent still applies configured generic claim checks and local service-actor A2A policy before accepting or bounding the request.
+`active: true` means the external auth service has validated the token according to the provider. When no external-bearer policy is configured, `active: true` plus a resolved human-user identity is sufficient for basic human-user authentication, so kagent relies on the trusted introspection service to enforce token validity and resource applicability for the kagent deployment. When policy is configured, kagent also applies the configured top-level claim checks and local service-actor A2A policy before accepting or bounding the request.
 
 The introspection URL must use HTTPS for non-localhost hosts. Plain HTTP is accepted only for localhost loopback development or mock validation endpoints.
 
@@ -120,15 +120,17 @@ controller:
 
 When inline or existing policy is configured, Helm mounts it at `/etc/kagent/external-bearer/policy.json` and sets `AUTH_EXTERNAL_BEARER_POLICY_FILE`.
 
+For production, configure resource binding either in kagent policy (`requiredScopes`, `allowedAudiences`, and/or `allowedIssuers`) or in the introspection service itself. Running without a kagent policy is appropriate only when the introspection endpoint is trusted to return `active: true` only for tokens valid for this kagent resource.
+
 ## Service-actor policy
 
-Human-user tokens are authenticated as users when introspection succeeds and a user identity can be resolved. Service actors require explicit local policy. A service-token-looking credential, such as a token with `grant_type=client_credentials`, must match a configured `serviceActors[*].match.allOf` entry; it must not fall back to user auth through `sub` or `username` if the service policy does not match.
+Human-user tokens are authenticated as users when introspection succeeds and a user identity can be resolved. If no policy file is configured, top-level local checks such as `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are not applied; resource binding must come from the trusted introspection service. Service actors require explicit local policy. A service-token-looking credential, such as a token with `grant_type=client_credentials`, must match a configured `serviceActors[*].match.allOf` entry; it must not fall back to user auth through `sub` or `username` if the service policy does not match.
 
 Policy fields:
 
-- `requiredScopes`: optional top-level scopes that every accepted token must contain.
-- `allowedAudiences`: optional top-level allowed `aud` values; when configured, missing `aud` fails.
-- `allowedIssuers`: optional top-level allowed `iss` values; when configured, missing `iss` fails.
+- `requiredScopes`: optional top-level scopes that every accepted token must contain when policy is configured.
+- `allowedAudiences`: optional top-level allowed `aud` values; when policy is configured with audiences, missing `aud` fails.
+- `allowedIssuers`: optional top-level allowed `iss` values; when policy is configured with issuers, missing `iss` fails.
 - `serviceActors`: map of local service actor IDs to match predicates and A2A allowlists.
 - `match.allOf`: at least two exact predicates. `value` is exact scalar/list membership; `contains` is exact scope-token or list membership.
 - `allowedA2A`: allowed target triples: `namespace`, `name`, and `workloadType` (`agent`, `sandbox`, or `*`). The `*` wildcard is allowed only as the whole field value.

@@ -99,7 +99,7 @@ The external auth service owns:
 
 For providers that expose an RFC 7662-compatible token introspection endpoint for the tokens presented to kagent, no provider-specific adapter is required. kagent consumes the introspection response and applies generic local bounds where needed: required scopes/audiences/issuers when configured, service-actor identity mapping from configured claims, and A2A target allowlists. Providers that do not expose compatible introspection should be integrated through a validating proxy, gateway, or adapter, or through a future local JWT/JWKS mode.
 
-The validation/introspection service must return `active: true` only when the token is cryptographically valid, time-valid, and not revoked according to the provider. kagent then verifies that the active token is acceptable for the configured kagent deployment/API using generic claim checks and local service-actor policy. This keeps provider-specific validation outside kagent while avoiding a custom adapter requirement for standard OAuth deployments.
+The validation/introspection service must return `active: true` only when the token is cryptographically valid, time-valid, and not revoked according to the provider. When a policy is configured, kagent also verifies that the active token is acceptable for the configured kagent deployment/API using generic claim checks and local service-actor policy. Without a kagent policy, basic human-user authentication relies on the trusted introspection service to enforce resource applicability for the kagent deployment. This keeps provider-specific validation outside kagent while avoiding a custom adapter requirement for standard OAuth deployments.
 
 ### External validation protocol
 
@@ -462,7 +462,7 @@ Defaults:
 
 - Policy file is loaded when constructing `ExternalBearerAuthenticator`.
 - Invalid policy JSON fails controller startup.
-- Optional `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are evaluated against validation/introspection claims before the session is accepted.
+- When a policy file is configured, optional `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are evaluated against validation/introspection claims before the session is accepted.
 - Service actors are identified by matching composite configured claim predicates such as `client_id` plus `grant_type`, scope, audience, or another token-class claim, not by trusting caller-supplied headers.
 - A token that positively indicates a service/client-credentials token but fails to match `serviceActors[*].match.allOf` is rejected and must not fall back to user authentication through `sub` or `username`.
 - A token that matches only `client_id` is not classified as a service actor unless the policy explicitly documents and tests that the client is service-only.
@@ -558,7 +558,7 @@ Defaults:
 - Docs present `external-bearer` as a standards-based OAuth protected-resource mode using RFC 7662 token introspection for providers that expose compatible introspection for the tokens sent to kagent.
 - Docs state that providers without compatible introspection need a validating proxy/gateway/adapter or a future JWT/JWKS mode.
 - Docs state that `AUTH_EXTERNAL_BEARER_URL` points to an RFC 7662-compatible token introspection endpoint, not a token endpoint, userinfo endpoint, discovery URL, or debug tokeninfo endpoint.
-- Docs state that `active: true` means provider validation succeeded, and kagent still applies configured generic claim checks plus service-actor policy before accepting/bounding the request.
+- Docs state that `active: true` means provider validation succeeded; when no policy is configured, `active: true` plus a resolved human-user identity is sufficient for basic human-user authentication, and configured generic claim checks plus service-actor policy apply when a policy is configured.
 - Existing trusted-proxy docs are clarified as documenting the upstream-proxy-authenticated boundary, not the only secure auth mode.
 - A2A/subagent docs mention that external-bearer forwards human user continuity separately from service-actor identity, while bearer forwarding is configurable.
 - Docs explicitly state that token issuance and cryptographic validation remain the external auth service's responsibility.

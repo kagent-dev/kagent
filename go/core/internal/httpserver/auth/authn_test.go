@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -124,10 +125,10 @@ func TestA2AAuthenticatorWrapReusesExistingAuthSession(t *testing.T) {
 	}
 }
 
-func TestA2AAuthenticatorWrapAuthenticatesWhenNoExistingSession(t *testing.T) {
-	providerSession := &middlewareSession{principal: auth.Principal{User: auth.User{ID: "fresh@example.com"}}}
+func TestA2AAuthenticatorWrapAuthenticatesA2AOnlySessionWhenNoExistingSession(t *testing.T) {
+	providerSession := &middlewareSession{a2aOnly: true}
 	provider := &countingAuthProvider{session: providerSession}
-	wrapped := authimpl.NewA2AAuthenticator(provider).Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := authimpl.NewA2AAuthenticator(provider, authimpl.WithA2APathPredicate(testA2ARequestPath)).Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, ok := auth.AuthSessionFrom(r.Context())
 		if !ok {
 			t.Fatal("expected provider session in request context")
@@ -149,6 +150,21 @@ func TestA2AAuthenticatorWrapAuthenticatesWhenNoExistingSession(t *testing.T) {
 	}
 }
 
+func TestAuthnMiddlewareA2AOnlyGuardFailsClosedWithoutPredicate(t *testing.T) {
+	serviceSession := middlewareSession{a2aOnly: true}
+	router := mux.NewRouter()
+	router.Use(auth.AuthnMiddleware(middlewareStaticProvider{session: serviceSession}))
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	rw := httptest.NewRecorder()
+	router.ServeHTTP(rw, httptest.NewRequest(http.MethodGet, "http://foo.com/api/a2a/kagent/agent", nil))
+	if rw.Code != http.StatusForbidden {
+		t.Fatalf("status: want %d, got %d", http.StatusForbidden, rw.Code)
+	}
+}
+
 func TestAuthnMiddlewareA2AOnlyGuard(t *testing.T) {
 	serviceSession := middlewareSession{a2aOnly: true}
 	userSession := middlewareSession{principal: auth.Principal{User: auth.User{ID: "user@example.com"}}}
@@ -167,6 +183,7 @@ func TestAuthnMiddlewareA2AOnlyGuard(t *testing.T) {
 		{name: "service actor denied on sandboxesevil", authn: middlewareStaticProvider{session: serviceSession}, url: "http://foo.com/api/a2a-sandboxesevil/kagent/sandbox", wantStatus: http.StatusForbidden},
 		{name: "service actor denied missing name segment", authn: middlewareStaticProvider{session: serviceSession}, url: "http://foo.com/api/a2a/kagent", wantStatus: http.StatusForbidden},
 		{name: "service actor denied encoded slash", authn: middlewareStaticProvider{session: serviceSession}, url: "http://foo.com/api/a2a/kagent%2Fagent/tasks", wantStatus: http.StatusForbidden},
+		{name: "service actor denied encoded backslash", authn: middlewareStaticProvider{session: serviceSession}, url: "http://foo.com/api/a2a/kagent%5Cagent/tasks", wantStatus: http.StatusForbidden},
 		{name: "user actor allowed on non-a2a api", authn: middlewareStaticProvider{session: userSession}, url: "http://foo.com/api/me", wantStatus: http.StatusNoContent},
 		{name: "unsecure mode unaffected", authn: &authimpl.UnsecureAuthenticator{}, url: "http://foo.com/api/me", wantStatus: http.StatusNoContent},
 	}
@@ -174,7 +191,7 @@ func TestAuthnMiddlewareA2AOnlyGuard(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			router := mux.NewRouter()
-			router.Use(auth.AuthnMiddleware(tt.authn))
+			router.Use(auth.AuthnMiddleware(tt.authn, auth.WithA2APathPredicate(testA2ARequestPath)))
 			router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			})
@@ -190,4 +207,19 @@ func TestAuthnMiddlewareA2AOnlyGuard(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testA2ARequestPath(escapedPath string) bool {
+	lowerPath := strings.ToLower(escapedPath)
+	if strings.Contains(lowerPath, "%2f") || strings.Contains(lowerPath, "%5c") {
+		return false
+	}
+	segments := strings.Split(strings.Trim(escapedPath, "/"), "/")
+	if len(segments) < 4 || segments[0] != "api" {
+		return false
+	}
+	if segments[1] != "a2a" && segments[1] != "a2a-sandboxes" {
+		return false
+	}
+	return segments[2] != "" && segments[3] != ""
 }

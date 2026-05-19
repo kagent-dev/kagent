@@ -637,6 +637,12 @@ func TestExternalBearerAuthenticatorPolicyValidation(t *testing.T) {
 		{name: "invalid JSON policy rejected", policy: `{`, wantErr: "invalid external-bearer policy file"},
 		{name: "trailing JSON policy rejected", policy: `{} {}`, wantErr: "trailing JSON after policy object"},
 		{name: "unknown top-level field rejected", policy: `{"allowedAudience":["kagent"]}`, wantErr: "unknown field"},
+		{name: "empty required scope rejected", policy: `{"requiredScopes":[""]}`, wantErr: "requiredScopes[0] must not be empty"},
+		{name: "whitespace required scope rejected", policy: `{"requiredScopes":["kagent:a2a", " \t\n "]}`, wantErr: "requiredScopes[1] must not be empty"},
+		{name: "empty allowed audience rejected", policy: `{"allowedAudiences":[""]}`, wantErr: "allowedAudiences[0] must not be empty"},
+		{name: "whitespace allowed audience rejected", policy: `{"allowedAudiences":["kagent", " \t\n "]}`, wantErr: "allowedAudiences[1] must not be empty"},
+		{name: "empty allowed issuer rejected", policy: `{"allowedIssuers":[""]}`, wantErr: "allowedIssuers[0] must not be empty"},
+		{name: "whitespace allowed issuer rejected", policy: `{"allowedIssuers":["https://issuer.example.com", " \t\n "]}`, wantErr: "allowedIssuers[1] must not be empty"},
 		{
 			name: "empty allOf rejected",
 			policy: `{

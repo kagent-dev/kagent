@@ -314,10 +314,32 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
 	s.router.Use(wsSandboxSSHAuthQueryMiddleware)
-	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(auth.AuthnMiddleware(s.authenticator, auth.WithA2APathPredicate(isA2ARequestPath)))
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
+}
+
+func isA2ARequestPath(escapedPath string) bool {
+	lowerPath := strings.ToLower(escapedPath)
+	if strings.Contains(lowerPath, "%2f") || strings.Contains(lowerPath, "%5c") {
+		return false
+	}
+	return hasA2ARequestPathPrefix(escapedPath, APIPathA2A) || hasA2ARequestPathPrefix(escapedPath, APIPathA2ASandboxes)
+}
+
+func hasA2ARequestPathPrefix(escapedPath, prefix string) bool {
+	pathSegments := strings.Split(strings.Trim(escapedPath, "/"), "/")
+	prefixSegments := strings.Split(strings.Trim(prefix, "/"), "/")
+	if len(pathSegments) < len(prefixSegments)+2 {
+		return false
+	}
+	for i, segment := range prefixSegments {
+		if pathSegments[i] != segment {
+			return false
+		}
+	}
+	return pathSegments[len(prefixSegments)] != "" && pathSegments[len(prefixSegments)+1] != ""
 }
 
 // wsSandboxSSHAuthQueryMiddleware maps access_token query → Authorization for browser WebSocket upgrades

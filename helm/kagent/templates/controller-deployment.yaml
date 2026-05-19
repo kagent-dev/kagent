@@ -1,3 +1,4 @@
+{{- include "kagent.externalBearer.validate" . -}}
 {{- $externalBearerEnabled := eq (.Values.controller.auth.mode | default "unsecure") "external-bearer" -}}
 {{- $externalBearerPolicy := .Values.controller.auth.externalBearer.policy -}}
 {{- $externalBearerPolicyEnabled := and $externalBearerEnabled (or $externalBearerPolicy.inline $externalBearerPolicy.existingConfigMap.name) -}}

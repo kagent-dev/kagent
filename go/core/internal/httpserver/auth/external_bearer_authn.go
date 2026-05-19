@@ -3,7 +3,6 @@ package auth
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -255,7 +254,7 @@ func (a *ExternalBearerAuthenticator) introspect(ctx context.Context, token stri
 	if a.validationAuthorization != "" {
 		req.Header.Set("Authorization", a.validationAuthorization)
 	} else if a.clientID != "" {
-		req.Header.Set("Authorization", "Basic "+basicAuth(a.clientID, a.clientSecret))
+		req.SetBasicAuth(a.clientID, a.clientSecret)
 	}
 
 	resp, err := a.client.Do(req)
@@ -393,6 +392,15 @@ func loadExternalBearerPolicyFile(path string) (*externalBearerPolicy, error) {
 }
 
 func (p *externalBearerPolicy) validate() error {
+	if err := validatePolicyStringList("requiredScopes", p.RequiredScopes); err != nil {
+		return err
+	}
+	if err := validatePolicyStringList("allowedAudiences", p.AllowedAudiences); err != nil {
+		return err
+	}
+	if err := validatePolicyStringList("allowedIssuers", p.AllowedIssuers); err != nil {
+		return err
+	}
 	for actorID, serviceActor := range p.ServiceActors {
 		if strings.TrimSpace(actorID) == "" {
 			return errors.New("serviceActors contains empty actor id")
@@ -422,6 +430,15 @@ func (p *externalBearerPolicy) validate() error {
 			if err := target.validate(); err != nil {
 				return fmt.Errorf("service actor %q allowedA2A[%d]: %w", actorID, i, err)
 			}
+		}
+	}
+	return nil
+}
+
+func validatePolicyStringList(field string, values []string) error {
+	for i, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, i)
 		}
 	}
 	return nil
@@ -661,10 +678,6 @@ func readBounded(r io.Reader, max int64) ([]byte, error) {
 		return nil, fmt.Errorf("introspection response body exceeds %d bytes", max)
 	}
 	return body, nil
-}
-
-func basicAuth(clientID, clientSecret string) string {
-	return base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
 }
 
 func bearerTokenFromAuthorization(authHeader string) (string, bool) {

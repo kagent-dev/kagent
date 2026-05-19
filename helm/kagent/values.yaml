@@ -181,8 +181,13 @@ controller:
       # Allow unauthenticated introspection endpoint calls. Use only for local development/tests;
       # the controller only permits this with localhost/loopback introspection URLs.
       allowUnauthenticatedIntrospection: false
-      # Optional service-actor A2A policy. The controller consumes this as a local file.
-      # Service actors are denied A2A unless they match a serviceActors entry and the target is allowed.
+      # Optional external-bearer policy. The controller consumes this as a local file.
+      # For production, establish resource binding either by configuring policy requiredScopes,
+      # allowedAudiences, and/or allowedIssuers, or by using an introspection endpoint that is
+      # already resource-bound to kagent and returns active=true only for kagent-valid tokens.
+      # Without policy, active=true plus a resolved human-user identity is sufficient for basic
+      # human-user authentication; top-level scope/audience/issuer checks are not applied by kagent.
+      # Service actors are still denied A2A unless they match a serviceActors entry and the target is allowed.
       # match.allOf requires at least two predicates; client_id alone is invalid.
       # Each match must include a service-token indicator: grant_type=client_credentials, or
       # token_class/token_use set to service, service_token, service-token, or client_credentials.

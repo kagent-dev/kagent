@@ -53,7 +53,7 @@ func (a *handlerMux) SetAgentHandler(
 	card server.AgentCard,
 	tracing server.Middleware,
 ) error {
-	middlewares := []server.Middleware{authimpl.NewA2AAuthenticator(a.authenticator)}
+	middlewares := []server.Middleware{authimpl.NewA2AAuthenticator(a.authenticator, authimpl.WithA2APathPredicate(a.isA2ARequestPath))}
 	if tracing != nil {
 		middlewares = append(middlewares, tracing)
 	}
@@ -134,6 +134,28 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (a *handlerMux) isSandboxRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, a.sandboxPathPrefix+"/") || r.URL.Path == a.sandboxPathPrefix
+}
+
+func (a *handlerMux) isA2ARequestPath(escapedPath string) bool {
+	lowerPath := strings.ToLower(escapedPath)
+	if strings.Contains(lowerPath, "%2f") || strings.Contains(lowerPath, "%5c") {
+		return false
+	}
+	return hasA2ARequestPathPrefix(escapedPath, a.agentPathPrefix) || hasA2ARequestPathPrefix(escapedPath, a.sandboxPathPrefix)
+}
+
+func hasA2ARequestPathPrefix(escapedPath, prefix string) bool {
+	pathSegments := strings.Split(strings.Trim(escapedPath, "/"), "/")
+	prefixSegments := strings.Split(strings.Trim(prefix, "/"), "/")
+	if len(pathSegments) < len(prefixSegments)+2 {
+		return false
+	}
+	for i, segment := range prefixSegments {
+		if pathSegments[i] != segment {
+			return false
+		}
+	}
+	return pathSegments[len(prefixSegments)] != "" && pathSegments[len(prefixSegments)+1] != ""
 }
 
 func routeKey(isSandbox bool, namespace, name string) string {

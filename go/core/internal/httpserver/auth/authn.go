@@ -59,14 +59,29 @@ func (a *UnsecureAuthenticator) UpstreamAuth(r *http.Request, session auth.Sessi
 	return nil
 }
 
-func NewA2AAuthenticator(provider auth.AuthProvider) *A2AAuthenticator {
-	return &A2AAuthenticator{
-		provider: provider,
+type A2AAuthenticatorOption func(*A2AAuthenticator)
+
+func WithA2APathPredicate(predicate auth.A2APathPredicate) A2AAuthenticatorOption {
+	return func(a *A2AAuthenticator) {
+		a.a2aPathPredicate = predicate
 	}
 }
 
+func NewA2AAuthenticator(provider auth.AuthProvider, options ...A2AAuthenticatorOption) *A2AAuthenticator {
+	authenticator := &A2AAuthenticator{
+		provider: provider,
+	}
+	for _, option := range options {
+		if option != nil {
+			option(authenticator)
+		}
+	}
+	return authenticator
+}
+
 type A2AAuthenticator struct {
-	provider auth.AuthProvider
+	provider         auth.AuthProvider
+	a2aPathPredicate auth.A2APathPredicate
 }
 
 func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
@@ -75,7 +90,11 @@ func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		auth.AuthnMiddleware(p.provider)(next).ServeHTTP(w, r)
+		options := []auth.AuthnMiddlewareOption{}
+		if p.a2aPathPredicate != nil {
+			options = append(options, auth.WithA2APathPredicate(p.a2aPathPredicate))
+		}
+		auth.AuthnMiddleware(p.provider, options...)(next).ServeHTTP(w, r)
 	})
 }
 
