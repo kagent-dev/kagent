@@ -145,7 +145,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
-            url: "https://auth.example.com/introspect"
+            url: "http://localhost:8080/introspect"
             timeout: "3s"
             propagateToken: true
             validationAuthorization:
@@ -153,6 +153,9 @@ tests:
                 name: "validation-auth"
                 key: "authorization"
             allowUnauthenticatedIntrospection: true
+            policy:
+              inline: |
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -163,7 +166,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: AUTH_EXTERNAL_BEARER_URL
-            value: "https://auth.example.com/introspect"
+            value: "http://localhost:8080/introspect"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -201,6 +204,9 @@ tests:
               secretRef:
                 name: "introspection-client"
                 key: "client-secret"
+            policy:
+              inline: |
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -224,6 +230,22 @@ tests:
           content:
             name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
 
+  - it: should fail external bearer rendering when policy source is missing
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            validationAuthorization:
+              secretRef:
+                name: "validation-auth"
+                key: "authorization"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.policy.inline or controller.auth.externalBearer.policy.existingConfigMap.name is required when controller.auth.mode is \"external-bearer\"."
+
   - it: should fail external bearer rendering when url is empty
     template: controller-deployment.yaml
     set:
@@ -242,9 +264,28 @@ tests:
           mode: external-bearer
           externalBearer:
             url: "https://auth.example.com/introspect"
+            policy:
+              inline: |
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - failedTemplate:
           errorMessage: "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true."
+
+  - it: should fail external bearer rendering when allow unauthenticated introspection uses a non-local URL
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            allowUnauthenticatedIntrospection: true
+            policy:
+              inline: |
+                {"requiredScopes":["kagent:a2a"]}
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.allowUnauthenticatedIntrospection is only allowed for localhost/loopback introspection URLs."
 
   - it: should fail external bearer rendering when allow unauthenticated introspection is quoted false without authentication
     template: controller-deployment.yaml
@@ -255,6 +296,9 @@ tests:
           externalBearer:
             url: "https://auth.example.com/introspect"
             allowUnauthenticatedIntrospection: "false"
+            policy:
+              inline: |
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - failedTemplate:
           errorMessage: "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true."
@@ -349,11 +393,11 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
-            url: "https://auth.example.com/introspect"
+            url: "http://localhost:8080/introspect"
             allowUnauthenticatedIntrospection: true
             policy:
               inline: |
-                {"serviceActors":{}}
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -383,7 +427,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
-            url: "https://auth.example.com/introspect"
+            url: "http://localhost:8080/introspect"
             allowUnauthenticatedIntrospection: true
             policy:
               existingConfigMap:
@@ -418,11 +462,11 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
-            url: "https://auth.example.com/introspect"
+            url: "http://localhost:8080/introspect"
             allowUnauthenticatedIntrospection: true
             policy:
               inline: |
-                {"serviceActors":{}}
+                {"requiredScopes":["kagent:a2a"]}
     asserts:
       - isKind:
           of: ConfigMap
@@ -432,7 +476,7 @@ tests:
       - equal:
           path: data["policy.json"]
           value: |
-            {"serviceActors":{}}
+            {"requiredScopes":["kagent:a2a"]}
 
   - it: should ignore populated external bearer settings when auth mode is unsecure
     template: controller-deployment.yaml

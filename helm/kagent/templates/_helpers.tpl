@@ -226,8 +226,17 @@ Validate external-bearer auth configuration.
 {{- if and (not $clientId) $clientSecretPartiallyConfigured -}}
 {{- fail "controller.auth.externalBearer.clientId is required when controller.auth.externalBearer.clientSecret.secretRef.name or .key is set." -}}
 {{- end -}}
+{{- if and $allowUnauthenticatedIntrospection (not (regexMatch "^https?://(localhost|127(?:\\.[0-9]{1,3}){3})(:[0-9]+)?([/?#]|$)" $url)) (not (regexMatch "^https?://\\[(::1|0:0:0:0:0:0:0:1)\\](:[0-9]+)?([/?#]|$)" $url)) -}}
+{{- fail "controller.auth.externalBearer.allowUnauthenticatedIntrospection is only allowed for localhost/loopback introspection URLs." -}}
+{{- end -}}
 {{- if not (or $validationAuthConfigured (and $clientId $clientSecretConfigured) $allowUnauthenticatedIntrospection) -}}
 {{- fail "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true." -}}
+{{- end -}}
+{{- $policy := $externalBearer.policy -}}
+{{- $policyInline := $policy.inline | default "" | toString | trim -}}
+{{- $policyConfigMapName := $policy.existingConfigMap.name | default "" | toString | trim -}}
+{{- if not (or $policyInline $policyConfigMapName) -}}
+{{- fail "controller.auth.externalBearer.policy.inline or controller.auth.externalBearer.policy.existingConfigMap.name is required when controller.auth.mode is \"external-bearer\"." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
