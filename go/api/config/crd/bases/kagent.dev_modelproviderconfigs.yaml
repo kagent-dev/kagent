@@ -91,6 +91,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - SparkMaaSAI
                 type: string
             required:
             - type

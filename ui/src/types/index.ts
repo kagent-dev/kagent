@@ -73,6 +73,10 @@ export interface SAPAICoreConfigPayload {
   authUrl?: string;
 }
 
+export interface SparkMaaSAIConfigPayload {
+  baseUrl?: string;
+}
+
 export interface BedrockConfig {
   region: string;
 }
@@ -101,6 +105,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
+  sparkMaaSAI?: SparkMaaSAIConfigPayload;
 }
 
 export interface ModelConfig {

@@ -19,6 +19,8 @@ func TestMarshalJSON_TypeDiscriminator(t *testing.T) {
 		{name: "Ollama", model: &Ollama{BaseModel: BaseModel{Model: "llama3"}}, wantType: ModelTypeOllama},
 		{name: "Gemini", model: &Gemini{BaseModel: BaseModel{Model: "gemini-pro"}}, wantType: ModelTypeGemini},
 		{name: "Bedrock", model: &Bedrock{BaseModel: BaseModel{Model: "claude-v2"}}, wantType: ModelTypeBedrock},
+		{name: "SAPAICore", model: &SAPAICore{BaseModel: BaseModel{Model: "claude-3-sonnet"}, BaseUrl: "https://api.example.com"}, wantType: ModelTypeSAPAICore},
+		{name: "SparkMaaSAI", model: &SparkMaaSAI{BaseModel: BaseModel{Model: "Spark5.0-Pro"}, BaseUrl: "https://maas-api.cn-huabei-1.xf-yun.com.cn"}, wantType: ModelTypeSparkMaaSAI},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +117,7 @@ func TestMarshalJSON_BaseModelFields(t *testing.T) {
 		{name: "Ollama", model: &Ollama{BaseModel: base}},
 		{name: "Gemini", model: &Gemini{BaseModel: base}},
 		{name: "Bedrock", model: &Bedrock{BaseModel: base}},
+		{name: "SparkMaaSAI", model: &SparkMaaSAI{BaseModel: base}},
 	}
 
 	for _, tt := range tests {
@@ -245,6 +248,30 @@ func TestMarshalJSON_TypeSpecificFields(t *testing.T) {
 			t.Errorf("region = %v, want %q", raw["region"], "us-east-1")
 		}
 	})
+
+	t.Run("SparkMaaSAI base_url", func(t *testing.T) {
+		m := &SparkMaaSAI{
+			BaseModel: BaseModel{Model: "Spark5.0-Pro"},
+			BaseUrl:   "https://maas-api.cn-huabei-1.xf-yun.com.cn",
+		}
+		data, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("MarshalJSON() error = %v", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if raw["type"] != "spark_maas_ai" {
+			t.Errorf("type = %v, want %q", raw["type"], "spark_maas_ai")
+		}
+		if raw["base_url"] != "https://maas-api.cn-huabei-1.xf-yun.com.cn" {
+			t.Errorf("base_url = %v, want %q", raw["base_url"], "https://maas-api.cn-huabei-1.xf-yun.com.cn")
+		}
+		if raw["model"] != "Spark5.0-Pro" {
+			t.Errorf("model = %v, want %q", raw["model"], "Spark5.0-Pro")
+		}
+	})
 }
 
 func TestAgentConfig_UnmarshalJSON_Network(t *testing.T) {
@@ -340,6 +367,14 @@ func TestParseModel_Roundtrip(t *testing.T) {
 				Region:    "us-west-2",
 			},
 			wantType: ModelTypeBedrock,
+		},
+		{
+			name: "SparkMaaSAI roundtrip",
+			model: &SparkMaaSAI{
+				BaseModel: BaseModel{Model: "Spark5.0-Pro", Headers: map[string]string{"X-Custom": "val"}},
+				BaseUrl:   "https://maas-api.cn-huabei-1.xf-yun.com.cn",
+			},
+			wantType: ModelTypeSparkMaaSAI,
 		},
 	}
 
@@ -756,6 +791,59 @@ func TestAgentConfig_UnmarshalJSON_InvalidJSON(t *testing.T) {
 	err := json.Unmarshal(data, &cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestParseModel_SparkMaaSAI(t *testing.T) {
+	data := []byte(`{"type":"spark_maas_ai","model":"Spark5.0-Pro","base_url":"https://maas-api.cn-huabei-1.xf-yun.com.cn","headers":{"X-Test":"v"},"api_key_passthrough":true}`)
+
+	parsed, err := ParseModel(data)
+	if err != nil {
+		t.Fatalf("ParseModel() error = %v", err)
+	}
+
+	spark, ok := parsed.(*SparkMaaSAI)
+	if !ok {
+		t.Fatalf("ParseModel() returned %T, want *SparkMaaSAI", parsed)
+	}
+	if spark.Model != "Spark5.0-Pro" {
+		t.Errorf("Model = %q, want %q", spark.Model, "Spark5.0-Pro")
+	}
+	if spark.BaseUrl != "https://maas-api.cn-huabei-1.xf-yun.com.cn" {
+		t.Errorf("BaseUrl = %q, want %q", spark.BaseUrl, "https://maas-api.cn-huabei-1.xf-yun.com.cn")
+	}
+	if !spark.APIKeyPassthrough {
+		t.Error("APIKeyPassthrough = false, want true")
+	}
+	if spark.Headers["X-Test"] != "v" {
+		t.Errorf("Headers[X-Test] = %q, want %q", spark.Headers["X-Test"], "v")
+	}
+}
+
+func TestModelToEmbeddingConfig_SparkMaaSAI(t *testing.T) {
+	m := &SparkMaaSAI{
+		BaseModel: BaseModel{Model: "qwen-plus"},
+		BaseUrl:   "https://maas-api.cn-huabei-1.xf-yun.com.cn",
+	}
+	e := ModelToEmbeddingConfig(m)
+	if e == nil {
+		t.Fatal("ModelToEmbeddingConfig() returned nil")
+	}
+	if e.Provider != "spark_maas_ai" {
+		t.Errorf("Provider = %q, want %q", e.Provider, "spark_maas_ai")
+	}
+	if e.Model != "qwen-plus" {
+		t.Errorf("Model = %q, want %q", e.Model, "qwen-plus")
+	}
+	if e.BaseUrl != "https://maas-api.cn-huabei-1.xf-yun.com.cn" {
+		t.Errorf("BaseUrl = %q, want %q", e.BaseUrl, "https://maas-api.cn-huabei-1.xf-yun.com.cn")
+	}
+}
+
+func TestSparkMaaSAI_GetType(t *testing.T) {
+	s := &SparkMaaSAI{BaseModel: BaseModel{Model: "test"}}
+	if got := s.GetType(); got != ModelTypeSparkMaaSAI {
+		t.Errorf("GetType() = %q, want %q", got, ModelTypeSparkMaaSAI)
 	}
 }
 

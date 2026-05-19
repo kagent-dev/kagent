@@ -338,6 +338,14 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		return models.NewSAPAICoreModelWithLogger(cfg, log)
 
+	case *adk.SparkMaaSAI:
+		cfg := &models.OpenAIConfig{
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			Model:           m.Model,
+			BaseUrl:         m.BaseUrl,
+		}
+		return models.NewOpenAIModelWithLogger(cfg, log)
+
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
 	}

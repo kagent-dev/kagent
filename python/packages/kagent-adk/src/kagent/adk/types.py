@@ -250,7 +250,14 @@ class SAPAICore(BaseLLM):
     type: Literal["sap_ai_core"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
+class SparkMaaSAI(BaseLLM):
+    base_url: str | None = None
+    type: Literal["spark_maas_ai"]
+
+
+ModelUnion = Union[
+    OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore, SparkMaaSAI
+]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -610,6 +617,15 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             base_url=base_url,
             resource_group=model_config.resource_group,
             auth_url=model_config.auth_url,
+            **_transport_kwargs(model_config),
+        )
+    if model_config.type == "spark_maas_ai":
+        spark_base_url = base_url or "https://maas-api.cn-huabei-1.xf-yun.com.cn"
+        return OpenAINative(
+            type="openai",
+            base_url=spark_base_url,
+            default_headers=extra_headers,
+            model=model_config.model,
             **_transport_kwargs(model_config),
         )
     raise ValueError(f"Invalid model type: {model_config.type}")

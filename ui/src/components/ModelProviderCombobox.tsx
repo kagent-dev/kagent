@@ -13,6 +13,7 @@ import { Azure } from './icons/Azure';
 import { Gemini } from './icons/Gemini';
 import { Bedrock } from './icons/Bedrock';
 import { SAPAICore } from './icons/SAPAICore';
+import { SparkMaaSAI } from './icons/SparkMaaSAI';
 
 interface ComboboxOption {
     label: string; // e.g., "OpenAI - gpt-4o"
@@ -68,6 +69,7 @@ export function ModelProviderCombobox({
             'AnthropicVertexAI': Anthropic,
             'Bedrock': Bedrock,
             'SAPAICore': SAPAICore,
+            'SparkMaaSAI': SparkMaaSAI,
         };
         if (!providerKey || !PROVIDER_ICONS[providerKey]) {
             return null;

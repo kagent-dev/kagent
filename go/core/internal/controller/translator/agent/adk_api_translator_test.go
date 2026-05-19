@@ -359,6 +359,141 @@ func Test_AdkApiTranslator_CrossNamespaceRemoteMCPServer(t *testing.T) {
 	}
 }
 
+func Test_AdkApiTranslator_SparkMaaSAIProvider(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "test-ns"
+	modelName := "spark-model"
+	agentName := "test-agent"
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}
+
+	apiSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "spark-api-key", Namespace: namespace},
+		Data:       map[string][]byte{"api-key": []byte("test-spark-key-123")},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: modelName, Namespace: namespace},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "Spark5.0-Pro",
+			Provider:        v1alpha2.ModelProviderSparkMaaSAI,
+			APIKeySecret:    "spark-api-key",
+			APIKeySecretKey: "api-key",
+			SparkMaaSAI: &v1alpha2.SparkMaaSAIConfig{
+				BaseURL: "https://maas-api.cn-huabei-1.xf-yun.com.cn",
+			},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: agentName, Namespace: namespace},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Description: "Test Agent",
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "System message",
+				ModelConfig:   modelName,
+			},
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, apiSecret, modelConfig, agent).
+		Build()
+
+	defaultModel := types.NamespacedName{Namespace: namespace, Name: modelName}
+
+	trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+	require.NotNil(t, outputs)
+	require.NotNil(t, outputs.Config)
+
+	// Verify model type is SparkMaaSAI
+	sparkModel, ok := outputs.Config.Model.(*adk.SparkMaaSAI)
+	require.True(t, ok, "Expected model to be *adk.SparkMaaSAI, got %T", outputs.Config.Model)
+	assert.Equal(t, "Spark5.0-Pro", sparkModel.Model)
+	assert.Equal(t, "https://maas-api.cn-huabei-1.xf-yun.com.cn", sparkModel.BaseUrl)
+	assert.False(t, sparkModel.APIKeyPassthrough)
+
+	// Verify env var for OPENAI_API_KEY is set
+	var foundOpenAIAPIKey bool
+	for _, obj := range outputs.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+				if env.Name == "OPENAI_API_KEY" && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+					assert.Equal(t, "spark-api-key", env.ValueFrom.SecretKeyRef.Name)
+					assert.Equal(t, "api-key", env.ValueFrom.SecretKeyRef.Key)
+					foundOpenAIAPIKey = true
+				}
+			}
+		}
+	}
+	assert.True(t, foundOpenAIAPIKey, "OPENAI_API_KEY env var should be set from secret")
+}
+
+func Test_AdkApiTranslator_SparkMaaSAIProvider_Passthrough(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	namespace := "test-ns"
+	modelName := "spark-pt"
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: modelName, Namespace: namespace},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:             "qwen-plus",
+			Provider:          v1alpha2.ModelProviderSparkMaaSAI,
+			APIKeyPassthrough: true,
+			SparkMaaSAI:       &v1alpha2.SparkMaaSAIConfig{},
+		},
+	}
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "pt-agent", Namespace: namespace},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Description: "Test Agent",
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "System message",
+				ModelConfig:   modelName,
+			},
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ns, modelConfig, agent).
+		Build()
+
+	trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: namespace, Name: modelName}, nil, "", nil)
+
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+
+	sparkModel, ok := outputs.Config.Model.(*adk.SparkMaaSAI)
+	require.True(t, ok)
+	assert.True(t, sparkModel.APIKeyPassthrough)
+	assert.Equal(t, "qwen-plus", sparkModel.Model)
+
+	// Verify no OPENAI_API_KEY env var is set when using passthrough
+	for _, obj := range outputs.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+				assert.NotEqual(t, "OPENAI_API_KEY", env.Name, "OPENAI_API_KEY should not be set with passthrough")
+			}
+		}
+	}
+}
+
 func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))

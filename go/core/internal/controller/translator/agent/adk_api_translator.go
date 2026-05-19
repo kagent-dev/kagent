@@ -753,6 +753,36 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderSparkMaaSAI:
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.OpenAIAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+
+		sparkMaaSAI := &adk.SparkMaaSAI{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+			BaseUrl: "https://maas-api.cn-huabei-1.xf-yun.com.cn",
+		}
+		if model.Spec.SparkMaaSAI != nil && model.Spec.SparkMaaSAI.BaseURL != "" {
+			sparkMaaSAI.BaseUrl = model.Spec.SparkMaaSAI.BaseURL
+		}
+
+		populateTLSFields(&sparkMaaSAI.BaseModel, model.Spec.TLS)
+		sparkMaaSAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		return sparkMaaSAI, modelDeploymentData, secretHashBytes, nil
 	default:
 		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
