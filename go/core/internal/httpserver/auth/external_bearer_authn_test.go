@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -563,6 +564,360 @@ func TestExternalBearerAuthenticatorAudStringAndListAreAcceptedAndPreserved(t *t
 	}
 }
 
+func TestExternalBearerAuthenticatorPolicyValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  string
+		wantErr string
+	}{
+		{name: "invalid JSON policy rejected", policy: `{`, wantErr: "invalid external-bearer policy file"},
+		{name: "unknown top-level field rejected", policy: `{"allowedAudience":["kagent"]}`, wantErr: "unknown field"},
+		{
+			name: "empty allOf rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": []},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "match.allOf must contain",
+		},
+		{
+			name: "predicate with both value and contains rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc", "contains": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "exactly one operator",
+		},
+		{
+			name: "unknown predicate operator rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "equals": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "unknown external-bearer policy predicate",
+		},
+		{
+			name: "unknown workloadType rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "deployment"}
+						]
+					}
+				}
+			}`,
+			wantErr: "unknown workloadType",
+		},
+		{
+			name: "partial wildcard rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent*", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "partial wildcard",
+		},
+		{
+			name: "client_id-only service actor rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "client_id alone",
+		},
+		{
+			name: "single non-client_id predicate rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "scope", "contains": "kagent:a2a"}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "at least two predicates",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := authimpl.NewExternalBearerAuthenticator(authimpl.ExternalBearerAuthenticatorConfig{
+				URL:                               "http://localhost/introspect",
+				AllowUnauthenticatedIntrospection: true,
+				PolicyFile:                        writePolicyFile(t, tt.policy),
+			})
+			if err == nil {
+				t.Fatal("expected construction error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestExternalBearerAuthenticatorPolicyTopLevelChecks(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  string
+		claims  map[string]any
+		wantErr bool
+	}{
+		{name: "requiredScopes pass exact token", policy: `{"requiredScopes":["kagent:a2a"]}`, claims: map[string]any{"active": true, "sub": "user123", "scope": "read kagent:a2a"}},
+		{name: "requiredScopes fail exact token", policy: `{"requiredScopes":["kagent:a2a"]}`, claims: map[string]any{"active": true, "sub": "user123", "scope": "kagent:a2a-extra"}, wantErr: true},
+		{name: "requiredScopes pass array form", policy: `{"requiredScopes":["kagent:a2a"]}`, claims: map[string]any{"active": true, "sub": "user123", "scope": []string{"read", "kagent:a2a"}}},
+		{name: "allowedAudiences pass string", policy: `{"allowedAudiences":["kagent"]}`, claims: map[string]any{"active": true, "sub": "user123", "aud": "kagent"}},
+		{name: "allowedAudiences pass list", policy: `{"allowedAudiences":["kagent"]}`, claims: map[string]any{"active": true, "sub": "user123", "aud": []string{"other", "kagent"}}},
+		{name: "allowedAudiences missing aud fails", policy: `{"allowedAudiences":["kagent"]}`, claims: map[string]any{"active": true, "sub": "user123"}, wantErr: true},
+		{name: "allowedIssuers pass", policy: `{"allowedIssuers":["https://issuer.example.com"]}`, claims: map[string]any{"active": true, "sub": "user123", "iss": "https://issuer.example.com"}},
+		{name: "allowedIssuers fail", policy: `{"allowedIssuers":["https://issuer.example.com"]}`, claims: map[string]any{"active": true, "sub": "user123", "iss": "https://evil.example.com"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authn, err := newExternalBearerForClaims(t, tt.claims, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, tt.policy)})
+			if err != nil {
+				t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+			}
+			_, err = authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer inbound-token"}}, url.Values{})
+			if tt.wantErr && err == nil {
+				t.Fatal("expected authentication error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected authentication error: %v", err)
+			}
+		})
+	}
+}
+
+func TestExternalBearerAuthenticatorServiceActorClassificationAndA2AAccess(t *testing.T) {
+	policy := `{
+		"serviceActors": {
+			"svc-a": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "grant_type", "value": "client_credentials"},
+					{"claim": "scope", "contains": "kagent:a2a"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "example-agent", "workloadType": "agent"},
+					{"namespace": "observability", "name": "*", "workloadType": "*"}
+				]
+			}
+		}
+	}`
+	claims := map[string]any{
+		"active": true, "sub": "service-subject", "client_id": "svc-client",
+		"grant_type": "client_credentials", "scope": "read kagent:a2a",
+	}
+	authn, err := newExternalBearerForClaims(t, claims, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+	}
+	session, err := authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer inbound-token"}}, url.Values{})
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if got := session.Principal().User.ID; got != "" {
+		t.Fatalf("service actor User.ID = %q, want empty", got)
+	}
+
+	accessTests := []struct {
+		name    string
+		target  auth.A2ATarget
+		wantErr bool
+	}{
+		{name: "allows matching target", target: auth.A2ATarget{Namespace: "kagent", Name: "example-agent", WorkloadType: auth.A2AWorkloadAgent}},
+		{name: "denies non-matching namespace", target: auth.A2ATarget{Namespace: "other", Name: "example-agent", WorkloadType: auth.A2AWorkloadAgent}, wantErr: true},
+		{name: "denies non-matching name", target: auth.A2ATarget{Namespace: "kagent", Name: "other-agent", WorkloadType: auth.A2AWorkloadAgent}, wantErr: true},
+		{name: "denies non-matching workloadType", target: auth.A2ATarget{Namespace: "kagent", Name: "example-agent", WorkloadType: auth.A2AWorkloadSandbox}, wantErr: true},
+		{name: "supports whole-field wildcard", target: auth.A2ATarget{Namespace: "observability", Name: "any-agent", WorkloadType: auth.A2AWorkloadSandbox}},
+	}
+	for _, tt := range accessTests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := authn.CheckA2AAccess(context.Background(), session, tt.target)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected access error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected access error: %v", err)
+			}
+		})
+	}
+
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "user123"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
+	}
+	userSession, err := userAuthn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer user-token"}}, url.Values{})
+	if err != nil {
+		t.Fatalf("Authenticate() user error = %v", err)
+	}
+	if err := userAuthn.CheckA2AAccess(context.Background(), userSession, auth.A2ATarget{Namespace: "other", Name: "agent", WorkloadType: auth.A2AWorkloadAgent}); err != nil {
+		t.Fatalf("user actor CheckA2AAccess() error = %v", err)
+	}
+	if err := userAuthn.CheckA2AAccess(context.Background(), nil, auth.A2ATarget{Namespace: "other", Name: "agent", WorkloadType: auth.A2AWorkloadAgent}); err == nil {
+		t.Fatal("expected nil session to be denied")
+	}
+	if err := userAuthn.CheckA2AAccess(context.Background(), staticSession{principal: auth.Principal{User: auth.User{ID: "foreign-user"}}}, auth.A2ATarget{Namespace: "other", Name: "agent", WorkloadType: auth.A2AWorkloadAgent}); err == nil {
+		t.Fatal("expected foreign session to be denied")
+	}
+}
+
+func TestExternalBearerAuthenticatorRejectsAmbiguousServiceActorMatch(t *testing.T) {
+	policy := `{
+		"serviceActors": {
+			"svc-a": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "grant_type", "value": "client_credentials"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "agent-a", "workloadType": "agent"}
+				]
+			},
+			"svc-b": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "grant_type", "value": "client_credentials"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "agent-b", "workloadType": "agent"}
+				]
+			}
+		}
+	}`
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "client_id": "svc-client", "grant_type": "client_credentials"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+	}
+	if _, err := authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer service-token"}}, url.Values{}); err == nil {
+		t.Fatal("expected ambiguous service actor match to be rejected")
+	}
+}
+
+func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *testing.T) {
+	policy := `{
+		"serviceActors": {
+			"svc": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "token_class", "value": "service"},
+					{"claim": "scope", "contains": "kagent:a2a"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+				]
+			}
+		}
+	}`
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "username": "service-looking-user", "client_id": "other-client", "token_class": "service", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+	}
+	if _, err := authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer service-token"}}, url.Values{}); err == nil {
+		t.Fatal("expected token matching configured service-token indicator but not full service actor policy to be rejected")
+	}
+
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
+	}
+	session, err := userAuthn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer user-token"}}, url.Values{})
+	if err != nil {
+		t.Fatalf("ordinary user token without service-token indicator should be accepted: %v", err)
+	}
+	if got := session.Principal().User.ID; got != "alice@example.com" {
+		t.Fatalf("User.ID = %q, want alice@example.com", got)
+	}
+}
+
+func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
+	policy := `{
+		"serviceActors": {
+			"svc": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "grant_type", "value": "client_credentials"},
+					{"claim": "scope", "contains": "kagent:a2a"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+				]
+			}
+		}
+	}`
+
+	authn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "sub": "service-subject", "client_id": "svc-client", "grant_type": "client_credentials", "scope": "read"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+	}
+	if _, err := authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer service-token"}}, url.Values{}); err == nil {
+		t.Fatal("expected unmatched client_credentials token with sub to be rejected")
+	}
+
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
+	}
+	session, err := userAuthn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer user-token"}}, url.Values{})
+	if err != nil {
+		t.Fatalf("user token without service actor match should be accepted: %v", err)
+	}
+	if got := session.Principal().User.ID; got != "alice@example.com" {
+		t.Fatalf("User.ID = %q, want alice@example.com", got)
+	}
+}
+
 func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -653,6 +1008,26 @@ func TestExternalBearerAuthenticatorUpstreamAuthNoopForNilAndEmptyPrincipal(t *t
 			}
 		})
 	}
+}
+
+func newExternalBearerForClaims(t *testing.T, claims map[string]any, cfg authimpl.ExternalBearerAuthenticatorConfig) (*authimpl.ExternalBearerAuthenticator, error) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, claims)
+	}))
+	t.Cleanup(server.Close)
+	cfg.URL = server.URL
+	cfg.AllowUnauthenticatedIntrospection = true
+	return authimpl.NewExternalBearerAuthenticator(cfg)
+}
+
+func writePolicyFile(t *testing.T, policy string) string {
+	t.Helper()
+	path := t.TempDir() + "/policy.json"
+	if err := os.WriteFile(path, []byte(policy), 0o600); err != nil {
+		t.Fatalf("writing policy file: %v", err)
+	}
+	return path
 }
 
 func newExternalBearerForTest(t *testing.T, cfg authimpl.ExternalBearerAuthenticatorConfig) *authimpl.ExternalBearerAuthenticator {
