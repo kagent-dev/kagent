@@ -21,7 +21,7 @@ token=<bearer-token-without-prefix>&token_type_hint=access_token
 
 A compatible response includes `active: true` plus identity and policy inputs such as `sub`, `username`, `client_id`, `scope`, `aud`, `iss`, `grant_type`, and `exp`. kagent preserves introspection response fields in the authenticated principal claims, supports RFC space-separated `scope` strings, and accepts `aud` as either a string or list.
 
-`active: true` means the external auth service has validated the token according to the provider. When no external-bearer policy is configured, `active: true` plus a resolved human-user identity is sufficient for basic human-user authentication, so kagent relies on the trusted introspection service to enforce token validity and resource applicability for the kagent deployment. When policy is configured, kagent also applies the configured top-level claim checks and local service-actor A2A policy before accepting or bounding the request.
+`active: true` means the external auth service has validated the token according to the provider, but it is not sufficient by itself for kagent authentication. `external-bearer` requires a local policy file configured with `AUTH_EXTERNAL_BEARER_POLICY_FILE`; policy validation requires at least one top-level resource-binding control: `requiredScopes`, `allowedAudiences`, or `allowedIssuers`. kagent applies those top-level claim checks before accepting any token, and applies local service-actor A2A policy before allowing bounded service-actor requests.
 
 The introspection URL must use HTTPS for non-localhost hosts. Plain HTTP is accepted only for localhost loopback development or mock validation endpoints.
 
@@ -32,6 +32,7 @@ The introspection URL must use HTTPS for non-localhost hosts. Plain HTTP is acce
 - issue tokens, refresh tokens, exchange tokens, or implement OAuth grant flows;
 - validate JWT signatures locally or configure JWKS/JWT validation in kagent;
 - provide provider-specific adapters, provider registries, or token-info integrations;
+- cache introspection responses or expose cache configuration;
 - replace `trusted-proxy`;
 - authorize broad non-A2A API access for service actors.
 
@@ -52,7 +53,7 @@ Controller flags and environment variables:
 | `--auth-external-bearer-client-id` | `AUTH_EXTERNAL_BEARER_CLIENT_ID` | Client ID for RFC 7662 HTTP Basic auth. |
 | `--auth-external-bearer-client-secret` | `AUTH_EXTERNAL_BEARER_CLIENT_SECRET` | Client secret for RFC 7662 HTTP Basic auth. |
 | `--auth-external-bearer-allow-unauthenticated-introspection` | `AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION` | Allow unauthenticated introspection calls; use only for local development/tests. |
-| `--auth-external-bearer-policy-file` | `AUTH_EXTERNAL_BEARER_POLICY_FILE` | Local service-actor A2A policy file path. |
+| `--auth-external-bearer-policy-file` | `AUTH_EXTERNAL_BEARER_POLICY_FILE` | Required local external-bearer policy file path. |
 
 RFC 7662 response caching is intentionally deferred because token revocation, response freshness, and cache invalidation semantics need a dedicated design; kagent does not expose cache configuration for external-bearer auth yet.
 
@@ -106,7 +107,7 @@ controller:
 
 For production, store introspection credentials in Kubernetes Secrets. The chart renders `validationAuthorization.secretRef` and `clientSecret.secretRef` as `valueFrom.secretKeyRef`; it does not accept inline secret values for those sensitive fields.
 
-If you maintain the service-actor policy outside the release, reference an existing ConfigMap instead:
+If you maintain the external-bearer policy outside the release, reference an existing ConfigMap instead:
 
 ```yaml
 controller:
@@ -118,19 +119,25 @@ controller:
           key: policy.json
 ```
 
-When inline or existing policy is configured, Helm mounts it at `/etc/kagent/external-bearer/policy.json` and sets `AUTH_EXTERNAL_BEARER_POLICY_FILE`.
-
-For production, configure resource binding either in kagent policy (`requiredScopes`, `allowedAudiences`, and/or `allowedIssuers`) or in the introspection service itself. Running without a kagent policy is appropriate only when the introspection endpoint is trusted to return `active: true` only for tokens valid for this kagent resource.
+External-bearer requires a policy source. When inline or existing policy is configured, Helm mounts it at `/etc/kagent/external-bearer/policy.json` and sets `AUTH_EXTERNAL_BEARER_POLICY_FILE`. The policy must include at least one non-empty top-level resource-binding control: `requiredScopes`, `allowedAudiences`, or `allowedIssuers`.
 
 ## Service-actor policy
 
-Human-user tokens are authenticated as users when introspection succeeds and a user identity can be resolved. If no policy file is configured, top-level local checks such as `requiredScopes`, `allowedAudiences`, and `allowedIssuers` are not applied; resource binding must come from the trusted introspection service. Service actors require explicit local policy. A service-token-looking credential, such as a token with `grant_type=client_credentials`, must match a configured `serviceActors[*].match.allOf` entry; it must not fall back to user auth through `sub` or `username` if the service policy does not match.
+Human-user tokens are authenticated as users only when introspection succeeds, a user identity can be resolved, and the configured policy's top-level resource-binding checks pass. Service actors require explicit local service-actor policy. A service-token-looking credential, such as a token with `grant_type=client_credentials`, must match a configured `serviceActors[*].match.allOf` entry; it must not fall back to user auth through `sub` or `username` if the service policy does not match.
+
+Minimal policy with scope and audience binding:
+
+```json
+{"allowedAudiences":["kagent"],"requiredScopes":["kagent:a2a"]}
+```
 
 Policy fields:
 
-- `requiredScopes`: optional top-level scopes that every accepted token must contain when policy is configured.
-- `allowedAudiences`: optional top-level allowed `aud` values; when policy is configured with audiences, missing `aud` fails.
-- `allowedIssuers`: optional top-level allowed `iss` values; when policy is configured with issuers, missing `iss` fails.
+- `requiredScopes`: top-level scopes that every accepted token must contain when configured.
+- `allowedAudiences`: top-level allowed `aud` values; when configured, missing `aud` fails.
+- `allowedIssuers`: top-level allowed `iss` values; when configured, missing `iss` fails.
+
+At least one of `requiredScopes`, `allowedAudiences`, or `allowedIssuers` must be non-empty in every external-bearer policy.
 - `serviceActors`: map of local service actor IDs to match predicates and A2A allowlists.
 - `match.allOf`: at least two exact predicates. `value` is exact scalar/list membership; `contains` is exact scope-token or list membership.
 - `allowedA2A`: allowed target triples: `namespace`, `name`, and `workloadType` (`agent`, `sandbox`, or `*`). The `*` wildcard is allowed only as the whole field value.
@@ -141,16 +148,16 @@ Expected service-actor behavior:
 
 | Request | Expected result |
 |---|---|
-| User token with active introspection and user identity | Authenticated as user; A2A-specific service policy does not block it. |
+| User token with active introspection, user identity, and matching top-level policy | Authenticated as user; A2A-specific service policy does not block it. |
 | Inactive, malformed, expired, oversized, or non-2xx introspection response | `401` unauthenticated. |
-| Service-token-shaped credential with no matching policy | Denied. This is usually `401` when it cannot be authenticated/classified, or `403` when an authenticated service actor is not allowed for the A2A target. |
+| Service-token-shaped credential with no matching service-actor policy entry | Denied. This is usually `401` when it cannot be authenticated/classified, or `403` when an authenticated service actor is not allowed for the A2A target. |
 | Service token matching policy and allowed target | A2A request allowed. |
 | Service token matching policy but different target | `403` denied. |
 | Service token to non-A2A API route such as `/api/me` | `403` denied. |
 
 ## Local/mock validation recipe
 
-This recipe is for local operator validation only. It uses controller-local loopback HTTP and unauthenticated introspection; do not use this posture for production. The exact `127.0.0.1` URL works when the controller process is running on the same machine as the mock server. For a Helm-deployed controller in Kubernetes, `127.0.0.1` is the controller pod; use an HTTPS mock Service with a trusted certificate, or a pod-local sidecar/loopback proxy, instead of pointing at the operator workstation.
+This recipe is for local operator validation only. It uses controller-local loopback HTTP and unauthenticated introspection; do not use this posture for production. Localhost unauthenticated introspection still requires an external-bearer policy file with at least one top-level resource-binding control. The exact `127.0.0.1` URL works when the controller process is running on the same machine as the mock server. For a Helm-deployed controller in Kubernetes, `127.0.0.1` is the controller pod; use an HTTPS mock Service with a trusted certificate, or a pod-local sidecar/loopback proxy, instead of pointing at the operator workstation.
 
 1. Run a mock RFC 7662 endpoint that returns responses by token value:
 
@@ -231,6 +238,6 @@ controller:
 
 - `Authorization: Bearer user-token` returns `/api/me` as `alice@example.com`; A2A calls are treated as user calls.
 - `Authorization: Bearer inactive-token` is rejected as unauthenticated.
-- `Authorization: Bearer service-token` is denied on `/api/me` and other non-A2A routes after it matches service-actor policy. Without a matching policy, it is denied before target dispatch, typically as unauthenticated when no user identity is resolvable.
+- `Authorization: Bearer service-token` is denied on `/api/me` and other non-A2A routes after it matches service-actor policy. Without a matching service-actor entry, it is denied before target dispatch, typically as unauthenticated when no user identity is resolvable.
 - `service-token` is allowed only for `/api/a2a/kagent/example-agent`; a different agent, namespace, or sandbox target returns `403` unless explicitly allowed in policy.
 - `kagent invoke --token service-token ...` should succeed only when the invoked A2A target matches `allowedA2A`.

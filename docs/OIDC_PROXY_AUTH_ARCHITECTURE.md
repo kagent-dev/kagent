@@ -99,16 +99,18 @@ The system supports these authentication modes, configured via the `auth-mode` f
 
 1. **`trusted-proxy`**: Trust an upstream proxy to handle authentication, extract identity from JWT
 2. **`unsecure`**: No authentication, for development/testing
-3. **`external-bearer`**: Additive mode for direct bearer credentials validated by an external RFC 7662-compatible introspection service.
+3. **`external-bearer`**: Additive mode for direct bearer credentials validated by an external RFC 7662-compatible introspection service, with a required local policy file containing at least one top-level resource-binding control (`requiredScopes`, `allowedAudiences`, or `allowedIssuers`).
 
 ## Configuration
 
-Only two configuration options are needed:
+For `trusted-proxy`, only two core configuration options are needed:
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
 | `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure`, `trusted-proxy`, or `external-bearer` |
-| `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | `sub` | JWT claim name for user identity |
+| `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | `sub` | JWT/introspection claim name for user identity |
+
+`external-bearer` additionally requires `AUTH_EXTERNAL_BEARER_URL` and `AUTH_EXTERNAL_BEARER_POLICY_FILE`. The policy may be minimal, for example `{"allowedAudiences":["kagent"],"requiredScopes":["kagent:a2a"]}`. Local development may opt into localhost unauthenticated introspection, but still requires policy.
 
 ### Raw Claims Passthrough
 
@@ -121,7 +123,7 @@ This approach:
 
 ## Authentication Boundary
 
-For `trusted-proxy`, authentication redirects are handled entirely by oauth2-proxy at the ingress layer. The UI and backend trust that any request reaching them has already been authenticated. This is the upstream-proxy-authenticated boundary; it is separate from the `external-bearer` boundary where kagent delegates bearer-token validation to one configured external introspection service.
+For `trusted-proxy`, authentication redirects are handled entirely by oauth2-proxy at the ingress layer. The UI and backend trust that any request reaching them has already been authenticated. This is the upstream-proxy-authenticated boundary; it is separate from the `external-bearer` boundary where kagent delegates bearer-token validation to one configured external introspection service, then enforces local resource-binding policy. `external-bearer` does not add JWT/JWKS validation, provider adapters, token issuance, or an introspection cache inside kagent.
 
 ```mermaid
 flowchart TD

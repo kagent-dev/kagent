@@ -48,14 +48,22 @@ The `external-bearer` auth mode keeps this user-continuity boundary generic for 
 
 ## External-bearer service actors and A2A policy
 
-For `external-bearer`, kagent treats RFC 7662 `active: true` as token validation, then applies local A2A policy for service actors. The A2A mux derives the target namespace, name, and workload type (`agent` or `sandbox`) from the request path before dispatching to the target handler.
+For `external-bearer`, kagent treats RFC 7662 `active: true` as provider-side token validation, then requires the configured local policy's top-level resource-binding controls (`requiredScopes`, `allowedAudiences`, or `allowedIssuers`) to pass before accepting the token. The A2A mux derives the target namespace, name, and workload type (`agent` or `sandbox`) from the request path before dispatching to the target handler.
 
-Human-user tokens pass this A2A-specific service policy check and continue through normal A2A handling. Service/client-credentials tokens must match a configured `serviceActors[*].match.allOf` policy entry and then match an `allowedA2A` target. Service actors are denied non-A2A API routes by default.
+Human-user tokens that pass top-level policy also pass this A2A-specific service policy check and continue through normal A2A handling. Service/client-credentials tokens must match a configured `serviceActors[*].match.allOf` policy entry and then match an `allowedA2A` target. Service actors are denied non-A2A API routes by default.
+
+Minimal policy with no service actor allowlist:
+
+```json
+{"allowedAudiences":["kagent"],"requiredScopes":["kagent:a2a"]}
+```
 
 Example policy targets:
 
 ```json
 {
+  "requiredScopes": ["kagent:a2a"],
+  "allowedAudiences": ["kagent"],
   "serviceActors": {
     "ci-runner": {
       "match": {
@@ -79,7 +87,7 @@ Expected behavior:
 
 | Caller/token | Target | Result |
 |---|---|---|
-| Human user token | Any resolved A2A target | Allowed by this service-actor policy layer. |
+| Human user token with matching top-level policy | Any resolved A2A target | Allowed by this service-actor policy layer. |
 | `ci-runner` service token | `/api/a2a/kagent/release-bot` | Allowed. |
 | `ci-runner` service token | `/api/a2a/kagent/other-agent` | Denied with `403`. |
 | `ci-runner` service token | `/api/a2a-sandboxes/kagent/debug-sandbox` | Allowed because `workloadType` is `sandbox`. |
