@@ -3,7 +3,6 @@ package auth
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -255,7 +254,7 @@ func (a *ExternalBearerAuthenticator) introspect(ctx context.Context, token stri
 	if a.validationAuthorization != "" {
 		req.Header.Set("Authorization", a.validationAuthorization)
 	} else if a.clientID != "" {
-		req.Header.Set("Authorization", "Basic "+basicAuth(a.clientID, a.clientSecret))
+		req.SetBasicAuth(a.clientID, a.clientSecret)
 	}
 
 	resp, err := a.client.Do(req)
@@ -679,10 +678,6 @@ func readBounded(r io.Reader, max int64) ([]byte, error) {
 		return nil, fmt.Errorf("introspection response body exceeds %d bytes", max)
 	}
 	return body, nil
-}
-
-func basicAuth(clientID, clientSecret string) string {
-	return base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
 }
 
 func bearerTokenFromAuthorization(authHeader string) (string, bool) {
