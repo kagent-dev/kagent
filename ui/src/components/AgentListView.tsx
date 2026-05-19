@@ -232,21 +232,26 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
 
-  const chatPath =
-    sshSandbox && item.openshellAgentHarness
-      ? openshellTerminalHref({
-          gatewaySandboxName: item.openshellAgentHarness.gatewaySandboxName,
-          namespace,
-          crName: name,
-          modelConfigRef: item.modelConfigRef,
-          harnessBackend: harnessBackend,
-        })
-      : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
-  const goChat = useCallback(() => {
+  const gatewaySandboxName = item.openshellAgentHarness?.gatewaySandboxName;
+  const chatPath = useMemo(
+    () =>
+      sshSandbox && gatewaySandboxName
+        ? openshellTerminalHref({
+            gatewaySandboxName,
+            namespace,
+            crName: name,
+            modelConfigRef: item.modelConfigRef,
+            harnessBackend,
+          })
+        : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
+    [sshSandbox, gatewaySandboxName, namespace, name, item.modelConfigRef, harnessBackend],
+  );
+
+  const goChat = () => {
     if (isReady) {
       router.push(chatPath);
     }
-  }, [chatPath, isReady, router]);
+  };
 
   const handleEdit = (e: React.MouseEvent) => {
     e.preventDefault();
