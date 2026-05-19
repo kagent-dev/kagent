@@ -105,8 +105,6 @@ func init() {
 type ExternalBearerAuthConfig struct {
 	URL                               string
 	Timeout                           time.Duration
-	CacheTTL                          time.Duration
-	CacheMaxEntries                   int
 	PropagateToken                    bool
 	ValidationAuthorization           string
 	ClientID                          string
@@ -217,8 +215,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
 	commandLine.StringVar(&cfg.Auth.ExternalBearer.URL, "auth-external-bearer-url", "", "External bearer token validation endpoint URL")
 	commandLine.DurationVar(&cfg.Auth.ExternalBearer.Timeout, "auth-external-bearer-timeout", 5*time.Second, "Timeout for external bearer token validation requests")
-	commandLine.DurationVar(&cfg.Auth.ExternalBearer.CacheTTL, "auth-external-bearer-cache-ttl", 0, "Maximum TTL for external bearer token validation cache entries; 0 disables caching")
-	commandLine.IntVar(&cfg.Auth.ExternalBearer.CacheMaxEntries, "auth-external-bearer-cache-max-entries", 1000, "Maximum number of external bearer token validation cache entries")
 	commandLine.BoolVar(&cfg.Auth.ExternalBearer.PropagateToken, "auth-external-bearer-propagate-token", false, "Forward inbound bearer token to upstream agent requests when using external-bearer auth")
 	commandLine.StringVar(&cfg.Auth.ExternalBearer.ValidationAuthorization, "auth-external-bearer-validation-authorization", "", "Authorization header value for external bearer validation/introspection service requests")
 	commandLine.StringVar(&cfg.Auth.ExternalBearer.ClientID, "auth-external-bearer-client-id", "", "Client ID for HTTP Basic auth to the external bearer introspection endpoint")

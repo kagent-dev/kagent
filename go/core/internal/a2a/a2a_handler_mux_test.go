@@ -174,10 +174,10 @@ func TestHandlerMuxExistingRouteExtractionBehavior(t *testing.T) {
 			wantCalls:  0,
 		},
 		{
-			name:       "matching route missing handler remains mux 404",
+			name:       "matching route missing handler checks access before mux 404",
 			path:       "/api/a2a/default/missing-agent",
 			wantStatus: http.StatusNotFound,
-			wantCalls:  0,
+			wantCalls:  1,
 		},
 	}
 
@@ -193,6 +193,25 @@ func TestHandlerMuxExistingRouteExtractionBehavior(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandlerMuxDeniesBeforeMissingHandlerLookup(t *testing.T) {
+	provider := &testA2AAccessProvider{err: errors.New("denied")}
+	m := newTestHandlerMux(provider)
+
+	rr := serveTestA2A(t, m, "/api/a2a/default/missing-agent", &testSession{})
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status: want %d, got %d", http.StatusForbidden, rr.Code)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("CheckA2AAccess calls: want 1, got %d", provider.calls)
+	}
+	assertTarget(t, provider.targets[0], auth.A2ATarget{
+		Namespace:    "default",
+		Name:         "missing-agent",
+		WorkloadType: auth.A2AWorkloadAgent,
+	})
 }
 
 func newTestHandlerMux(provider auth.AuthProvider) *handlerMux {

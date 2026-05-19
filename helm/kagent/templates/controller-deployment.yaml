@@ -90,14 +90,6 @@ spec:
             - name: AUTH_EXTERNAL_BEARER_TIMEOUT
               value: {{ . | quote }}
             {{- end }}
-            {{- with .Values.controller.auth.externalBearer.cacheTTL }}
-            - name: AUTH_EXTERNAL_BEARER_CACHE_TTL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- if gt (int .Values.controller.auth.externalBearer.cacheMaxEntries) 0 }}
-            - name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
-              value: {{ .Values.controller.auth.externalBearer.cacheMaxEntries | quote }}
-            {{- end }}
             {{- if .Values.controller.auth.externalBearer.propagateToken }}
             - name: AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN
               value: "true"

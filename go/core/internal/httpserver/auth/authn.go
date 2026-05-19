@@ -70,7 +70,13 @@ type A2AAuthenticator struct {
 }
 
 func (p *A2AAuthenticator) Wrap(next http.Handler) http.Handler {
-	return auth.AuthnMiddleware(p.provider)(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := auth.AuthSessionFrom(r.Context()); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		auth.AuthnMiddleware(p.provider)(next).ServeHTTP(w, r)
+	})
 }
 
 type handler func(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error)

@@ -147,8 +147,6 @@ tests:
           externalBearer:
             url: "https://auth.example.com/introspect"
             timeout: "3s"
-            cacheTTL: "30s"
-            cacheMaxEntries: 42
             propagateToken: true
             validationAuthorization:
               secretRef:
@@ -171,16 +169,6 @@ tests:
           content:
             name: AUTH_EXTERNAL_BEARER_TIMEOUT
             value: "3s"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_EXTERNAL_BEARER_CACHE_TTL
-            value: "30s"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
-            value: "42"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -333,8 +321,6 @@ tests:
           externalBearer:
             url: "https://auth.example.com/introspect"
             timeout: "3s"
-            cacheTTL: "30s"
-            cacheMaxEntries: 42
             propagateToken: true
             validationAuthorization:
               secretRef:
@@ -363,14 +349,6 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: AUTH_EXTERNAL_BEARER_TIMEOUT
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_EXTERNAL_BEARER_CACHE_TTL
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
       - notContains:
           path: spec.template.spec.containers[0].env
           content:

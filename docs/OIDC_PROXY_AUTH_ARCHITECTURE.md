@@ -99,7 +99,7 @@ The system supports these authentication modes, configured via the `auth-mode` f
 
 1. **`trusted-proxy`**: Trust an upstream proxy to handle authentication, extract identity from JWT
 2. **`unsecure`**: No authentication, for development/testing
-3. **`external-bearer`**: Planned additive mode for direct bearer credentials validated by an external service. This slice exposes configuration and Helm rendering only; the authenticator implementation is intentionally not included yet.
+3. **`external-bearer`**: Additive mode for direct bearer credentials validated by an external RFC 7662-compatible introspection service.
 
 ## Configuration
 
@@ -107,7 +107,7 @@ Only two configuration options are needed:
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure`, `trusted-proxy`, or planned `external-bearer` |
+| `--auth-mode` | `AUTH_MODE` | `unsecure` | Authentication mode: `unsecure`, `trusted-proxy`, or `external-bearer` |
 | `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | `sub` | JWT claim name for user identity |
 
 ### Raw Claims Passthrough
@@ -121,7 +121,7 @@ This approach:
 
 ## Authentication Boundary
 
-For `trusted-proxy`, authentication redirects are handled entirely by oauth2-proxy at the ingress layer. The UI and backend trust that any request reaching them has already been authenticated. This is the upstream-proxy-authenticated boundary; it is separate from the planned `external-bearer` boundary where kagent will delegate bearer-token validation to one configured external validation service.
+For `trusted-proxy`, authentication redirects are handled entirely by oauth2-proxy at the ingress layer. The UI and backend trust that any request reaching them has already been authenticated. This is the upstream-proxy-authenticated boundary; it is separate from the `external-bearer` boundary where kagent delegates bearer-token validation to one configured external introspection service.
 
 ```mermaid
 flowchart TD

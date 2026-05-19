@@ -24,6 +24,20 @@ func (p middlewareStaticProvider) UpstreamAuth(*http.Request, auth.Session, auth
 	return nil
 }
 
+type countingAuthProvider struct {
+	session auth.Session
+	calls   int
+}
+
+func (p *countingAuthProvider) Authenticate(context.Context, http.Header, url.Values) (auth.Session, error) {
+	p.calls++
+	return p.session, nil
+}
+
+func (p *countingAuthProvider) UpstreamAuth(*http.Request, auth.Session, auth.Principal) error {
+	return nil
+}
+
 type middlewareSession struct {
 	principal auth.Principal
 	a2aOnly   bool
@@ -80,6 +94,58 @@ func TestAuthnMiddleware(t *testing.T) {
 				t.Fatalf("Expected no session but got %v", session)
 			}
 		})
+	}
+}
+
+func TestA2AAuthenticatorWrapReusesExistingAuthSession(t *testing.T) {
+	existingSession := &middlewareSession{principal: auth.Principal{User: auth.User{ID: "existing@example.com"}}}
+	provider := &countingAuthProvider{session: &middlewareSession{principal: auth.Principal{User: auth.User{ID: "fresh@example.com"}}}}
+	wrapped := authimpl.NewA2AAuthenticator(provider).Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := auth.AuthSessionFrom(r.Context())
+		if !ok {
+			t.Fatal("expected existing session in request context")
+		}
+		if session != existingSession {
+			t.Fatalf("session: want existing session %#v, got %#v", existingSession, session)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://foo.com/api/a2a/kagent/agent", nil)
+	req = req.WithContext(auth.AuthSessionTo(req.Context(), existingSession))
+	rw := httptest.NewRecorder()
+	wrapped.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusNoContent {
+		t.Fatalf("status: want %d, got %d", http.StatusNoContent, rw.Code)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("Authenticate calls: want 0, got %d", provider.calls)
+	}
+}
+
+func TestA2AAuthenticatorWrapAuthenticatesWhenNoExistingSession(t *testing.T) {
+	providerSession := &middlewareSession{principal: auth.Principal{User: auth.User{ID: "fresh@example.com"}}}
+	provider := &countingAuthProvider{session: providerSession}
+	wrapped := authimpl.NewA2AAuthenticator(provider).Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := auth.AuthSessionFrom(r.Context())
+		if !ok {
+			t.Fatal("expected provider session in request context")
+		}
+		if session != providerSession {
+			t.Fatalf("session: want provider session %#v, got %#v", providerSession, session)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	rw := httptest.NewRecorder()
+	wrapped.ServeHTTP(rw, httptest.NewRequest(http.MethodPost, "http://foo.com/api/a2a/kagent/agent", nil))
+
+	if rw.Code != http.StatusNoContent {
+		t.Fatalf("status: want %d, got %d", http.StatusNoContent, rw.Code)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("Authenticate calls: want 1, got %d", provider.calls)
 	}
 }
 

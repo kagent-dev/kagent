@@ -82,7 +82,7 @@ kagent owns:
 
 - extracting inbound bearer credentials;
 - calling the configured validation/introspection endpoint;
-- validation request timeout, fail-closed behavior, and bounded cache behavior;
+- validation request timeout and fail-closed behavior;
 - mapping a successful response into `auth.Principal`;
 - preserving or suppressing downstream bearer propagation according to config;
 - enforcing service-actor request bounds, including A2A target policy and default-deny non-A2A service-actor access;
@@ -163,7 +163,7 @@ Response mapping uses the same internal validation model:
 - `username` is a user ID candidate.
 - `sub` is the subject and user ID fallback.
 - `client_id` is a service-actor policy input for client-credentials/service-token use cases, but not sufficient by itself to classify a service actor.
-- `exp` maps to `expires_at`; if present and already expired, fail closed as defense-in-depth and never cache past `exp`.
+- `exp` maps to `expires_at`; if present and already expired, fail closed as defense-in-depth.
 - `scope`, `aud`, `iss`, `grant_type`, and any additional response fields are preserved in `Principal.Claims`.
 - `aud` matching must support both string and list-of-strings response forms.
 - `scope` matching should implement the RFC space-separated string form and may tolerate provider-specific array forms as an extension.
@@ -199,18 +199,7 @@ Do not add service-actor fields to `auth.Principal` in the first slice. Keep ser
 
 ### Cache behavior
 
-Caching is optional and disabled by default. When enabled:
-
-- cache key is a hash of the inbound bearer token;
-- cache expiry is the minimum of configured `CacheTTL` and response `expires_at` when both exist;
-- if only configured `CacheTTL` exists, use that TTL;
-- if only response `expires_at` exists, use that expiry;
-- if neither exists, do not cache;
-- inactive responses, validation errors, and responses without a positive identity mapping are not cached by default;
-- `CacheMaxEntries` bounds memory use;
-- metrics should distinguish cache hit, miss, expired entry, inactive token, and validation error outcomes.
-
-This makes expiry behavior deterministic before implementation starts.
+RFC 7662 response caching is intentionally deferred. Token revocation, response freshness, cache invalidation semantics, and cache observability need a dedicated design before kagent exposes cache configuration or behavior.
 
 ### Service-actor A2A policy
 
@@ -336,8 +325,6 @@ Recommended fields:
 
 - `URL`
 - `Timeout`
-- `CacheTTL`
-- `CacheMaxEntries`
 - `PropagateToken`
 - `ValidationAuthorization`
 - `ClientID`
@@ -348,8 +335,6 @@ Recommended fields:
 Defaults:
 
 - timeout: `5s`
-- cache TTL: `0s` (disabled)
-- cache max entries: implementation-defined bounded default
 - propagate token: `false`
 - validation authorization: empty
 - client ID/client secret: empty
@@ -365,15 +350,13 @@ Defaults:
 **Done when:**
 
 - `app.Config.Auth` uses a named `AuthConfig` with existing `Mode` and `UserIDClaim` fields preserved.
-- `ExternalBearerAuthConfig` exists with URL, timeout, cache, token propagation, validation authorization, RFC 7662 client authentication, unauthenticated-introspection opt-in, and policy file fields.
+- `ExternalBearerAuthConfig` exists with URL, timeout, token propagation, validation authorization, RFC 7662 client authentication, unauthenticated-introspection opt-in, and policy file fields.
 - Startup rejects ambiguous introspection auth config, including simultaneous `ValidationAuthorization` and `ClientID`/`ClientSecret`.
 - Startup rejects partial Basic-auth config when exactly one of `ClientID` or `ClientSecret` is set.
 - Startup rejects unauthenticated introspection unless the explicit test/local-development opt-in is set.
 - Flags/env load correctly for:
   - `--auth-external-bearer-url` / `AUTH_EXTERNAL_BEARER_URL`
   - `--auth-external-bearer-timeout` / `AUTH_EXTERNAL_BEARER_TIMEOUT`
-  - `--auth-external-bearer-cache-ttl` / `AUTH_EXTERNAL_BEARER_CACHE_TTL`
-  - `--auth-external-bearer-cache-max-entries` / `AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES`
   - `--auth-external-bearer-propagate-token` / `AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN`
   - `--auth-external-bearer-validation-authorization` / `AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION`
   - `--auth-external-bearer-client-id` / `AUTH_EXTERNAL_BEARER_CLIENT_ID`
@@ -407,7 +390,7 @@ Defaults:
 - It fails closed on timeout, network errors, invalid JSON, missing or false `active`, non-2xx responses, oversized responses, and incomplete identity mappings.
 - It maps `Principal.User.ID`, optional `Principal.Agent.ID`, and raw `Principal.Claims` from the validation response.
 - It does not trust `X-Agent-Name`, `X-User-Id`, or `user_id` query params as identity sources.
-- Cache behavior is not implemented in this item; cache config remains reserved for a later slice.
+- RFC 7662 response caching is not implemented in this item, and no cache configuration is exposed yet.
 - Unit tests cover active/inactive tokens, missing `active`, malformed responses, unsupported content, `401`/`403`/`500` responses, slow responses, oversized responses, missing identity, service actor metadata, service-token fallthrough rejection, identity fallback order, RFC 7662 request shape, Basic auth, partial Basic-auth config rejection, auth-header precedence conflicts, HTTPS enforcement, expired `exp` defense-in-depth, RFC 7662 field mapping, `aud` string/list handling, `scope` exact token handling, and preservation of `client_id`/`scope`/`aud`/`iss` claims for later policy evaluation.
 
 **Key files:**
@@ -508,7 +491,7 @@ Defaults:
 
 - `getAuthenticator` supports `unsecure`, `trusted-proxy`, and `external-bearer`.
 - `external-bearer` startup fails if required URL config is missing.
-- `external-bearer` construction wires the settings implemented in the current slice; later cache, propagation, and policy slices extend construction without changing the mode name.
+- `external-bearer` construction wires the settings implemented in the current slice; future caching and policy work can extend construction without changing the mode name.
 - `auth_mode_test.go` asserts the new mode returns `ExternalBearerAuthenticator`.
 - Unknown-mode panic/error text lists all valid modes.
 
@@ -547,7 +530,7 @@ Defaults:
 
 **Done when:**
 
-- `helm/kagent/values.yaml` adds `controller.auth.externalBearer` fields for RFC 7662 introspection endpoint URL, timeout, cache, token propagation, validation-service credential secret ref, RFC 7662 client credential Secret ref, unauthenticated-introspection test/local opt-in, and service-actor policy.
+- `helm/kagent/values.yaml` adds `controller.auth.externalBearer` fields for RFC 7662 introspection endpoint URL, timeout, token propagation, validation-service credential secret ref, RFC 7662 client credential Secret ref, unauthenticated-introspection test/local opt-in, and service-actor policy.
 - `controller-deployment.yaml` renders env vars for external-bearer fields.
 - Sensitive validation-service authorization is rendered only from a Secret ref, not inline values.
 - Inline or existing ConfigMap policy is mounted at a fixed implementation-chosen path.
