@@ -102,17 +102,6 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	isSandbox := a.isSandboxRoute(r)
 	handlerName := routeKey(isSandbox, agentNamespace, agentName)
 
-	// get the underlying handler
-	handlerHandler, ok := a.getHandler(handlerName)
-	if !ok {
-		http.Error(
-			w,
-			fmt.Sprintf("Agent %s not found", handlerName),
-			http.StatusNotFound,
-		)
-		return
-	}
-
 	if accessProvider, ok := a.authenticator.(auth.A2AAccessProvider); ok {
 		workloadType := auth.A2AWorkloadAgent
 		if isSandbox {
@@ -127,6 +116,17 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
+	}
+
+	// get the underlying handler
+	handlerHandler, ok := a.getHandler(handlerName)
+	if !ok {
+		http.Error(
+			w,
+			fmt.Sprintf("Agent %s not found", handlerName),
+			http.StatusNotFound,
+		)
+		return
 	}
 
 	handlerHandler.ServeHTTP(w, r)

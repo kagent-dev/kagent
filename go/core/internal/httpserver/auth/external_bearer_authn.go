@@ -76,6 +76,15 @@ func NewExternalBearerAuthenticator(cfg ExternalBearerAuthenticatorConfig) (*Ext
 	if err := validateIntrospectionURL(cfg.URL); err != nil {
 		return nil, err
 	}
+	if cfg.AllowUnauthenticatedIntrospection {
+		parsed, err := url.Parse(cfg.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid external-bearer introspection URL: %w", err)
+		}
+		if !isLocalhost(parsed.Hostname()) {
+			return nil, errors.New("external-bearer auth config AllowUnauthenticatedIntrospection is only allowed for localhost/loopback introspection URLs")
+		}
+	}
 	if cfg.ValidationAuthorization != "" && (cfg.ClientID != "" || cfg.ClientSecret != "") {
 		return nil, errors.New("external-bearer auth config cannot set ValidationAuthorization with ClientID/ClientSecret")
 	}
@@ -359,6 +368,15 @@ func loadExternalBearerPolicyFile(path string) (*externalBearerPolicy, error) {
 	if err := decoder.Decode(&policy); err != nil {
 		return nil, fmt.Errorf("invalid external-bearer policy file %q: %w", path, err)
 	}
+	if decoder.More() {
+		return nil, fmt.Errorf("invalid external-bearer policy file %q: trailing JSON after policy object", path)
+	}
+	if token, err := decoder.Token(); err != io.EOF {
+		if err != nil {
+			return nil, fmt.Errorf("invalid external-bearer policy file %q: %w", path, err)
+		}
+		return nil, fmt.Errorf("invalid external-bearer policy file %q: trailing JSON after policy object near %v", path, token)
+	}
 	if policy.ServiceActors == nil {
 		policy.ServiceActors = map[string]externalBearerServiceActor{}
 	}
@@ -409,9 +427,15 @@ func (p externalBearerPredicate) validate() error {
 	}
 	operators := 0
 	if p.Value != nil {
+		if strings.TrimSpace(*p.Value) == "" {
+			return errors.New("predicate value must not be empty")
+		}
 		operators++
 	}
 	if p.Contains != nil {
+		if strings.TrimSpace(*p.Contains) == "" {
+			return errors.New("predicate contains value must not be empty")
+		}
 		operators++
 	}
 	if operators != 1 {
@@ -501,14 +525,7 @@ func (p externalBearerPredicate) isServiceTokenIndicator() bool {
 	if !ok {
 		return false
 	}
-	switch p.Claim {
-	case "grant_type":
-		return want == "client_credentials"
-	case "token_class", "token_use":
-		return want == "service" || want == "service_token" || want == "service-token" || want == "client_credentials"
-	default:
-		return false
-	}
+	return isServiceTokenIndicatorClaim(p.Claim, want)
 }
 
 func (p externalBearerPredicate) expectedString() (string, bool) {
@@ -665,8 +682,51 @@ func isJSONContentType(contentType string) bool {
 }
 
 func isServiceTokenClaims(claims map[string]any) bool {
-	grantType, _ := claims["grant_type"].(string)
-	return strings.EqualFold(grantType, "client_credentials")
+	for _, claim := range []string{"grant_type", "token_class", "token_use"} {
+		if claimHasServiceTokenIndicator(claim, claims[claim]) {
+			return true
+		}
+	}
+	return false
+}
+
+func claimHasServiceTokenIndicator(claim string, value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return isServiceTokenIndicatorClaim(claim, typed)
+	case []any:
+		for _, item := range typed {
+			if claimHasServiceTokenIndicator(claim, item) {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if isServiceTokenIndicatorClaim(claim, item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isServiceTokenIndicatorClaim(claim, value string) bool {
+	switch claim {
+	case "grant_type":
+		return strings.EqualFold(value, "client_credentials")
+	case "token_class", "token_use":
+		switch {
+		case strings.EqualFold(value, "service"):
+			return true
+		case strings.EqualFold(value, "service_token"):
+			return true
+		case strings.EqualFold(value, "service-token"):
+			return true
+		case strings.EqualFold(value, "client_credentials"):
+			return true
+		}
+	}
+	return false
 }
 
 func claimsWithoutRawBearerToken(claims map[string]any, token string) map[string]any {

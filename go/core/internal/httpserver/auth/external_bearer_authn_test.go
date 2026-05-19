@@ -155,9 +155,24 @@ func TestExternalBearerAuthenticatorEndpointAuthConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "remote https with unauthenticated opt-in rejected",
+			cfg: authimpl.ExternalBearerAuthenticatorConfig{
+				URL:                               "https://auth.example.com/introspect",
+				AllowUnauthenticatedIntrospection: true,
+			},
+			wantErr: "only allowed for localhost/loopback",
+		},
+		{
 			name: "localhost http with explicit unauthenticated opt-in accepted",
 			cfg: authimpl.ExternalBearerAuthenticatorConfig{
 				URL:                               "http://localhost:8080/introspect",
+				AllowUnauthenticatedIntrospection: true,
+			},
+		},
+		{
+			name: "loopback https with explicit unauthenticated opt-in accepted",
+			cfg: authimpl.ExternalBearerAuthenticatorConfig{
+				URL:                               "https://127.0.0.1:8443/introspect",
 				AllowUnauthenticatedIntrospection: true,
 			},
 		},
@@ -183,27 +198,57 @@ func TestExternalBearerAuthenticatorEndpointAuthConfig(t *testing.T) {
 }
 
 func TestExternalBearerAuthenticatorRejectsServiceTokenClaimsInThisSlice(t *testing.T) {
-	// The policy slice will introduce constructible service-actor sessions and
-	// service-specific upstream semantics. In this propagation slice, clear
-	// service-token claims are rejected before they can receive human X-User-Id
-	// propagation via username/sub fallbacks.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, map[string]any{
-			"active":     true,
-			"grant_type": "client_credentials",
-			"username":   "service-looking-user",
-			"sub":        "service-subject",
-		})
-	}))
-	defer server.Close()
+	// Clear service-token claims are rejected before they can receive human
+	// X-User-Id propagation via username/sub fallbacks.
+	tests := []struct {
+		name   string
+		claims map[string]any
+	}{
+		{
+			name: "grant_type client_credentials",
+			claims: map[string]any{
+				"active":     true,
+				"grant_type": "client_credentials",
+				"username":   "service-looking-user",
+				"sub":        "service-subject",
+			},
+		},
+		{
+			name: "token_class service",
+			claims: map[string]any{
+				"active":      true,
+				"token_class": "service",
+				"username":    "service-looking-user",
+				"sub":         "service-subject",
+			},
+		},
+		{
+			name: "token_use client_credentials",
+			claims: map[string]any{
+				"active":    true,
+				"token_use": "client_credentials",
+				"username":  "service-looking-user",
+				"sub":       "service-subject",
+			},
+		},
+	}
 
-	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
-		URL:                               server.URL,
-		AllowUnauthenticatedIntrospection: true,
-	})
-	headers := http.Header{"Authorization": []string{"Bearer service-token"}}
-	if _, err := authn.Authenticate(context.Background(), headers, url.Values{}); err == nil {
-		t.Fatal("expected service-token claims to be rejected, got nil error")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, tt.claims)
+			}))
+			defer server.Close()
+
+			authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
+				URL:                               server.URL,
+				AllowUnauthenticatedIntrospection: true,
+			})
+			headers := http.Header{"Authorization": []string{"Bearer service-token"}}
+			if _, err := authn.Authenticate(context.Background(), headers, url.Values{}); err == nil {
+				t.Fatal("expected service-token claims to be rejected, got nil error")
+			}
+		})
 	}
 }
 
@@ -571,6 +616,7 @@ func TestExternalBearerAuthenticatorPolicyValidation(t *testing.T) {
 		wantErr string
 	}{
 		{name: "invalid JSON policy rejected", policy: `{`, wantErr: "invalid external-bearer policy file"},
+		{name: "trailing JSON policy rejected", policy: `{} {}`, wantErr: "trailing JSON after policy object"},
 		{name: "unknown top-level field rejected", policy: `{"allowedAudience":["kagent"]}`, wantErr: "unknown field"},
 		{
 			name: "empty allOf rejected",
@@ -602,6 +648,41 @@ func TestExternalBearerAuthenticatorPolicyValidation(t *testing.T) {
 				}
 			}`,
 			wantErr: "exactly one operator",
+		},
+		{
+			name: "empty predicate value rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"},
+							{"claim": "grant_type", "value": ""}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "predicate value must not be empty",
+		},
+		{
+			name: "empty predicate contains rejected",
+			policy: `{
+				"serviceActors": {
+					"svc": {
+						"match": {"allOf": [
+							{"claim": "client_id", "value": "svc"},
+							{"claim": "grant_type", "value": "client_credentials"},
+							{"claim": "scope", "contains": ""}
+						]},
+						"allowedA2A": [
+							{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+						]
+					}
+				}
+			}`,
+			wantErr: "predicate contains value must not be empty",
 		},
 		{
 			name: "unknown predicate operator rejected",

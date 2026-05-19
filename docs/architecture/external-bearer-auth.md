@@ -47,8 +47,6 @@ Controller flags and environment variables:
 | `--auth-user-id-claim` | `AUTH_USER_ID_CLAIM` | Claim name used for user identity mapping; defaults to `sub`. |
 | `--auth-external-bearer-url` | `AUTH_EXTERNAL_BEARER_URL` | RFC 7662 token introspection endpoint URL. |
 | `--auth-external-bearer-timeout` | `AUTH_EXTERNAL_BEARER_TIMEOUT` | Introspection request timeout; defaults to `5s`. |
-| `--auth-external-bearer-cache-ttl` | `AUTH_EXTERNAL_BEARER_CACHE_TTL` | Reserved cache TTL setting; cache implementation is out of scope for this slice. |
-| `--auth-external-bearer-cache-max-entries` | `AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES` | Reserved cache size setting; cache implementation is out of scope for this slice. |
 | `--auth-external-bearer-propagate-token` | `AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN` | When `true`, forward the inbound bearer token to upstream agent requests. Defaults to `false`. |
 | `--auth-external-bearer-validation-authorization` | `AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION` | Exact `Authorization` header value for introspection requests. |
 | `--auth-external-bearer-client-id` | `AUTH_EXTERNAL_BEARER_CLIENT_ID` | Client ID for RFC 7662 HTTP Basic auth. |
@@ -56,13 +54,15 @@ Controller flags and environment variables:
 | `--auth-external-bearer-allow-unauthenticated-introspection` | `AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION` | Allow unauthenticated introspection calls; use only for local development/tests. |
 | `--auth-external-bearer-policy-file` | `AUTH_EXTERNAL_BEARER_POLICY_FILE` | Local service-actor A2A policy file path. |
 
+RFC 7662 response caching is intentionally deferred because token revocation, response freshness, and cache invalidation semantics need a dedicated design; kagent does not expose cache configuration for external-bearer auth yet.
+
 Introspection endpoint authentication is intentionally explicit:
 
 - `validationAuthorization` uses the configured Secret value exactly as the introspection request `Authorization` header.
 - `clientId` plus `clientSecret` uses HTTP Basic auth for the introspection endpoint.
 - `validationAuthorization` is mutually exclusive with `clientId`/`clientSecret`.
 - Partial client credentials are rejected.
-- Unauthenticated introspection is rejected unless `allowUnauthenticatedIntrospection` is true for local/test use.
+- Unauthenticated introspection is rejected unless `allowUnauthenticatedIntrospection` is true and the introspection URL host is localhost/loopback for local/test use.
 
 ## Helm values
 

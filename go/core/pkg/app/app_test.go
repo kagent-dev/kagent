@@ -425,8 +425,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"AUTH_USER_ID_CLAIM":                            "email",
 		"AUTH_EXTERNAL_BEARER_URL":                      "https://auth.example.com/validate",
 		"AUTH_EXTERNAL_BEARER_TIMEOUT":                  "3s",
-		"AUTH_EXTERNAL_BEARER_CACHE_TTL":                "30s",
-		"AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES":        "42",
 		"AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN":          "true",
 		"AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION": "Bearer validation-token",
 		"AUTH_EXTERNAL_BEARER_CLIENT_ID":                "kagent-client",
@@ -498,12 +496,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.Auth.ExternalBearer.Timeout != 3*time.Second {
 		t.Errorf("Auth.ExternalBearer.Timeout = %v, want 3s", cfg.Auth.ExternalBearer.Timeout)
-	}
-	if cfg.Auth.ExternalBearer.CacheTTL != 30*time.Second {
-		t.Errorf("Auth.ExternalBearer.CacheTTL = %v, want 30s", cfg.Auth.ExternalBearer.CacheTTL)
-	}
-	if cfg.Auth.ExternalBearer.CacheMaxEntries != 42 {
-		t.Errorf("Auth.ExternalBearer.CacheMaxEntries = %v, want 42", cfg.Auth.ExternalBearer.CacheMaxEntries)
 	}
 	if !cfg.Auth.ExternalBearer.PropagateToken {
 		t.Errorf("Auth.ExternalBearer.PropagateToken = false, want true")

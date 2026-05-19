@@ -160,10 +160,6 @@ controller:
       url: ""
       # Timeout for validation requests, for example "5s".
       timeout: ""
-      # Reserved maximum cache TTL setting, for example "30s". Empty/zero leaves controller defaults.
-      cacheTTL: ""
-      # Reserved maximum number of cache entries. 0 leaves controller defaults.
-      cacheMaxEntries: 0
       # Forward inbound bearer tokens to upstream agent requests. Defaults to false.
       propagateToken: false
       # Exact Authorization header credential for the introspection endpoint.
@@ -182,7 +178,8 @@ controller:
         secretRef:
           name: ""
           key: ""
-      # Allow unauthenticated introspection endpoint calls. Use only for local development/tests.
+      # Allow unauthenticated introspection endpoint calls. Use only for local development/tests;
+      # the controller only permits this with localhost/loopback introspection URLs.
       allowUnauthenticatedIntrospection: false
       # Optional service-actor A2A policy. The controller consumes this as a local file.
       # Service actors are denied A2A unless they match a serviceActors entry and the target is allowed.
