@@ -26,15 +26,15 @@ members = [
     "research-crew",
 ]
 constraints = [
-    { name = "aiohttp", specifier = ">=3.13.4" },
-    { name = "cryptography", specifier = ">=46.0.7" },
+    { name = "aiohttp", specifier = ">=3.13.5" },
+    { name = "cryptography", specifier = ">=48.0.0" },
     { name = "jaraco-context", specifier = ">=6.1.0" },
     { name = "mako", specifier = ">=1.3.12" },
     { name = "pyasn1", specifier = ">=0.6.3" },
     { name = "pyopenssl", specifier = ">=26.0.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "requests", specifier = ">=2.33.0" },
-    { name = "sqlparse", specifier = ">=0.5.4" },
+    { name = "requests", specifier = ">=2.34.2" },
+    { name = "sqlparse", specifier = ">=0.5.5" },
     { name = "wheel", specifier = ">=0.46.2" },
 ]
 
