@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type Verb string
@@ -37,6 +38,10 @@ type Principal struct {
 
 type Session interface {
 	Principal() Principal
+}
+
+type A2AOnlySession interface {
+	A2AOnly() bool
 }
 
 // Responsibilities:
@@ -104,9 +109,28 @@ func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 				return
 			}
 			if session != nil {
+				if a2aOnly, ok := session.(A2AOnlySession); ok && a2aOnly.A2AOnly() && !isA2ARequestPath(r.URL.EscapedPath()) {
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
 				r = r.WithContext(AuthSessionTo(r.Context(), session))
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func isA2ARequestPath(escapedPath string) bool {
+	lowerPath := strings.ToLower(escapedPath)
+	if strings.Contains(lowerPath, "%2f") || strings.Contains(lowerPath, "%5c") {
+		return false
+	}
+	segments := strings.Split(strings.Trim(escapedPath, "/"), "/")
+	if len(segments) < 4 || segments[0] != "api" {
+		return false
+	}
+	if segments[1] != "a2a" && segments[1] != "a2a-sandboxes" {
+		return false
+	}
+	return segments[2] != "" && segments[3] != ""
 }

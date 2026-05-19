@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ type ExternalBearerAuthenticatorConfig struct {
 	AllowUnauthenticatedIntrospection bool
 	UserIDClaim                       string
 	HTTPClient                        *http.Client
+	PolicyFile                        string
 }
 
 type ExternalBearerAuthenticator struct {
@@ -41,16 +43,30 @@ type ExternalBearerAuthenticator struct {
 	clientID                string
 	clientSecret            string
 	userIDClaim             string
+	policy                  *externalBearerPolicy
 }
 
 type externalBearerSession struct {
-	P           auth.Principal
-	bearerToken string
-	expiresAt   *time.Time
+	P              auth.Principal
+	bearerToken    string
+	expiresAt      *time.Time
+	actorType      externalBearerActorType
+	serviceActorID string
 }
+
+type externalBearerActorType string
+
+const (
+	externalBearerActorUser    externalBearerActorType = "user"
+	externalBearerActorService externalBearerActorType = "service"
+)
 
 func (s *externalBearerSession) Principal() auth.Principal {
 	return s.P
+}
+
+func (s *externalBearerSession) A2AOnly() bool {
+	return s.actorType == externalBearerActorService
 }
 
 func NewExternalBearerAuthenticator(cfg ExternalBearerAuthenticatorConfig) (*ExternalBearerAuthenticator, error) {
@@ -68,6 +84,10 @@ func NewExternalBearerAuthenticator(cfg ExternalBearerAuthenticatorConfig) (*Ext
 	}
 	if cfg.ValidationAuthorization == "" && cfg.ClientID == "" && !cfg.AllowUnauthenticatedIntrospection {
 		return nil, errors.New("external-bearer auth config requires introspection endpoint authentication or AllowUnauthenticatedIntrospection for local/test use")
+	}
+	policy, err := loadExternalBearerPolicyFile(cfg.PolicyFile)
+	if err != nil {
+		return nil, err
 	}
 
 	timeout := cfg.Timeout
@@ -101,6 +121,7 @@ func NewExternalBearerAuthenticator(cfg ExternalBearerAuthenticatorConfig) (*Ext
 		clientID:                cfg.ClientID,
 		clientSecret:            cfg.ClientSecret,
 		userIDClaim:             userIDClaim,
+		policy:                  policy,
 	}, nil
 }
 
@@ -115,10 +136,33 @@ func (a *ExternalBearerAuthenticator) Authenticate(ctx context.Context, reqHeade
 		return nil, ErrUnauthenticated
 	}
 
-	if isServiceTokenClaims(claims) {
-		// Service actor policy/classification is handled in a later slice. Until then,
-		// positively identified service-token claims must not fall through to human
-		// user propagation via username/sub fallbacks.
+	if a.policy != nil {
+		// Top-level policy checks are applied globally in this implementation:
+		// user and service-actor tokens must both satisfy configured scopes,
+		// audiences, and issuers before kagent accepts the session.
+		if err := a.policy.checkTopLevelClaims(claims); err != nil {
+			return nil, ErrUnauthenticated
+		}
+		serviceActorID, ok, err := a.policy.matchServiceActor(claims)
+		if err != nil {
+			return nil, ErrUnauthenticated
+		}
+		if ok {
+			return &externalBearerSession{
+				P: auth.Principal{
+					Claims: claimsWithoutRawBearerToken(claims, token),
+				},
+				bearerToken:    token,
+				expiresAt:      expiresAt,
+				actorType:      externalBearerActorService,
+				serviceActorID: serviceActorID,
+			}, nil
+		}
+	}
+
+	if isServiceTokenClaims(claims) || (a.policy != nil && a.policy.matchesServiceTokenIndicator(claims)) {
+		// Positively identified service/client-credentials tokens require an explicit
+		// serviceActors policy match and must not fall through to human user auth.
 		return nil, ErrUnauthenticated
 	}
 
@@ -134,6 +178,7 @@ func (a *ExternalBearerAuthenticator) Authenticate(ctx context.Context, reqHeade
 		},
 		bearerToken: token,
 		expiresAt:   expiresAt,
+		actorType:   externalBearerActorUser,
 	}, nil
 }
 
@@ -155,6 +200,30 @@ func (a *ExternalBearerAuthenticator) UpstreamAuth(r *http.Request, session auth
 		r.Header.Set("X-User-Id", principal.User.ID)
 	}
 	return nil
+}
+
+func (a *ExternalBearerAuthenticator) CheckA2AAccess(ctx context.Context, session auth.Session, target auth.A2ATarget) error {
+	_ = ctx
+	externalSession, ok := session.(*externalBearerSession)
+	if !ok {
+		return errors.New("external-bearer A2A access requires an external-bearer session")
+	}
+	if externalSession.actorType != externalBearerActorService {
+		return nil
+	}
+	if a.policy == nil || externalSession.serviceActorID == "" {
+		return errors.New("external-bearer service actor has no A2A policy")
+	}
+	serviceActor, ok := a.policy.ServiceActors[externalSession.serviceActorID]
+	if !ok {
+		return errors.New("external-bearer service actor policy not found")
+	}
+	for _, allowed := range serviceActor.AllowedA2A {
+		if allowed.matches(target) {
+			return nil
+		}
+	}
+	return fmt.Errorf("external-bearer service actor %q is not allowed to access A2A target %s/%s (%s)", externalSession.serviceActorID, target.Namespace, target.Name, target.WorkloadType)
 }
 
 func (a *ExternalBearerAuthenticator) introspect(ctx context.Context, token string) (map[string]any, *time.Time, error) {
@@ -212,6 +281,326 @@ func (a *ExternalBearerAuthenticator) introspect(ctx context.Context, token stri
 	}
 
 	return claims, expiresAt, nil
+}
+
+type externalBearerPolicy struct {
+	RequiredScopes   []string                              `json:"requiredScopes"`
+	AllowedAudiences []string                              `json:"allowedAudiences"`
+	AllowedIssuers   []string                              `json:"allowedIssuers"`
+	ServiceActors    map[string]externalBearerServiceActor `json:"serviceActors"`
+}
+
+type externalBearerServiceActor struct {
+	Match      externalBearerMatch       `json:"match"`
+	AllowedA2A []externalBearerA2ATarget `json:"allowedA2A"`
+}
+
+type externalBearerMatch struct {
+	AllOf []externalBearerPredicate `json:"allOf"`
+}
+
+type externalBearerPredicate struct {
+	Claim    string
+	Value    *string
+	Contains *string
+}
+
+type externalBearerA2ATarget struct {
+	Namespace    string `json:"namespace"`
+	Name         string `json:"name"`
+	WorkloadType string `json:"workloadType"`
+}
+
+func (p *externalBearerPredicate) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for key := range raw {
+		switch key {
+		case "claim", "value", "contains":
+		default:
+			return fmt.Errorf("unknown external-bearer policy predicate operator or field %q", key)
+		}
+	}
+	if rawClaim, ok := raw["claim"]; ok {
+		if err := json.Unmarshal(rawClaim, &p.Claim); err != nil {
+			return fmt.Errorf("invalid external-bearer policy predicate claim: %w", err)
+		}
+	}
+	if rawValue, ok := raw["value"]; ok {
+		var value string
+		if err := json.Unmarshal(rawValue, &value); err != nil {
+			return fmt.Errorf("invalid external-bearer policy predicate value: %w", err)
+		}
+		p.Value = &value
+	}
+	if rawContains, ok := raw["contains"]; ok {
+		var contains string
+		if err := json.Unmarshal(rawContains, &contains); err != nil {
+			return fmt.Errorf("invalid external-bearer policy predicate contains: %w", err)
+		}
+		p.Contains = &contains
+	}
+	return nil
+}
+
+func loadExternalBearerPolicyFile(path string) (*externalBearerPolicy, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read external-bearer policy file %q: %w", path, err)
+	}
+	var policy externalBearerPolicy
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&policy); err != nil {
+		return nil, fmt.Errorf("invalid external-bearer policy file %q: %w", path, err)
+	}
+	if policy.ServiceActors == nil {
+		policy.ServiceActors = map[string]externalBearerServiceActor{}
+	}
+	if err := policy.validate(); err != nil {
+		return nil, fmt.Errorf("invalid external-bearer policy file %q: %w", path, err)
+	}
+	return &policy, nil
+}
+
+func (p *externalBearerPolicy) validate() error {
+	for actorID, serviceActor := range p.ServiceActors {
+		if strings.TrimSpace(actorID) == "" {
+			return errors.New("serviceActors contains empty actor id")
+		}
+		if len(serviceActor.Match.AllOf) == 0 {
+			return fmt.Errorf("service actor %q match.allOf must contain at least one predicate", actorID)
+		}
+		if len(serviceActor.Match.AllOf) == 1 {
+			if serviceActor.Match.AllOf[0].Claim == "client_id" {
+				return fmt.Errorf("service actor %q match.allOf cannot classify by client_id alone", actorID)
+			}
+			return fmt.Errorf("service actor %q match.allOf must contain at least two predicates", actorID)
+		}
+		hasServiceTokenIndicator := false
+		for i, predicate := range serviceActor.Match.AllOf {
+			if err := predicate.validate(); err != nil {
+				return fmt.Errorf("service actor %q match.allOf[%d]: %w", actorID, i, err)
+			}
+			if predicate.isServiceTokenIndicator() {
+				hasServiceTokenIndicator = true
+			}
+		}
+		if !hasServiceTokenIndicator {
+			return fmt.Errorf("service actor %q match.allOf must include a recognizable service-token indicator predicate", actorID)
+		}
+		for i, target := range serviceActor.AllowedA2A {
+			if err := target.validate(); err != nil {
+				return fmt.Errorf("service actor %q allowedA2A[%d]: %w", actorID, i, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (p externalBearerPredicate) validate() error {
+	if strings.TrimSpace(p.Claim) == "" {
+		return errors.New("claim is required")
+	}
+	operators := 0
+	if p.Value != nil {
+		operators++
+	}
+	if p.Contains != nil {
+		operators++
+	}
+	if operators != 1 {
+		return errors.New("predicate must specify exactly one operator: value or contains")
+	}
+	return nil
+}
+
+func (t externalBearerA2ATarget) validate() error {
+	if err := validatePolicyWildcardField("namespace", t.Namespace); err != nil {
+		return err
+	}
+	if err := validatePolicyWildcardField("name", t.Name); err != nil {
+		return err
+	}
+	if err := validatePolicyWildcardField("workloadType", t.WorkloadType); err != nil {
+		return err
+	}
+	if t.WorkloadType != "agent" && t.WorkloadType != "sandbox" && t.WorkloadType != "*" {
+		return fmt.Errorf("unknown workloadType %q", t.WorkloadType)
+	}
+	return nil
+}
+
+func validatePolicyWildcardField(field, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	if strings.Contains(value, "*") && value != "*" {
+		return fmt.Errorf("%s contains partial wildcard %q; only whole-field * is allowed", field, value)
+	}
+	return nil
+}
+
+func (p *externalBearerPolicy) checkTopLevelClaims(claims map[string]any) error {
+	for _, requiredScope := range p.RequiredScopes {
+		if !claimContains(claims["scope"], requiredScope, true) {
+			return fmt.Errorf("required scope %q missing", requiredScope)
+		}
+	}
+	if len(p.AllowedAudiences) > 0 && !anyClaimValueMatches(claims["aud"], p.AllowedAudiences) {
+		return errors.New("aud claim missing or not allowed")
+	}
+	if len(p.AllowedIssuers) > 0 && !anyClaimValueMatches(claims["iss"], p.AllowedIssuers) {
+		return errors.New("iss claim missing or not allowed")
+	}
+	return nil
+}
+
+func (p *externalBearerPolicy) matchesServiceTokenIndicator(claims map[string]any) bool {
+	for _, serviceActor := range p.ServiceActors {
+		for _, predicate := range serviceActor.Match.AllOf {
+			if predicate.isServiceTokenIndicator() && predicate.matches(claims) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (p *externalBearerPolicy) matchServiceActor(claims map[string]any) (string, bool, error) {
+	var matchedActorID string
+	for actorID, serviceActor := range p.ServiceActors {
+		matched := true
+		for _, predicate := range serviceActor.Match.AllOf {
+			if !predicate.matches(claims) {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if matchedActorID != "" {
+			return "", false, fmt.Errorf("claims match multiple external-bearer service actors: %q and %q", matchedActorID, actorID)
+		}
+		matchedActorID = actorID
+	}
+	if matchedActorID == "" {
+		return "", false, nil
+	}
+	return matchedActorID, true, nil
+}
+
+func (p externalBearerPredicate) isServiceTokenIndicator() bool {
+	want, ok := p.expectedString()
+	if !ok {
+		return false
+	}
+	switch p.Claim {
+	case "grant_type":
+		return want == "client_credentials"
+	case "token_class", "token_use":
+		return want == "service" || want == "service_token" || want == "service-token" || want == "client_credentials"
+	default:
+		return false
+	}
+}
+
+func (p externalBearerPredicate) expectedString() (string, bool) {
+	switch {
+	case p.Value != nil:
+		return *p.Value, true
+	case p.Contains != nil:
+		return *p.Contains, true
+	default:
+		return "", false
+	}
+}
+
+func (p externalBearerPredicate) matches(claims map[string]any) bool {
+	value, ok := claims[p.Claim]
+	if !ok {
+		return false
+	}
+	if p.Value != nil {
+		return claimValueEquals(value, *p.Value)
+	}
+	if p.Contains != nil {
+		return claimContains(value, *p.Contains, p.Claim == "scope")
+	}
+	return false
+}
+
+func (t externalBearerA2ATarget) matches(target auth.A2ATarget) bool {
+	return policyFieldMatches(t.Namespace, target.Namespace) &&
+		policyFieldMatches(t.Name, target.Name) &&
+		policyFieldMatches(t.WorkloadType, string(target.WorkloadType))
+}
+
+func policyFieldMatches(pattern, value string) bool {
+	return pattern == "*" || pattern == value
+}
+
+func anyClaimValueMatches(value any, allowed []string) bool {
+	for _, candidate := range allowed {
+		if claimValueEquals(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func claimValueEquals(value any, want string) bool {
+	switch typed := value.(type) {
+	case string:
+		return typed == want
+	case []any:
+		for _, item := range typed {
+			if itemString, ok := item.(string); ok && itemString == want {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if item == want {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func claimContains(value any, want string, splitScopeString bool) bool {
+	switch typed := value.(type) {
+	case string:
+		if splitScopeString {
+			for _, token := range strings.Fields(typed) {
+				if token == want {
+					return true
+				}
+			}
+			return false
+		}
+		return typed == want
+	case []any:
+		for _, item := range typed {
+			if itemString, ok := item.(string); ok && itemString == want {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if item == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validateIntrospectionURL(rawURL string) error {
@@ -363,3 +752,4 @@ func expiryFromClaims(claims map[string]any) (*time.Time, error) {
 }
 
 var _ auth.AuthProvider = (*ExternalBearerAuthenticator)(nil)
+var _ auth.A2AAccessProvider = (*ExternalBearerAuthenticator)(nil)

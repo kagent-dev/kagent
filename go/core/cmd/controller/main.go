@@ -62,6 +62,7 @@ func getAuthenticator(authCfg app.AuthConfig) (pkgauth.AuthProvider, error) {
 			ClientSecret:                      authCfg.ExternalBearer.ClientSecret,
 			AllowUnauthenticatedIntrospection: authCfg.ExternalBearer.AllowUnauthenticatedIntrospection,
 			UserIDClaim:                       authCfg.UserIDClaim,
+			PolicyFile:                        authCfg.ExternalBearer.PolicyFile,
 		})
 	default:
 		return nil, fmt.Errorf("unknown auth mode: %s (valid modes: unsecure, trusted-proxy, external-bearer)", authCfg.Mode)
