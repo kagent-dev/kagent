@@ -85,11 +85,20 @@ jobs:
           kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
           kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 
+      - name: Build kagent
+        env:
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
+            --platform=linux/amd64
+            --push
+        run: make build
+
       - name: Install Kagent
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
-          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
@@ -98,7 +107,6 @@ jobs:
             --platform=linux/amd64
             --push
         run: |
-          echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           make helm-install
           make push-test-agent push-test-skill
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -305,7 +313,7 @@ jobs:
           go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
-      - name: golangci-lint 
+      - name: golangci-lint
         working-directory: go
         run: make lint
 
