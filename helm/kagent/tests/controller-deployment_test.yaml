@@ -253,8 +253,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: external-bearer-policy
-            mountPath: /etc/kagent/external-bearer/policy.json
-            subPath: policy.json
+            mountPath: /etc/kagent/external-bearer
             readOnly: true
 
   - it: should render external bearer existing policy configmap mount
@@ -287,8 +286,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: external-bearer-policy
-            mountPath: /etc/kagent/external-bearer/policy.json
-            subPath: policy.json
+            mountPath: /etc/kagent/external-bearer
             readOnly: true
 
   - it: should render external bearer inline policy configmap

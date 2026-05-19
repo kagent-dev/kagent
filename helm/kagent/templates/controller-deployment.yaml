@@ -179,8 +179,7 @@ spec:
             {{- end }}
             {{- if $externalBearerPolicyEnabled }}
             - name: external-bearer-policy
-              mountPath: /etc/kagent/external-bearer/policy.json
-              subPath: policy.json
+              mountPath: /etc/kagent/external-bearer
               readOnly: true
             {{- end }}
           {{- end }}
