@@ -98,10 +98,19 @@ tests:
   - it: should not render external bearer env by default
     template: controller-deployment.yaml
     asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_MODE
+            value: "unsecure"
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: AUTH_EXTERNAL_BEARER_URL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
@@ -123,6 +132,12 @@ tests:
           content:
             name: AUTH_EXTERNAL_BEARER_POLICY_FILE
 
+  - it: should not render external bearer policy configmap by default
+    template: external-bearer-policy-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should render external bearer auth env when configured
     template: controller-deployment.yaml
     set:
@@ -130,7 +145,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
-            url: "https://auth.example.com/validate"
+            url: "https://auth.example.com/introspect"
             timeout: "3s"
             cacheTTL: "30s"
             cacheMaxEntries: 42
@@ -150,7 +165,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: AUTH_EXTERNAL_BEARER_URL
-            value: "https://auth.example.com/validate"
+            value: "https://auth.example.com/introspect"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -226,6 +241,7 @@ tests:
     set:
       controller:
         auth:
+          mode: external-bearer
           externalBearer:
             policy:
               inline: |
@@ -258,12 +274,18 @@ tests:
     set:
       controller:
         auth:
+          mode: external-bearer
           externalBearer:
             policy:
               existingConfigMap:
                 name: "existing-policy"
                 key: "custom.json"
     asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_POLICY_FILE
+            value: "/etc/kagent/external-bearer/policy.json"
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -273,12 +295,20 @@ tests:
               items:
                 - key: "custom.json"
                   path: policy.json
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: external-bearer-policy
+            mountPath: /etc/kagent/external-bearer/policy.json
+            subPath: policy.json
+            readOnly: true
 
   - it: should render external bearer inline policy configmap
     template: external-bearer-policy-configmap.yaml
     set:
       controller:
         auth:
+          mode: external-bearer
           externalBearer:
             policy:
               inline: |
@@ -293,6 +323,96 @@ tests:
           path: data["policy.json"]
           value: |
             {"serviceActors":{}}
+
+  - it: should ignore populated external bearer settings when auth mode is unsecure
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: unsecure
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            timeout: "3s"
+            cacheTTL: "30s"
+            cacheMaxEntries: 42
+            propagateToken: true
+            validationAuthorization:
+              secretRef:
+                name: "validation-auth"
+                key: "authorization"
+            clientId: "kagent-client"
+            clientSecret:
+              secretRef:
+                name: "introspection-client"
+                key: "client-secret"
+            allowUnauthenticatedIntrospection: true
+            policy:
+              inline: |
+                {"serviceActors":{}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_MODE
+            value: "unsecure"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_URL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_TIMEOUT
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CACHE_TTL
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CACHE_MAX_ENTRIES
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_VALIDATION_AUTHORIZATION
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_ID
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_CLIENT_SECRET
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AUTH_EXTERNAL_BEARER_POLICY_FILE
+      - isNull:
+          path: spec.template.spec.volumes
+      - isNull:
+          path: spec.template.spec.containers[0].volumeMounts
+
+  - it: should not render external bearer policy configmap when auth mode is unsecure
+    template: external-bearer-policy-configmap.yaml
+    set:
+      controller:
+        auth:
+          mode: unsecure
+          externalBearer:
+            policy:
+              inline: |
+                {"serviceActors":{}}
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: should set PROXY_URL when set
     template: controller-configmap.yaml
