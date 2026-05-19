@@ -67,6 +67,7 @@ func TestExternalBearerAuthenticatorRFC7662RequestShapeAndClaimPreservation(t *t
 	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
 		URL:                     server.URL,
 		ValidationAuthorization: "Bearer validation-token",
+		UserIDClaim:             "username",
 	})
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer inbound-token")
@@ -459,13 +460,19 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 		wantUserID  string
 	}{
 		{
-			name:        "username wins before configured claim",
+			name:        "configured claim wins before username",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "username": "username-user", "email": "email-user", "sub": "sub-user"},
+			wantUserID:  "email-user",
+		},
+		{
+			name:        "username fallback after missing configured claim",
+			userIDClaim: "email",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user"},
 			wantUserID:  "username-user",
 		},
 		{
-			name:        "configured claim used after username",
+			name:        "configured claim used before sub fallback",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "email": "email-user", "sub": "sub-user"},
 			wantUserID:  "email-user",
@@ -480,6 +487,18 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 			name:        "subject fallback",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "subject": "subject-user"},
+			wantUserID:  "subject-user",
+		},
+		{
+			name:        "default sub claim wins before username fallback",
+			userIDClaim: "",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user"},
+			wantUserID:  "sub-user",
+		},
+		{
+			name:        "configured subject claim wins before username fallback",
+			userIDClaim: "subject",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user", "subject": "subject-user"},
 			wantUserID:  "subject-user",
 		},
 	}
@@ -949,7 +968,7 @@ func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *te
 		t.Fatal("expected token matching configured service-token indicator but not full service actor policy to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -986,7 +1005,7 @@ func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 		t.Fatal("expected unmatched client_credentials token with sub to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -1001,24 +1020,27 @@ func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 
 func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 	tests := []struct {
-		name        string
-		propagate   bool
-		wantAuthz   string
-		wantUserID  string
-		preexisting string
+		name              string
+		propagate         bool
+		wantAuthz         string
+		wantUserID        string
+		preexistingAuthz  string
+		preexistingUserID string
 	}{
 		{
-			name:        "user session with PropagateToken=false sets X-User-Id only",
-			propagate:   false,
-			wantUserID:  "user123",
-			preexisting: "Bearer stale-preexisting-token",
+			name:              "user session with PropagateToken=false sets X-User-Id only",
+			propagate:         false,
+			wantUserID:        "user123",
+			preexistingAuthz:  "Bearer stale-preexisting-token",
+			preexistingUserID: "stale-user",
 		},
 		{
-			name:        "user session with PropagateToken=true sets X-User-Id and forwards bearer",
-			propagate:   true,
-			wantAuthz:   "Bearer inbound-token",
-			wantUserID:  "user123",
-			preexisting: "Bearer stale-preexisting-token",
+			name:              "user session with PropagateToken=true sets X-User-Id and forwards bearer",
+			propagate:         true,
+			wantAuthz:         "Bearer inbound-token",
+			wantUserID:        "user123",
+			preexistingAuthz:  "Bearer stale-preexisting-token",
+			preexistingUserID: "stale-user",
 		},
 	}
 
@@ -1044,8 +1066,11 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRequest() error = %v", err)
 			}
-			if tt.preexisting != "" {
-				req.Header.Set("Authorization", tt.preexisting)
+			if tt.preexistingAuthz != "" {
+				req.Header.Set("Authorization", tt.preexistingAuthz)
+			}
+			if tt.preexistingUserID != "" {
+				req.Header.Set("X-User-Id", tt.preexistingUserID)
 			}
 			if err := authn.UpstreamAuth(req, session, session.Principal()); err != nil {
 				t.Fatalf("UpstreamAuth() error = %v", err)
@@ -1060,32 +1085,84 @@ func TestExternalBearerAuthenticatorUpstreamAuth(t *testing.T) {
 	}
 }
 
-func TestExternalBearerAuthenticatorUpstreamAuthNoopForNilAndEmptyPrincipal(t *testing.T) {
+func TestExternalBearerAuthenticatorUpstreamAuthClearsStaleXUserIDForServiceActor(t *testing.T) {
+	policy := `{
+		"serviceActors": {
+			"svc": {
+				"match": {"allOf": [
+					{"claim": "client_id", "value": "svc-client"},
+					{"claim": "grant_type", "value": "client_credentials"},
+					{"claim": "scope", "contains": "kagent:a2a"}
+				]},
+				"allowedA2A": [
+					{"namespace": "kagent", "name": "agent", "workloadType": "agent"}
+				]
+			}
+		}
+	}`
+	claims := map[string]any{
+		"active": true, "sub": "service-subject", "client_id": "svc-client",
+		"grant_type": "client_credentials", "scope": "read kagent:a2a",
+	}
+	authn, err := newExternalBearerForClaims(t, claims, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	if err != nil {
+		t.Fatalf("NewExternalBearerAuthenticator() error = %v", err)
+	}
+	session, err := authn.Authenticate(context.Background(), http.Header{"Authorization": []string{"Bearer service-token"}}, url.Values{})
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if got := session.Principal().User.ID; got != "" {
+		t.Fatalf("service actor User.ID = %q, want empty", got)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer stale-preexisting-token")
+	req.Header.Set("X-User-Id", "stale-user")
+	if err := authn.UpstreamAuth(req, session, session.Principal()); err != nil {
+		t.Fatalf("UpstreamAuth() error = %v", err)
+	}
+	if got := req.Header.Get("X-User-Id"); got != "" {
+		t.Fatalf("X-User-Id = %q, want empty", got)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization = %q, want empty", got)
+	}
+}
+
+func TestExternalBearerAuthenticatorUpstreamAuthPreservesNilAndNonExternalBehavior(t *testing.T) {
 	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
 		URL:                               "http://localhost:8080/introspect",
 		AllowUnauthenticatedIntrospection: true,
 	})
 
 	for _, tt := range []struct {
-		name    string
-		session auth.Session
+		name       string
+		session    auth.Session
+		wantUserID string
 	}{
-		{name: "nil session"},
-		{name: "empty principal", session: staticSession{principal: auth.Principal{}}},
+		{name: "nil session", wantUserID: "stale-user"},
+		{name: "empty principal", session: staticSession{principal: auth.Principal{}}, wantUserID: "stale-user"},
+		{name: "non-external user principal", session: staticSession{principal: auth.Principal{User: auth.User{ID: "foreign-user"}}}, wantUserID: "foreign-user"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			if err != nil {
 				t.Fatalf("NewRequest() error = %v", err)
 			}
+			req.Header.Set("Authorization", "Bearer stale-preexisting-token")
+			req.Header.Set("X-User-Id", "stale-user")
 			if err := authn.UpstreamAuth(req, tt.session, auth.Principal{}); err != nil {
 				t.Fatalf("UpstreamAuth() error = %v", err)
 			}
-			if got := req.Header.Get("X-User-Id"); got != "" {
-				t.Fatalf("X-User-Id = %q, want empty", got)
+			if got := req.Header.Get("X-User-Id"); got != tt.wantUserID {
+				t.Fatalf("X-User-Id = %q, want %q", got, tt.wantUserID)
 			}
-			if got := req.Header.Get("Authorization"); got != "" {
-				t.Fatalf("Authorization = %q, want empty", got)
+			if got := req.Header.Get("Authorization"); got != "Bearer stale-preexisting-token" {
+				t.Fatalf("Authorization = %q, want stale preexisting token", got)
 			}
 		})
 	}
