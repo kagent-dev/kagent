@@ -8,17 +8,17 @@ import (
 
 func TestMessagingProviderDefs(t *testing.T) {
 	resolved := &Resolved{
-		HasTelegram: true,
-		HasSlack:    true,
+		Telegram: []TelegramAccount{{Name: "tg"}},
+		Slack:    []SlackAccount{{Name: "sl"}},
 		Secrets: map[string]string{
-			EnvTelegramBotToken: "tg",
-			EnvSlackBotToken:    "xoxb",
-			EnvSlackAppToken:    "xapp",
+			TelegramBotTokenEnvKey("tg"): "tg-secret",
+			SlackBotTokenEnvKey("sl"):    "xoxb",
+			SlackAppTokenEnvKey("sl"):    "xapp",
 		},
 	}
 	defs := MessagingProviderDefs("ns-h", resolved.Secrets, resolved)
 	require.Len(t, defs, 3)
-	require.Equal(t, "ns-h-telegram-bridge", defs[0].Name)
-	require.Equal(t, "ns-h-slack-bridge", defs[1].Name)
-	require.Equal(t, "ns-h-slack-app", defs[2].Name)
+	require.Equal(t, "ns-h-telegram-TG", defs[0].Name)
+	require.Equal(t, "ns-h-slack-SL", defs[1].Name)
+	require.Equal(t, "ns-h-slack-app-SL", defs[2].Name)
 }

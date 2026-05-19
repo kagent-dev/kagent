@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/stretchr/testify/require"
@@ -44,6 +45,29 @@ func TestTCPForwardConnReadWrite(t *testing.T) {
 	}
 
 	require.NoError(t, conn.Close())
+}
+
+func TestTCPForwardConnCloseUnblocksRead(t *testing.T) {
+	stream := newMockForwardTcpStream()
+	conn := newTCPForwardConn(stream)
+
+	readDone := make(chan struct{})
+	var readErr error
+	go func() {
+		_, readErr = conn.Read(make([]byte, 1))
+		close(readDone)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	require.NoError(t, conn.Close())
+
+	select {
+	case <-readDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Read did not unblock after Close")
+	}
+	require.ErrorIs(t, readErr, io.EOF)
 }
 
 // mockForwardTcpStream is a minimal OpenShell_ForwardTcpClient for unit tests.

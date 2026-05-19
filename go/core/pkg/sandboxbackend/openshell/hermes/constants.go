@@ -2,7 +2,7 @@ package hermes
 
 const (
 	// HermesSandboxBaseImage is the default OpenShell VM image for Hermes harnesses.
-	HermesSandboxBaseImage = "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest"
+	HermesSandboxBaseImage = "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:3e56f808"
 
 	// HermesConfigDir is the in-sandbox Hermes config root (HERMES_HOME).
 	HermesConfigDir = "/sandbox/.hermes"

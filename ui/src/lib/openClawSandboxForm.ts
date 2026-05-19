@@ -4,6 +4,10 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 /** Default Sandbox CR backend when the harness form does not specify one. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
 
+function resolveSandboxBackend(backend?: AgentHarnessSandboxBackend): AgentHarnessSandboxBackend {
+  return backend ?? SANDBOX_BACKEND_OPENCLAW;
+}
+
 export type AgentHarnessSandboxBackend = "openclaw" | "nemoclaw" | "hermes";
 
 export type SandboxChannelFormType = "telegram" | "slack";
@@ -171,7 +175,7 @@ export function validateOpenClawSandboxForm(args: {
   modelRef: string | undefined;
   backend?: AgentHarnessSandboxBackend;
 }): OpenClawSandboxFormValidationError | undefined {
-  const clawBackend = isClawHarnessBackend(args.backend);
+  const clawBackend = isClawHarnessBackend(resolveSandboxBackend(args.backend));
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
@@ -186,6 +190,7 @@ export function validateOpenClawSandboxForm(args: {
     }
   }
 
+  const seenChannelNames = new Set<string>();
   for (const ch of args.openClaw.channels) {
     const cn = ch.name.trim();
     if (!cn) {
@@ -199,6 +204,13 @@ export function validateOpenClawSandboxForm(args: {
       }
       continue;
     }
+    if (seenChannelNames.has(cn)) {
+      return openClawValidationFail(
+        "channels",
+        `Duplicate channel binding name "${cn}". Each channel needs a unique name.`,
+      );
+    }
+    seenChannelNames.add(cn);
 
     const bot = credentialFromRow(
       ch.botTokenSource,
@@ -317,8 +329,7 @@ export function buildSandboxCRDraft(args: {
         botToken: bot,
         appToken: app,
       };
-      const backend = args.backend ?? SANDBOX_BACKEND_OPENCLAW;
-      if (isClawHarnessBackend(backend)) {
+      if (isClawHarnessBackend(resolveSandboxBackend(args.backend))) {
         slack.channelAccess = ch.channelAccess;
         if (ch.channelAccess === "allowlist") {
           slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
@@ -346,7 +357,7 @@ export function buildSandboxCRDraft(args: {
     channels.push(base);
   }
 
-  const backend = args.backend ?? SANDBOX_BACKEND_OPENCLAW;
+  const backend = resolveSandboxBackend(args.backend);
   const spec: Record<string, unknown> = {
     backend,
     modelConfigRef,

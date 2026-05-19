@@ -20,6 +20,9 @@ type SlackAccount struct {
 	Name               string
 	ChannelAccess      v1alpha2.AgentHarnessChannelAccess
 	AllowlistChannels  []string
+	AllowedUserIDs     []string
+	HomeChannel        string
+	HomeChannelName    string
 	InteractiveReplies bool
 }
 
@@ -44,11 +47,20 @@ type Resolved struct {
 	slackSeen       bool
 }
 
-// Resolve reads AgentHarness channels, populates standard credential env keys in Secrets,
+// Resolve reads AgentHarness channels, populates per-channel credential env keys in Secrets,
 // and returns structured account metadata for Hermes/OpenClaw bootstrap.
 func Resolve(ctx context.Context, kube client.Client, namespace string, channels []v1alpha2.AgentHarnessChannel) (*Resolved, error) {
 	r := &Resolved{Secrets: map[string]string{}}
+	seenNames := make(map[string]struct{}, len(channels))
 	for _, ch := range channels {
+		name := strings.TrimSpace(ch.Name)
+		if name == "" {
+			continue
+		}
+		if _, dup := seenNames[name]; dup {
+			return nil, fmt.Errorf("channel %q: duplicate binding name", name)
+		}
+		seenNames[name] = struct{}{}
 		switch ch.Type {
 		case v1alpha2.AgentHarnessChannelTypeTelegram:
 			if err := r.addTelegram(ctx, kube, namespace, ch); err != nil {
@@ -70,7 +82,7 @@ func (r *Resolved) addTelegram(ctx context.Context, kube client.Client, namespac
 	if spec == nil {
 		return fmt.Errorf("channel %q: telegram spec is required", ch.Name)
 	}
-	if err := PutChannelCredential(ctx, kube, namespace, spec.BotToken, EnvTelegramBotToken, r.Secrets); err != nil {
+	if err := PutChannelCredential(ctx, kube, namespace, spec.BotToken, TelegramBotTokenEnvKey(ch.Name), r.Secrets); err != nil {
 		return fmt.Errorf("channel %q telegram bot token: %w", ch.Name, err)
 	}
 	allow, err := TelegramAllowFrom(ctx, kube, namespace, spec)
@@ -90,10 +102,10 @@ func (r *Resolved) addSlack(ctx context.Context, kube client.Client, namespace s
 	if spec == nil {
 		return fmt.Errorf("channel %q: slack spec is required", ch.Name)
 	}
-	if err := PutChannelCredential(ctx, kube, namespace, spec.BotToken, EnvSlackBotToken, r.Secrets); err != nil {
+	if err := PutChannelCredential(ctx, kube, namespace, spec.BotToken, SlackBotTokenEnvKey(ch.Name), r.Secrets); err != nil {
 		return fmt.Errorf("channel %q slack bot token: %w", ch.Name, err)
 	}
-	if err := PutChannelCredential(ctx, kube, namespace, spec.AppToken, EnvSlackAppToken, r.Secrets); err != nil {
+	if err := PutChannelCredential(ctx, kube, namespace, spec.AppToken, SlackAppTokenEnvKey(ch.Name), r.Secrets); err != nil {
 		return fmt.Errorf("channel %q slack app token: %w", ch.Name, err)
 	}
 	allow, err := SlackAllowedUsers(ctx, kube, namespace, spec)
@@ -112,21 +124,24 @@ func (r *Resolved) addSlack(ctx context.Context, kube client.Client, namespace s
 	if len(allow) > 0 {
 		r.SlackAllow = append(r.SlackAllow, allow...)
 	}
+	homeChannel := strings.TrimSpace(spec.HomeChannel)
+	homeChannelName := strings.TrimSpace(spec.HomeChannelName)
 	r.Slack = append(r.Slack, SlackAccount{
 		Name:               ch.Name,
 		ChannelAccess:      access,
 		AllowlistChannels:  TrimNonEmptyStrings(spec.AllowlistChannels),
+		AllowedUserIDs:     allow,
+		HomeChannel:        homeChannel,
+		HomeChannelName:    homeChannelName,
 		InteractiveReplies: interactive,
 	})
 	if !r.slackSeen {
 		r.slackRootPolicy = access
 		r.slackSeen = true
 	}
-	if r.SlackHomeChannel == "" {
-		if home := strings.TrimSpace(spec.HomeChannel); home != "" {
-			r.SlackHomeChannel = home
-			r.SlackHomeChannelName = strings.TrimSpace(spec.HomeChannelName)
-		}
+	if r.SlackHomeChannel == "" && homeChannel != "" {
+		r.SlackHomeChannel = homeChannel
+		r.SlackHomeChannelName = homeChannelName
 	}
 	return nil
 }

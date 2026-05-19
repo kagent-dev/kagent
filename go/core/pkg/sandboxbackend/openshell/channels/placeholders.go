@@ -6,11 +6,11 @@ func ResolveEnvPlaceholder(envKey string) string {
 }
 
 // SlackBotTokenPlaceholder matches NemoClaw Hermes/OpenClaw Slack bot token shape validation.
-func SlackBotTokenPlaceholder() string {
-	return "xoxb-OPENSHELL-RESOLVE-ENV-SLACK_BOT_TOKEN"
+func SlackBotTokenPlaceholder(envKey string) string {
+	return "xoxb-OPENSHELL-RESOLVE-ENV-" + envKey
 }
 
 // SlackAppTokenPlaceholder matches NemoClaw Hermes/OpenClaw Slack app token shape validation.
-func SlackAppTokenPlaceholder() string {
-	return "xapp-OPENSHELL-RESOLVE-ENV-SLACK_APP_TOKEN"
+func SlackAppTokenPlaceholder(envKey string) string {
+	return "xapp-OPENSHELL-RESOLVE-ENV-" + envKey
 }

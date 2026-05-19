@@ -485,13 +485,13 @@ func TestUpsertMessagingProviders(t *testing.T) {
 
 	names, err := UpsertMessagingProviders(context.Background(), clients, kube, ah)
 	require.NoError(t, err)
-	require.Equal(t, []string{"default-hermes1-telegram-bridge"}, names)
+	require.Equal(t, []string{"default-hermes1-telegram-TG"}, names)
 
 	fg.mu.Lock()
 	defer fg.mu.Unlock()
-	p := fg.providers["default-hermes1-telegram-bridge"]
+	p := fg.providers["default-hermes1-telegram-TG"]
 	require.NotNil(t, p)
-	require.Equal(t, "tg-secret", p.GetCredentials()["TELEGRAM_BOT_TOKEN"])
+	require.Equal(t, "tg-secret", p.GetCredentials()["TELEGRAM_BOT_TOKEN_TG"])
 	require.Equal(t, "generic", p.GetType())
 }
 

@@ -119,31 +119,35 @@ func BuildHermesConfigYAML(mc *v1alpha2.ModelConfig, msg *messagingState) ([]byt
 	return raw, nil
 }
 
-// BuildHermesEnvFile returns .env file bytes and populates execEnv with resolved channel secrets.
-func BuildHermesEnvFile(msg *messagingState, execEnv map[string]string) []byte {
+// BuildHermesEnvFile returns .env file bytes for Hermes bootstrap (gateway port, channel placeholders, allowlists).
+// Resolved channel secrets belong in execEnv; callers populate that separately (see BuildBootstrapArtifacts).
+func BuildHermesEnvFile(msg *messagingState) []byte {
 	lines := []string{
 		fmt.Sprintf("API_SERVER_PORT=%d", HermesInternalGatewayPort),
 		"API_SERVER_HOST=127.0.0.1",
 	}
-	if msg != nil {
-		if msg.hasTelegram() {
-			lines = append(lines, "TELEGRAM_BOT_TOKEN="+channels.ResolveEnvPlaceholder(channels.EnvTelegramBotToken))
-			if allow := msg.telegramAllow(); len(allow) > 0 {
-				lines = append(lines, "TELEGRAM_ALLOWED_USERS="+strings.Join(allow, ","))
+	if msg != nil && msg.resolved != nil {
+		for _, tg := range msg.resolved.Telegram {
+			botKey := channels.TelegramBotTokenEnvKey(tg.Name)
+			lines = append(lines, botKey+"="+channels.ResolveEnvPlaceholder(botKey))
+			if len(tg.AllowFrom) > 0 {
+				lines = append(lines, channels.TelegramAllowedUsersEnvKey(tg.Name)+"="+strings.Join(tg.AllowFrom, ","))
 			}
 		}
-		if msg.hasSlack() {
+		for _, sl := range msg.resolved.Slack {
+			botKey := channels.SlackBotTokenEnvKey(sl.Name)
+			appKey := channels.SlackAppTokenEnvKey(sl.Name)
 			lines = append(lines,
-				"SLACK_BOT_TOKEN="+channels.SlackBotTokenPlaceholder(),
-				"SLACK_APP_TOKEN="+channels.SlackAppTokenPlaceholder(),
+				botKey+"="+channels.SlackBotTokenPlaceholder(botKey),
+				appKey+"="+channels.SlackAppTokenPlaceholder(appKey),
 			)
-			if allow := msg.slackAllow(); len(allow) > 0 {
-				lines = append(lines, channels.EnvSlackAllowedUsers+"="+strings.Join(allow, ","))
+			if len(sl.AllowedUserIDs) > 0 {
+				lines = append(lines, channels.SlackAllowedUsersEnvKey(sl.Name)+"="+strings.Join(sl.AllowedUserIDs, ","))
 			}
-			if home := msg.slackHomeChannel(); home != "" {
-				lines = append(lines, channels.EnvSlackHomeChannel+"="+home)
-				if name := msg.slackHomeChannelName(); name != "" {
-					lines = append(lines, channels.EnvSlackHomeChannelName+"="+name)
+			if home := strings.TrimSpace(sl.HomeChannel); home != "" {
+				lines = append(lines, channels.SlackHomeChannelEnvKey(sl.Name)+"="+home)
+				if name := strings.TrimSpace(sl.HomeChannelName); name != "" {
+					lines = append(lines, channels.SlackHomeChannelNameEnvKey(sl.Name)+"="+name)
 				}
 			}
 		}
@@ -169,6 +173,6 @@ func BuildBootstrapArtifacts(ctx context.Context, kube client.Client, namespace 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	envFile = BuildHermesEnvFile(msg, execEnv)
+	envFile = BuildHermesEnvFile(msg)
 	return configYAML, envFile, execEnv, nil
 }

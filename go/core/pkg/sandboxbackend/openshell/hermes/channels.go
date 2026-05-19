@@ -25,38 +25,6 @@ func (st *messagingState) hasTelegram() bool {
 	return st != nil && st.resolved != nil && st.resolved.HasTelegram
 }
 
-func (st *messagingState) hasSlack() bool {
-	return st != nil && st.resolved != nil && st.resolved.HasSlack
-}
-
-func (st *messagingState) telegramAllow() []string {
-	if st == nil || st.resolved == nil {
-		return nil
-	}
-	return st.resolved.TelegramAllow
-}
-
-func (st *messagingState) slackAllow() []string {
-	if st == nil || st.resolved == nil {
-		return nil
-	}
-	return st.resolved.SlackAllow
-}
-
-func (st *messagingState) slackHomeChannel() string {
-	if st == nil || st.resolved == nil {
-		return ""
-	}
-	return st.resolved.SlackHomeChannel
-}
-
-func (st *messagingState) slackHomeChannelName() string {
-	if st == nil || st.resolved == nil {
-		return ""
-	}
-	return st.resolved.SlackHomeChannelName
-}
-
 func (st *messagingState) secrets() map[string]string {
 	if st == nil || st.resolved == nil {
 		return nil

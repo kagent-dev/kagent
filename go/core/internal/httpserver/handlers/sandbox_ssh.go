@@ -465,7 +465,12 @@ func (c *tcpForwardConn) Close() error {
 		return nil
 	}
 	c.closed = true
+	if c.recvErr == nil {
+		c.recvErr = io.EOF
+	}
+	c.readCond.Broadcast()
 	c.readMu.Unlock()
+
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 	return c.stream.CloseSend()

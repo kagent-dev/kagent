@@ -144,10 +144,7 @@ func (b *HermesBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Ag
 		return fmt.Errorf("start hermes gateway: exit %d: %s", code, strings.TrimSpace(stderr))
 	}
 
-	waitGateway := fmt.Sprintf(
-		`for i in $(seq 1 30); do ss -tln 2>/dev/null | grep -q "127.0.0.1:%d" && exit 0; sleep 1; done; exit 0`,
-		hermes.HermesInternalGatewayPort,
-	)
+	waitGateway := hermes.GatewayListenWaitScript(hermes.HermesInternalGatewayPort)
 	code, stderr, err = b.ExecSandbox(withAuth(gwCtx, token), execID, []string{"sh", "-c", waitGateway}, nil, execEnv, 45)
 	if err != nil {
 		return fmt.Errorf("wait for hermes gateway listen: %w", err)

@@ -44,6 +44,6 @@ func TestMessagingProviderDefsFromChannels(t *testing.T) {
 	require.NoError(t, err)
 	defs := channels.MessagingProviderDefs("default-mybot", resolved.Secrets, resolved)
 	require.Len(t, defs, 1)
-	require.Equal(t, "default-mybot-telegram-bridge", defs[0].Name)
-	require.Equal(t, "123:ABC", defs[0].Credentials[channels.EnvTelegramBotToken])
+	require.Equal(t, "default-mybot-telegram-TG", defs[0].Name)
+	require.Equal(t, "123:ABC", defs[0].Credentials[channels.TelegramBotTokenEnvKey("tg")])
 }

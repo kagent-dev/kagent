@@ -38,7 +38,7 @@ func (a *harnessChannels) channelsJSON() *channelsConfig {
 			acc := telegramAccount{
 				Name:     tg.Name,
 				Enabled:  true,
-				BotToken: openshellResolveEnv(channels.EnvTelegramBotToken),
+				BotToken: openshellResolveEnv(channels.TelegramBotTokenEnvKey(tg.Name)),
 			}
 			if len(tg.AllowFrom) > 0 {
 				acc.DMPolicy = "allowlist"
@@ -61,12 +61,14 @@ func (a *harnessChannels) channelsJSON() *channelsConfig {
 		accounts := make(map[string]slackAccount, len(r.Slack))
 		var def string
 		for _, sl := range r.Slack {
+			botKey := channels.SlackBotTokenEnvKey(sl.Name)
+			appKey := channels.SlackAppTokenEnvKey(sl.Name)
 			acc := slackAccount{
 				Name:              sl.Name,
 				Enabled:           true,
 				Mode:              "socket",
-				BotToken:          channels.SlackBotTokenPlaceholder(),
-				AppToken:          channels.SlackAppTokenPlaceholder(),
+				BotToken:          channels.SlackBotTokenPlaceholder(botKey),
+				AppToken:          channels.SlackAppTokenPlaceholder(appKey),
 				UserTokenReadOnly: true,
 				GroupPolicy:       string(sl.ChannelAccess),
 				Capabilities: slackCaps{

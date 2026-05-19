@@ -1,55 +1,52 @@
 package channels
 
-// MessagingBridgeNames are OpenShell provider names for a sandbox (NemoClaw onboard).
-func TelegramBridgeName(sandboxName string) string {
-	return sandboxName + "-telegram-bridge"
-}
-
-func SlackBridgeName(sandboxName string) string {
-	return sandboxName + "-slack-bridge"
-}
-
-func SlackAppBridgeName(sandboxName string) string {
-	return sandboxName + "-slack-app"
-}
-
 // MessagingProviderDef is an OpenShell gateway provider for one messaging credential.
 type MessagingProviderDef struct {
 	Name        string
 	Credentials map[string]string
 }
 
-// MessagingProviderDefs builds provider upsert records from resolved channel secrets.
+// TelegramBridgeName is the OpenShell provider name for a Telegram channel binding.
+func TelegramBridgeName(sandboxName, channelName string) string {
+	return sandboxName + "-telegram-" + EnvKeySuffix(channelName)
+}
+
+// SlackBridgeName is the OpenShell provider name for a Slack bot token binding.
+func SlackBridgeName(sandboxName, channelName string) string {
+	return sandboxName + "-slack-" + EnvKeySuffix(channelName)
+}
+
+// SlackAppBridgeName is the OpenShell provider name for a Slack app token binding.
+func SlackAppBridgeName(sandboxName, channelName string) string {
+	return sandboxName + "-slack-app-" + EnvKeySuffix(channelName)
+}
+
+// MessagingProviderDefs builds per-channel provider upsert records from resolved secrets.
 func MessagingProviderDefs(sandboxName string, secrets map[string]string, resolved *Resolved) []MessagingProviderDef {
 	if sandboxName == "" || resolved == nil {
 		return nil
 	}
 	var defs []MessagingProviderDef
-	if resolved.HasTelegram {
-		if tok := secrets[EnvTelegramBotToken]; tok != "" {
+	for _, tg := range resolved.Telegram {
+		envKey := TelegramBotTokenEnvKey(tg.Name)
+		if tok := secrets[envKey]; tok != "" {
 			defs = append(defs, MessagingProviderDef{
-				Name: TelegramBridgeName(sandboxName),
-				Credentials: map[string]string{
-					EnvTelegramBotToken: tok,
-				},
+				Name:        TelegramBridgeName(sandboxName, tg.Name),
+				Credentials: map[string]string{envKey: tok},
 			})
 		}
 	}
-	if resolved.HasSlack {
-		if tok := secrets[EnvSlackBotToken]; tok != "" {
+	for _, sl := range resolved.Slack {
+		if tok := secrets[SlackBotTokenEnvKey(sl.Name)]; tok != "" {
 			defs = append(defs, MessagingProviderDef{
-				Name: SlackBridgeName(sandboxName),
-				Credentials: map[string]string{
-					EnvSlackBotToken: tok,
-				},
+				Name:        SlackBridgeName(sandboxName, sl.Name),
+				Credentials: map[string]string{SlackBotTokenEnvKey(sl.Name): tok},
 			})
 		}
-		if tok := secrets[EnvSlackAppToken]; tok != "" {
+		if tok := secrets[SlackAppTokenEnvKey(sl.Name)]; tok != "" {
 			defs = append(defs, MessagingProviderDef{
-				Name: SlackAppBridgeName(sandboxName),
-				Credentials: map[string]string{
-					EnvSlackAppToken: tok,
-				},
+				Name:        SlackAppBridgeName(sandboxName, sl.Name),
+				Credentials: map[string]string{SlackAppTokenEnvKey(sl.Name): tok},
 			})
 		}
 	}

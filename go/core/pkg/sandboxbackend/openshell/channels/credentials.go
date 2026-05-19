@@ -11,16 +11,20 @@ import (
 
 // PutChannelCredential resolves a channel credential into env[envKey].
 func PutChannelCredential(ctx context.Context, kube client.Client, namespace string, cred v1alpha2.AgentHarnessChannelCredential, envKey string, env map[string]string) error {
+	var v string
 	if strings.TrimSpace(cred.Value) != "" {
-		env[envKey] = strings.TrimSpace(cred.Value)
-		return nil
-	}
-	if cred.ValueFrom == nil {
+		v = strings.TrimSpace(cred.Value)
+	} else if cred.ValueFrom == nil {
 		return fmt.Errorf("channel credential requires value or valueFrom")
+	} else {
+		var err error
+		v, err = cred.ValueFrom.Resolve(ctx, kube, namespace)
+		if err != nil {
+			return fmt.Errorf("resolve credential %s: %w", envKey, err)
+		}
 	}
-	v, err := cred.ValueFrom.Resolve(ctx, kube, namespace)
-	if err != nil {
-		return fmt.Errorf("resolve credential %s: %w", envKey, err)
+	if prev, ok := env[envKey]; ok && prev != v {
+		return fmt.Errorf("env %s already set to a different value (duplicate channel binding?)", envKey)
 	}
 	env[envKey] = v
 	return nil
