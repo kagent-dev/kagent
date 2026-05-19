@@ -51,6 +51,23 @@ type AuthProvider interface {
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
+type A2AWorkloadType string
+
+const (
+	A2AWorkloadAgent   A2AWorkloadType = "agent"
+	A2AWorkloadSandbox A2AWorkloadType = "sandbox"
+)
+
+type A2ATarget struct {
+	Namespace    string
+	Name         string
+	WorkloadType A2AWorkloadType
+}
+
+type A2AAccessProvider interface {
+	CheckA2AAccess(ctx context.Context, session Session, target A2ATarget) error
+}
+
 // Authz
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error

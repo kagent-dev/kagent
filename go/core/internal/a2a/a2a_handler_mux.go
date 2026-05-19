@@ -99,7 +99,8 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handlerName := routeKey(a.isSandboxRoute(r), agentNamespace, agentName)
+	isSandbox := a.isSandboxRoute(r)
+	handlerName := routeKey(isSandbox, agentNamespace, agentName)
 
 	// get the underlying handler
 	handlerHandler, ok := a.getHandler(handlerName)
@@ -110,6 +111,22 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.StatusNotFound,
 		)
 		return
+	}
+
+	if accessProvider, ok := a.authenticator.(auth.A2AAccessProvider); ok {
+		workloadType := auth.A2AWorkloadAgent
+		if isSandbox {
+			workloadType = auth.A2AWorkloadSandbox
+		}
+		session, _ := auth.AuthSessionFrom(r.Context())
+		if err := accessProvider.CheckA2AAccess(r.Context(), session, auth.A2ATarget{
+			Namespace:    agentNamespace,
+			Name:         agentName,
+			WorkloadType: workloadType,
+		}); err != nil {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	handlerHandler.ServeHTTP(w, r)
