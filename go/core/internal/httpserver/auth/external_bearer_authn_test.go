@@ -67,6 +67,7 @@ func TestExternalBearerAuthenticatorRFC7662RequestShapeAndClaimPreservation(t *t
 	authn := newExternalBearerForTest(t, authimpl.ExternalBearerAuthenticatorConfig{
 		URL:                     server.URL,
 		ValidationAuthorization: "Bearer validation-token",
+		UserIDClaim:             "username",
 	})
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer inbound-token")
@@ -459,13 +460,19 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 		wantUserID  string
 	}{
 		{
-			name:        "username wins before configured claim",
+			name:        "configured claim wins before username",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "username": "username-user", "email": "email-user", "sub": "sub-user"},
+			wantUserID:  "email-user",
+		},
+		{
+			name:        "username fallback after missing configured claim",
+			userIDClaim: "email",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user"},
 			wantUserID:  "username-user",
 		},
 		{
-			name:        "configured claim used after username",
+			name:        "configured claim used before sub fallback",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "email": "email-user", "sub": "sub-user"},
 			wantUserID:  "email-user",
@@ -480,6 +487,18 @@ func TestExternalBearerAuthenticatorIdentityFallback(t *testing.T) {
 			name:        "subject fallback",
 			userIDClaim: "email",
 			claims:      map[string]any{"active": true, "subject": "subject-user"},
+			wantUserID:  "subject-user",
+		},
+		{
+			name:        "default sub claim wins before username fallback",
+			userIDClaim: "",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user"},
+			wantUserID:  "sub-user",
+		},
+		{
+			name:        "configured subject claim wins before username fallback",
+			userIDClaim: "subject",
+			claims:      map[string]any{"active": true, "username": "username-user", "sub": "sub-user", "subject": "subject-user"},
 			wantUserID:  "subject-user",
 		},
 	}
@@ -949,7 +968,7 @@ func TestExternalBearerAuthenticatorCustomServiceTokenIndicatorFallthrough(t *te
 		t.Fatal("expected token matching configured service-token indicator but not full service actor policy to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "sub": "alice-sub", "client_id": "web-client", "scope": "kagent:a2a"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}
@@ -986,7 +1005,7 @@ func TestExternalBearerAuthenticatorServiceActorFallthrough(t *testing.T) {
 		t.Fatal("expected unmatched client_credentials token with sub to be rejected")
 	}
 
-	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy)})
+	userAuthn, err := newExternalBearerForClaims(t, map[string]any{"active": true, "username": "alice@example.com", "client_id": "web-client", "grant_type": "authorization_code"}, authimpl.ExternalBearerAuthenticatorConfig{PolicyFile: writePolicyFile(t, policy), UserIDClaim: "username"})
 	if err != nil {
 		t.Fatalf("NewExternalBearerAuthenticator() for user error = %v", err)
 	}

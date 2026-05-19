@@ -771,10 +771,15 @@ func sanitizeClaimValue(value any, token string) (any, bool) {
 }
 
 func identityFromClaims(claims map[string]any, userIDClaim string) string {
-	for _, claim := range []string{"username", userIDClaim, "sub", "subject"} {
+	seen := map[string]struct{}{}
+	for _, claim := range []string{userIDClaim, "username", "sub", "subject"} {
 		if claim == "" {
 			continue
 		}
+		if _, ok := seen[claim]; ok {
+			continue
+		}
+		seen[claim] = struct{}{}
 		if value, ok := claims[claim].(string); ok && value != "" {
 			return value
 		}
