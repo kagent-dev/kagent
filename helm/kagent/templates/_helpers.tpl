@@ -191,3 +191,36 @@ imagePullSecrets:
 {{- end -}}
 {{- end -}}
 
+{{/*
+Validate external-bearer auth configuration.
+*/}}
+{{- define "kagent.externalBearer.validate" -}}
+{{- $auth := .Values.controller.auth -}}
+{{- if eq ($auth.mode | default "unsecure") "external-bearer" -}}
+{{- $externalBearer := $auth.externalBearer -}}
+{{- $url := $externalBearer.url | default "" | toString | trim -}}
+{{- if not $url -}}
+{{- fail "controller.auth.externalBearer.url is required when controller.auth.mode is \"external-bearer\"." -}}
+{{- end -}}
+{{- $validationSecretRef := $externalBearer.validationAuthorization.secretRef -}}
+{{- $validationSecretName := $validationSecretRef.name | default "" | toString | trim -}}
+{{- $validationSecretKey := $validationSecretRef.key | default "" | toString | trim -}}
+{{- $validationAuthConfigured := and $validationSecretName $validationSecretKey -}}
+{{- $clientId := $externalBearer.clientId | default "" | toString | trim -}}
+{{- $clientSecretRef := $externalBearer.clientSecret.secretRef -}}
+{{- $clientSecretName := $clientSecretRef.name | default "" | toString | trim -}}
+{{- $clientSecretKey := $clientSecretRef.key | default "" | toString | trim -}}
+{{- $clientSecretConfigured := and $clientSecretName $clientSecretKey -}}
+{{- $clientSecretPartiallyConfigured := or $clientSecretName $clientSecretKey -}}
+{{- if and $validationAuthConfigured $clientId $clientSecretConfigured -}}
+{{- fail "controller.auth.externalBearer.validationAuthorization.secretRef cannot be configured together with controller.auth.externalBearer.clientId/clientSecret." -}}
+{{- end -}}
+{{- if and $clientId (not $clientSecretConfigured) -}}
+{{- fail "controller.auth.externalBearer.clientSecret.secretRef.name and .key are required when controller.auth.externalBearer.clientId is set." -}}
+{{- end -}}
+{{- if and (not $clientId) $clientSecretPartiallyConfigured -}}
+{{- fail "controller.auth.externalBearer.clientId is required when controller.auth.externalBearer.clientSecret.secretRef.name or .key is set." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+

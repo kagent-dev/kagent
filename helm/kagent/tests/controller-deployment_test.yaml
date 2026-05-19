@@ -224,6 +224,69 @@ tests:
           content:
             name: AUTH_EXTERNAL_BEARER_ALLOW_UNAUTHENTICATED_INTROSPECTION
 
+  - it: should fail external bearer rendering when url is empty
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.url is required when controller.auth.mode is \"external-bearer\"."
+
+  - it: should fail external bearer rendering when validation authorization and client credentials are both configured
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            validationAuthorization:
+              secretRef:
+                name: "validation-auth"
+                key: "authorization"
+            clientId: "kagent-client"
+            clientSecret:
+              secretRef:
+                name: "introspection-client"
+                key: "client-secret"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.validationAuthorization.secretRef cannot be configured together with controller.auth.externalBearer.clientId/clientSecret."
+
+  - it: should fail external bearer rendering when client id is set without client secret secretRef name and key
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            clientId: "kagent-client"
+            clientSecret:
+              secretRef:
+                name: "introspection-client"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.clientSecret.secretRef.name and .key are required when controller.auth.externalBearer.clientId is set."
+
+  - it: should fail external bearer rendering when client secret is set without client id
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            clientSecret:
+              secretRef:
+                name: "introspection-client"
+                key: "client-secret"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.clientId is required when controller.auth.externalBearer.clientSecret.secretRef.name or .key is set."
+
   - it: should render external bearer inline policy configmap and mount
     template: controller-deployment.yaml
     set:
@@ -231,6 +294,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
+            url: "https://auth.example.com/introspect"
             policy:
               inline: |
                 {"serviceActors":{}}
@@ -263,6 +327,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
+            url: "https://auth.example.com/introspect"
             policy:
               existingConfigMap:
                 name: "existing-policy"
@@ -296,6 +361,7 @@ tests:
         auth:
           mode: external-bearer
           externalBearer:
+            url: "https://auth.example.com/introspect"
             policy:
               inline: |
                 {"serviceActors":{}}
