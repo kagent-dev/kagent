@@ -203,6 +203,12 @@ func (a *ExternalBearerAuthenticator) UpstreamAuth(r *http.Request, session auth
 		if a.propagateToken && externalSession.bearerToken != "" {
 			r.Header.Set("Authorization", "Bearer "+externalSession.bearerToken)
 		}
+		r.Header.Del("X-User-Id")
+		principal := session.Principal()
+		if principal.User.ID != "" {
+			r.Header.Set("X-User-Id", principal.User.ID)
+		}
+		return nil
 	}
 	principal := session.Principal()
 	if principal.User.ID != "" {
