@@ -206,12 +206,17 @@ Validate external-bearer auth configuration.
 {{- $validationSecretName := $validationSecretRef.name | default "" | toString | trim -}}
 {{- $validationSecretKey := $validationSecretRef.key | default "" | toString | trim -}}
 {{- $validationAuthConfigured := and $validationSecretName $validationSecretKey -}}
+{{- $validationAuthPartiallyConfigured := and (or $validationSecretName $validationSecretKey) (not $validationAuthConfigured) -}}
 {{- $clientId := $externalBearer.clientId | default "" | toString | trim -}}
 {{- $clientSecretRef := $externalBearer.clientSecret.secretRef -}}
 {{- $clientSecretName := $clientSecretRef.name | default "" | toString | trim -}}
 {{- $clientSecretKey := $clientSecretRef.key | default "" | toString | trim -}}
 {{- $clientSecretConfigured := and $clientSecretName $clientSecretKey -}}
 {{- $clientSecretPartiallyConfigured := or $clientSecretName $clientSecretKey -}}
+{{- $allowUnauthenticatedIntrospection := eq (lower (toString ($externalBearer.allowUnauthenticatedIntrospection | default false))) "true" -}}
+{{- if $validationAuthPartiallyConfigured -}}
+{{- fail "controller.auth.externalBearer.validationAuthorization.secretRef.name and .key must both be set when configuring validation authorization." -}}
+{{- end -}}
 {{- if and $validationAuthConfigured $clientId $clientSecretConfigured -}}
 {{- fail "controller.auth.externalBearer.validationAuthorization.secretRef cannot be configured together with controller.auth.externalBearer.clientId/clientSecret." -}}
 {{- end -}}
@@ -220,6 +225,9 @@ Validate external-bearer auth configuration.
 {{- end -}}
 {{- if and (not $clientId) $clientSecretPartiallyConfigured -}}
 {{- fail "controller.auth.externalBearer.clientId is required when controller.auth.externalBearer.clientSecret.secretRef.name or .key is set." -}}
+{{- end -}}
+{{- if not (or $validationAuthConfigured (and $clientId $clientSecretConfigured) $allowUnauthenticatedIntrospection) -}}
+{{- fail "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

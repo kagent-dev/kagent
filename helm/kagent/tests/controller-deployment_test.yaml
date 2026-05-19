@@ -234,6 +234,61 @@ tests:
       - failedTemplate:
           errorMessage: "controller.auth.externalBearer.url is required when controller.auth.mode is \"external-bearer\"."
 
+  - it: should fail external bearer rendering when no introspection authentication is configured
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true."
+
+  - it: should fail external bearer rendering when allow unauthenticated introspection is quoted false without authentication
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            allowUnauthenticatedIntrospection: "false"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer requires introspection authentication: set validationAuthorization.secretRef.name and .key, set clientId with clientSecret.secretRef.name and .key, or set allowUnauthenticatedIntrospection=true."
+
+  - it: should fail external bearer rendering when validation authorization secretRef name is set without key
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            validationAuthorization:
+              secretRef:
+                name: "validation-auth"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.validationAuthorization.secretRef.name and .key must both be set when configuring validation authorization."
+
+  - it: should fail external bearer rendering when validation authorization secretRef key is set without name
+    template: controller-deployment.yaml
+    set:
+      controller:
+        auth:
+          mode: external-bearer
+          externalBearer:
+            url: "https://auth.example.com/introspect"
+            validationAuthorization:
+              secretRef:
+                key: "authorization"
+    asserts:
+      - failedTemplate:
+          errorMessage: "controller.auth.externalBearer.validationAuthorization.secretRef.name and .key must both be set when configuring validation authorization."
+
   - it: should fail external bearer rendering when validation authorization and client credentials are both configured
     template: controller-deployment.yaml
     set:
@@ -295,6 +350,7 @@ tests:
           mode: external-bearer
           externalBearer:
             url: "https://auth.example.com/introspect"
+            allowUnauthenticatedIntrospection: true
             policy:
               inline: |
                 {"serviceActors":{}}
@@ -328,6 +384,7 @@ tests:
           mode: external-bearer
           externalBearer:
             url: "https://auth.example.com/introspect"
+            allowUnauthenticatedIntrospection: true
             policy:
               existingConfigMap:
                 name: "existing-policy"
@@ -362,6 +419,7 @@ tests:
           mode: external-bearer
           externalBearer:
             url: "https://auth.example.com/introspect"
+            allowUnauthenticatedIntrospection: true
             policy:
               inline: |
                 {"serviceActors":{}}
