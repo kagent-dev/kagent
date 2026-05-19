@@ -393,6 +393,15 @@ func loadExternalBearerPolicyFile(path string) (*externalBearerPolicy, error) {
 }
 
 func (p *externalBearerPolicy) validate() error {
+	if err := validatePolicyStringList("requiredScopes", p.RequiredScopes); err != nil {
+		return err
+	}
+	if err := validatePolicyStringList("allowedAudiences", p.AllowedAudiences); err != nil {
+		return err
+	}
+	if err := validatePolicyStringList("allowedIssuers", p.AllowedIssuers); err != nil {
+		return err
+	}
 	for actorID, serviceActor := range p.ServiceActors {
 		if strings.TrimSpace(actorID) == "" {
 			return errors.New("serviceActors contains empty actor id")
@@ -422,6 +431,15 @@ func (p *externalBearerPolicy) validate() error {
 			if err := target.validate(); err != nil {
 				return fmt.Errorf("service actor %q allowedA2A[%d]: %w", actorID, i, err)
 			}
+		}
+	}
+	return nil
+}
+
+func validatePolicyStringList(field string, values []string) error {
+	for i, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s[%d] must not be empty", field, i)
 		}
 	}
 	return nil
