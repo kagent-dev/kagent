@@ -42,7 +42,51 @@ On success, `run_async` returns:
 
 On the subagent side, `KAgentRequestContextBuilder` reads these headers and passes them through to `_prepare_session`, which calls `KAgentSessionService.create_session()` with `source="subagent"`. The Go layer stores this in a `Source` column and excludes such sessions from `ListSessionsForAgent`.
 
-The planned `external-bearer` auth mode keeps this user-continuity boundary generic for human users: A2A/subagent calls may continue to use `X-User-Id` for user continuity, while forwarding the inbound bearer token is configurable and opt-in. Validated service actors should not receive a human-looking `X-User-Id` by default; they require explicit service-actor semantics and local A2A policy bounds.
+The `external-bearer` auth mode keeps this user-continuity boundary generic for human users: A2A/subagent calls may continue to use `X-User-Id` for user continuity, while forwarding the inbound bearer token is configurable and opt-in with `AUTH_EXTERNAL_BEARER_PROPAGATE_TOKEN` / `controller.auth.externalBearer.propagateToken`. Validated service actors do not receive a human-looking `X-User-Id` by default; they require explicit service-actor semantics and local A2A policy bounds.
+
+---
+
+## External-bearer service actors and A2A policy
+
+For `external-bearer`, kagent treats RFC 7662 `active: true` as token validation, then applies local A2A policy for service actors. The A2A mux derives the target namespace, name, and workload type (`agent` or `sandbox`) from the request path before dispatching to the target handler.
+
+Human-user tokens pass this A2A-specific service policy check and continue through normal A2A handling. Service/client-credentials tokens must match a configured `serviceActors[*].match.allOf` policy entry and then match an `allowedA2A` target. Service actors are denied non-A2A API routes by default.
+
+Example policy targets:
+
+```json
+{
+  "serviceActors": {
+    "ci-runner": {
+      "match": {
+        "allOf": [
+          { "claim": "client_id", "value": "ci-client" },
+          { "claim": "grant_type", "value": "client_credentials" },
+          { "claim": "scope", "contains": "kagent:a2a" }
+        ]
+      },
+      "allowedA2A": [
+        { "namespace": "kagent", "name": "release-bot", "workloadType": "agent" },
+        { "namespace": "kagent", "name": "debug-sandbox", "workloadType": "sandbox" },
+        { "namespace": "observability", "name": "*", "workloadType": "*" }
+      ]
+    }
+  }
+}
+```
+
+Expected behavior:
+
+| Caller/token | Target | Result |
+|---|---|---|
+| Human user token | Any resolved A2A target | Allowed by this service-actor policy layer. |
+| `ci-runner` service token | `/api/a2a/kagent/release-bot` | Allowed. |
+| `ci-runner` service token | `/api/a2a/kagent/other-agent` | Denied with `403`. |
+| `ci-runner` service token | `/api/a2a-sandboxes/kagent/debug-sandbox` | Allowed because `workloadType` is `sandbox`. |
+| `ci-runner` service token | `/api/a2a/observability/<any-name>` or sandbox equivalent | Allowed by the whole-field wildcards. |
+| `ci-runner` service token | `/api/me` or another non-A2A route | Denied with `403`. |
+
+MCP-to-A2A invocation uses the same A2A request handling path, so bearer propagation and human user continuity should be validated there as the regression surface for subagent calls.
 
 ---
 

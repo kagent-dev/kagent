@@ -143,7 +143,7 @@ controller:
   # Authentication mode: "unsecure" (default), "trusted-proxy", or "external-bearer".
   # - unsecure: uses X-User-Id header/query param or defaults to admin@kagent.dev
   # - trusted-proxy: trusts JWT token from Authorization header after upstream validation
-  # - external-bearer: planned mode for externally validated bearer tokens
+  # - external-bearer: validates inbound bearer tokens with RFC 7662 introspection
   auth:
     mode: unsecure
     # JWT claim for user identity (default: "sub")
@@ -152,14 +152,17 @@ controller:
     # externalBearer validates inbound bearer tokens by calling one RFC 7662-compatible
     # OAuth token introspection endpoint. Providers without compatible introspection
     # should be integrated through a validating proxy/gateway/adapter or future auth mode.
+    # kagent does not issue tokens, validate JWT/JWKS locally, or provide provider-specific adapters.
     externalBearer:
       # RFC 7662 token introspection endpoint URL used by AUTH_EXTERNAL_BEARER_URL.
+      # Must be the introspection endpoint, not a token, userinfo, discovery, or debug token-info URL.
+      # Non-localhost endpoints must use https. http is accepted only for localhost/mock development.
       url: ""
       # Timeout for validation requests, for example "5s".
       timeout: ""
-      # Maximum cache TTL, for example "30s". Empty/zero leaves controller defaults.
+      # Reserved maximum cache TTL setting, for example "30s". Empty/zero leaves controller defaults.
       cacheTTL: ""
-      # Maximum number of cache entries. 0 leaves controller defaults.
+      # Reserved maximum number of cache entries. 0 leaves controller defaults.
       cacheMaxEntries: 0
       # Forward inbound bearer tokens to upstream agent requests. Defaults to false.
       propagateToken: false
@@ -182,6 +185,32 @@ controller:
       # Allow unauthenticated introspection endpoint calls. Use only for local development/tests.
       allowUnauthenticatedIntrospection: false
       # Optional service-actor A2A policy. The controller consumes this as a local file.
+      # Service actors are denied A2A unless they match a serviceActors entry and the target is allowed.
+      # match.allOf requires at least two predicates; client_id alone is invalid.
+      # Each match must include a service-token indicator: grant_type=client_credentials, or
+      # token_class/token_use set to service, service_token, service-token, or client_credentials.
+      # Prefer composite matches such as client_id + grant_type=client_credentials + scope/audience.
+      # Example inline policy:
+      # inline: |
+      #   {
+      #     "requiredScopes": ["kagent:a2a"],
+      #     "allowedAudiences": ["kagent"],
+      #     "serviceActors": {
+      #       "ci-runner": {
+      #         "match": {
+      #           "allOf": [
+      #             { "claim": "client_id", "value": "ci-client" },
+      #             { "claim": "grant_type", "value": "client_credentials" },
+      #             { "claim": "scope", "contains": "kagent:a2a" }
+      #           ]
+      #         },
+      #         "allowedA2A": [
+      #           { "namespace": "kagent", "name": "example-agent", "workloadType": "agent" },
+      #           { "namespace": "observability", "name": "*", "workloadType": "*" }
+      #         ]
+      #       }
+      #     }
+      #   }
       policy:
         inline: ""
         existingConfigMap:

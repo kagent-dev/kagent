@@ -1,3 +1,4 @@
+{{- if eq (.Values.controller.auth.mode | default "unsecure") "external-bearer" }}
 {{- with .Values.controller.auth.externalBearer.policy.inline }}
 apiVersion: v1
 kind: ConfigMap
@@ -9,4 +10,5 @@ metadata:
 data:
   policy.json: |
 {{ . | indent 4 }}
+{{- end }}
 {{- end }}
