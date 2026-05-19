@@ -18,8 +18,8 @@ constraint-dependencies = [
     "pyasn1>=0.6.3",
     "pyopenssl>=26.0.0",
     "python-dotenv>=1.2.2",
-    "requests>=2.33.0",
-    "sqlparse>=0.5.4",
+    "requests>=2.34.2",
+    "sqlparse>=0.5.5",
     "wheel>=0.46.2",
 ]
 
