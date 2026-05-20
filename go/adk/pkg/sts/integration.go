@@ -158,8 +158,8 @@ func (i *STSIntegration) ExchangeTokenWithActorToken(
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {
-	switch {
-	case actorToken == "":
+	switch actorToken {
+	case "":
 		return i.client.Impersonate(
 			ctx,
 			subjectToken,
