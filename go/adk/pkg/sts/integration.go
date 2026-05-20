@@ -41,7 +41,7 @@ type STSIntegration struct {
 //   - serviceAccountTokenPath: Path to K8s service account token (ignored if fetchActorToken is set)
 //   - fetchActorToken: Optional function to fetch actor token dynamically
 //   - getSubjectToken: Optional function to extract subject token from context
-//   - timeout: Request timeout in seconds (default: 5)
+//   - timeout: Request timeout in seconds (non-positive uses default: 5)
 //   - verifySSL: Whether to verify SSL certificates (default: true)
 //   - useIssuerHost: Replace host:port in token_endpoint with host:port from well_known_uri
 //
@@ -61,10 +61,6 @@ func NewSTSIntegration(
 		Timeout:       timeout,
 		VerifySSL:     &verifySSL,
 		UseIssuerHost: useIssuerHost,
-	}
-
-	if config.Timeout == 0 {
-		config.Timeout = 5
 	}
 
 	integration := &STSIntegration{
@@ -162,23 +158,32 @@ func (i *STSIntegration) ExchangeTokenWithActorToken(
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {
-	var actorTokenType TokenType
-	if actorToken != "" {
-		actorTokenType = TokenTypeJWT
+	switch {
+	case actorToken == "":
+		return i.client.Impersonate(
+			ctx,
+			subjectToken,
+			subjectTokenType,
+			resource,
+			audience,
+			scope,
+			requestedTokenType,
+			nil,
+		)
+	default:
+		return i.client.Delegate(
+			ctx,
+			subjectToken,
+			subjectTokenType,
+			actorToken,
+			TokenTypeJWT,
+			resource,
+			audience,
+			scope,
+			requestedTokenType,
+			nil,
+		)
 	}
-
-	return i.client.ExchangeToken(
-		ctx,
-		subjectToken,
-		subjectTokenType,
-		actorToken,
-		actorTokenType,
-		resource,
-		audience,
-		scope,
-		requestedTokenType,
-		nil,
-	)
 }
 
 // Client returns the underlying STS client for advanced use cases.

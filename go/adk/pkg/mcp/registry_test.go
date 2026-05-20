@@ -320,32 +320,32 @@ func TestAllowedRequestHeaders_ReturnsNilWhenNoMatches(t *testing.T) {
 	}
 }
 
-// TestDynamicHeaders_OverridePropagatedAuthorization verifies dynamic headers
+// TestDynamicHeaders_OverridePropagatedAndAllowedHeaders verifies dynamic headers
 // take precedence over propagated and allowed request headers.
-func TestDynamicHeaders_OverridePropagatedAuthorization(t *testing.T) {
+func TestDynamicHeaders_OverridePropagatedAndAllowedHeaders(t *testing.T) {
 	t.Parallel()
-	var capturedAuth, capturedTrace string
+	var capturedAuth, capturedCustom string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
-		capturedTrace = r.Header.Get("X-Trace-Id")
+		capturedCustom = r.Header.Get("X-Custom")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	ctx := a2aCtx(map[string][]string{
 		"Authorization": {"Bearer incoming"},
-		"X-Trace-Id":    {"trace-from-request"},
+		"X-Custom":      {"custom-from-request"},
 	})
 
 	rt := &headerRoundTripper{
 		base:           http.DefaultTransport,
 		propagateToken: true,
-		allowedHeaders: []string{"Authorization", "X-Trace-Id"},
+		allowedHeaders: []string{"Authorization", "X-Custom"},
 		headerProvider: func(context.Context) map[string]string {
 			return map[string]string{
 				"Authorization": "Bearer sts-exchanged",
-				"X-Trace-Id":    "trace-from-dynamic",
+				"X-Custom":      "custom-from-dynamic",
 			}
 		},
 	}
@@ -360,8 +360,8 @@ func TestDynamicHeaders_OverridePropagatedAuthorization(t *testing.T) {
 	if capturedAuth != "Bearer sts-exchanged" {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer sts-exchanged")
 	}
-	if capturedTrace != "trace-from-dynamic" {
-		t.Errorf("X-Trace-Id: got %q, want %q", capturedTrace, "trace-from-dynamic")
+	if capturedCustom != "custom-from-dynamic" {
+		t.Errorf("X-Custom: got %q, want %q", capturedCustom, "custom-from-dynamic")
 	}
 }
 

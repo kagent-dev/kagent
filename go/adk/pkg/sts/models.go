@@ -120,10 +120,11 @@ type STSConfig struct {
 
 // DefaultSTSConfig returns a default STS configuration.
 func DefaultSTSConfig(wellKnownURI string) STSConfig {
+	verifySSL := true
 	return STSConfig{
 		WellKnownURI:  wellKnownURI,
 		Timeout:       5,
-		VerifySSL:     new(true),
+		VerifySSL:     &verifySSL,
 		UseIssuerHost: false,
 	}
 }

@@ -9,7 +9,16 @@ import (
 
 func TestNewSTSIntegrationDefaultSubjectToken(t *testing.T) {
 	t.Parallel()
-	i, err := NewSTSIntegration("http://example.com/.well-known", "", nil, nil, 0, true, false)
+	defaultConfig := DefaultSTSConfig("http://example.com/.well-known")
+	i, err := NewSTSIntegration(
+		defaultConfig.WellKnownURI,
+		"",
+		nil,
+		nil,
+		defaultConfig.Timeout,
+		*defaultConfig.VerifySSL,
+		defaultConfig.UseIssuerHost,
+	)
 	if err != nil {
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}

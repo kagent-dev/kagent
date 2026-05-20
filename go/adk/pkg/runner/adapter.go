@@ -108,21 +108,21 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 		log.Info("Enabling token propagation plugin without STS exchange")
 		return sts.NewTokenPropagationPlugin(nil, log), nil
 	}
+	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
 
 	integration, err := sts.NewSTSIntegration(
 		stsWellKnownURI,
 		"",
-		nil,   // fetchActorToken
-		nil,   // getSubjectToken
-		0,     // default timeout
-		true,  // default verifySSL
-		false, // default useIssuerHost
+		nil, // fetchActorToken
+		nil, // getSubjectToken
+		defaultSTSConfig.Timeout,
+		*defaultSTSConfig.VerifySSL,
+		defaultSTSConfig.UseIssuerHost,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize STS integration: %w", err)
 	}
 
-	log.Info("Enabling STS token propagation plugin",
-		"wellKnownURI", stsWellKnownURI)
+	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log), nil
 }

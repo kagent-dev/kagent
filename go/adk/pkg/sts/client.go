@@ -21,20 +21,16 @@ type STSClient struct {
 
 // NewSTSClient creates a new STS client with the given configuration.
 func NewSTSClient(config STSConfig) *STSClient {
-	config = normalizeSTSConfig(config)
+	defaults := DefaultSTSConfig(config.WellKnownURI)
+	if config.Timeout == 0 {
+		config.Timeout = defaults.Timeout
+	}
+	if config.VerifySSL == nil {
+		config.VerifySSL = defaults.VerifySSL
+	}
 	return &STSClient{
 		config: config,
 	}
-}
-
-func normalizeSTSConfig(config STSConfig) STSConfig {
-	if config.Timeout == 0 {
-		config.Timeout = 5
-	}
-	if config.VerifySSL == nil {
-		config.VerifySSL = new(true)
-	}
-	return config
 }
 
 // initialize performs lazy initialization of the client.
