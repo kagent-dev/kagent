@@ -116,6 +116,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+.PHONY: print-tools-versions
 print-tools-versions: ## Print tools versions
 	@echo "VERSION      : $(VERSION)"
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
@@ -143,6 +144,7 @@ KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
 
 ##@ Build
 
+.PHONY: check-api-key
 check-api-key: ## Validate required API key for the configured model provider
 	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
 		if [ -z "$(OPENAI_API_KEY)" ]; then \
@@ -193,70 +195,6 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
-##@ Testing
-
-.PHONY: push-test-agent
-push-test-agent: buildx-create build-kagent-adk ## Build and push E2E test agent images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
-	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
-
-.PHONY: push-test-skill
-push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
-
-##@ Cluster
-
-.PHONY: create-kind-cluster
-
-create-kind-cluster: ## Create a local kind cluster with MetalLB
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
-
-.PHONY: use-kind-cluster
-use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
-	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
-	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
-
-.PHONY: delete-kind-cluster
-delete-kind-cluster: ## Delete the local kind cluster
-	kind delete cluster --name $(KIND_CLUSTER_NAME)
-
-##@ Build
-
-.PHONY: clean
-clean: ## Remove build artifacts, prune images, and delete the buildx builder
-clean: prune-kind-cluster
-clean: prune-images
-ifneq ($(CONTAINER_RUNTIME),podman)
-	$(CONTAINER_RUNTIME) buildx rm $(BUILDX_BUILDER_NAME)  -f || true
-endif
-	rm -rf ./go/core/bin
-
-.PHONY: prune-kind-cluster
-prune-kind-cluster: ## Remove dangling container images from the kind node
-	echo "Pruning dangling container images from kind  ..."
-	$(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
-	grep '<none>' | awk '{print $$3}' | xargs -r -n1 $(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
-
-.PHONY: prune-images
-prune-images: ## Remove old kagent images and dangling images from the local daemon
-	echo "Pruning dangling container images ..."
-	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
-	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
-	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-
 .PHONY: build
 build: ## Build and push all component images
 build: buildx-create build-controller build-ui build-app build-golang-adk build-golang-adk-full build-skills-init
@@ -296,16 +234,6 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
 	@echo skills-init=$(SKILLS_INIT_IMG)
-
-.PHONY: lint
-lint: ## Run linters for Go and Python
-	make -C go lint
-	make -C python lint
-
-.PHONY: push
-push: ## Push all component images (controller, ui, app, ADKs)
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
-
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -353,6 +281,58 @@ build-skills-init: ## Build and push the skills-init image
 build-skills-init: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
+
+.PHONY: push
+push: ## Push all component images (controller, ui, app, ADKs)
+push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
+
+
+##@ Testing
+
+.PHONY: lint
+lint: ## Run linters for Go and Python
+	make -C go lint
+	make -C python lint
+
+.PHONY: push-test-agent
+push-test-agent: buildx-create build-kagent-adk ## Build and push E2E test agent images to the local registry
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
+	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
+
+.PHONY: push-test-skill
+push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
+
+
+##@ Cluster
+
+.PHONY: create-kind-cluster
+
+create-kind-cluster: ## Create a local kind cluster with MetalLB
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
+
+.PHONY: use-kind-cluster
+use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
+	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
+	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
+	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
+
+.PHONY: delete-kind-cluster
+delete-kind-cluster: ## Delete the local kind cluster
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+
 
 ##@ Helm
 
@@ -530,6 +510,7 @@ kind-debug: ## Install btop/htop inside the kind control-plane container and lau
 	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
 	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
+
 ##@ Security
 
 .PHONY: audit
@@ -549,3 +530,30 @@ report/image-cve: audit build
 	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
+
+
+##@ Cleanup
+
+.PHONY: clean
+clean: ## Remove build artifacts, prune images, and delete the buildx builder
+clean: prune-kind-cluster
+clean: prune-images
+ifneq ($(CONTAINER_RUNTIME),podman)
+	$(CONTAINER_RUNTIME) buildx rm $(BUILDX_BUILDER_NAME)  -f || true
+endif
+	rm -rf ./go/core/bin
+
+.PHONY: prune-kind-cluster
+prune-kind-cluster: ## Remove dangling container images from the kind node
+	echo "Pruning dangling container images from kind  ..."
+	$(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
+	grep '<none>' | awk '{print $$3}' | xargs -r -n1 $(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
+
+.PHONY: prune-images
+prune-images: ## Remove old kagent images and dangling images from the local daemon
+	echo "Pruning dangling container images ..."
+	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
+	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
+	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
+
+
