@@ -12,6 +12,7 @@ This directory contains detailed architecture documentation for kagent. Start wi
 | [prompt-templates.md](prompt-templates.md) | Prompt template system with ConfigMap includes and variable interpolation |
 | [data-flow.md](data-flow.md) | End-to-end request flow from UI to agent and back |
 | [crds-and-types.md](crds-and-types.md) | All Custom Resource Definitions and their relationships |
+| [scheduled-runs.md](scheduled-runs.md) | ScheduledRun CRD: cron-based agent triggering, design and known issues |
 
 ---
 

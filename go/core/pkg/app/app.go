@@ -606,6 +606,20 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	scheduledRunScheduler := controller.NewScheduledRunScheduler(mgr.GetClient(), dbClient)
+	if err := mgr.Add(scheduledRunScheduler); err != nil {
+		setupLog.Error(err, "unable to add scheduled run scheduler to manager")
+		os.Exit(1)
+	}
+	if err = (&controller.ScheduledRunController{
+		Scheme:    mgr.GetScheme(),
+		Kube:      mgr.GetClient(),
+		Scheduler: scheduledRunScheduler,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ScheduledRun")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned resources")
 		os.Exit(1)
@@ -684,6 +698,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		ProxyURL:          cfg.Proxy.URL,
 		Reconciler:        rcnclr,
 		SandboxBackend:    extensionCfg.SandboxBackend,
+		ScheduledRunTrigger: scheduledRunScheduler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

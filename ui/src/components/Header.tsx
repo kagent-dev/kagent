@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Cable } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Cable, Clock } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import {
@@ -95,9 +95,15 @@ export function Header() {
                     New prompt library
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/schedules/new" className="gap-2 cursor-pointer w-full">
+                    <Clock className="h-4 w-4" />
+                    New Scheduled Run
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            
+
             {/* View Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -129,6 +135,12 @@ export function Header() {
                   <Link href="/prompts" className="gap-2 cursor-pointer w-full">
                     <ScrollText className="h-4 w-4" />
                     Prompt Library
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/schedules" className="gap-2 cursor-pointer w-full">
+                    <Clock className="h-4 w-4" />
+                    Scheduled Runs
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -194,6 +206,12 @@ export function Header() {
                       Prompt Library
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/schedules" className="gap-2 cursor-pointer w-full">
+                      <Clock className="h-4 w-4" />
+                      Scheduled Runs
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -235,6 +253,12 @@ export function Header() {
                     <Link href="/prompts/new" className="gap-2 cursor-pointer w-full">
                       <ScrollText className="h-4 w-4" />
                       New prompt library
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/schedules/new" className="gap-2 cursor-pointer w-full">
+                      <Clock className="h-4 w-4" />
+                      New Scheduled Run
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

@@ -622,6 +622,16 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 	agent := &v1alpha2.Agent{}
 	err = h.KubeClient.Get(ctx, objKey, agent)
 	if err == nil {
+		if refs, err := findReferencingScheduledRuns(ctx, h.KubeClient, agentNamespace, agentName); err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to check ScheduledRun references", err))
+			return
+		} else if len(refs) > 0 {
+			w.RespondWithError(errors.NewConflictError(
+				fmt.Sprintf("Agent is referenced by %d ScheduledRun(s): %s. Delete them first.", len(refs), strings.Join(refs, ", ")),
+				nil,
+			))
+			return
+		}
 		if err := h.KubeClient.Delete(ctx, agent); err != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
 			return
@@ -649,12 +659,43 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 		return
 	}
+	if refs, err := findReferencingScheduledRuns(ctx, h.KubeClient, agentNamespace, agentName); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to check ScheduledRun references", err))
+		return
+	} else if len(refs) > 0 {
+		w.RespondWithError(errors.NewConflictError(
+			fmt.Sprintf("Agent is referenced by %d ScheduledRun(s): %s. Delete them first.", len(refs), strings.Join(refs, ", ")),
+			nil,
+		))
+		return
+	}
 	if err := h.KubeClient.Delete(ctx, sb); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete AgentHarness", err))
 		return
 	}
 	log.Info("Successfully deleted AgentHarness")
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+}
+
+// findReferencingScheduledRuns returns names ("ns/name") of ScheduledRuns whose
+// agentRef points at the given agent. An empty agentRef.namespace is treated as
+// the agent's own namespace, mirroring controller behavior.
+func findReferencingScheduledRuns(ctx context.Context, kube client.Client, agentNamespace, agentName string) ([]string, error) {
+	srList := &v1alpha2.ScheduledRunList{}
+	if err := kube.List(ctx, srList); err != nil {
+		return nil, fmt.Errorf("failed to list ScheduledRuns: %w", err)
+	}
+	var refs []string
+	for _, sr := range srList.Items {
+		ns := sr.Spec.AgentRef.Namespace
+		if ns == "" {
+			ns = sr.Namespace
+		}
+		if sr.Spec.AgentRef.Name == agentName && ns == agentNamespace {
+			refs = append(refs, sr.Namespace+"/"+sr.Name)
+		}
+	}
+	return refs, nil
 }
 
 func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {

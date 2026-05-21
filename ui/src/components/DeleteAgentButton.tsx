@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { deleteAgent } from "@/app/actions/agents";
 import { useAgents } from "./AgentsProvider";
+import { toast } from "sonner";
 
 interface DeleteButtonProps {
   agentName: string;
@@ -33,10 +34,16 @@ export function DeleteButton({ agentName, namespace, disabled = false, externalO
 
     try {
       setIsDeleting(true);
-      await deleteAgent(agentName, namespace);
-
+      const response = await deleteAgent(agentName, namespace);
+      if (response.error) {
+        toast.error(response.error, { duration: 8000 });
+        return;
+      }
+      toast.success(`Agent "${agentName}" deleted`);
       await refreshAgents();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete agent";
+      toast.error(message, { duration: 8000 });
       console.error("Error deleting agent:", error);
     } finally {
       setIsDeleting(false);
