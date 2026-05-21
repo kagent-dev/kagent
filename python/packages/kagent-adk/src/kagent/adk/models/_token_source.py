@@ -56,7 +56,7 @@ class GDCHTokenSource:
         from google.auth.transport import requests as google_requests
         from google.oauth2 import gdch_credentials
 
-        with open(self._sa_path) as f:
+        with open(self._sa_path, "r", encoding="utf-8") as f:
             info = json.load(f)
 
         if self._tls_disable_verify or not self._ca_cert_path:
@@ -67,12 +67,12 @@ class GDCHTokenSource:
         creds = gdch_credentials.ServiceAccountCredentials.from_service_account_info(info)
         creds = creds.with_gdch_audience(self._audience)
 
-        session = requests.Session()
-        if self._tls_disable_verify:
-            session.verify = False
-        elif self._ca_cert_path:
-            session.verify = self._ca_cert_path
-        creds.refresh(google_requests.Request(session=session))
+        with requests.Session() as session:
+            if self._tls_disable_verify:
+                session.verify = False
+            elif self._ca_cert_path:
+                session.verify = self._ca_cert_path
+            creds.refresh(google_requests.Request(session=session))
         if creds.expiry:
             expiry = creds.expiry
             # If the expiry is not timezone-aware, set it to UTC

@@ -94,6 +94,9 @@ def test_exchange_strips_ca_cert_path_when_disable_verify(sa_file):
     ):
         mock_cls.from_service_account_info.return_value = fake_creds
         session = mock_session_cls.return_value
+        # Session is used as a context manager; have __enter__ yield the same mock
+        # so attributes set inside the `with` block are observable here.
+        session.__enter__.return_value = session
         src._exchange()
 
     info_passed = mock_cls.from_service_account_info.call_args.args[0]
