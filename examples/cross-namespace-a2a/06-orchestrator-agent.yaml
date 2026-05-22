@@ -1,0 +1,50 @@
+# Orchestrator agent in team-alpha.
+#
+# Calls the specialist in team-beta as a tool via the kagent A2A gateway.
+# The gateway URL pattern is:
+#   <controller-svc>:8083/api/a2a/team-beta/specialist/
+#
+# headersFrom injects the delegation token from team-alpha's own Secret as
+# X-Agent-Token on every outbound A2A call to the specialist. The specialist
+# can validate this header. Crucially, the orchestrator never touches
+# team-beta's Secrets — it only presents a matching token from its own namespace.
+#
+# If the specialist's allowedNamespaces selector does NOT match team-alpha,
+# the controller reconciler rejects this Agent at admission and logs:
+#   "cross-namespace reference denied: team-alpha -> team-beta/specialist"
+
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: orchestrator
+  namespace: team-alpha
+spec:
+  type: Declarative
+  declarative:
+    description: >
+      Orchestrator agent. Receives user requests and delegates math problems
+      to the team-beta specialist via the kagent Agent Gateway.
+    systemMessage: |
+      You are an orchestrating agent. For any math question, delegate it to
+      the specialist tool and return the specialist's answer verbatim.
+      Do not attempt to solve math yourself.
+    modelConfig: default-model
+    tools:
+      # Cross-namespace agent tool reference.
+      # `name` is the Agent name; `namespace` resolves the cross-namespace ref.
+      # The reconciler validates team-alpha is allowed by team-beta/specialist
+      # before this agent is admitted.
+      - agent:
+          name: specialist
+          namespace: team-beta
+        # headersFrom: inject delegation token from THIS namespace's Secret.
+        # The controller translator resolves the Secret at reconcile time and
+        # adds X-Agent-Token to every A2A request to the specialist.
+        # The specialist's auth layer (UnsecureAuthenticator today, JWT once
+        # EP-476 lands) can validate this header.
+        headersFrom:
+          - name: X-Agent-Token
+            valueFrom:
+              type: Secret
+              name: specialist-delegation-token
+              key: token

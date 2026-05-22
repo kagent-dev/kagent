@@ -1,0 +1,94 @@
+# cert-manager — mTLS certificates for agent pods.
+# Each agent gets its own leaf cert signed by a shared cluster CA.
+# The kagent controller presents its own cert; mutual verification
+# ensures only genuine kagent-signed clients can reach agents.
+#
+# Prerequisites: cert-manager installed
+#   helm install cert-manager jetstack/cert-manager \
+#     --namespace cert-manager --create-namespace \
+#     --set installCRDs=true
+
+# ── Cluster-wide CA issuer (self-signed bootstrap) ────────────────────────────
+# In production replace with Vault PKI or AWS PCA issuer.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: kagent-ca-issuer
+spec:
+  selfSigned: {}
+---
+# CA certificate (sign agent leaf certs with this)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kagent-ca
+  namespace: kagent
+spec:
+  isCA: true
+  commonName: kagent-ca
+  secretName: kagent-ca-tls
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: kagent-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Issuer that signs with the kagent CA
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: kagent-ca-issuer
+  namespace: kagent
+spec:
+  ca:
+    secretName: kagent-ca-tls
+
+# ── team-beta: specialist agent TLS cert ─────────────────────────────────────
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: specialist-agent-tls
+  namespace: team-beta
+spec:
+  secretName: specialist-agent-tls
+  duration: 2160h    # 90 days
+  renewBefore: 360h  # Renew 15 days before expiry
+  commonName: specialist.team-beta.svc.cluster.local
+  dnsNames:
+    - specialist.team-beta.svc.cluster.local
+    - specialist.team-beta.svc
+    - specialist.team-beta
+  usages:
+    - server auth
+    - client auth
+  issuerRef:
+    name: kagent-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+# ── team-alpha: orchestrator agent TLS cert ───────────────────────────────────
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: orchestrator-agent-tls
+  namespace: team-alpha
+spec:
+  secretName: orchestrator-agent-tls
+  duration: 2160h
+  renewBefore: 360h
+  commonName: orchestrator.team-alpha.svc.cluster.local
+  dnsNames:
+    - orchestrator.team-alpha.svc.cluster.local
+    - orchestrator.team-alpha.svc
+    - orchestrator.team-alpha
+  usages:
+    - server auth
+    - client auth
+  issuerRef:
+    name: kagent-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

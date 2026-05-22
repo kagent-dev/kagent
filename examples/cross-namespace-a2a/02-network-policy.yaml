@@ -1,0 +1,128 @@
+# NetworkPolicies: default-deny then allow only the kagent controller
+# to reach agent pods. Agents cannot call each other directly — all A2A
+# traffic routes through the gateway (controller service on port 8083).
+
+# --- team-beta: deny all ingress, allow only from kagent controller ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: team-beta
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kagent-controller
+  namespace: team-beta
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: specialist-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only the kagent controller pod may initiate connections to the specialist.
+    # The controller lives in the kagent namespace and carries this label.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kagent
+      ports:
+        - protocol: TCP
+          port: 8080   # agent HTTP port (A2A endpoint)
+
+# --- team-alpha: deny all ingress, allow only from kagent controller ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: team-alpha
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kagent-controller
+  namespace: team-alpha
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kagent
+      ports:
+        - protocol: TCP
+          port: 8080
+
+# --- Both namespaces: allow egress only to kagent controller + kube-dns ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-kagent
+  namespace: team-alpha
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+      ports:
+        - protocol: TCP
+          port: 8083   # kagent A2A gateway port
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53    # kube-dns
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-kagent
+  namespace: team-beta
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+      ports:
+        - protocol: TCP
+          port: 8083
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

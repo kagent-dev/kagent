@@ -1,0 +1,66 @@
+# Kubernetes audit policy targeting kagent CRDs and A2A gateway paths.
+# Mount this at the API server's --audit-policy-file flag.
+# Pair with --audit-log-path and ship logs to your SIEM (Loki, Splunk, etc.)
+#
+# Captures:
+#   - All write operations on kagent Agent/ModelConfig CRDs (who changed what)
+#   - Cross-namespace references (reconciler decisions surfaced via events)
+#   - Secret reads in agent namespaces (detect unexpected access)
+#   - ServiceAccount token requests (detect identity escalation)
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # ── Level: RequestResponse for all kagent CRD mutations ───────────────────
+  # Full request + response body so every Agent spec change is auditable.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: "kagent.dev"
+        resources:
+          - agents
+          - modelconfigs
+          - remotemcpservers
+    omitStages: []
+
+  # ── Level: Request for kagent CRD reads ───────────────────────────────────
+  # Who is reading agent configs — useful for detecting reconnaissance.
+  - level: Request
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: "kagent.dev"
+        resources: ["agents", "modelconfigs"]
+
+  # ── Level: Request for Secret reads in agent namespaces ───────────────────
+  # Detects unexpected principals reading API keys or delegation tokens.
+  - level: Request
+    verbs: ["get", "list"]
+    resources:
+      - group: ""
+        resources: ["secrets"]
+    namespaces: ["team-alpha", "team-beta"]
+
+  # ── Level: RequestResponse for ServiceAccount token requests ──────────────
+  # Detects workloads requesting tokens for foreign service accounts.
+  - level: RequestResponse
+    verbs: ["create"]
+    resources:
+      - group: ""
+        resources: ["serviceaccounts/token"]
+
+  # ── Level: Metadata for all other operations in agent namespaces ──────────
+  - level: Metadata
+    namespaces: ["team-alpha", "team-beta"]
+
+  # ── Drop noisy health/readiness checks ────────────────────────────────────
+  - level: None
+    users: ["system:serviceaccount:kube-system:generic-garbage-collector"]
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/metrics"
+
+  # ── Default: Metadata for everything else ─────────────────────────────────
+  - level: Metadata

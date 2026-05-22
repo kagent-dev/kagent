@@ -1,0 +1,26 @@
+# Pod Security Admission (built-in since k8s 1.25) — enforces restricted
+# profile on both namespaces. Agents run non-root, read-only FS, no privilege
+# escalation, no host namespaces.
+#
+# Apply the labels to the namespace objects (patch form shown here so this
+# file can be applied independently of 00-namespaces.yaml).
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-alpha
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-beta
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

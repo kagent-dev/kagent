@@ -1,0 +1,75 @@
+# ServiceAccounts for each agent. Agents run with least-privilege:
+# they can only read Secrets in their own namespace.
+# The kagent controller itself has cluster-scoped Agent/ModelConfig read
+# (granted by the helm chart) — these bindings are agent-runtime only.
+
+# --- team-beta: specialist ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: specialist-agent
+  namespace: team-beta
+---
+# Specialist can read its own secrets (for model API key resolution)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: specialist-agent
+  namespace: team-beta
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list"]
+  - apiGroups: ["kagent.dev"]
+    resources: ["agents", "modelconfigs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: specialist-agent
+  namespace: team-beta
+subjects:
+  - kind: ServiceAccount
+    name: specialist-agent
+    namespace: team-beta
+roleRef:
+  kind: Role
+  name: specialist-agent
+  apiGroup: rbac.authorization.k8s.io
+
+# --- team-alpha: orchestrator ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator-agent
+  namespace: team-alpha
+---
+# Orchestrator can read its own secrets. Critically, it CANNOT read
+# team-beta secrets — cross-namespace Secret access is not granted.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orchestrator-agent
+  namespace: team-alpha
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list"]
+  - apiGroups: ["kagent.dev"]
+    resources: ["agents", "modelconfigs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orchestrator-agent
+  namespace: team-alpha
+subjects:
+  - kind: ServiceAccount
+    name: orchestrator-agent
+    namespace: team-alpha
+roleRef:
+  kind: Role
+  name: orchestrator-agent
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,17 @@
+# Two namespaces on the same cluster. Labels drive the AllowedNamespaces
+# selector on the specialist — only namespaces with team=alpha can reference it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-alpha
+  labels:
+    team: alpha
+    kagent.dev/agent-consumer: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-beta
+  labels:
+    team: beta
+    kagent.dev/agent-provider: "true"

@@ -1,0 +1,83 @@
+# OPA Gatekeeper — admission-level enforcement of cross-namespace A2A rules.
+# Belt-and-suspenders over the kagent reconciler's AllowedNamespaces check.
+# If the reconciler is bypassed (e.g. direct etcd write, operator bug), this
+# webhook blocks the Agent at admission before it reaches the API server store.
+#
+# Prerequisites: gatekeeper-system installed (helm install gatekeeper
+#   opa/gatekeeper --namespace gatekeeper-system --create-namespace)
+
+# ── ConstraintTemplate: cross-namespace agent reference policy ────────────────
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: kagentcrossnamespacepolicy
+  annotations:
+    description: >
+      Enforces that an Agent's cross-namespace tool references are only
+      permitted when the target Agent's allowedNamespaces permits the source.
+      Mirrors kagent's AllowedNamespaces logic at admission time.
+spec:
+  crd:
+    spec:
+      names:
+        kind: KagentCrossNamespacePolicy
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedSourceLabels:
+              type: object
+              description: >
+                Label key/value pairs a source namespace must carry to be
+                permitted to reference agents in the target namespace.
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package kagentcrossnamespacepolicy
+
+        violation[{"msg": msg}] {
+          # Only check Agent resources
+          input.review.object.apiVersion == "kagent.dev/v1alpha2"
+          input.review.object.kind == "Agent"
+
+          # Find tools that reference an agent in a different namespace
+          tool := input.review.object.spec.declarative.tools[_]
+          agent_ref := tool.agent
+          agent_ref.namespace != ""
+          agent_ref.namespace != input.review.object.metadata.namespace
+
+          # Check if there's no allowedNamespaces field on THIS agent
+          # (target agent allowedNamespaces is checked by the reconciler;
+          #  this policy checks the source agent side — it must be in an
+          #  approved consumer namespace)
+          source_ns := input.review.object.metadata.namespace
+          not valid_consumer_namespace(source_ns)
+
+          msg := sprintf(
+            "Agent %v/%v references cross-namespace agent %v/%v but namespace %v is not an approved consumer (missing label kagent.dev/agent-consumer=true)",
+            [source_ns, input.review.object.metadata.name,
+             agent_ref.namespace, agent_ref.name, source_ns]
+          )
+        }
+
+        valid_consumer_namespace(ns) {
+          # Namespace must carry the consumer label to make cross-ns references
+          # This is checked against the live namespace object via data.inventory
+          ns_obj := data.inventory.cluster["v1"]["Namespace"][ns]
+          ns_obj.metadata.labels["kagent.dev/agent-consumer"] == "true"
+        }
+---
+# ── Constraint instance: apply policy to all kagent Agent resources ───────────
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: KagentCrossNamespacePolicy
+metadata:
+  name: require-consumer-label-for-cross-ns
+spec:
+  enforcementAction: deny     # Change to "warn" during rollout, then "deny"
+  match:
+    kinds:
+      - apiGroups: ["kagent.dev"]
+        kinds: ["Agent"]
+    excludedNamespaces:
+      - kagent          # Controller namespace is exempt
+      - kube-system

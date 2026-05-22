@@ -1,0 +1,40 @@
+# Specialist agent in team-beta.
+#
+# Key security field: spec.allowedNamespaces
+# The reconciler calls AllowsNamespace() before wiring this agent as a tool.
+# Any Agent in a namespace NOT matching the selector will be rejected at
+# reconcile time — the orchestrator's tool reference will fail with an error
+# and the orchestrator agent will not be admitted.
+#
+# Pattern follows Gateway API cross-namespace route attachment:
+#   https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: specialist
+  namespace: team-beta
+spec:
+  type: Declarative
+  declarative:
+    description: >
+      Math specialist. Solves arithmetic, algebra, and calculus problems
+      step by step. Only accepts delegations from team-alpha.
+    systemMessage: |
+      You are a precise math specialist. When given a problem:
+      1. State the problem clearly.
+      2. Show every step.
+      3. State the final answer on its own line prefixed with "Answer:".
+      Never guess. If unsure, say so.
+    modelConfig: default-model
+    tools: []
+
+  # Cross-namespace access control — Gateway API pattern.
+  # Only namespaces labelled team=alpha may reference this agent as a tool.
+  # Change to `from: All` to allow any namespace (not recommended for prod).
+  # Change to `from: Same` (or omit) to lock to team-beta only.
+  allowedNamespaces:
+    from: Selector
+    selector:
+      matchLabels:
+        team: alpha

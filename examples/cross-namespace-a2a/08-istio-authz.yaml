@@ -1,0 +1,91 @@
+# Istio runtime enforcement — belt-and-suspenders over the reconciler's
+# AllowedNamespaces check. Enforces mTLS + namespace identity at the
+# data plane before any packet reaches an agent pod.
+#
+# Prerequisites: Istio installed, sidecar injection enabled on both namespaces.
+# Label namespaces: kubectl label ns team-alpha team-beta istio-injection=enabled
+#
+# Remove once EP-476 (OIDC/JWT auth) is merged and deployed — at that point
+# the kagent gateway itself validates tokens and Istio is optional hardening.
+
+# ── Require mTLS inside team-beta ─────────────────────────────────────────────
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: require-mtls
+  namespace: team-beta
+spec:
+  mtls:
+    mode: STRICT        # Plaintext connections to specialist pods are rejected
+---
+# ── AuthorizationPolicy: only kagent controller may call specialist ────────────
+# Identifies caller by its mTLS SPIFFE identity (ServiceAccount + namespace),
+# not by IP or header — spoofing-resistant.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: specialist-allow-kagent-only
+  namespace: team-beta
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: specialist-agent
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            # SPIFFE: spiffe://cluster.local/ns/kagent/sa/kagent
+            principals:
+              - "cluster.local/ns/kagent/sa/kagent"
+      to:
+        - operation:
+            ports: ["8080"]
+            paths: ["/api/a2a/*", "/.well-known/agent.json"]
+---
+# Default-deny everything not matched by an ALLOW policy above.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: team-beta
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: specialist-agent
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - "cluster.local/ns/kagent/sa/kagent"
+
+# ── Require mTLS inside team-alpha ────────────────────────────────────────────
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: require-mtls
+  namespace: team-alpha
+spec:
+  mtls:
+    mode: STRICT
+---
+# Only kagent may call the orchestrator.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: orchestrator-allow-kagent-only
+  namespace: team-alpha
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator-agent
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/kagent/sa/kagent"
+      to:
+        - operation:
+            ports: ["8080"]

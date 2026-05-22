@@ -1,0 +1,24 @@
+# ModelConfig per namespace — each team owns its own model config and API key.
+# Neither can read the other's Secret.
+
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: default-model
+  namespace: team-beta
+spec:
+  provider: OpenAI
+  model: gpt-4o-mini
+  apiKeySecret: openai-secret
+  apiKeySecretKey: api-key
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: default-model
+  namespace: team-alpha
+spec:
+  provider: OpenAI
+  model: gpt-4o-mini
+  apiKeySecret: openai-secret
+  apiKeySecretKey: api-key
