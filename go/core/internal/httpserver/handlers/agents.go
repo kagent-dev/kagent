@@ -18,7 +18,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -33,46 +32,35 @@ func NewAgentsHandler(base *Base) *AgentsHandler {
 	return &AgentsHandler{Base: base}
 }
 
-// HandleListAgents handles GET /api/agents requests using database.
-// Optional query param: namespace=<ns>.
+// HandleListAgents handles GET /api/agents requests using database
 func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-db")
 
-	namespace := r.URL.Query().Get("namespace")
-	if namespace == "" {
-		h.handleListAgents(w, r, log)
-		return
-	}
-
-	if strings.TrimSpace(namespace) != namespace {
-		w.RespondWithError(errors.NewBadRequestError(
-			fmt.Sprintf("invalid namespace %q: must not contain leading or trailing whitespace", namespace),
-			nil,
-		))
-		return
-	}
-
-	if errs := utilvalidation.IsDNS1123Label(namespace); len(errs) > 0 {
-		w.RespondWithError(errors.NewBadRequestError(
-			fmt.Sprintf("invalid namespace %q: %s", namespace, strings.Join(errs, "; ")),
-			nil,
-		))
-		return
-	}
-
-	h.handleListAgents(w, r, log.WithValues("namespace", namespace), client.InNamespace(namespace))
-}
-
-func (h *AgentsHandler) handleListAgents(w ErrorResponseWriter, r *http.Request, log logr.Logger, opts ...client.ListOption) {
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}
 
-	agentsWithID, err := h.listAgentResponses(r.Context(), log, opts...)
-	if err != nil {
-		w.RespondWithError(err)
+	agentList := &v1alpha2.AgentList{}
+	if err := h.KubeClient.List(r.Context(), agentList); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list Agents from Kubernetes", err))
 		return
+	}
+
+	agentsWithID := make([]api.AgentResponse, 0)
+	h.appendAgentResponses(r.Context(), log, agentObjects(agentList.Items), &agentsWithID)
+
+	harnessList := &v1alpha2.AgentHarnessList{}
+	if err := h.KubeClient.List(r.Context(), harnessList); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err))
+		return
+	}
+	for i := range harnessList.Items {
+		sb := &harnessList.Items[i]
+		if sb.Spec.Backend != v1alpha2.AgentHarnessBackendOpenClaw && sb.Spec.Backend != v1alpha2.AgentHarnessBackendNemoClaw {
+			continue
+		}
+		agentsWithID = append(agentsWithID, h.openshellAgentHarnessAgentResponse(r.Context(), log, sb))
 	}
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))

@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,7 +11,6 @@
     ],
     "description": "",
     "name": "a2a_agent",
-    "preferredTransport": "JSONRPC",
     "skills": [
       {
         "description": "Summarizes text",
@@ -21,7 +18,18 @@
         "tags": null
       }
     ],
-    "url": "http://a2a-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://a2a-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://a2a-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -60,7 +68,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"a2a_agent\",\"description\":\"\",\"url\":\"http://a2a-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\",\"description\":\"Summarizes text\",\"tags\":null}],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://a2a-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"0.3\"},{\"url\":\"http://a2a-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"a2a_agent\",\"skills\":[{\"description\":\"Summarizes text\",\"id\":\"summarize\",\"name\":\"Summarize\",\"tags\":null}],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -130,7 +138,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16405455094195710426"
+              "kagent.dev/config-hash": "9207770362976028198"
             },
             "labels": {
               "app": "kagent",
