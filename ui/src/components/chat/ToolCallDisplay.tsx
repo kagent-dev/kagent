@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Message, TextPart } from "@a2a-js/sdk";
+import type { Message } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
@@ -29,7 +29,7 @@ interface ToolCallState {
 const isToolCallRequestMessage = (message: Message): boolean => {
   // Check data parts for type metadata first
   const hasDataParts = message.parts?.some(part => {
-    if (part.kind === "data" && part.metadata) {
+    if (part.content?.$case === "data" && part.metadata) {
       return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call";
     }
     return false;
@@ -46,7 +46,7 @@ const isToolCallRequestMessage = (message: Message): boolean => {
 
 const isToolCallExecutionMessage = (message: Message): boolean => {
   const hasDataParts = message.parts?.some(part => {
-    if (part.kind === "data" && part.metadata) {
+    if (part.content?.$case === "data" && part.metadata) {
       return getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response";
     }
     return false;
@@ -70,13 +70,14 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   if (!isToolCallRequestMessage(message)) return [];
 
   // Check for stored task format first (data parts)
-  const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const dataParts = message.parts?.filter(part => part.content?.$case === "data") || [];
   const functionCalls: FunctionCall[] = [];
 
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_call") {
-        const data = part.data as unknown as FunctionCall;
+        const data = part.content?.$case === "data" ? part.content.value as unknown as FunctionCall : undefined;
+        if (!data) continue;
         // Skip ADK internal function calls (confirmation/auth) and ask_user (has its own display)
         if (
           data.name === "adk_request_confirmation" ||
@@ -100,8 +101,8 @@ const extractToolCallRequests = (message: Message): FunctionCall[] => {
   }
 
   // Try streaming format (metadata or text content)
-  const textParts = message.parts?.filter(part => part.kind === "text") || [];
-  const content = textParts.map(part => (part as TextPart).text).join("");
+  const textParts = message.parts?.filter(part => part.content?.$case === "text") || [];
+  const content = textParts.map(part => part.content?.$case === "text" ? part.content.value : "").join("");
 
   try {
     // Tool call data might be stored as JSON in content or metadata
@@ -123,13 +124,14 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   if (!isToolCallExecutionMessage(message)) return [];
 
   // Check for stored task format first (data parts)
-  const dataParts = message.parts?.filter(part => part.kind === "data") || [];
+  const dataParts = message.parts?.filter(part => part.content?.$case === "data") || [];
   const toolResults: ProcessedToolResultData[] = [];
 
   for (const part of dataParts) {
     if (part.metadata) {
       if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") === "function_response") {
-        const data = part.data as unknown as ToolResponseData;
+        const data = part.content?.$case === "data" ? part.content.value as unknown as ToolResponseData : undefined;
+        if (!data) continue;
 
         // For agent tool responses we receive { result, subagent_session_id } as FunctionResponse.response.
         const textContent = normalizeToolResultToText(data);
@@ -158,9 +160,9 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
   }
 
   // Try streaming format (metadata or text content)
-  const textParts = message.parts?.filter(part => part.kind === "text") || [];
+  const textParts = message.parts?.filter(part => part.content?.$case === "text") || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const content = textParts.map(part => (part as any).text).join("");
+  const content = textParts.map(part => part.content?.$case === "text" ? part.content.value : "").join("");
 
   try {
     const metadata = message.metadata as ADKMetadata;
@@ -257,9 +259,9 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
             if (!subagentSessionId && isAgentToolName(request.name)) {
               const fcDataPart = message.parts?.find(p =>
-                p.kind === "data" && p.metadata &&
+                p.content?.$case === "data" && p.metadata &&
                 getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
-                (p.data as Record<string, unknown>)?.id === request.id
+                (p.content.value as Record<string, unknown>)?.id === request.id
               );
               subagentSessionId = fcDataPart?.metadata
                 ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
