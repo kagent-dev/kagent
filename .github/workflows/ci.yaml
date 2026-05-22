@@ -203,6 +203,7 @@ jobs:
         run: |
           helm unittest helm/kagent
           helm unittest helm/tools/querydoc
+          helm unittest helm/tools/grafana-mcp
 
   ui-tests:
     runs-on: ubuntu-latest

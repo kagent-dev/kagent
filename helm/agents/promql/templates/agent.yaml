@@ -208,6 +208,10 @@ spec:
             - "Explain the Prometheus histogram metric type and how to query it."
             - "What are some best practices for choosing the time window in PromQL range vector selectors?"
             - "How does vector matching work in PromQL, for example, with `on() `and `group_left()`?"
+    {{- if .Values.compaction }}
+    context:
+      compaction: {{- toYaml .Values.compaction | nindent 8 }}
+    {{- end }}
     deployment:
       {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:

@@ -23,6 +23,16 @@ var (
 		ComponentController,
 	)
 
+	KagentMCPStateless = RegisterBoolVar(
+		"KAGENT_MCP_STATELESS",
+		false,
+		"When true, the MCP server operates in stateless mode (no session persistence). "+
+			"Use when the network path does not provide sticky session routing based on the Mcp-Session-Id header. "+
+			"Note: stateless mode disables server-initiated notifications; clients will not receive "+
+			"resources/updated events.",
+		ComponentController,
+	)
+
 	// Variables injected into agent pods (not read by the controller itself).
 
 	KagentName = RegisterStringVar(

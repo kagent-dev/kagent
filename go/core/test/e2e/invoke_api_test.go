@@ -1044,6 +1044,15 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
+	runE2EInvokeSTSIntegration(t, "python", nil)
+}
+
+func TestE2EGoInvokeSTSIntegration(t *testing.T) {
+	goRuntime := v1alpha2.DeclarativeRuntime_Go
+	runE2EInvokeSTSIntegration(t, "go", &goRuntime)
+}
+
+func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
 	// Setup mock STS server
 	agentName := "test-sts"
 	agentServiceAccount := fmt.Sprintf("system:serviceaccount:kagent:%s", agentName)
@@ -1079,8 +1088,9 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{
-		Name:          "test-sts-agent",
+		Name:          "test-sts-agent-" + runtimeName,
 		SystemMessage: "You are an agent that adds numbers using the add tool available to you through the everything-mcp-server.",
+		Runtime:       runtimeOverride,
 		Env: []corev1.EnvVar{
 			{
 				Name:  "STS_WELL_KNOWN_URI",
@@ -1111,7 +1121,7 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		a2aclient.WithHTTPClient(httpClient))
 	require.NoError(t, err)
 
-	t.Run("sync_invocation", func(t *testing.T) {
+	t.Run(runtimeName+"/sts_exchange_sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
 
 		// verify our mock STS server received the token exchange request
@@ -1122,6 +1132,10 @@ func TestE2EInvokeSTSIntegration(t *testing.T) {
 		// which contains the may act claim
 		stsRequest := stsRequests[0]
 		require.Equal(t, subjectToken, stsRequest.SubjectToken)
+		require.Equal(t, "urn:ietf:params:oauth:grant-type:token-exchange", stsRequest.GrantType)
+		require.Equal(t, "urn:ietf:params:oauth:token-type:jwt", stsRequest.SubjectTokenType)
+		require.NotEmpty(t, stsRequest.ActorToken)
+		require.Equal(t, "urn:ietf:params:oauth:token-type:jwt", stsRequest.ActorTokenType)
 	})
 }
 
