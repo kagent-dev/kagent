@@ -1,6 +1,7 @@
 import { http, HttpResponse, delay } from "msw";
 import type { Session } from "@/types";
-import type { Task, TaskState } from "@a2a-js/sdk";
+import type { Task } from "@a2a-js/sdk";
+import type { TaskState } from "@a2a-js/sdk";
 
 /**
  * The backend URL that fetchApi constructs requests against.
@@ -39,25 +40,34 @@ export function createMockTask(
     messageId?: string;
     metadata?: Record<string, unknown>;
   }>,
-  status: { state: TaskState } = { state: "completed" },
+  status: { state: TaskState } = { state: 3 },
 ): Task {
   return {
     id: taskId,
     contextId,
-    kind: "task",
     status,
     history: history.map((h, i) => ({
-      kind: "message" as const,
       messageId: h.messageId ?? `${taskId}-msg-${i}`,
-      role: h.role,
-      parts: [{ kind: "text" as const, text: h.text }],
+      role: h.role === "user" ? 1 : 2,
+      parts: [{
+        content: { $case: "text", value: h.text },
+        metadata: {},
+        filename: "",
+        mediaType: "text/plain",
+      }],
+      contextId,
+      taskId,
       metadata: {
         displaySource: h.role === "agent" ? "assistant" : undefined,
         timestamp: Date.now() - (history.length - i) * 60_000,
         ...h.metadata,
       },
+      extensions: [],
+      referenceTaskIds: [],
     })),
-  };
+    artifacts: [],
+    metadata: undefined,
+  } as unknown as Task;
 }
 
 /**
@@ -75,73 +85,95 @@ export function createMockToolCallTask(
   return {
     id: taskId,
     contextId,
-    kind: "task",
-    status: { state: "completed" },
+    status: { state: 3 },
     history: [
       // User message that triggered the tool call
       {
-        kind: "message" as const,
         messageId: `${taskId}-user`,
-        role: "user" as const,
-        parts: [{ kind: "text" as const, text: "Run the tool" }],
+        role: 1,
+        parts: [{
+          content: { $case: "text", value: "Run the tool" },
+          metadata: {},
+          filename: "",
+          mediaType: "text/plain",
+        }],
+        contextId,
+        taskId,
         metadata: { timestamp: Date.now() - 120_000 },
+        extensions: [],
+        referenceTaskIds: [],
       },
       // Agent message with tool call request (DataPart)
       {
-        kind: "message" as const,
         messageId: `${taskId}-tool-call`,
-        role: "agent" as const,
+        role: 2,
         parts: [
           {
-            kind: "data" as const,
-            data: { id: `call-${taskId}`, name: toolName, args: toolArgs },
+            content: { $case: "data", value: { id: `call-${taskId}`, name: toolName, args: toolArgs } },
             metadata: { adk_type: "function_call" },
+            filename: "",
+            mediaType: "application/json",
           },
         ],
+        contextId,
+        taskId,
         metadata: {
           displaySource: "assistant",
           timestamp: Date.now() - 90_000,
         },
+        extensions: [],
+        referenceTaskIds: [],
       },
       // Agent message with tool execution result (DataPart)
       {
-        kind: "message" as const,
         messageId: `${taskId}-tool-result`,
-        role: "agent" as const,
+        role: 2,
         parts: [
           {
-            kind: "data" as const,
-            data: {
+            content: { $case: "data", value: {
               id: `call-${taskId}`,
               name: toolName,
               response: { result: toolResult, isError: false },
-            },
+            } },
             metadata: { adk_type: "function_response" },
+            filename: "",
+            mediaType: "application/json",
           },
         ],
+        contextId,
+        taskId,
         metadata: {
           displaySource: "assistant",
           timestamp: Date.now() - 60_000,
         },
+        extensions: [],
+        referenceTaskIds: [],
       },
       // Final text response after tool execution
       {
-        kind: "message" as const,
         messageId: `${taskId}-final`,
-        role: "agent" as const,
+        role: 2,
         parts: [
           {
-            kind: "text" as const,
-            text: `I used the **${toolName}** tool and here are the results:\n\n${toolResult}`,
+            content: { $case: "text", value: `I used the **${toolName}** tool and here are the results:\n\n${toolResult}` },
+            metadata: {},
+            filename: "",
+            mediaType: "text/plain",
           },
         ],
+        contextId,
+        taskId,
         metadata: {
           displaySource: "assistant",
           timestamp: Date.now() - 30_000,
         },
+        extensions: [],
+        referenceTaskIds: [],
       },
     ],
-  };
+    artifacts: [],
+    metadata: undefined,
+  } as unknown as Task;
 }
 
 // ---------------------------------------------------------------------------

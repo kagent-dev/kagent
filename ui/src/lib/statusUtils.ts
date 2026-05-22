@@ -6,24 +6,33 @@ export interface StatusInfo {
   placeholder: string;
 }
 
-// Map A2A TaskState to our ChatStatus for UI purposes
-export const mapA2AStateToStatus = (state: TaskState): ChatStatus => {
+// Map strict v1 A2A TaskState enum values to our ChatStatus.
+export const mapA2AStateToStatus = (state: TaskState | undefined): ChatStatus => {
+  if (state === TaskState.TASK_STATE_SUBMITTED) {
+    return "submitted";
+  }
+  if (state === TaskState.TASK_STATE_WORKING) {
+    return "working";
+  }
+  if (state === TaskState.TASK_STATE_INPUT_REQUIRED) {
+    return "input_required";
+  }
+  if (state === TaskState.TASK_STATE_COMPLETED) {
+    return "ready";
+  }
+  if (
+    state === TaskState.TASK_STATE_CANCELED ||
+    state === TaskState.TASK_STATE_FAILED ||
+    state === TaskState.TASK_STATE_REJECTED
+  ) {
+    return "error";
+  }
+  if (state === TaskState.TASK_STATE_AUTH_REQUIRED) {
+    return "auth_required";
+  }
+
   switch (state) {
-    case "submitted":
-      return "submitted";
-    case "working":
-      return "working";
-    case "input-required":
-      return "input_required";
-    case "completed":
-      return "ready";
-    case "canceled":
-    case "failed": 
-    case "rejected":
-      return "error";
-    case "auth-required":
-      return "auth_required";
-    case "unknown":
+    case TaskState.TASK_STATE_UNSPECIFIED:
     default:
       return "thinking";
   }

@@ -1,7 +1,14 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { v4 as uuidv4 } from "uuid";
-import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
+import type {
+  Message as A2AMessage,
+  Task as A2ATask,
+  TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
+  StreamResponse as A2AStreamResponse,
+  Part as A2APart,
+} from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -149,20 +156,36 @@ export const createRFC1123ValidName = (parts: string[]): string => {
 };
 
 export const messageUtils = {
+  isA2AStreamResponse(content: unknown): content is A2AStreamResponse {
+    return typeof content === "object" && content !== null && "payload" in content;
+  },
+
   isA2AMessage(content: unknown): content is A2AMessage {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "message";
+    return typeof content === "object" && content !== null && "messageId" in content && "parts" in content;
   },
 
   isA2ATask(content: unknown): content is A2ATask {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "task";
+    return typeof content === "object" && content !== null && "id" in content && "history" in content;
   },
 
   isA2ATaskStatusUpdate(content: unknown): content is A2ATaskStatusUpdateEvent {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "status-update";
+    return typeof content === "object" && content !== null && "taskId" in content && "status" in content;
   },
 
   isA2ATaskArtifactUpdate(content: unknown): content is A2ATaskArtifactUpdateEvent {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "artifact-update";
+    return typeof content === "object" && content !== null && "taskId" in content && "artifact" in content;
+  },
+};
+
+export const a2aPartUtils = {
+  getCase(part: A2APart): string | undefined {
+    return part.content?.$case;
+  },
+  getText(part: A2APart): string {
+    return part.content?.$case === "text" ? part.content.value : "";
+  },
+  getData(part: A2APart): unknown | undefined {
+    return part.content?.$case === "data" ? part.content.value : undefined;
   },
 };
 

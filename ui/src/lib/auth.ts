@@ -72,7 +72,7 @@ function getAllowedHeadersFromEnv(): Set<string> {
  * accepted from cross-origin browsers, even when the backend trusts them
  * server-to-server.
  */
-export const CORS_ALLOW_HEADERS = "Content-Type, Authorization, Accept";
+export const CORS_ALLOW_HEADERS = "Content-Type, Authorization, Accept, A2A-Version";
 
 /**
  * Copy headers named in `allowed` from `getHeader` into a forwardable record.

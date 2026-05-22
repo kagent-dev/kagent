@@ -1,8 +1,40 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import type {
+  Task,
+  TaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent,
+  Part,
+  StreamResponse,
+} from "@a2a-js/sdk";
+import { TaskState, Role, Message, roleFromJSON } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, isAgentToolName, messageUtils } from "@/lib/utils";
+import { convertToUserFriendlyName, isAgentToolName, a2aPartUtils } from "@/lib/utils";
 import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
+
+function isInputRequiredState(state: TaskState | undefined): boolean {
+  return state === TaskState.TASK_STATE_INPUT_REQUIRED;
+}
+
+function isUserRole(role: Role | string | number | undefined): boolean {
+  return roleFromJSON(role) === Role.ROLE_USER;
+}
+
+function isTerminalState(state: TaskState | undefined): boolean {
+  return (
+    state === TaskState.TASK_STATE_COMPLETED ||
+    state === TaskState.TASK_STATE_FAILED ||
+    state === TaskState.TASK_STATE_CANCELED ||
+    state === TaskState.TASK_STATE_REJECTED
+  );
+}
+
+interface DataPart extends Part {
+  content: { $case: "data"; value: unknown };
+}
+
+interface TextPart extends Part {
+  content: { $case: "text"; value: string };
+}
 
 // Helper functions for extracting data from stored tasks
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
@@ -18,8 +50,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
     let lastSeenStats: TokenStats | undefined;
 
     for (let i = 0; i < task.history.length; i++) {
-      const historyItem = task.history[i];
-      if (historyItem.kind !== "message") continue;
+      const historyItem = Message.fromJSON(task.history[i]);
 
       // Deduplicate by messageId to avoid showing the same message twice
       if (seenMessageIds.has(historyItem.messageId)) continue;
@@ -31,7 +62,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       if (confirmationParts.length > 0) {
         // Find the decision that applies to THIS confirmation (first decision AFTER this message)
         const decision = findDecisionAfterIndex(
-          task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>,
+          task.history as Array<{ role?: Role; parts?: Part[] }>,
           i
         );
 
@@ -52,7 +83,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       if (isUserDecisionMessage(historyItem)) continue;
 
       // User messages: push as-is (no tokenStats needed).
-      if (historyItem.role === "user") {
+      if (isUserRole(historyItem.role)) {
         messages.push(historyItem);
         continue;
       }
@@ -69,17 +100,17 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
       let hasConvertedParts = false;
       for (const part of historyItem.parts ?? []) {
-        if (part.kind !== "data") continue;
-        const dp = part as DataPart;
+        if (!isDataPart(part)) continue;
+        const dp = part;
         const partMeta = dp.metadata as Record<string, unknown> | undefined;
         const partType = getMetadataValue<string>(partMeta, "type");
 
         if (partType === "function_call") {
-          const fcName = (dp.data as Record<string, unknown>)?.name as string | undefined;
+          const fcName = (dp.content.value as Record<string, unknown>)?.name as string | undefined;
           // Skip ADK internal calls — confirmations are handled above.
           if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") continue;
 
-          const toolData = dp.data as unknown as ToolCallData;
+          const toolData = dp.content.value as unknown as ToolCallData;
           // Agent calls get no initial tokenStats; child stats arrive later via
           // the function_response and are stamped on this card below.
           // Regular tool calls use the message's own invocation stats.
@@ -104,7 +135,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
           hasConvertedParts = true;
 
         } else if (partType === "function_response") {
-          const toolData = dp.data as unknown as ToolResponseData;
+          const toolData = dp.content.value as unknown as ToolResponseData;
           let frSubagentSessionId: string | undefined;
           if (isAgentToolName(toolData.name)) {
             const responseObj = toolData.response as Record<string, unknown> | undefined;
@@ -164,10 +195,10 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
-  if (message.role !== "user" || !message.parts) return false;
+  if (!isUserRole(message.role) || !message.parts) return false;
   return message.parts.some((p: Part) => {
-    if (p.kind !== "data") return false;
-    const data = (p as DataPart).data as Record<string, unknown> | undefined;
+    if (!isDataPart(p)) return false;
+    const data = p.content.value as Record<string, unknown> | undefined;
     return data?.decision_type != null;
   });
 }
@@ -186,7 +217,7 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
 
   for (const task of tasks) {
     const status = task.status;
-    if (status?.state !== "input-required" || !status?.message) continue;
+    if (!isInputRequiredState(status?.state) || !status?.message) continue;
 
     const confirmationParts = findConfirmationParts(status.message as Message);
     if (confirmationParts.length === 0) continue;
@@ -204,13 +235,13 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
 function findConfirmationParts(message: Message): DataPart[] {
   if (!message.parts) return [];
   return message.parts.filter((part: Part) => {
-    if (part.kind !== "data") return false;
-    const dp = part as DataPart;
+    if (!isDataPart(part)) return false;
+    const dp = part;
     const meta = dp.metadata as Record<string, unknown> | undefined;
     return (
       getMetadataValue<string>(meta, "type") === "function_call" &&
       getMetadataValue<boolean>(meta, "is_long_running") === true &&
-      (dp.data as Record<string, unknown>)?.name === "adk_request_confirmation"
+      (dp.content.value as Record<string, unknown>)?.name === "adk_request_confirmation"
     );
   }) as DataPart[];
 }
@@ -221,15 +252,15 @@ function findConfirmationParts(message: Message): DataPart[] {
  * if a task enters input-required multiple times.
  */
 function findDecisionAfterIndex(
-  history: Array<{ kind?: string; role?: string; parts?: Part[] }>,
+  history: Array<{ role?: Role; parts?: Part[] }>,
   startIndex: number
 ): Record<string, unknown> | undefined {
   for (let i = startIndex + 1; i < history.length; i++) {
     const item = history[i];
-    if (item.kind !== "message" || item.role !== "user" || !item.parts) continue;
+    if (!isUserRole(item.role) || !item.parts) continue;
     for (const p of item.parts) {
-      if (p.kind !== "data") continue;
-      const data = (p as DataPart).data as Record<string, unknown> | undefined;
+      if (!isDataPart(p)) continue;
+      const data = p.content.value as Record<string, unknown> | undefined;
       if (data?.decision_type != null) {
         return data;
       }
@@ -271,7 +302,7 @@ export function buildApprovalMessage(
   decisionData?: Record<string, unknown>,
   tokenStats?: TokenStats
 ): Message {
-  const data = confPart.data as unknown as AdkRequestConfirmationData;
+  const data = confPart.content.value as unknown as AdkRequestConfirmationData;
   const origFc = data.args.originalFunctionCall;
   const toolId = origFc.id || data.id;
 
@@ -387,8 +418,8 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   let total = 0, prompt = 0, completion = 0;
   for (const task of tasks) {
     for (const item of task.history ?? []) {
-      const msg = item as unknown as { kind?: string; role?: string; metadata?: Record<string, unknown>; parts?: Part[] };
-      if (msg.kind !== "message" || msg.role === "user") continue;
+      const msg = item as { role?: number; metadata?: Record<string, unknown>; parts?: Part[] };
+      if (isUserRole(msg.role)) continue;
 
       // Message-level usage (most agent messages carry this).
       const stats = getMessageTokenStats(msg.metadata);
@@ -401,11 +432,11 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
       // function_response from agent tools carries child-agent usage inside the
       // response dict rather than in message-level metadata — include it here.
       for (const part of msg.parts ?? []) {
-        if (part.kind !== "data") continue;
-        const dp = part as DataPart;
+        if (!isDataPart(part)) continue;
+        const dp = part;
         const partMeta = dp.metadata as Record<string, unknown> | undefined;
         if (getMetadataValue<string>(partMeta, "type") !== "function_response") continue;
-        const toolData = dp.data as unknown as ToolResponseData;
+        const toolData = dp.content.value as unknown as ToolResponseData;
         if (!isAgentToolName(toolData.name)) continue;
         const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
         if (!responseUsage) continue;
@@ -537,11 +568,11 @@ export function normalizeToolResultToText(toolData: ToolResponseData): string {
 }
 
 function isTextPart(part: Part): part is TextPart {
-  return part.kind === "text";
+  return a2aPartUtils.getCase(part) === "text";
 }
 
 function isDataPart(part: Part): part is DataPart {
-  return part.kind === "data";
+  return a2aPartUtils.getCase(part) === "data";
 }
 
 function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
@@ -577,20 +608,23 @@ export function createMessage(
   } = options;
 
   const message: Message = {
-    kind: "message",
     messageId,
-    role: source === "user" ? "user" : "agent",
+    role: source === "user" ? Role.ROLE_USER : Role.ROLE_AGENT,
     parts: [{
-      kind: "text",
-      text: content
+      content: { $case: "text", value: content },
+      metadata: undefined,
+      filename: "",
+      mediaType: "text/plain",
     }],
-    contextId,
-    taskId,
+    contextId: contextId ?? "",
+    taskId: taskId ?? "",
     metadata: {
       originalType,
       displaySource: source,
       ...additionalMetadata
-    }
+    },
+    extensions: [],
+    referenceTaskIds: [],
   };
   return message;
 }
@@ -641,15 +675,15 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const aggregatePartsToText = (parts: Part[]): string => {
     return parts.map((part: Part) => {
       if (isTextPart(part)) {
-        return part.text || "";
+        return part.content.value || "";
       } else if (isDataPart(part)) {
         try {
-          return JSON.stringify(part.data || "");
+          return JSON.stringify(part.content.value || "");
         } catch {
-          return String(part.data);
+          return String(part.content.value);
         }
-      } else if (part.kind === "file") {
-        return `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+      } else if (part.content?.$case === "raw" || part.content?.$case === "url") {
+        return `[File: ${part.filename || "unknown"}]`;
       }
       return String(part);
     }).join("");
@@ -765,7 +799,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     }
   };
 
-  const isUserMessage = (message: Message): boolean => message.role === "user";
+  const isUserMessage = (message: Message): boolean => isUserRole(message.role);
 
   // Simple fallback source when metadata is not available
   const defaultAgentSource = handlers.agentContext
@@ -800,7 +834,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         handlers.setMessages(prev => {
           const updated = [...prev];
           for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].role === "user") break;
+            if (isUserRole(updated[i].role)) break;
             // Stop at an invocation boundary — everything before belongs to an
             // earlier LLM call and must not be tagged with this turn's stats.
             // ToolApprovalRequest: HITL boundary; ToolCallExecutionEvent: the
@@ -817,11 +851,12 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }
 
       // Check for tool approval interrupt
+      const status = statusUpdate.status;
       if (
-        statusUpdate.status.state === "input-required" &&
-        statusUpdate.status.message
+        isInputRequiredState(status?.state) &&
+        status?.message
       ) {
-        const confirmationParts = findConfirmationParts(statusUpdate.status.message as Message);
+        const confirmationParts = findConfirmationParts(status.message as Message);
 
         if (confirmationParts.length > 0) {
           for (const confPart of confirmationParts) {
@@ -846,8 +881,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       }
 
       // If the status update has a message, process it
-      if (statusUpdate.status.message) {
-        const message = statusUpdate.status.message;
+      if (status?.message) {
+        const message = status.message;
 
         // Skip user messages to avoid duplicates (they're already shown immediately)
         if (isUserMessage(message)) {
@@ -857,10 +892,10 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         for (const part of message.parts) {
 
           if (isTextPart(part)) {
-            const textContent = part.text || "";
+            const textContent = part.content.value || "";
             const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
-            if (statusUpdate.final) {
+            if (isTerminalState(statusUpdate.status?.state)) {
               const displayMessage = createMessage(
                 textContent,
                 source,
@@ -883,7 +918,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
               }
             }
           } else if (isDataPart(part)) {
-            const data = part.data;
+            const data = part.content.value;
             const partMetadata = part.metadata as ADKMetadata | undefined;
 
             const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
@@ -923,12 +958,12 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
       } else {
         if (handlers.setChatStatus) {
-          const uiStatus = mapA2AStateToStatus(statusUpdate.status.state);
+          const uiStatus = mapA2AStateToStatus(status?.state);
           handlers.setChatStatus(uiStatus);
         }
       }
 
-      if (statusUpdate.final) {
+      if (isTerminalState(statusUpdate.status?.state)) {
         finalizeStreaming();
       }
     } catch (error) {
@@ -948,14 +983,15 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     // Add artifact content and convert tool parts to messages
     let artifactText = "";
     const convertedMessages: Message[] = [];
-    for (const part of artifactUpdate.artifact.parts) {
+    const artifactParts = artifactUpdate.artifact?.parts ?? [];
+    for (const part of artifactParts) {
       if (isTextPart(part)) {
-        artifactText += part.text || "";
+        artifactText += part.content.value || "";
         continue;
       }
       if (isDataPart(part)) {
         const partMetadata = part.metadata as ADKMetadata | undefined;
-        const data = part.data;
+        const data = part.content.value;
         const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
         const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
@@ -1011,8 +1047,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
         continue;
       }
-      if (part.kind === "file") {
-        artifactText += `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+      if (part.content?.$case === "raw" || part.content?.$case === "url") {
+        artifactText += `[File: ${part.filename || "unknown"}]`;
         continue;
       }
       artifactText += String(part);
@@ -1112,7 +1148,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const handleA2AMessage = (message: Message) => {
     const content = aggregatePartsToText(message.parts);
 
-    if (message.role !== "user") {
+    if (!isUserRole(message.role)) {
       const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
       const displayMessage = createMessage(
         content,
@@ -1132,30 +1168,27 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     appendMessage(message);
   };
 
-  const handleMessageEvent = (message: Message) => {
-    if (messageUtils.isA2ATask(message)) {
-      handlers.setIsStreaming(true);
-      return;
-    }
+  const handleMessageEvent = (streamEvent: StreamResponse) => {
+    const payload = streamEvent.payload;
+    if (!payload) return;
 
-    if (messageUtils.isA2ATaskStatusUpdate(message)) {
-      handleA2ATaskStatusUpdate(message);
-      return;
+    switch (payload.$case) {
+      case "task":
+        handlers.setIsStreaming(true);
+        return;
+      case "statusUpdate":
+        handleA2ATaskStatusUpdate(payload.value);
+        return;
+      case "artifactUpdate":
+        handleA2ATaskArtifactUpdate(payload.value);
+        return;
+      case "message":
+        handleA2AMessage(payload.value);
+        return;
+      default:
+        console.warn("🤔 Unknown message type from A2A stream:", streamEvent);
+        return;
     }
-
-    if (messageUtils.isA2ATaskArtifactUpdate(message)) {
-      handleA2ATaskArtifactUpdate(message);
-      return;
-    }
-
-    if (messageUtils.isA2AMessage(message)) {
-      handleA2AMessage(message);
-      return;
-    }
-
-    // If we get here, it's an unknown message type from the A2A stream
-    console.warn("🤔 Unknown message type from A2A stream:", message);
-    handleOtherMessage(message);
   };
 
   return {

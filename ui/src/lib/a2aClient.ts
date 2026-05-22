@@ -1,13 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
-import { MessageSendParams } from '@a2a-js/sdk';
+import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER, Message } from "@a2a-js/sdk";
+import type { Message as A2AMessage, StreamResponse } from "@a2a-js/sdk";
 import { formatA2AClientError } from './a2aErrors';
+
+// A2A JSON-RPC methods
+// NOTE: These are not exported by @a2a-js/sdk, so we need to define them here.
+export const A2A_JSONRPC_METHODS = {
+  sendStreamingMessage: "SendStreamingMessage",
+  subscribeToTask: "SubscribeToTask",
+} as const;
 
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: MessageSendParams;
+  params: {
+    message: unknown;
+    metadata?: Record<string, unknown>;
+  };
   id: string | number;
 }
 
@@ -29,11 +40,14 @@ export class KagentA2AClient {
   /**
    * Create JSON-RPC request for message streaming
    */
-  createStreamingRequest(params: MessageSendParams): A2AJsonRpcRequest {
+  createStreamingRequest(params: { message: A2AMessage; metadata?: Record<string, unknown> }): A2AJsonRpcRequest {
     return {
       jsonrpc: "2.0",
-      method: "message/stream",
-      params,
+      method: A2A_JSONRPC_METHODS.sendStreamingMessage,
+      params: {
+        ...params,
+        message: Message.toJSON(params.message),
+      },
       id: uuidv4(),  // A2A server requires an id field
     };
   }
@@ -45,10 +59,10 @@ export class KagentA2AClient {
   async sendMessageStream(
     namespace: string,
     agentName: string,
-    params: MessageSendParams,
+    params: { message: A2AMessage; metadata?: Record<string, unknown> },
     signal?: AbortSignal,
     runInSandbox = false
-  ): Promise<AsyncIterable<any>> {
+  ): Promise<AsyncIterable<StreamResponse>> {
     const request = this.createStreamingRequest(params);
     const proxyUrl = runInSandbox
       ? `/a2a-sandboxes/${namespace}/${agentName}`
@@ -59,6 +73,7 @@ export class KagentA2AClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
+        [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
       },
       body: JSON.stringify(request),
       signal,
@@ -92,7 +107,7 @@ export class KagentA2AClient {
   ): Promise<AsyncIterable<any>> {
     const request = {
       jsonrpc: "2.0" as const,
-      method: "tasks/resubscribe",
+      method: A2A_JSONRPC_METHODS.subscribeToTask,
       params: { id: taskId },
       id: uuidv4(),
     };
@@ -106,6 +121,7 @@ export class KagentA2AClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
+        [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
       },
       body: JSON.stringify(request),
       signal,
@@ -126,7 +142,7 @@ export class KagentA2AClient {
   /**
    * Process Server-Sent Events stream with proper event boundary detection
    */
-  private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<any> {
+  private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<StreamResponse> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -159,7 +175,7 @@ export class KagentA2AClient {
 
                 try {
                   const eventData = JSON.parse(dataString);
-                  yield eventData.result || eventData;
+                  yield (eventData.result || eventData) as StreamResponse;
                 } catch (error) {
                   console.error("❌ Failed to parse SSE data:", error, dataString);
                 }
