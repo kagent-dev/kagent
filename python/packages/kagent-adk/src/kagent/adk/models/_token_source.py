@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import json
 import logging
 import time
 
@@ -12,8 +13,14 @@ class GDCHTokenSource:
     """Exchanges a GDCH service account JSON for short-lived bearer tokens.
 
     Tokens are cached and refreshed automatically with a 30-second buffer
-    before expiry. The CA certificate path is used for custom TLS verification
-    when connecting to the GDCH token endpoint.
+    before expiry.
+
+    The kagent ModelConfig ``tls.*`` fields are authoritative for TLS
+    verification of the STS endpoint. The ``ca_cert_path`` baked into the SA
+    JSON by ``gdcloud iam service-accounts keys create`` points at the
+    operator's laptop and would otherwise override our session settings, so
+    we normalize it on every refresh: rewritten to the kagent-mounted CA
+    path when one is supplied, stripped entirely otherwise.
     """
 
     def __init__(
@@ -45,19 +52,27 @@ class GDCHTokenSource:
             return self._token
 
     def _exchange(self) -> str:
-        import google.auth
         import requests
         from google.auth.transport import requests as google_requests
+        from google.oauth2 import gdch_credentials
 
-        creds, _ = google.auth.load_credentials_from_file(self._sa_path)
+        with open(self._sa_path, "r", encoding="utf-8") as f:
+            info = json.load(f)
+
+        if self._tls_disable_verify or not self._ca_cert_path:
+            info.pop("ca_cert_path", None)
+        else:
+            info["ca_cert_path"] = self._ca_cert_path
+
+        creds = gdch_credentials.ServiceAccountCredentials.from_service_account_info(info)
         creds = creds.with_gdch_audience(self._audience)
-        session = requests.Session()
-        if self._tls_disable_verify:
-            session.verify = False
-        elif self._ca_cert_path:
-            # Replaces the REQUESTS_CA_BUNDLE environment variable
-            session.verify = self._ca_cert_path
-        creds.refresh(google_requests.Request(session=session))
+
+        with requests.Session() as session:
+            if self._tls_disable_verify:
+                session.verify = False
+            elif self._ca_cert_path:
+                session.verify = self._ca_cert_path
+            creds.refresh(google_requests.Request(session=session))
         if creds.expiry:
             expiry = creds.expiry
             # If the expiry is not timezone-aware, set it to UTC

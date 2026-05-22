@@ -114,7 +114,16 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
 
 .PHONY: help
 help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+.PHONY: print-tools-versions
+print-tools-versions: ## Print tools versions
+	@echo "VERSION      : $(VERSION)"
+	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
+	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
+	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
+	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
+	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 ##@ Git
 
@@ -132,17 +141,11 @@ HELM_ACTION=upgrade --install
 # Helm chart variables
 KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
 
-# Print tools versions
-print-tools-versions:
-	@echo "VERSION      : $(VERSION)"
-	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
-	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
-	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
-	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
-	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
-# Check if the appropriate API key is set based on the model provider
-check-api-key:
+##@ Build
+
+.PHONY: check-api-key
+check-api-key: ## Validate required API key for the configured model provider
 	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
 		if [ -z "$(OPENAI_API_KEY)" ]; then \
 			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
@@ -174,7 +177,7 @@ check-api-key:
 	fi
 
 .PHONY: buildx-create
-buildx-create:
+buildx-create: ## Create or reuse the buildx builder instance
 ifeq ($(CONTAINER_RUNTIME),podman)
 	@echo "Podman detected; skipping buildx builder setup (using built-in buildx)."
 else
@@ -183,7 +186,8 @@ else
 	$(CONTAINER_RUNTIME) buildx use $(BUILDX_BUILDER_NAME) || true
 endif
 
-.PHONY: build-all  # for test purpose build all but output to /dev/null
+.PHONY: build-all
+build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
 build-all: buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
@@ -191,8 +195,107 @@ build-all: buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
+.PHONY: build
+build: ## Build and push all component images
+build: buildx-create build-controller build-ui build-app build-golang-adk build-golang-adk-full build-skills-init
+	@echo "Build completed successfully."
+	@echo "Controller Image: $(CONTROLLER_IMG)"
+	@echo "UI Image: $(UI_IMG)"
+	@echo "App Image: $(APP_IMG)"
+	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
+	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
+	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
+	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
+
+.PHONY: build-monitor
+build-monitor: ## Watch BuildKit process list inside the buildx container
+build-monitor: buildx-create
+ifeq ($(CONTAINER_RUNTIME),podman)
+	@echo "build-monitor is not supported with Podman (no external buildkit container)"
+else
+	watch $(CONTAINER_RUNTIME) exec -t  buildx_buildkit_$(BUILDX_BUILDER_NAME)0  ps
+endif
+
+.PHONY: build-cli
+build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
+	make -C go build
+
+.PHONY: build-cli-local
+build-cli-local: ## Build the kagent CLI binary for the local machine
+	make -C go clean
+	make -C go core/bin/kagent-local
+
+.PHONY: build-img-versions
+build-img-versions: ## Print the fully-qualified image tags for all components
+	@echo controller=$(CONTROLLER_IMG)
+	@echo ui=$(UI_IMG)
+	@echo app=$(APP_IMG)
+	@echo kagent-adk=$(KAGENT_ADK_IMG)
+	@echo golang-adk=$(GOLANG_ADK_IMG)
+	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
+	@echo skills-init=$(SKILLS_INIT_IMG)
+
+.PHONY: controller-manifests
+controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
+	make -C go manifests
+	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
+
+.PHONY: build-controller
+build-controller: ## Build and push the controller image
+build-controller: buildx-create controller-manifests
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(CONTROLLER_IMG)
+
+.PHONY: build-ui
+build-ui: ## Build and push the UI image
+build-ui: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_PUSH) $(UI_IMG)
+
+.PHONY: build-kagent-adk
+build-kagent-adk: ## Build and push the Python kagent ADK image
+build-kagent-adk: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
+
+.PHONY: build-app
+build-app: ## Build and push the app image (depends on kagent-adk)
+build-app: buildx-create build-kagent-adk
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_PUSH) $(APP_IMG)
+
+.PHONY: build-golang-adk
+build-golang-adk: ## Build and push the Go ADK image
+build-golang-adk: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
+
+.PHONY: build-golang-adk-full
+build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
+build-golang-adk-full: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
+	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
+
+.PHONY: build-skills-init
+build-skills-init: ## Build and push the skills-init image
+build-skills-init: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
+
+.PHONY: push
+push: ## Push all component images (controller, ui, app, ADKs)
+push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
+
+
+##@ Testing
+
+.PHONY: lint
+lint: ## Run linters for Go and Python
+	make -C go lint
+	make -C python lint
+
 .PHONY: push-test-agent
-push-test-agent: buildx-create build-kagent-adk
+push-test-agent: buildx-create build-kagent-adk ## Build and push E2E test agent images to the local registry
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
@@ -205,140 +308,40 @@ push-test-agent: buildx-create build-kagent-adk
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
 
 .PHONY: push-test-skill
-push-test-skill: buildx-create
+push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
 
+
+##@ Cluster
+
 .PHONY: create-kind-cluster
-create-kind-cluster:
+
+create-kind-cluster: ## Create a local kind cluster with MetalLB
 	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
 	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
-use-kind-cluster:
+use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
 	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
 	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
 	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 
 .PHONY: delete-kind-cluster
-delete-kind-cluster:
+delete-kind-cluster: ## Delete the local kind cluster
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
 
-.PHONY: clean
-clean: prune-kind-cluster
-clean: prune-images
-ifneq ($(CONTAINER_RUNTIME),podman)
-	$(CONTAINER_RUNTIME) buildx rm $(BUILDX_BUILDER_NAME)  -f || true
-endif
-	rm -rf ./go/core/bin
 
-.PHONY: prune-kind-cluster
-prune-kind-cluster:
-	echo "Pruning dangling container images from kind  ..."
-	$(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
-	grep '<none>' | awk '{print $$3}' | xargs -r -n1 $(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
-
-.PHONY: prune-images
-prune-images:
-	echo "Pruning dangling container images ..."
-	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
-	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
-	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-
-.PHONY: build
-build: buildx-create build-controller build-ui build-app build-golang-adk build-golang-adk-full build-skills-init
-	@echo "Build completed successfully."
-	@echo "Controller Image: $(CONTROLLER_IMG)"
-	@echo "UI Image: $(UI_IMG)"
-	@echo "App Image: $(APP_IMG)"
-	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
-	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
-	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
-	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
-
-.PHONY: build-monitor
-build-monitor: buildx-create
-ifeq ($(CONTAINER_RUNTIME),podman)
-	@echo "build-monitor is not supported with Podman (no external buildkit container)"
-else
-	watch $(CONTAINER_RUNTIME) exec -t  buildx_buildkit_$(BUILDX_BUILDER_NAME)0  ps
-endif
-
-.PHONY: build-cli
-build-cli:
-	make -C go build
-
-.PHONY: build-cli-local
-build-cli-local:
-	make -C go clean
-	make -C go core/bin/kagent-local
-
-.PHONY: build-img-versions
-build-img-versions:
-	@echo controller=$(CONTROLLER_IMG)
-	@echo ui=$(UI_IMG)
-	@echo app=$(APP_IMG)
-	@echo kagent-adk=$(KAGENT_ADK_IMG)
-	@echo golang-adk=$(GOLANG_ADK_IMG)
-	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
-	@echo skills-init=$(SKILLS_INIT_IMG)
-
-.PHONY: lint
-lint:
-	make -C go lint
-	make -C python lint
-
-.PHONY: push
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
-
-
-.PHONY: controller-manifests
-controller-manifests:
-	make -C go manifests
-	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
-
-.PHONY: build-controller
-build-controller: buildx-create controller-manifests
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
-	$(DOCKER_PUSH) $(CONTROLLER_IMG)
-
-.PHONY: build-ui
-build-ui: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
-	$(DOCKER_PUSH) $(UI_IMG)
-
-.PHONY: build-kagent-adk
-build-kagent-adk: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
-	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
-
-.PHONY: build-app
-build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_IMG)
-
-.PHONY: build-golang-adk
-build-golang-adk: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
-	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
-
-.PHONY: build-golang-adk-full
-build-golang-adk-full: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
-	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
-
-.PHONY: build-skills-init
-build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
-	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
+##@ Helm
 
 .PHONY: helm-cleanup
-helm-cleanup:
+helm-cleanup: ## Remove packaged Helm charts from the dist folder
 	rm -f ./$(HELM_DIST_FOLDER)/*.tgz
 
 .PHONY: helm-test
+helm-test: ## Render Helm templates for all providers and run helm unittest
 helm-test: helm-version
 	mkdir -p tmp
 	echo $$(helm template kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama																	| tee tmp/ollama.yaml 		| grep ^kind: | wc -l)
@@ -350,7 +353,7 @@ helm-test: helm-version
 	helm unittest helm/kagent
 
 .PHONY: helm-agents
-helm-agents:
+helm-agents: ## Package all agent Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/k8s
 	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
@@ -373,13 +376,14 @@ helm-agents:
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
 
 .PHONY: helm-tools
-helm-tools:
+helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
 	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 
 .PHONY: helm-version
+helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-agents helm-tools
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
@@ -389,6 +393,7 @@ helm-version: helm-cleanup helm-agents helm-tools
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent
 
 .PHONY: helm-install-provider
+helm-install-provider: ## Install or upgrade kagent-crds and kagent Helm releases on the kind cluster
 helm-install-provider: helm-version check-api-key
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
@@ -428,21 +433,22 @@ helm-install-provider: helm-version check-api-key
 		$(KAGENT_HELM_EXTRA_ARGS)
 
 .PHONY: helm-install
+helm-install: ## Build all images then install kagent onto the kind cluster
 helm-install: build
 helm-install: helm-install-provider
 
 .PHONY: helm-test-install
+helm-test-install: ## Dry-run helm install to validate chart rendering (pipe to tee for inspection)
 helm-test-install: HELM_ACTION+="--dry-run"
 helm-test-install: helm-install-provider
-# Test install with dry-run
-# Example: `make helm-test-install | tee helm-test-install.log`
 
 .PHONY: helm-uninstall
-helm-uninstall:
+helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind cluster
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
 .PHONY: helm-publish
+helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
@@ -456,23 +462,28 @@ helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
+##@ Dev
+
 .PHONY: kagent-cli-install
+kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
 kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
 	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-port-forward
+kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083
 kagent-cli-port-forward: use-kind-cluster
 	@echo "Port forwarding to kagent CLI..."
 	kubectl --context kind-$(KIND_CLUSTER_NAME) port-forward -n kagent service/kagent-controller 8083:8083
 
 .PHONY: kagent-ui-port-forward
+kagent-ui-port-forward: ## Open the UI in a browser and port-forward to localhost:8082
 kagent-ui-port-forward: use-kind-cluster
 	open http://localhost:8082/
 	kubectl --context kind-$(KIND_CLUSTER_NAME) port-forward -n kagent service/kagent-ui 8082:8080
 
 .PHONY: kagent-addon-install
+kagent-addon-install: ## Install Istio, Grafana, Prometheus, and metrics-server addons on the kind cluster
 kagent-addon-install: use-kind-cluster
-	# to test the kagent addons - installing istio, grafana, prometheus, metrics-server
 	istioctl install --context kind-$(KIND_CLUSTER_NAME) --set profile=demo -y
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/grafana.yaml
 	kubectl apply --context kind-$(KIND_CLUSTER_NAME) -f contrib/addons/prometheus.yaml
@@ -482,25 +493,28 @@ kagent-addon-install: use-kind-cluster
 	kubectl wait --context kind-$(KIND_CLUSTER_NAME) --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n kagent --timeout=60s
 
 .PHONY: open-dev-container
-open-dev-container:
+open-dev-container: ## Build and start the devcontainer
 	@echo "Building and starting dev container..."
 	devcontainer up --workspace-folder .
 
 .PHONY: otel-local
-otel-local:
+otel-local: ## Start a local Jaeger container for OpenTelemetry tracing (UI at localhost:16686)
 	$(CONTAINER_RUNTIME) rm -f jaeger-desktop || true
 	$(CONTAINER_RUNTIME) run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
 	@echo "Jaeger UI available at http://localhost:16686/"
 
 .PHONY: kind-debug
-kind-debug:
+kind-debug: ## Install btop/htop inside the kind control-plane container and launch btop
 	@echo "Debugging the kind cluster..."
 	@echo "Enter the kind cluster control plane container..."
 	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'apt-get update && apt-get install -y btop htop'
 	$(CONTAINER_RUNTIME) exec -it $(KIND_CLUSTER_NAME)-control-plane bash -c 'btop --utf-force'
 
+
+##@ Security
+
 .PHONY: audit
-audit:
+audit: ## Run CVE audits for Go, UI, and Python dependencies
 	echo "Running CVE audit GO"
 	make -C go govulncheck
 	echo "Running CVE audit UI"
@@ -509,9 +523,37 @@ audit:
 	make -C python audit
 
 .PHONY: report/image-cve
+report/image-cve: ## Scan built images with grype and write CVE CSV reports to reports/
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
+
+
+##@ Cleanup
+
+.PHONY: clean
+clean: ## Remove build artifacts, prune images, and delete the buildx builder
+clean: prune-kind-cluster
+clean: prune-images
+ifneq ($(CONTAINER_RUNTIME),podman)
+	$(CONTAINER_RUNTIME) buildx rm $(BUILDX_BUILDER_NAME)  -f || true
+endif
+	rm -rf ./go/core/bin
+
+.PHONY: prune-kind-cluster
+prune-kind-cluster: ## Remove dangling container images from the kind node
+	echo "Pruning dangling container images from kind  ..."
+	$(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl images --no-trunc --quiet | \
+	grep '<none>' | awk '{print $$3}' | xargs -r -n1 $(CONTAINER_RUNTIME) exec $(KIND_CLUSTER_NAME)-control-plane crictl rmi || :
+
+.PHONY: prune-images
+prune-images: ## Remove old kagent images and dangling images from the local daemon
+	echo "Pruning dangling container images ..."
+	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
+	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
+	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
+
+

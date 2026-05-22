@@ -13,6 +13,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -102,11 +103,15 @@ func NewMCPHandler(kubeClient client.Client, a2aBaseURL string, authenticator au
 	)
 
 	// Create HTTP handler
+	var httpOpts *mcpsdk.StreamableHTTPOptions
+	if env.KagentMCPStateless.Get() {
+		httpOpts = &mcpsdk.StreamableHTTPOptions{Stateless: true}
+	}
 	handler.httpHandler = mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server {
 			return server
 		},
-		nil,
+		httpOpts,
 	)
 
 	return handler, nil
