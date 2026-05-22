@@ -10,7 +10,7 @@ import (
 )
 
 const getPushNotification = `-- name: GetPushNotification :one
-SELECT id, task_id, created_at, updated_at, deleted_at, data FROM push_notification
+SELECT id, task_id, created_at, updated_at, deleted_at, data, protocol_version FROM push_notification
 WHERE task_id = $1 AND id = $2 AND deleted_at IS NULL
 LIMIT 1
 `
@@ -30,12 +30,13 @@ func (q *Queries) GetPushNotification(ctx context.Context, arg GetPushNotificati
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Data,
+		&i.ProtocolVersion,
 	)
 	return i, err
 }
 
 const listPushNotifications = `-- name: ListPushNotifications :many
-SELECT id, task_id, created_at, updated_at, deleted_at, data FROM push_notification
+SELECT id, task_id, created_at, updated_at, deleted_at, data, protocol_version FROM push_notification
 WHERE task_id = $1 AND deleted_at IS NULL
 ORDER BY created_at ASC
 `
@@ -56,6 +57,7 @@ func (q *Queries) ListPushNotifications(ctx context.Context, taskID string) ([]P
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Data,
+			&i.ProtocolVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -78,20 +80,27 @@ func (q *Queries) SoftDeletePushNotification(ctx context.Context, taskID string)
 }
 
 const upsertPushNotification = `-- name: UpsertPushNotification :exec
-INSERT INTO push_notification (id, task_id, data, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO push_notification (id, task_id, data, protocol_version, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
-    data       = EXCLUDED.data,
-    updated_at = NOW()
+    data             = EXCLUDED.data,
+    protocol_version = EXCLUDED.protocol_version,
+    updated_at       = NOW()
 `
 
 type UpsertPushNotificationParams struct {
-	ID     string
-	TaskID string
-	Data   string
+	ID              string
+	TaskID          string
+	Data            string
+	ProtocolVersion *string
 }
 
 func (q *Queries) UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error {
-	_, err := q.db.Exec(ctx, upsertPushNotification, arg.ID, arg.TaskID, arg.Data)
+	_, err := q.db.Exec(ctx, upsertPushNotification,
+		arg.ID,
+		arg.TaskID,
+		arg.Data,
+		arg.ProtocolVersion,
+	)
 	return err
 }

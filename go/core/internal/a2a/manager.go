@@ -2,58 +2,46 @@ package a2a
 
 import (
 	"context"
+	"fmt"
+	"iter"
 
-	"trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
-	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-type PassthroughManager struct {
-	client *client.A2AClient
+type PassthroughExecutor struct {
+	client *a2aclient.Client
 }
 
-func NewPassthroughManager(client *client.A2AClient) taskmanager.TaskManager {
-	return &PassthroughManager{
+func NewPassthroughExecutor(client *a2aclient.Client) a2asrv.AgentExecutor {
+	return &PassthroughExecutor{
 		client: client,
 	}
 }
 
-func (m *PassthroughManager) OnSendMessage(ctx context.Context, request protocol.SendMessageParams) (*protocol.MessageResult, error) {
-	if request.Message.MessageID == "" {
-		request.Message.MessageID = protocol.GenerateMessageID()
+func (m *PassthroughExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		if execCtx.Message == nil {
+			yield(nil, fmt.Errorf("missing message in executor context"))
+			return
+		}
+		req := &a2atype.SendMessageRequest{Message: execCtx.Message}
+		for event, err := range m.client.SendStreamingMessage(ctx, req) {
+			if !yield(event, err) {
+				return
+			}
+		}
 	}
-	if request.Message.Kind == "" {
-		request.Message.Kind = protocol.KindMessage
+}
+
+func (m *PassthroughExecutor) Cancel(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		task, err := m.client.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: execCtx.TaskID})
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		yield(task, nil)
 	}
-	return m.client.SendMessage(ctx, request)
-}
-
-func (m *PassthroughManager) OnSendMessageStream(ctx context.Context, request protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
-	if request.Message.MessageID == "" {
-		request.Message.MessageID = protocol.GenerateMessageID()
-	}
-	if request.Message.Kind == "" {
-		request.Message.Kind = protocol.KindMessage
-	}
-	return m.client.StreamMessage(ctx, request)
-}
-
-func (m *PassthroughManager) OnGetTask(ctx context.Context, params protocol.TaskQueryParams) (*protocol.Task, error) {
-	return m.client.GetTasks(ctx, params)
-}
-
-func (m *PassthroughManager) OnCancelTask(ctx context.Context, params protocol.TaskIDParams) (*protocol.Task, error) {
-	return m.client.CancelTasks(ctx, params)
-}
-
-func (m *PassthroughManager) OnPushNotificationSet(ctx context.Context, params protocol.TaskPushNotificationConfig) (*protocol.TaskPushNotificationConfig, error) {
-	return m.client.SetPushNotification(ctx, params)
-}
-
-func (m *PassthroughManager) OnPushNotificationGet(ctx context.Context, params protocol.TaskIDParams) (*protocol.TaskPushNotificationConfig, error) {
-	return m.client.GetPushNotification(ctx, params)
-}
-
-func (m *PassthroughManager) OnResubscribe(ctx context.Context, params protocol.TaskIDParams) (<-chan protocol.StreamingMessageEvent, error) {
-	return m.client.ResubscribeTask(ctx, params)
 }

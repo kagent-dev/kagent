@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -34,22 +37,68 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 		w.RespondWithError(errors.NewNotFoundError("Task not found", err))
 		return
 	}
+	wireVersion, err := negotiatedA2AWireVersion(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
+		return
+	}
 
 	log.Info("Successfully retrieved task")
-	data := api.NewResponse(task, "Successfully retrieved task", false)
-	RespondWithJSON(w, http.StatusOK, data)
+	var data any
+	switch wireVersion {
+	case a2aWireV0:
+		legacyTask, convErr := trpcv0.ToLegacyTask(task)
+		if convErr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to convert task", convErr))
+			return
+		}
+		data = legacyTask
+	case a2aWireV1:
+		data = task
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", fmt.Errorf("unknown negotiated wire version %q", wireVersion)))
+		return
+	}
+	response := api.NewResponse(data, "Successfully retrieved task", false)
+	RespondWithJSON(w, http.StatusOK, response)
 }
 
 func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("tasks-handler").WithValues("operation", "create-task")
 
-	task := protocol.Task{}
-	if err := DecodeJSONBody(r, &task); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+	wireVersion, err := negotiatedA2AWireVersion(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
+		return
+	}
+
+	task := a2a.Task{}
+	switch wireVersion {
+	case a2aWireV0:
+		legacyTask := protocol.Task{}
+		if err := DecodeJSONBody(r, &legacyTask); err != nil {
+			w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+			return
+		}
+		converted, convErr := trpcv0.ToV1Task(&legacyTask)
+		if convErr != nil {
+			w.RespondWithError(errors.NewBadRequestError("Invalid legacy task payload", convErr))
+			return
+		}
+		if converted != nil {
+			task = *converted
+		}
+	case a2aWireV1:
+		if err := DecodeJSONBody(r, &task); err != nil {
+			w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+			return
+		}
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", fmt.Errorf("unknown negotiated wire version %q", wireVersion)))
 		return
 	}
 	if task.ID == "" {
-		task.ID = protocol.GenerateTaskID()
+		task.ID = a2a.NewTaskID()
 	}
 	log = log.WithValues("task_id", task.ID)
 
@@ -59,8 +108,23 @@ func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	log.Info("Successfully created task")
-	data := api.NewResponse(task, "Successfully created task", false)
-	RespondWithJSON(w, http.StatusCreated, data)
+	var data any
+	switch wireVersion {
+	case a2aWireV0:
+		legacyTask, convErr := trpcv0.ToLegacyTask(&task)
+		if convErr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to convert task", convErr))
+			return
+		}
+		data = legacyTask
+	case a2aWireV1:
+		data = task
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", fmt.Errorf("unknown negotiated wire version %q", wireVersion)))
+		return
+	}
+	response := api.NewResponse(data, "Successfully created task", false)
+	RespondWithJSON(w, http.StatusCreated, response)
 }
 
 func (h *TasksHandler) HandleDeleteTask(w ErrorResponseWriter, r *http.Request) {
