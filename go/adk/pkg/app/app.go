@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
@@ -121,7 +121,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	}
 
 	// Append the user-ID interceptor
-	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptor(a2a.UserIDCallInterceptor()))
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(a2a.UserIDCallInterceptor()))
 
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
@@ -195,11 +195,12 @@ func applyDefaults(cfg AppConfig) AppConfig {
 		cfg.Logger = newDefaultLogger()
 	}
 
-	// Ensure the agent card always advertises a transport so that A2A clients
-	// can select a compatible one. Without this, NewFromCard fails with
-	// "no compatible transports found: available transports - []".
-	if cfg.AgentCard.PreferredTransport == "" {
-		cfg.AgentCard.PreferredTransport = a2atype.TransportProtocolJSONRPC
+	// Ensure the agent card always advertises at least one interface so A2A
+	// clients can select a compatible endpoint/transport.
+	if len(cfg.AgentCard.SupportedInterfaces) == 0 {
+		cfg.AgentCard.SupportedInterfaces = []*a2atype.AgentInterface{
+			a2atype.NewAgentInterface("/", a2atype.TransportProtocolJSONRPC),
+		}
 	}
 
 	return cfg

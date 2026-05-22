@@ -6,15 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
 // a2aCtx builds a context that carries an A2A CallContext with the given headers.
 // Keys are stored case-insensitively by NewRequestMeta, matching the behaviour
 // of a real A2A server.
 func a2aCtx(headers map[string][]string) context.Context {
-	meta := a2asrv.NewRequestMeta(headers)
-	ctx, _ := a2asrv.WithCallContext(context.Background(), meta)
+	ctx, _ := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(headers))
 	return ctx
 }
 
