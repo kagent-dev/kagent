@@ -7,7 +7,6 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
@@ -29,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
+
+AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+DEFAULT_TIMEOUT = 30.0
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"

@@ -18,18 +18,16 @@ from urllib.parse import urlparse
 
 import httpx
 from a2a.client import Client as A2AClient
-from a2a.client.card_resolver import A2ACardResolver
-from a2a.client.client import ClientConfig as A2AClientConfig
-from a2a.client.client_factory import ClientFactory as A2AClientFactory
-from a2a.client.errors import A2AClientHTTPError
-from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
+from a2a.client import ClientCallContext, create_client
+from a2a.client import ClientConfig as A2AClientConfig
+from a2a.client.errors import A2AClientError
 from a2a.types import (
     AgentCard,
-    DataPart,
     Role,
+    SendMessageRequest,
+    StreamResponse,
     Task,
     TaskState,
-    TextPart,
 )
 from a2a.types import (
     Message as A2AMessage,
@@ -37,14 +35,13 @@ from a2a.types import (
 from a2a.types import (
     Part as A2APart,
 )
-from a2a.types import (
-    TransportProtocol as A2ATransport,
-)
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict, ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
@@ -62,28 +59,6 @@ _HEADERS_STATE_KEY = "headers"
 _EXTRA_HEADERS_CONTEXT_KEY = "_a2a_extra_headers"
 
 
-class _SubagentInterceptor(ClientCallInterceptor):
-    """
-    Injects the authenticated user's ID as an ``x-user-id`` HTTP header,
-    marks the request as originating from an agent call via
-    ``x-kagent-source: agent``, and forwards any pre-computed propagation
-    headers stored in the call context state under ``_EXTRA_HEADERS_CONTEXT_KEY``.
-    """
-
-    async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
-        headers = dict(http_kwargs.get("headers", {}))
-        headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
-
-        if context:
-            if _USER_ID_CONTEXT_KEY in context.state:
-                headers["x-user-id"] = context.state[_USER_ID_CONTEXT_KEY]
-            extra = context.state.get(_EXTRA_HEADERS_CONTEXT_KEY)
-            if extra:
-                headers.update(extra)
-        http_kwargs["headers"] = headers
-        return request_payload, http_kwargs
-
-
 def _extract_text_from_task(task: Task) -> str:
     """Extract text content from a completed task's artifacts or status message."""
     # Prefer artifacts (the canonical result)
@@ -92,9 +67,8 @@ def _extract_text_from_task(task: Task) -> str:
         for artifact in task.artifacts:
             if artifact.parts:
                 for part in artifact.parts:
-                    root = part.root if hasattr(part, "root") else part
-                    if isinstance(root, TextPart) and root.text:
-                        texts.append(root.text)
+                    if part.HasField("text") and part.text:
+                        texts.append(part.text)
         if texts:
             return "\n".join(texts)
 
@@ -102,9 +76,8 @@ def _extract_text_from_task(task: Task) -> str:
     if task.status and task.status.message and task.status.message.parts:
         texts = []
         for part in task.status.message.parts:
-            root = part.root if hasattr(part, "root") else part
-            if isinstance(root, TextPart) and root.text:
-                texts.append(root.text)
+            if part.HasField("text") and part.text:
+                texts.append(part.text)
         if texts:
             return "\n".join(texts)
 
@@ -112,15 +85,10 @@ def _extract_text_from_task(task: Task) -> str:
 
 
 def _extract_usage_from_task(task: Task) -> Optional[dict]:
-    """Extract kagent_usage_metadata from a completed task.
-
-    The A2A task_manager merges the final TaskStatusUpdateEvent.metadata into
-    task.metadata. The agent executor now adds the last LLM invocation's
-    usage_metadata to run_metadata before publishing the final event, so it
-    is available here for non-streaming callers like KAgentRemoteA2ATool.
-    """
+    """Extract kagent_usage_metadata from a completed task."""
     if task.metadata:
-        usage = task.metadata.get("kagent_usage_metadata")
+        metadata = MessageToDict(task.metadata)
+        usage = metadata.get("kagent_usage_metadata")
         if usage and isinstance(usage, dict):
             return usage
     return None
@@ -164,7 +132,7 @@ class KAgentRemoteA2ATool(BaseTool):
         return self._last_context_id
 
     async def _ensure_client(self) -> A2AClient:
-        """Lazily resolve the agent card and initialize the A2A client."""
+        """Lazily initialize the A2A client."""
         if self._a2a_client is not None:
             return self._a2a_client
 
@@ -174,30 +142,23 @@ class KAgentRemoteA2ATool(BaseTool):
                 "Use KAgentRemoteA2AToolset to manage the client lifecycle."
             )
 
-        # Resolve the agent card from URL
-        parsed = urlparse(self._agent_card_url)
-        base_url = f"{parsed.scheme}://{parsed.netloc}"
-        resolver = A2ACardResolver(httpx_client=self._httpx_client, base_url=base_url)
-        self._agent_card = await resolver.get_agent_card(relative_card_path=parsed.path)
-
-        if not self._agent_card.url:
-            raise ValueError(f"Agent card for {self.name} has no RPC URL")
-
-        # Auto-populate description from agent card if we don't have one
-        if not self.description and self._agent_card.description:
-            self.description = self._agent_card.description
-
-        # Create the A2A client.
         config = A2AClientConfig(
             httpx_client=self._httpx_client,
             streaming=False,
             polling=False,
-            supported_transports=[A2ATransport.jsonrpc],
         )
-        factory = A2AClientFactory(config=config)
-        self._a2a_client = factory.create(
-            self._agent_card,
-            interceptors=[_SubagentInterceptor()],
+        parsed = urlparse(self._agent_card_url)
+        if parsed.scheme and parsed.netloc:
+            base_url = f"{parsed.scheme}://{parsed.netloc}"
+            relative_card_path = parsed.path or None
+        else:
+            base_url = self._agent_card_url
+            relative_card_path = None
+
+        self._a2a_client = await create_client(
+            base_url,
+            client_config=config,
+            relative_card_path=relative_card_path,
         )
         return self._a2a_client
 
@@ -216,12 +177,18 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
     def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
-        state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+        headers: dict[str, str] = {
+            _SOURCE_HEADER: _SOURCE_SUBAGENT,
+            _USER_ID_CONTEXT_KEY: tool_context.session.user_id,
+        }
         if self._header_provider:
             extra_headers = self._header_provider(tool_context)
             if extra_headers:
-                state[_EXTRA_HEADERS_CONTEXT_KEY] = extra_headers
-        return ClientCallContext(state=state)
+                headers.update(extra_headers)
+        return ClientCallContext(
+            state={_USER_ID_CONTEXT_KEY: tool_context.session.user_id},
+            service_parameters=headers,
+        )
 
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
         """Execute the remote agent tool.
@@ -248,11 +215,11 @@ class KAgentRemoteA2ATool(BaseTool):
         request_text = args.get("request", "")
         message = A2AMessage(
             message_id=str(uuid.uuid4()),
-            parts=[A2APart(root=TextPart(text=request_text))],
-            role=Role.user,
-            # Pass context_id for session continuity with stateful remote agents
+            parts=[A2APart(text=request_text)],
+            role=Role.ROLE_USER,
             context_id=self._last_context_id,
         )
+        send_request = SendMessageRequest(message=message)
 
         # Forward the authenticated user ID so the subagent session is scoped
         # to the same user as the parent agent session.
@@ -260,13 +227,20 @@ class KAgentRemoteA2ATool(BaseTool):
 
         task: Optional[Task] = None
         try:
-            async for response in client.send_message(request=message, context=call_context):
-                if isinstance(response, tuple):
-                    # ClientEvent: (Task, UpdateEvent | None)
-                    task = response[0]
-                elif isinstance(response, A2AMessage):
-                    return self._extract_text_from_message(response)
-        except A2AClientHTTPError as e:
+            async for chunk in client.send_message(request=send_request, context=call_context):
+                if not isinstance(chunk, StreamResponse):
+                    continue
+                if chunk.HasField("task"):
+                    task = chunk.task
+                elif chunk.HasField("status_update"):
+                    task = Task(
+                        id=chunk.status_update.task_id,
+                        context_id=chunk.status_update.context_id,
+                        status=chunk.status_update.status,
+                    )
+                elif chunk.HasField("message"):
+                    return self._extract_text_from_message(chunk.message)
+        except A2AClientError as e:
             return f"Remote agent '{self.name}' request failed: {e}"
         except Exception as e:
             logger.error("Error calling remote agent %s: %s", self.name, e, exc_info=True)
@@ -277,10 +251,10 @@ class KAgentRemoteA2ATool(BaseTool):
 
         state = task.status.state if task.status else None
 
-        if state == TaskState.input_required:
+        if state == TaskState.TASK_STATE_INPUT_REQUIRED:
             return self._handle_input_required(task, tool_context)
 
-        if state == TaskState.failed:
+        if state == TaskState.TASK_STATE_FAILED:
             error_text = _extract_text_from_task(task)
             return error_text or f"Remote agent '{self.name}' failed."
 
@@ -386,9 +360,10 @@ class KAgentRemoteA2ATool(BaseTool):
             message_id=str(uuid.uuid4()),
             task_id=task_id,
             context_id=context_id,
-            role=Role.user,
-            parts=[A2APart(root=DataPart(data=decision_data))],
+            role=Role.ROLE_USER,
+            parts=[A2APart(data=ParseDict(decision_data, Value()))],
         )
+        send_request = SendMessageRequest(message=decision_message)
 
         logger.info(
             "Forwarding %s decision to subagent %s task %s",
@@ -401,12 +376,20 @@ class KAgentRemoteA2ATool(BaseTool):
         call_context = self._build_call_context(tool_context)
         task: Optional[Task] = None
         try:
-            async for response in client.send_message(request=decision_message, context=call_context):
-                if isinstance(response, tuple):
-                    task = response[0]
-                elif isinstance(response, A2AMessage):
-                    return self._extract_text_from_message(response)
-        except A2AClientHTTPError as e:
+            async for chunk in client.send_message(request=send_request, context=call_context):
+                if not isinstance(chunk, StreamResponse):
+                    continue
+                if chunk.HasField("task"):
+                    task = chunk.task
+                elif chunk.HasField("status_update"):
+                    task = Task(
+                        id=chunk.status_update.task_id,
+                        context_id=chunk.status_update.context_id,
+                        status=chunk.status_update.status,
+                    )
+                elif chunk.HasField("message"):
+                    return self._extract_text_from_message(chunk.message)
+        except A2AClientError as e:
             return f"Remote agent '{subagent_name}' resume failed: {e}"
         except Exception as e:
             logger.error("Error resuming remote agent %s: %s", subagent_name, e, exc_info=True)
@@ -417,12 +400,10 @@ class KAgentRemoteA2ATool(BaseTool):
 
         state = task.status.state if task.status else None
 
-        if state == TaskState.input_required:
-            # The subagent has another HITL request (e.g. multiple tools needing
-            # approval in sequence). Surface it again.
+        if state == TaskState.TASK_STATE_INPUT_REQUIRED:
             return self._handle_input_required(task, tool_context)
 
-        if state == TaskState.failed:
+        if state == TaskState.TASK_STATE_FAILED:
             error_text = _extract_text_from_task(task)
             return error_text or f"Remote agent '{subagent_name}' failed after resume."
 
@@ -444,9 +425,8 @@ class KAgentRemoteA2ATool(BaseTool):
             return ""
         texts: list[str] = []
         for part in message.parts:
-            root = part.root if hasattr(part, "root") else part
-            if isinstance(root, TextPart) and root.text:
-                texts.append(root.text)
+            if part.HasField("text") and part.text:
+                texts.append(part.text)
         return "\n".join(texts)
 
 

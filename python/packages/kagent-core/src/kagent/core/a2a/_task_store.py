@@ -3,23 +3,10 @@ import asyncio
 import httpx
 from a2a.server.tasks import TaskStore
 from a2a.types import Message, Task
-from pydantic import BaseModel
+from google.protobuf.json_format import MessageToDict, ParseDict
 from typing_extensions import override
 
 from kagent.core.a2a import read_metadata_value
-
-
-class KAgentTaskResponse(BaseModel):
-    """Wrapper for KAgent controller API responses.
-
-    The KAgent Go controller wraps all task responses in a StandardResponse envelope
-    with the format: {"error": bool, "data": T, "message": str}.
-    This model unwraps that envelope to extract the actual Task object.
-    """
-
-    error: bool
-    data: Task | None = None
-    message: str | None = None
 
 
 class KAgentTaskStore(TaskStore):
@@ -62,10 +49,16 @@ class KAgentTaskStore(TaskStore):
             httpx.HTTPStatusError: If the API request fails
         """
         # Clean any partial events from history before saving
-        history = task.history or []
-        task.history = self._clean_partial_events(history)
+        history = list(task.history or [])
+        clean_history = self._clean_partial_events(history)
+        if len(clean_history) != len(history):
+            del task.history[:]
+            task.history.extend(clean_history)
 
-        response = await self.client.post("/api/tasks", json=task.model_dump(mode="json"))
+        response = await self.client.post(
+            "/api/tasks",
+            json=MessageToDict(task, preserving_proto_field_name=True),
+        )
         response.raise_for_status()
 
         # Signal that save completed (event-based sync)
@@ -92,8 +85,11 @@ class KAgentTaskStore(TaskStore):
         response.raise_for_status()
 
         # Unwrap the StandardResponse envelope from the Go controller
-        wrapped = KAgentTaskResponse.model_validate(response.json())
-        return wrapped.data
+        wrapped = response.json()
+        data = wrapped.get("data") if isinstance(wrapped, dict) else None
+        if not isinstance(data, dict):
+            return None
+        return ParseDict(data, Task())
 
     @override
     async def delete(self, task_id: str, context=None) -> None:

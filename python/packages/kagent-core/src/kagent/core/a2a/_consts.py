@@ -13,6 +13,20 @@ KAGENT_METADATA_KEY_PREFIX = "kagent_"
 ADK_METADATA_KEY_PREFIX = "adk_"
 
 
+def _normalize_metadata(metadata):
+    """Normalize protobuf Struct metadata into a plain dict when needed."""
+    if not metadata:
+        return {}
+    if isinstance(metadata, dict):
+        return metadata
+    # Protobuf Struct behaves like a message object; convert safely for key access.
+    if hasattr(metadata, "DESCRIPTOR"):
+        from google.protobuf.json_format import MessageToDict
+
+        return MessageToDict(metadata)
+    return {}
+
+
 def get_kagent_metadata_key(key: str) -> str:
     """Gets the A2A event metadata key for the given key.
 
@@ -50,14 +64,15 @@ def read_metadata_value(metadata: dict | None, key: str, default=None):
     """
     if not key:
         raise ValueError("Metadata key cannot be empty or None")
-    if not metadata:
+    normalized = _normalize_metadata(metadata)
+    if not normalized:
         return default
     adk_key = f"{ADK_METADATA_KEY_PREFIX}{key}"
-    if adk_key in metadata:
-        return metadata[adk_key]
+    if adk_key in normalized:
+        return normalized[adk_key]
     kagent_key = f"{KAGENT_METADATA_KEY_PREFIX}{key}"
-    if kagent_key in metadata:
-        return metadata[kagent_key]
+    if kagent_key in normalized:
+        return normalized[kagent_key]
     return default
 
 

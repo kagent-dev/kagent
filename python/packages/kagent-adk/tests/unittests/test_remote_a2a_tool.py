@@ -4,17 +4,18 @@ from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+from a2a.types import Message as A2AMessage
+from a2a.types import Part as A2APart
 from a2a.types import (
-    DataPart,
     Role,
+    StreamResponse,
     Task,
     TaskState,
     TaskStatus,
-    TextPart,
 )
-from a2a.types import Message as A2AMessage
-from a2a.types import Part as A2APart
 from google.adk.tools.tool_confirmation import ToolConfirmation
+from google.protobuf.json_format import MessageToDict, ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
@@ -26,7 +27,6 @@ from kagent.adk._remote_a2a_tool import (
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
     SubagentSessionProvider,
-    _SubagentInterceptor,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,16 +68,14 @@ def _make_task(state: TaskState, text: str = "", hitl_data: list[dict] | None = 
         for d in hitl_data:
             parts.append(
                 A2APart(
-                    root=DataPart(
-                        data=d,
-                        metadata={"adk_type": "function_call", "adk_is_long_running": True},
-                    )
+                    data=ParseDict(d, Value()),
+                    metadata={"adk_type": "function_call", "adk_is_long_running": True},
                 )
             )
     elif text:
-        parts.append(A2APart(root=TextPart(text=text)))
+        parts.append(A2APart(text=text))
 
-    status_message = A2AMessage(role=Role.agent, message_id="msg-1", parts=parts) if parts else None
+    status_message = A2AMessage(role=Role.ROLE_AGENT, message_id="msg-1", parts=parts) if parts else None
     return Task(
         id="task-1",
         context_id="ctx-1",
@@ -100,13 +98,21 @@ def _make_hitl_task(tool_name: str = "delete_file", tool_call_id: str = "call_1"
             },
         }
     ]
-    return _make_task(TaskState.input_required, hitl_data=hitl_data)
+    return _make_task(TaskState.TASK_STATE_INPUT_REQUIRED, hitl_data=hitl_data)
 
 
 async def _async_yield(*items) -> AsyncIterator:
     """Yield items from an async generator (simulates client.send_message)."""
     for item in items:
-        yield item
+        if isinstance(item, tuple):
+            task, _ = item
+            yield StreamResponse(task=task)
+        elif isinstance(item, A2AMessage):
+            yield StreamResponse(message=item)
+        elif isinstance(item, Task):
+            yield StreamResponse(task=item)
+        else:
+            yield item
 
 
 def _make_tool(*, httpx_client: httpx.AsyncClient | None = None) -> KAgentRemoteA2ATool:
@@ -127,10 +133,27 @@ def _patch_client(tool: KAgentRemoteA2ATool, send_side_effect):
     p = patch.object(tool, "_ensure_client")
     mock_ensure = p.start()
     mock_client = MagicMock()
+
+    async def _wrap_stream(iterable):
+        async for item in iterable:
+            if isinstance(item, tuple):
+                task, _ = item
+                yield StreamResponse(task=task)
+            elif isinstance(item, A2AMessage):
+                yield StreamResponse(message=item)
+            elif isinstance(item, Task):
+                yield StreamResponse(task=item)
+            else:
+                yield item
+
     if callable(send_side_effect) and not isinstance(send_side_effect, MagicMock):
-        mock_client.send_message = send_side_effect
+
+        def _invoke(*args, **kwargs):
+            return _wrap_stream(send_side_effect(*args, **kwargs))
+
+        mock_client.send_message = _invoke
     else:
-        mock_client.send_message = MagicMock(return_value=send_side_effect)
+        mock_client.send_message = MagicMock(return_value=_wrap_stream(send_side_effect))
     mock_ensure.return_value = mock_client
     return p, mock_client
 
@@ -141,40 +164,27 @@ def _approval_ctx(confirmed: bool, payload: dict | None = None, **kwargs) -> Moc
 
 
 # ---------------------------------------------------------------------------
-# _SubagentInterceptor header propagation tests
+# Call context header propagation tests
 # ---------------------------------------------------------------------------
 
 
 class TestSubagentInterceptorHeaderPropagation:
-    """Tests for header propagation in _SubagentInterceptor via context state."""
+    """Tests for header propagation via ClientCallContext.service_parameters."""
 
-    async def _call_intercept(self, interceptor, state: dict) -> dict:
-        from a2a.client.middleware import ClientCallContext
-
-        ctx = ClientCallContext(state=state)
-        _, http_kwargs = await interceptor.intercept(
-            method_name="message/send",
-            request_payload={},
-            http_kwargs={},
-            agent_card=None,
-            context=ctx,
+    async def test_forwards_extra_headers_from_header_provider(self):
+        tool = KAgentRemoteA2ATool(
+            name="k8s_agent",
+            description="K8s subagent",
+            agent_card_url="http://k8s-agent/.well-known/agent.json",
+            header_provider=lambda _: {"authorization": "Bearer test-jwt"},
         )
-        return http_kwargs.get("headers", {})
-
-    async def test_forwards_extra_headers_from_context_state(self):
-        interceptor = _SubagentInterceptor()
-        headers = await self._call_intercept(
-            interceptor,
-            state={"x-user-id": "user1", "_a2a_extra_headers": {"authorization": "Bearer test-jwt"}},
-        )
+        headers = tool._build_call_context(MockToolContext(user_id="user1")).service_parameters or {}
         assert headers.get("authorization") == "Bearer test-jwt"
+        assert headers.get("x-user-id") == "user1"
 
-    async def test_no_extra_headers_without_state_key(self):
-        interceptor = _SubagentInterceptor()
-        headers = await self._call_intercept(
-            interceptor,
-            state={"x-user-id": "user1", "authorization": "Bearer test-jwt"},
-        )
+    async def test_no_extra_headers_without_header_provider(self):
+        tool = _make_tool()
+        headers = tool._build_call_context(MockToolContext(user_id="user1")).service_parameters or {}
         assert "authorization" not in headers
 
 
@@ -189,7 +199,7 @@ class TestFirstCall:
     async def test_completed_task_returns_result_with_session_id(self):
         """Completed task returns dict with result text and subagent_session_id."""
         tool = _make_tool()
-        task = _make_task(TaskState.completed, text="all done")
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="all done")
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
             result = await tool.run_async(args={"request": "do something"}, tool_context=MockToolContext())
@@ -204,9 +214,9 @@ class TestFirstCall:
         """When remote agent returns an A2AMessage directly, result is plain text."""
         tool = _make_tool()
         msg = A2AMessage(
-            role=Role.agent,
+            role=Role.ROLE_AGENT,
             message_id="m1",
-            parts=[A2APart(root=TextPart(text="direct reply"))],
+            parts=[A2APart(text="direct reply")],
         )
         p, _ = _patch_client(tool, _async_yield(msg))
         try:
@@ -230,7 +240,7 @@ class TestFirstCall:
     async def test_failed_task_returns_error_text(self):
         """Failed tasks return the error text from the task status message."""
         tool = _make_tool()
-        task = _make_task(TaskState.failed, text="something broke")
+        task = _make_task(TaskState.TASK_STATE_FAILED, text="something broke")
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
             result = await tool.run_async(args={"request": "go"}, tool_context=MockToolContext())
@@ -242,7 +252,7 @@ class TestFirstCall:
     async def test_context_id_sent_in_outgoing_message(self):
         """The tool's pre-generated context_id is sent on the outgoing A2A message."""
         tool = _make_tool()
-        task = _make_task(TaskState.completed, text="ok")
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
         sent: list[A2AMessage] = []
 
         async def capture(*, request, **kw):
@@ -255,12 +265,12 @@ class TestFirstCall:
         finally:
             p.stop()
 
-        assert sent[0].context_id == tool._last_context_id
+        assert sent[0].message.context_id == tool._last_context_id
 
     async def test_user_id_forwarded_in_call_context(self):
         """The parent session's user_id is forwarded via ClientCallContext."""
         tool = _make_tool()
-        task = _make_task(TaskState.completed, text="ok")
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
         captured_contexts: list = []
 
         async def capture(*, request, context=None, **kw):
@@ -341,7 +351,7 @@ class TestHITLResume:
     ) -> tuple[Any, list[A2AMessage]]:
         """Run a resume and return (result, sent_messages)."""
         if response_task is None:
-            response_task = _make_task(TaskState.completed, text="ok")
+            response_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
         sent: list[A2AMessage] = []
 
         async def capture(*, request, **kw):
@@ -362,26 +372,26 @@ class TestHITLResume:
             tool,
             confirmed=True,
             payload=_RESUME_PAYLOAD,
-            response_task=_make_task(TaskState.completed, text="approved"),
+            response_task=_make_task(TaskState.TASK_STATE_COMPLETED, text="approved"),
         )
         assert result["result"] == "approved"
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_APPROVE
         # Verify task_id and context_id are routed correctly
-        assert sent[0].task_id == "task-1"
-        assert sent[0].context_id == "ctx-1"
+        assert sent[0].message.task_id == "task-1"
+        assert sent[0].message.context_id == "ctx-1"
 
     async def test_reject_sends_reject_decision(self):
         tool = _make_tool()
         _, sent = await self._resume(tool, confirmed=False, payload=_RESUME_PAYLOAD)
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_REJECT
 
     async def test_reject_with_reason(self):
         tool = _make_tool()
         payload = {**_RESUME_PAYLOAD, "rejection_reason": "Too risky"}
         _, sent = await self._resume(tool, confirmed=False, payload=payload)
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data["rejection_reason"] == "Too risky"
 
     async def test_batch_decisions_forwarded(self):
@@ -391,7 +401,7 @@ class TestHITLResume:
             "batch_decisions": {"call_1": "approve", "call_2": "reject"},
         }
         result, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_BATCH
         assert data["decisions"] == {"call_1": "approve", "call_2": "reject"}
 
@@ -403,7 +413,7 @@ class TestHITLResume:
             "rejection_reasons": {"call_2": "Too dangerous"},
         }
         _, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data["rejection_reasons"] == {"call_2": "Too dangerous"}
 
     async def test_ask_user_answers_forwarded(self):
@@ -411,7 +421,7 @@ class TestHITLResume:
         tool = _make_tool()
         payload = {**_RESUME_PAYLOAD, "answers": ["yes", "42"]}
         _, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = sent[0].parts[0].root.data
+        data = MessageToDict(sent[0].message.parts[0].data)
         assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_APPROVE
         assert data["ask_user_answers"] == ["yes", "42"]
 
