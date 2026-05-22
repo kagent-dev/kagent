@@ -9,11 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from a2a.types import (
-    DataPart,
-    Message,
-    Task,
-)
+from a2a.types import Message, Task
+from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field
 
 from ._consts import (
@@ -31,6 +28,32 @@ from ._consts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _to_python(value: Any) -> Any:
+    """Convert protobuf messages/values into plain Python values."""
+    if hasattr(value, "DESCRIPTOR"):
+        return MessageToDict(value)
+    return value
+
+
+def _extract_data_payload(part: Any) -> dict[str, Any] | None:
+    """Extract a structured payload from v1 or transitional part shapes."""
+    if hasattr(part, "HasField") and part.HasField("data"):
+        data = _to_python(part.data)
+        return data if isinstance(data, dict) else None
+
+    return None
+
+
+def _extract_metadata(part: Any) -> dict[str, Any]:
+    """Extract metadata from v1 or transitional part shapes."""
+    if hasattr(part, "metadata"):
+        metadata = _to_python(part.metadata)
+        if isinstance(metadata, dict):
+            return metadata
+
+    return {}
 
 
 class OriginalFunctionCall(BaseModel):
@@ -152,16 +175,12 @@ def extract_decision_from_message(message: Message | None) -> DecisionType | Non
         return None
 
     for part in message.parts:
-        # Access .root for RootModel union types
-        if not hasattr(part, "root"):
+        data = _extract_data_payload(part)
+        if not isinstance(data, dict):
             continue
-
-        inner = part.root
-
-        if isinstance(inner, DataPart):
-            decision = extract_decision_from_data_part(inner.data)
-            if decision:
-                return decision
+        decision = extract_decision_from_data_part(data)
+        if decision:
+            return decision
 
     return None
 
@@ -188,37 +207,33 @@ def extract_batch_decisions_from_message(message: Message | None) -> dict[str, D
         return None
 
     for part in message.parts:
-        if not hasattr(part, "root"):
+        data = _extract_data_payload(part)
+        if not isinstance(data, dict):
+            continue
+        if data.get(KAGENT_HITL_DECISION_TYPE_KEY) != KAGENT_HITL_DECISION_TYPE_BATCH:
             continue
 
-        inner = part.root
-
-        if isinstance(inner, DataPart):
-            data = inner.data
-            if data.get(KAGENT_HITL_DECISION_TYPE_KEY) != KAGENT_HITL_DECISION_TYPE_BATCH:
-                continue
-
-            decisions = data.get(KAGENT_HITL_DECISIONS_KEY)
-            if isinstance(decisions, dict):
-                # Filter out invalid decisions
-                filtered: dict[str, DecisionType] = {}
-                for call_id, decision in decisions.items():
-                    # Ensure key type and decision value are valid
-                    if not isinstance(call_id, str):
-                        logger.warning("Ignoring HITL batch decision with non-string key: %r", call_id)
-                        continue
-                    if decision in (
-                        KAGENT_HITL_DECISION_TYPE_APPROVE,
-                        KAGENT_HITL_DECISION_TYPE_REJECT,
-                    ):
-                        filtered[call_id] = decision
-                    else:
-                        logger.warning(
-                            "Ignoring HITL batch decision with invalid value %r for call_id %r",
-                            decision,
-                            call_id,
-                        )
-                return filtered or None
+        decisions = data.get(KAGENT_HITL_DECISIONS_KEY)
+        if isinstance(decisions, dict):
+            # Filter out invalid decisions
+            filtered: dict[str, DecisionType] = {}
+            for call_id, decision in decisions.items():
+                # Ensure key type and decision value are valid
+                if not isinstance(call_id, str):
+                    logger.warning("Ignoring HITL batch decision with non-string key: %r", call_id)
+                    continue
+                if decision in (
+                    KAGENT_HITL_DECISION_TYPE_APPROVE,
+                    KAGENT_HITL_DECISION_TYPE_REJECT,
+                ):
+                    filtered[call_id] = decision
+                else:
+                    logger.warning(
+                        "Ignoring HITL batch decision with invalid value %r for call_id %r",
+                        decision,
+                        call_id,
+                    )
+            return filtered or None
 
     return None
 
@@ -242,27 +257,23 @@ def extract_rejection_reasons_from_message(message: Message | None) -> dict[str,
         return None
 
     for part in message.parts:
-        if not hasattr(part, "root"):
+        data = _extract_data_payload(part)
+        if not isinstance(data, dict):
             continue
+        decision = data.get(KAGENT_HITL_DECISION_TYPE_KEY)
 
-        inner = part.root
-
-        if isinstance(inner, DataPart):
-            data = inner.data
-            decision = data.get(KAGENT_HITL_DECISION_TYPE_KEY)
-
-            if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
-                reasons = data.get(KAGENT_HITL_REJECTION_REASONS_KEY)
-                if isinstance(reasons, dict):
-                    filtered: dict[str, str] = {}
-                    for call_id, reason in reasons.items():
-                        if isinstance(call_id, str) and isinstance(reason, str) and reason:
-                            filtered[call_id] = reason
-                    return filtered or None
-            elif decision == KAGENT_HITL_DECISION_TYPE_REJECT:
-                reason = data.get("rejection_reason")
-                if isinstance(reason, str) and reason:
-                    return {"*": reason}
+        if decision == KAGENT_HITL_DECISION_TYPE_BATCH:
+            reasons = data.get(KAGENT_HITL_REJECTION_REASONS_KEY)
+            if isinstance(reasons, dict):
+                filtered: dict[str, str] = {}
+                for call_id, reason in reasons.items():
+                    if isinstance(call_id, str) and isinstance(reason, str) and reason:
+                        filtered[call_id] = reason
+                return filtered or None
+        elif decision == KAGENT_HITL_DECISION_TYPE_REJECT:
+            reason = data.get("rejection_reason")
+            if isinstance(reason, str) and reason:
+                return {"*": reason}
 
     return None
 
@@ -283,16 +294,12 @@ def extract_ask_user_answers_from_message(message: Message | None) -> list[dict]
         return None
 
     for part in message.parts:
-        if not hasattr(part, "root"):
+        data = _extract_data_payload(part)
+        if not isinstance(data, dict):
             continue
-
-        inner = part.root
-
-        if isinstance(inner, DataPart):
-            data = inner.data
-            answers = data.get(KAGENT_ASK_USER_ANSWERS_KEY)
-            if isinstance(answers, list):
-                return answers
+        answers = data.get(KAGENT_ASK_USER_ANSWERS_KEY)
+        if isinstance(answers, list):
+            return answers
 
     return None
 
@@ -317,12 +324,13 @@ def extract_hitl_info_from_task(task: Task) -> list[HitlPartInfo] | None:
 
     hitl_parts: list[HitlPartInfo] = []
     for part in task.status.message.parts:
-        root = part.root if hasattr(part, "root") else part
-        if not isinstance(root, DataPart) or not root.metadata:
+        metadata = _extract_metadata(part)
+        data = _extract_data_payload(part)
+        if not metadata or not isinstance(data, dict):
             continue
-        part_type = read_metadata_value(root.metadata, A2A_DATA_PART_METADATA_TYPE_KEY)
-        is_long_running = read_metadata_value(root.metadata, A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)
+        part_type = read_metadata_value(metadata, A2A_DATA_PART_METADATA_TYPE_KEY)
+        is_long_running = read_metadata_value(metadata, A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)
         if part_type == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL and is_long_running is True:
-            hitl_parts.append(HitlPartInfo.from_data_part_data(root.data))
+            hitl_parts.append(HitlPartInfo.from_data_part_data(data))
 
     return hitl_parts or None

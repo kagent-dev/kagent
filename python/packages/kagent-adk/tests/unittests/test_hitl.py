@@ -3,11 +3,13 @@
 import json
 from unittest.mock import MagicMock
 
-from a2a.types import DataPart, Message, Part, Role
+from a2a.types import Message, Part, Role
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types as genai_types
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     KAGENT_ASK_USER_ANSWERS_KEY,
     KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -266,7 +268,7 @@ def test_find_pending_confirmations_with_payload():
 def _make_simple_message(parts=None) -> Message:
     """Create a minimal real Message for testing."""
     return Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="test-msg",
         task_id="test-task",
         context_id="test-ctx",
@@ -356,20 +358,21 @@ def test_process_hitl_decision_batch():
     ]
 
     message = Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="msg1",
         task_id="task1",
         context_id="ctx1",
         parts=[
             Part(
-                DataPart(
-                    data={
+                data=ParseDict(
+                    {
                         KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
                         KAGENT_HITL_DECISIONS_KEY: {
                             "orig123": KAGENT_HITL_DECISION_TYPE_APPROVE,
                             "orig456": KAGENT_HITL_DECISION_TYPE_REJECT,
                         },
-                    }
+                    },
+                    Value(),
                 )
             )
         ],
@@ -408,17 +411,18 @@ def test_process_hitl_decision_uniform_reject_with_reason():
     ]
 
     message = Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="msg1",
         task_id="task1",
         context_id="ctx1",
         parts=[
             Part(
-                DataPart(
-                    data={
+                data=ParseDict(
+                    {
                         KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT,
                         "rejection_reason": "Too risky",
-                    }
+                    },
+                    Value(),
                 )
             )
         ],
@@ -456,14 +460,14 @@ def test_process_hitl_decision_batch_with_per_tool_reason():
     ]
 
     message = Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="msg1",
         task_id="task1",
         context_id="ctx1",
         parts=[
             Part(
-                DataPart(
-                    data={
+                data=ParseDict(
+                    {
                         KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
                         KAGENT_HITL_DECISIONS_KEY: {
                             "orig123": KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -472,7 +476,8 @@ def test_process_hitl_decision_batch_with_per_tool_reason():
                         KAGENT_HITL_REJECTION_REASONS_KEY: {
                             "orig456": "Wrong environment",
                         },
-                    }
+                    },
+                    Value(),
                 )
             )
         ],
@@ -543,17 +548,18 @@ def test_process_hitl_decision_ask_user_answers():
 
     answers = [{"answer": ["PostgreSQL"]}, {"answer": ["Auth", "Caching"]}]
     message = Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="msg1",
         task_id="task1",
         context_id="ctx1",
         parts=[
             Part(
-                DataPart(
-                    data={
+                data=ParseDict(
+                    {
                         KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE,
                         KAGENT_ASK_USER_ANSWERS_KEY: answers,
-                    }
+                    },
+                    Value(),
                 )
             )
         ],
