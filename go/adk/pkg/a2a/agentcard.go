@@ -1,9 +1,9 @@
 package a2a
 
 import (
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/server/adka2a"
+	"google.golang.org/adk/server/adka2a/v2"
 )
 
 // EnrichAgentCard populates the agent card with skills derived from the ADK
@@ -22,8 +22,10 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 		card.Description = agent.Description()
 	}
 
-	// Default to JSONRPC when no transport is explicitly configured.
-	if card.PreferredTransport == "" {
-		card.PreferredTransport = a2atype.TransportProtocolJSONRPC
+	// Default to JSONRPC when no interface is explicitly configured.
+	if len(card.SupportedInterfaces) == 0 {
+		card.SupportedInterfaces = []*a2atype.AgentInterface{
+			a2atype.NewAgentInterface("/", a2atype.TransportProtocolJSONRPC),
+		}
 	}
 }

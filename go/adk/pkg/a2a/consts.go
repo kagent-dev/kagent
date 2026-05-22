@@ -1,6 +1,6 @@
 package a2a
 
-import "google.golang.org/adk/server/adka2a"
+import "google.golang.org/adk/server/adka2a/v2"
 
 const (
 	StateKeySessionName = "session_name"

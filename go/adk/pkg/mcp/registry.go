@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -46,7 +46,7 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 	if !ok {
 		return nil
 	}
-	meta := callCtx.RequestMeta()
+	meta := callCtx.ServiceParams()
 	if meta == nil {
 		return nil
 	}
@@ -280,7 +280,7 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	// A2A request independently of allowedHeaders.
 	if rt.propagateToken {
 		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
-			if meta := callCtx.RequestMeta(); meta != nil {
+			if meta := callCtx.ServiceParams(); meta != nil {
 				if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
 					req.Header.Set(constants.AuthorizationHeader, vals[0])
 				}

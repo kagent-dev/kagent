@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -27,11 +27,11 @@ type userIDForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
-		req.Meta.Append("x-user-id", uid)
+		req.ServiceParams.Append("x-user-id", uid)
 	}
-	return ctx, nil
+	return ctx, nil, nil
 }
 
 // authzForwardingInterceptor forwards the Authorization header from the
@@ -40,22 +40,37 @@ type authzForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	callCtx, ok := a2asrv.CallContextFrom(ctx)
 	if !ok {
-		return ctx, nil
+		return ctx, nil, nil
 	}
-	meta := callCtx.RequestMeta()
+	meta := callCtx.ServiceParams()
 	if meta == nil {
-		return ctx, nil
+		return ctx, nil, nil
 	}
-	if len(req.Meta.Get(constants.AuthorizationHeader)) > 0 {
-		return ctx, nil
+	if len(req.ServiceParams.Get(constants.AuthorizationHeader)) > 0 {
+		return ctx, nil, nil
 	}
 	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
-		req.Meta.Append(constants.AuthorizationHeader, vals[0])
+		req.ServiceParams.Append(constants.AuthorizationHeader, vals[0])
 	}
-	return ctx, nil
+	return ctx, nil, nil
+}
+
+// staticHeadersInterceptor appends static request headers to every call.
+type staticHeadersInterceptor struct {
+	a2aclient.PassthroughInterceptor
+	headers map[string]string
+}
+
+func (s *staticHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
+	for k, v := range s.headers {
+		if v != "" {
+			req.ServiceParams.Append(k, v)
+		}
+	}
+	return ctx, nil, nil
 }
 
 // remoteA2AInput is the typed argument for the remote A2A function tool.
@@ -142,19 +157,17 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 			a2aclient.WithJSONRPCTransport(s.httpClient),
 		}
 		// Always inject x-kagent-source: agent to mark this as an agent-originated call.
-		meta := a2aclient.CallMeta{}
-		meta.Append("x-kagent-source", "agent")
-		for k, v := range s.extraHeaders {
-			meta.Append(k, v)
-		}
 		interceptors := []a2aclient.CallInterceptor{
-			a2aclient.NewStaticCallMetaInjector(meta),
+			&staticHeadersInterceptor{headers: map[string]string{"x-kagent-source": "agent"}},
 			&userIDForwardingInterceptor{},
+		}
+		if len(s.extraHeaders) > 0 {
+			interceptors = append(interceptors, &staticHeadersInterceptor{headers: s.extraHeaders})
 		}
 		if s.propagateToken {
 			interceptors = append(interceptors, &authzForwardingInterceptor{})
 		}
-		opts = append(opts, a2aclient.WithInterceptors(interceptors...))
+		opts = append(opts, a2aclient.WithCallInterceptors(interceptors...))
 
 		client, err := a2aclient.NewFromCard(ctx, card, opts...)
 		if err != nil {
@@ -187,12 +200,12 @@ func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (
 
 	message := a2atype.NewMessage(
 		a2atype.MessageRoleUser,
-		a2atype.TextPart{Text: requestText},
+		a2atype.NewTextPart(requestText),
 	)
 	message.ContextID = s.lastContextID
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
-	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
+	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
 		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
@@ -226,7 +239,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
 		Role:      a2atype.MessageRoleUser,
-		Parts:     a2atype.ContentParts{a2atype.DataPart{Data: decisionData}},
+		Parts:     a2atype.ContentParts{a2atype.NewDataPart(decisionData)},
 	}
 
 	decisionType, _ := decisionData[a2a.KAgentHitlDecisionTypeKey].(string)
@@ -242,7 +255,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 	}
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
-	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
+	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
 		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
@@ -425,8 +438,11 @@ func extractTextFromTask(task *a2atype.Task) string {
 		var texts []string
 		for _, artifact := range task.Artifacts {
 			for _, part := range artifact.Parts {
-				if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-					texts = append(texts, tp.Text)
+				if part == nil {
+					continue
+				}
+				if text := part.Text(); text != "" {
+					texts = append(texts, text)
 				}
 			}
 		}
@@ -448,8 +464,11 @@ func extractTextFromMessage(message *a2atype.Message) string {
 	}
 	var texts []string
 	for _, part := range message.Parts {
-		if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-			texts = append(texts, tp.Text)
+		if part == nil {
+			continue
+		}
+		if text := part.Text(); text != "" {
+			texts = append(texts, text)
 		}
 	}
 	return strings.Join(texts, "\n")

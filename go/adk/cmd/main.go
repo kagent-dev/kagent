@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
@@ -195,11 +195,13 @@ func main() {
 			Name:        "go-adk-agent",
 			Description: "Go-based Agent Development Kit",
 			Version:     "0.2.0",
+			SupportedInterfaces: []*a2atype.AgentInterface{
+				a2atype.NewAgentInterface("/", a2atype.TransportProtocolJSONRPC),
+			},
 		}
 	}
 	agentCard.Capabilities = a2atype.AgentCapabilities{
-		Streaming:              stream,
-		StateTransitionHistory: true,
+		Streaming: stream,
 	}
 
 	// Delegate server, task store, and remaining infrastructure to app.New.

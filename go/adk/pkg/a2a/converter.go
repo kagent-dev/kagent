@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"maps"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"google.golang.org/adk/server/adka2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/adk/server/adka2a/v2"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -14,16 +14,16 @@ import (
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.
 // The ADK processor emits such parts as cleanup signals for streaming partial
 // artifacts and as a fallback for unrecognized GenAI part types.
-func isEmptyDataPart(part a2atype.Part) bool {
-	dp, ok := part.(a2atype.DataPart)
-	return ok && len(dp.Data) == 0
+func isEmptyDataPart(part *a2atype.Part) bool {
+	dp := asDataPart(part)
+	return dp != nil && len(dp) == 0
 }
 
 // filterTextParts returns only TextParts from the given parts.
 func filterTextParts(parts a2atype.ContentParts) a2atype.ContentParts {
 	var out a2atype.ContentParts
 	for _, p := range parts {
-		if _, ok := p.(a2atype.TextPart); ok {
+		if p != nil && p.Text() != "" {
 			out = append(out, p)
 		}
 	}
@@ -56,7 +56,7 @@ func messageToGenAIContent(ctx context.Context, msg *a2atype.Message) (*genai.Co
 }
 
 // a2aPartConverter converts inbound A2A parts to GenAI parts.
-func a2aPartConverter(_ context.Context, _ a2atype.Event, part a2atype.Part) (*genai.Part, error) {
+func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*genai.Part, error) {
 	dp := asDataPart(part)
 	if dp == nil {
 		// Text and file parts: delegate to ADK default.
@@ -64,15 +64,15 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part a2atype.Part) (*g
 	}
 
 	// DataPart with kagent_type metadata: convert explicitly.
-	if dp.Metadata != nil {
-		if _, has := dp.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)]; has {
-			return convertDataPartToGenAI(dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	if part != nil && part.Metadata != nil {
+		if _, has := part.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)]; has {
+			return convertDataPartToGenAI(dp, part.Metadata, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 		}
 	}
 
 	// DataPart with adk_type metadata (produced by the ADK itself): delegate.
-	if dp.Metadata != nil {
-		if _, has := dp.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey)]; has {
+	if part != nil && part.Metadata != nil {
+		if _, has := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey)]; has {
 			return adka2a.ToGenAIPart(part)
 		}
 	}
@@ -84,56 +84,53 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part a2atype.Part) (*g
 
 // convertDataPartToGenAI converts a DataPart with a type metadata key
 // (either adk_type or kagent_type) back to GenAI for inbound message processing.
-func convertDataPartToGenAI(p *a2atype.DataPart, typeKey string) (*genai.Part, error) {
-	if p == nil {
+func convertDataPartToGenAI(data map[string]any, metadata map[string]any, typeKey string) (*genai.Part, error) {
+	if data == nil {
 		return nil, nil
 	}
-	partType, _ := p.Metadata[typeKey].(string)
+	partType, _ := metadata[typeKey].(string)
 	switch partType {
 	case A2ADataPartMetadataTypeFunctionCall:
-		name, _ := p.Data[PartKeyName].(string)
-		funcArgs, _ := p.Data[PartKeyArgs].(map[string]any)
+		name, _ := data[PartKeyName].(string)
+		funcArgs, _ := data[PartKeyArgs].(map[string]any)
 		if name != "" {
 			genaiPart := genai.NewPartFromFunctionCall(name, funcArgs)
-			if id, ok := p.Data[PartKeyID].(string); ok && id != "" {
+			if id, ok := data[PartKeyID].(string); ok && id != "" {
 				genaiPart.FunctionCall.ID = id
 			}
 			return genaiPart, nil
 		}
 	case A2ADataPartMetadataTypeFunctionResponse:
-		name, _ := p.Data[PartKeyName].(string)
-		response, _ := p.Data[PartKeyResponse].(map[string]any)
+		name, _ := data[PartKeyName].(string)
+		response, _ := data[PartKeyResponse].(map[string]any)
 		if name != "" {
 			genaiPart := genai.NewPartFromFunctionResponse(name, response)
-			if id, ok := p.Data[PartKeyID].(string); ok && id != "" {
+			if id, ok := data[PartKeyID].(string); ok && id != "" {
 				genaiPart.FunctionResponse.ID = id
 			}
 			return genaiPart, nil
 		}
 	}
-	return adka2a.ToGenAIPart(p)
+	return adka2a.ToGenAIPart(a2atype.NewDataPart(data))
 }
 
 // stampSubagentSessionID adds kagent_subagent_session_id to function_call
 // DataParts when the tool name is present in subagentSessionIDs.
 // Part can be either a *a2atype.DataPart or a2atype.DataPart.
-func stampSubagentSessionID(part a2atype.Part, subagentSessionIDs map[string]string) a2atype.Part {
-	switch p := part.(type) {
-	case *a2atype.DataPart:
-		cp := *p
-		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
-		return cp
-	case a2atype.DataPart:
-		cp := p
-		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
-		return cp
-	default:
-		return part
+func stampSubagentSessionID(part *a2atype.Part, subagentSessionIDs map[string]string) *a2atype.Part {
+	if part == nil {
+		return nil
 	}
+	stampSubagentSessionIDOnDataPart(part, subagentSessionIDs)
+	return part
 }
 
-func stampSubagentSessionIDOnDataPart(dp *a2atype.DataPart, subagentSessionIDs map[string]string) {
+func stampSubagentSessionIDOnDataPart(dp *a2atype.Part, subagentSessionIDs map[string]string) {
 	if dp == nil || len(subagentSessionIDs) == 0 {
+		return
+	}
+	view := asDataPart(dp)
+	if view == nil {
 		return
 	}
 	if dp.Metadata == nil {
@@ -143,7 +140,7 @@ func stampSubagentSessionIDOnDataPart(dp *a2atype.DataPart, subagentSessionIDs m
 	if partType != A2ADataPartMetadataTypeFunctionCall {
 		return
 	}
-	toolName, _ := dp.Data[PartKeyName].(string)
+	toolName, _ := view[PartKeyName].(string)
 	if toolName == "" {
 		return
 	}
