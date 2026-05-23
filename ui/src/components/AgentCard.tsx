@@ -24,9 +24,10 @@ import { cn } from "@/lib/utils";
 
 interface AgentCardProps {
   agentResponse: AgentResponse;
+  onAgentsChanged?: () => Promise<void> | void;
 }
 
-export function AgentCard({ agentResponse }: AgentCardProps) {
+export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
   const { agent, model, modelProvider, deploymentReady, accepted } = agentResponse;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
@@ -192,6 +193,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
         <DeleteButton
           agentName={agent.metadata.name}
           namespace={agent.metadata.namespace || ''}
+          onDeleted={onAgentsChanged}
           externalOpen={deleteOpen}
           onExternalOpenChange={setDeleteOpen}
         />

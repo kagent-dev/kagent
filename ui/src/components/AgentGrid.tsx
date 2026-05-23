@@ -4,9 +4,10 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
 
 interface AgentGridProps {
   agentResponse: AgentResponse[];
+  onAgentsChanged?: () => Promise<void> | void;
 }
 
-export function AgentGrid({ agentResponse }: AgentGridProps) {
+export function AgentGrid({ agentResponse, onAgentsChanged }: AgentGridProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -15,7 +16,7 @@ export function AgentGrid({ agentResponse }: AgentGridProps) {
           item.agent.metadata.namespace || '',
           item.agent.metadata.name || '');
 
-        return <AgentCard key={agentRef} agentResponse={item} />
+        return <AgentCard key={agentRef} agentResponse={item} onAgentsChanged={onAgentsChanged} />
       })}
     </div>
   );
