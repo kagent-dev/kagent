@@ -54,10 +54,13 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
+	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -99,6 +102,7 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -147,6 +151,21 @@ type Config struct {
 		Insecure    bool
 		DialTimeout time.Duration
 		CallTimeout time.Duration
+	}
+	Substrate struct {
+		AteAPIEndpoint                string
+		Insecure                      bool
+		DialTimeout                   time.Duration
+		CallTimeout                   time.Duration
+		DefaultActorTemplateNamespace string
+		DefaultActorTemplateName      string
+		GatewayToken                  string
+		GatewayTokenFile              string
+		PauseImage                    string
+		RunscAMD64URL                 string
+		RunscAMD64SHA256              string
+		RunscARM64URL                 string
+		RunscARM64SHA256              string
 	}
 }
 
@@ -206,6 +225,20 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
 	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
 	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
+
+	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
+	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
+	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
+	commandLine.StringVar(&cfg.Substrate.DefaultActorTemplateNamespace, "substrate-default-actor-template-namespace", "", "Legacy fallback ActorTemplate namespace when adopting an external template (set spec.substrate.actorTemplateRef instead).")
+	commandLine.StringVar(&cfg.Substrate.DefaultActorTemplateName, "substrate-default-actor-template-name", "", "Legacy fallback ActorTemplate name when adopting an external template (set spec.substrate.actorTemplateRef instead).")
+	commandLine.StringVar(&cfg.Substrate.GatewayToken, "substrate-gateway-token", "", "OpenClaw gateway Bearer token for substrate proxy. Prefer --substrate-gateway-token-file.")
+	commandLine.StringVar(&cfg.Substrate.GatewayTokenFile, "substrate-gateway-token-file", "", "File containing OpenClaw gateway Bearer token for substrate harness proxy.")
+	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for auto-provisioned ActorTemplates.")
+	commandLine.StringVar(&cfg.Substrate.RunscAMD64URL, "substrate-runsc-amd64-url", "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc", "gVisor runsc URL for amd64.")
+	commandLine.StringVar(&cfg.Substrate.RunscAMD64SHA256, "substrate-runsc-amd64-sha256", "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63", "gVisor runsc sha256 for amd64.")
+	commandLine.StringVar(&cfg.Substrate.RunscARM64URL, "substrate-runsc-arm64-url", "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc", "gVisor runsc URL for arm64.")
+	commandLine.StringVar(&cfg.Substrate.RunscARM64SHA256, "substrate-runsc-arm64-sha256", "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9", "gVisor runsc sha256 for arm64.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
@@ -563,23 +596,43 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	kubeClient := mgr.GetClient()
+	var openshellBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	var substrateBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	if cfg.Openshell.GatewayURL != "" {
-		kubeClient := mgr.GetClient()
-		openshellBackends, err := buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
+		var err error
+		openshellBackends, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
 		}
+	}
+	var substrateAteClient *substrate.Client
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		var err error
+		substrateBackends, substrateAteClient, err = buildSubstrateSandboxBackends(ctx, &cfg)
+		if err != nil {
+			setupLog.Error(err, "unable to build substrate sandbox backends")
+			os.Exit(1)
+		}
+	}
+	if len(openshellBackends) > 0 || len(substrateBackends) > 0 {
+		var substrateProvisioner *substrate.Provisioner
+		if len(substrateBackends) > 0 {
+			substrateProvisioner = substrateProvisionerFromConfig(kubeClient, &cfg, substrateAteClient)
+		}
 		if err := (&controller.AgentHarnessController{
-			Client:   kubeClient,
-			Recorder: mgr.GetEventRecorder("agentharness-controller"),
-			Backends: openshellBackends,
+			Client:               kubeClient,
+			Recorder:             mgr.GetEventRecorder("agentharness-controller"),
+			OpenshellBackends:    openshellBackends,
+			SubstrateBackends:    substrateBackends,
+			SubstrateProvisioner: substrateProvisioner,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
 			os.Exit(1)
 		}
 	} else {
-		setupLog.Info("AgentHarness controller disabled: --openshell-gateway-url not set")
+		setupLog.Info("AgentHarness controller disabled: set --openshell-gateway-url and/or --substrate-ate-api-endpoint")
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -677,19 +730,40 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		gwToken := cfg.Substrate.GatewayToken
+		if cfg.Substrate.GatewayTokenFile != "" {
+			data, err := os.ReadFile(cfg.Substrate.GatewayTokenFile)
+			if err != nil {
+				setupLog.Error(err, "unable to read substrate gateway token file")
+				os.Exit(1)
+			}
+			gwToken = strings.TrimSpace(string(data))
+		}
+		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
+			GatewayToken:     gwToken,
+			AteAPIEndpoint:   cfg.Substrate.AteAPIEndpoint,
+			AteAPIInsecure:   cfg.Substrate.Insecure,
+			DialTimeout:      cfg.Substrate.DialTimeout,
+			CallTimeout:      cfg.Substrate.CallTimeout,
+		}
+	}
+
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:            router,
-		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        mgr.GetClient(),
-		A2AHandler:        a2aHandler,
-		MCPHandler:        mcpHandler,
-		WatchedNamespaces: watchNamespacesList,
-		DbClient:          dbClient,
-		Authorizer:        extensionCfg.Authorizer,
-		Authenticator:     extensionCfg.Authenticator,
-		ProxyURL:          cfg.Proxy.URL,
-		Reconciler:        rcnclr,
-		SandboxBackend:    extensionCfg.SandboxBackend,
+		Router:              router,
+		BindAddr:            cfg.HttpServerAddr,
+		KubeClient:          mgr.GetClient(),
+		A2AHandler:          a2aHandler,
+		MCPHandler:          mcpHandler,
+		WatchedNamespaces:   watchNamespacesList,
+		DbClient:            dbClient,
+		Authorizer:          extensionCfg.Authorizer,
+		Authenticator:       extensionCfg.Authenticator,
+		ProxyURL:            cfg.Proxy.URL,
+		Reconciler:          rcnclr,
+		SandboxBackend:      extensionCfg.SandboxBackend,
+		AgentHarnessGateway: agentHarnessGateway,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -747,10 +821,78 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
 	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
+		v1alpha2.AgentHarnessBackendOpenClaw:  ocl,
 		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
 		v1alpha2.AgentHarnessBackendHermes:   hermesBackend,
 	}, nil
+}
+
+func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, *substrate.Client, error) {
+	sc, _, err := substrateAppConfig(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	client, err := substrate.Dial(ctx, sc)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ocl := substrate.NewOpenClawBackend(client, sc, v1alpha2.AgentHarnessBackendOpenClaw, nil)
+	ncl := substrate.NewOpenClawBackend(client, sc, v1alpha2.AgentHarnessBackendNemoClaw, nil)
+	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
+		v1alpha2.AgentHarnessBackendOpenClaw:  ocl,
+		v1alpha2.AgentHarnessBackendNemoClaw: ncl,
+	}, client, nil
+}
+
+func substrateAppConfig(cfg *Config) (substrate.Config, string, error) {
+	gwToken := cfg.Substrate.GatewayToken
+	if cfg.Substrate.GatewayTokenFile != "" {
+		data, err := os.ReadFile(cfg.Substrate.GatewayTokenFile)
+		if err != nil {
+			return substrate.Config{}, "", fmt.Errorf("read substrate gateway token file: %w", err)
+		}
+		gwToken = strings.TrimSpace(string(data))
+	}
+	sc := substrate.Config{
+		AteAPIEndpoint:                cfg.Substrate.AteAPIEndpoint,
+		Insecure:                      cfg.Substrate.Insecure,
+		DialTimeout:                   cfg.Substrate.DialTimeout,
+		CallTimeout:                   cfg.Substrate.CallTimeout,
+		DefaultActorTemplateNamespace: cfg.Substrate.DefaultActorTemplateNamespace,
+		DefaultActorTemplateName:      cfg.Substrate.DefaultActorTemplateName,
+		GatewayToken:                  gwToken,
+		ProvisionDefaults: substrate.ProvisionDefaults{
+			PauseImage:           cfg.Substrate.PauseImage,
+			RunscAMD64URL:        cfg.Substrate.RunscAMD64URL,
+			RunscAMD64SHA256:     cfg.Substrate.RunscAMD64SHA256,
+			RunscARM64URL:        cfg.Substrate.RunscARM64URL,
+			RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
+			DefaultWorkloadImage: openshell.NemoclawSandboxBaseImage,
+			GatewayToken:         gwToken,
+		},
+	}
+	return sc, gwToken, nil
+}
+
+func substrateProvisionerFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Provisioner {
+	_, gwToken, err := substrateAppConfig(cfg)
+	if err != nil {
+		gwToken = cfg.Substrate.GatewayToken
+	}
+	return &substrate.Provisioner{
+		Client: kubeClient,
+		Ate:    ate,
+		Defaults: substrate.ProvisionDefaults{
+			PauseImage:           cfg.Substrate.PauseImage,
+			RunscAMD64URL:        cfg.Substrate.RunscAMD64URL,
+			RunscAMD64SHA256:     cfg.Substrate.RunscAMD64SHA256,
+			RunscARM64URL:        cfg.Substrate.RunscARM64URL,
+			RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
+			DefaultWorkloadImage: openshell.NemoclawSandboxBaseImage,
+			GatewayToken:         gwToken,
+		},
+	}
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

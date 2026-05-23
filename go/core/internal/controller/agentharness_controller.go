@@ -28,6 +28,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 const (
@@ -49,14 +50,38 @@ const (
 // harness VMs are a generic exec/SSH-able environment with no in-cluster
 // workload owned by kagent.
 type AgentHarnessController struct {
-	Client   client.Client
-	Recorder events.EventRecorder
-	Backends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	Client              client.Client
+	Recorder            events.EventRecorder
+	OpenshellBackends   map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	SubstrateBackends   map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	SubstrateProvisioner *substrate.Provisioner
+}
+
+func (r *AgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) sandboxbackend.AsyncBackend {
+	runtime := ah.Spec.Runtime
+	if runtime == "" {
+		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+	}
+	switch runtime {
+	case v1alpha2.AgentHarnessRuntimeSubstrate:
+		if r.SubstrateBackends == nil {
+			return nil
+		}
+		return r.SubstrateBackends[ah.Spec.Backend]
+	default:
+		if r.OpenshellBackends == nil {
+			return nil
+		}
+		return r.OpenshellBackends[ah.Spec.Backend]
+	}
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/finalizers,verbs=update
+// +kubebuilder:rbac:groups=ate.dev,resources=workerpools,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ate.dev,resources=actortemplates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ate.dev,resources=actortemplates/status,verbs=get
 
 func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("agentHarness", req.NamespacedName)
@@ -80,17 +105,74 @@ func (r *AgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	backend := r.Backends[ah.Spec.Backend]
+	backend := r.backendFor(&ah)
 	if backend == nil {
+		runtime := ah.Spec.Runtime
+		if runtime == "" {
+			runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+		}
 		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
 			"BackendUnavailable",
-			fmt.Sprintf("no backend configured for %q", ah.Spec.Backend))
+			fmt.Sprintf("no %s backend configured for %q", runtime, ah.Spec.Backend))
 		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 			"BackendUnavailable", "")
 		if err := r.patchAgentHarnessStatus(ctx, &ah); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	runtime := ah.Spec.Runtime
+	if runtime == "" {
+		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+	}
+	if runtime == v1alpha2.AgentHarnessRuntimeSubstrate && r.SubstrateProvisioner != nil {
+		provRes, err := r.SubstrateProvisioner.Ensure(ctx, &ah)
+		if err != nil {
+			log.Error(err, "substrate provision failed")
+			setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
+				"SubstrateProvisionFailed", err.Error())
+			setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
+				"SubstrateProvisionFailed", "")
+			if perr := r.patchAgentHarnessStatus(ctx, &ah); perr != nil {
+				return ctrl.Result{}, perr
+			}
+			return ctrl.Result{}, err
+		}
+		if ah.Status.Substrate == nil {
+			ah.Status.Substrate = &v1alpha2.AgentHarnessSubstrateStatus{}
+		}
+		if provRes.WorkerPoolRef.Name != "" {
+			ah.Status.Substrate.WorkerPoolRef = v1alpha2.TypedReference{
+				Name:      provRes.WorkerPoolRef.Name,
+				Namespace: provRes.WorkerPoolRef.Namespace,
+			}
+		}
+		ah.Status.Substrate.ActorTemplateRef = v1alpha2.TypedReference{
+			Name:      provRes.ActorTemplateRef.Name,
+			Namespace: provRes.ActorTemplateRef.Namespace,
+		}
+		ah.Status.Substrate.ActorTemplateReady = provRes.ActorTemplateReady
+		// Persist status before metadata annotation patch (client Patch can refresh ah and drop in-memory status).
+		if err := r.patchAgentHarnessStatus(ctx, &ah); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.patchAgentHarnessProvisionAnnotations(ctx, &ah, provRes); err != nil {
+			return ctrl.Result{}, err
+		}
+		if !provRes.ActorTemplateReady {
+			setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
+				"SubstrateProvisioning", "waiting for ActorTemplate golden snapshot")
+			setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
+				"ActorTemplateNotReady", "ActorTemplate is not Ready yet")
+			if err := r.patchAgentHarnessStatus(ctx, &ah); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
+		}
+		if err := r.Client.Get(ctx, req.NamespacedName, &ah); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reload AgentHarness after substrate provision: %w", err)
+		}
 	}
 
 	res, err := backend.EnsureAgentHarness(ctx, &ah)
@@ -192,7 +274,7 @@ func (r *AgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alph
 	}
 
 	if ah.Status.BackendRef != nil && ah.Status.BackendRef.ID != "" {
-		del := r.Backends[ah.Status.BackendRef.Backend]
+		del := r.backendFor(ah)
 		if del != nil {
 			if err := del.DeleteAgentHarness(ctx, sandboxbackend.Handle{ID: ah.Status.BackendRef.ID}); err != nil {
 				if r.Recorder != nil {
@@ -200,6 +282,12 @@ func (r *AgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alph
 				}
 				return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
 			}
+		}
+	}
+
+	if r.SubstrateProvisioner != nil {
+		if err := r.SubstrateProvisioner.Delete(ctx, ah); err != nil {
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, fmt.Errorf("delete substrate resources: %w", err)
 		}
 	}
 
@@ -213,6 +301,23 @@ func (r *AgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alph
 func (r *AgentHarnessController) patchAgentHarnessStatus(ctx context.Context, ah *v1alpha2.AgentHarness) error {
 	if err := r.Client.Status().Update(ctx, ah); err != nil {
 		return fmt.Errorf("update AgentHarness status: %w", err)
+	}
+	return nil
+}
+
+func (r *AgentHarnessController) patchAgentHarnessProvisionAnnotations(ctx context.Context, ah *v1alpha2.AgentHarness, prov substrate.EnsureResult) error {
+	base := ah.DeepCopy()
+	if ah.Annotations == nil {
+		ah.Annotations = map[string]string{}
+	}
+	if prov.ManagedWorkerPool {
+		ah.Annotations[substrate.AnnotationManagedWorkerPool] = "true"
+	}
+	if prov.ManagedActorTemplate {
+		ah.Annotations[substrate.AnnotationManagedActorTemplate] = "true"
+	}
+	if err := r.Client.Patch(ctx, ah, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("patch AgentHarness substrate annotations: %w", err)
 	}
 	return nil
 }

@@ -5,21 +5,28 @@ package openclaw
 
 type bootstrapDocument struct {
 	Gateway  gatewaySection  `json:"gateway"`
-	Models   modelsSection   `json:"models"`
+	Models   *modelsSection  `json:"models,omitempty"`
 	Agents   agentsSection   `json:"agents"`
 	Channels *channelsConfig `json:"channels,omitempty"`
 	Secrets  secretsSection  `json:"secrets"`
 }
 
 type gatewaySection struct {
-	Mode string      `json:"mode"`
-	Bind string      `json:"bind"`
-	Auth gatewayAuth `json:"auth"`
-	Port int         `json:"port"`
+	Mode      string             `json:"mode"`
+	Bind      string             `json:"bind"`
+	Auth      gatewayAuth        `json:"auth"`
+	Port      int                `json:"port"`
+	ControlUi *controlUiSection  `json:"controlUi,omitempty"`
 }
 
 type gatewayAuth struct {
-	Mode string `json:"mode"`
+	Mode  string `json:"mode"`
+	Token string `json:"token,omitempty"`
+}
+
+type controlUiSection struct {
+	AllowedOrigins               []string `json:"allowedOrigins,omitempty"`
+	DangerouslyDisableDeviceAuth bool     `json:"dangerouslyDisableDeviceAuth,omitempty"`
 }
 
 type modelsSection struct {
@@ -28,7 +35,7 @@ type modelsSection struct {
 }
 
 type providerSettings struct {
-	BaseURL string      `json:"baseUrl"`
+	BaseURL string      `json:"baseUrl,omitempty"`
 	APIKey  string      `json:"apiKey"`
 	Auth    string      `json:"auth"`
 	API     string      `json:"api"`

@@ -163,6 +163,97 @@ export function OpenClawSandboxFields({
       </FieldError>
 
       <FormSection
+        id="section-openclaw-runtime"
+        title="Runtime"
+        description="OpenShell provisions a VM via the OpenShell gateway. Substrate auto-creates an ActorTemplate (and optionally a WorkerPool); you only configure snapshot storage and pool capacity."
+      >
+        <FieldRoot>
+          <FieldLabel htmlFor="agent-field-harness-runtime">Control plane</FieldLabel>
+          <select
+            id="agent-field-harness-runtime"
+            className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            disabled={disabled}
+            value={value.runtime}
+            onChange={(e) =>
+              set({ runtime: e.target.value === "substrate" ? "substrate" : "openshell" })
+            }
+          >
+            <option value="openshell">OpenShell</option>
+            <option value="substrate">Agent Substrate</option>
+          </select>
+        </FieldRoot>
+        {value.runtime === "substrate" ? (
+          <div className="space-y-4">
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
+              <Input
+                id="agent-field-substrate-snapshots"
+                disabled={disabled}
+                placeholder="gs://ate-snapshots/kagent/my-harness/"
+                value={value.substrateSnapshotsLocation}
+                onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
+              </p>
+            </FieldRoot>
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-wp-mode">Worker pool</FieldLabel>
+              <select
+                id="agent-field-substrate-wp-mode"
+                className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                disabled={disabled}
+                value={value.substrateWorkerPoolMode}
+                onChange={(e) =>
+                  set({
+                    substrateWorkerPoolMode: e.target.value === "existing" ? "existing" : "create",
+                  })
+                }
+              >
+                <option value="create">Create a dedicated pool for this harness</option>
+                <option value="existing">Use an existing WorkerPool</option>
+              </select>
+            </FieldRoot>
+            {value.substrateWorkerPoolMode === "existing" ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FieldRoot>
+                  <FieldLabel htmlFor="agent-field-substrate-wp-ns">WorkerPool namespace</FieldLabel>
+                  <Input
+                    id="agent-field-substrate-wp-ns"
+                    disabled={disabled}
+                    placeholder="same as harness"
+                    value={value.substrateWorkerPoolRefNamespace}
+                    onChange={(e) => set({ substrateWorkerPoolRefNamespace: e.target.value })}
+                  />
+                </FieldRoot>
+                <FieldRoot>
+                  <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
+                  <Input
+                    id="agent-field-substrate-wp-name"
+                    disabled={disabled}
+                    value={value.substrateWorkerPoolRefName}
+                    onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
+                  />
+                </FieldRoot>
+              </div>
+            ) : (
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-substrate-wp-replicas">Worker replicas</FieldLabel>
+                <Input
+                  id="agent-field-substrate-wp-replicas"
+                  disabled={disabled}
+                  type="number"
+                  min={1}
+                  value={value.substrateWorkerPoolReplicas}
+                  onChange={(e) => set({ substrateWorkerPoolReplicas: e.target.value })}
+                />
+              </FieldRoot>
+            )}
+          </div>
+        ) : null}
+      </FormSection>
+
+      <FormSection
         id="section-openclaw-channels"
         title="Channels integrations"
         description="Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."

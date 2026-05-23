@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
@@ -77,9 +78,23 @@ func (w *statusResponseWriter) RespondWithError(err error) {
 	}
 }
 
+func isAgentHarnessGatewayPath(path string) bool {
+	if !strings.HasPrefix(path, "/api/agentharnesses/") {
+		return false
+	}
+	for _, marker := range []string{"/gateway", "/assets/", "/manifest.webmanifest", "/favicon"} {
+		if strings.Contains(path, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func contentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" && r.URL.Path != APIPathSandboxSSH {
+		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" &&
+			r.URL.Path != APIPathSandboxSSH &&
+			!isAgentHarnessGatewayPath(r.URL.Path) {
 			w.Header().Set("Content-Type", "application/json")
 		}
 		next.ServeHTTP(w, r)

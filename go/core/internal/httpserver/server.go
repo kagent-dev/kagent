@@ -50,6 +50,7 @@ const (
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
 	APIPathSandboxSSH           = "/api/sandbox/ssh"
+	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -70,7 +71,8 @@ type ServerConfig struct {
 	Authorizer        auth.Authorizer
 	ProxyURL          string
 	Reconciler        reconciler.KagentReconciler
-	SandboxBackend    sandboxbackend.Backend
+	SandboxBackend        sandboxbackend.Backend
+	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -89,7 +91,17 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
+		handlers: handlers.NewHandlers(
+			config.KubeClient,
+			defaultModelConfig,
+			config.DbClient,
+			config.WatchedNamespaces,
+			config.Authorizer,
+			config.ProxyURL,
+			config.Reconciler,
+			config.SandboxBackend,
+			config.AgentHarnessGateway,
+		),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -303,6 +315,12 @@ func (s *HTTPServer) setupRoutes() {
 	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
 	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
 
+	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) to the actor pod IP :80.
+	// Includes /gateway/* and mis-resolved static paths (/assets/, manifest, etc.).
+	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
+		adaptHandler(s.handlers.HandleAgentHarnessGateway),
+	)
+
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
@@ -313,21 +331,30 @@ func (s *HTTPServer) setupRoutes() {
 	}
 
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
-	s.router.Use(wsSandboxSSHAuthQueryMiddleware)
+	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
 }
 
-// wsSandboxSSHAuthQueryMiddleware maps access_token query → Authorization for browser WebSocket upgrades
+// wsAuthQueryMiddleware maps token query params → Authorization for browser WebSocket upgrades
 // (fetch can send headers; WebSocket cannot).
-func wsSandboxSSHAuthQueryMiddleware(next http.Handler) http.Handler {
+func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == APIPathSandboxSSH && r.Header.Get("Authorization") == "" {
-			if t := r.URL.Query().Get("access_token"); t != "" {
-				r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(t))
-			}
+		if r.Header.Get("Authorization") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var token string
+		switch {
+		case r.URL.Path == APIPathSandboxSSH || strings.HasSuffix(r.URL.Path, "/ssh"):
+			token = r.URL.Query().Get("access_token")
+		case isAgentHarnessGatewayPath(r.URL.Path):
+			token = r.URL.Query().Get("token")
+		}
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 		}
 		next.ServeHTTP(w, r)
 	})

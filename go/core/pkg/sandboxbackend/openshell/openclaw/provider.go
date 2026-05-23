@@ -7,7 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
-func bootstrapProviderBaseURL(mc *v1alpha2.ModelConfig) string {
+func modelConfigExplicitBaseURL(mc *v1alpha2.ModelConfig) string {
 	switch mc.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
 		if mc.Spec.OpenAI != nil && strings.TrimSpace(mc.Spec.OpenAI.BaseURL) != "" {
@@ -30,7 +30,14 @@ func bootstrapProviderBaseURL(mc *v1alpha2.ModelConfig) string {
 			return strings.TrimSpace(mc.Spec.SAPAICore.BaseURL)
 		}
 	}
-	return DefaultInferenceBaseURL
+	return ""
+}
+
+func bootstrapProviderBaseURL(mc *v1alpha2.ModelConfig, defaultWhenUnset string) string {
+	if u := modelConfigExplicitBaseURL(mc); u != "" {
+		return u
+	}
+	return defaultWhenUnset
 }
 
 func providerAuth(mc *v1alpha2.ModelConfig) string {

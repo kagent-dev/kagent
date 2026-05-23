@@ -5,6 +5,14 @@ export function isOpenshellSandboxRow(item: AgentResponse): boolean {
   return Boolean(item.openshellAgentHarness?.gatewaySandboxName);
 }
 
+export function isSubstrateHarnessRow(item: AgentResponse): boolean {
+  return Boolean(item.substrateAgentHarness?.gatewayUIPath);
+}
+
+export function isHarnessListRow(item: AgentResponse): boolean {
+  return isOpenshellSandboxRow(item) || isSubstrateHarnessRow(item);
+}
+
 export type OpenshellTerminalLinkParams = {
   gatewaySandboxName: string;
   namespace?: string;

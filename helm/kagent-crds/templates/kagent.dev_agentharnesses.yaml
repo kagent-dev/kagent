@@ -19,6 +19,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.runtime
+      name: Runtime
+      type: string
     - jsonPath: .spec.backend
       name: Backend
       type: string
@@ -511,6 +514,106 @@ spec:
                       type: string
                     type: array
                 type: object
+              runtime:
+                default: openshell
+                description: Runtime selects the harness provisioning stack. Defaults
+                  to openshell when unset.
+                enum:
+                - openshell
+                - substrate
+                type: string
+              substrate:
+                description: Substrate is required when runtime is substrate.
+                properties:
+                  actorTemplateRef:
+                    description: |-
+                      ActorTemplateRef adopts an existing ate.dev ActorTemplate instead of auto-provisioning.
+                      When set, workerPoolRef/workerPool/snapshotsConfig are ignored for template creation.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  gatewayPort:
+                    default: 80
+                    description: GatewayPort is the port OpenClaw listens on inside
+                      the actor (Substrate routes to :80 today).
+                    format: int32
+                    type: integer
+                  gatewayTokenSecretRef:
+                    description: |-
+                      GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
+                      When unset, the controller falls back to --substrate-gateway-token(-file).
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  snapshotsConfig:
+                    description: SnapshotsConfig is required for auto-provisioned
+                      templates (GCS gs:// location).
+                    properties:
+                      location:
+                        description: |-
+                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPool:
+                    description: WorkerPool creates a dedicated WorkerPool in the
+                      harness namespace when workerPoolRef is unset.
+                    properties:
+                      ateomImage:
+                        description: |-
+                          AteomImage is the ateom herder image (pullable registry ref, not ko://).
+                          Required when kagent auto-provisions a WorkerPool (spec.workerPool without workerPoolRef).
+                        type: string
+                      replicas:
+                        default: 2
+                        description: Replicas is the number of ateom worker pods.
+                          Defaults to 2 when unset or zero.
+                        format: int32
+                        type: integer
+                    type: object
+                  workerPoolRef:
+                    description: |-
+                      WorkerPoolRef references an existing ate.dev WorkerPool (namespace/name).
+                      Mutually exclusive with workerPool.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  workloadImage:
+                    description: WorkloadImage overrides the default nemoclaw/openclaw
+                      sandbox image in the ActorTemplate.
+                    type: string
+                required:
+                - snapshotsConfig
+                type: object
             required:
             - backend
             type: object
@@ -612,6 +715,44 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              substrate:
+                description: Substrate records auto-provisioned Substrate CR references.
+                properties:
+                  actorTemplateReady:
+                    description: ActorTemplateReady is true when the template phase
+                      is Ready (golden snapshot taken).
+                    type: boolean
+                  actorTemplateRef:
+                    description: ActorTemplateRef is the ActorTemplate used when creating
+                      the actor.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  workerPoolRef:
+                    description: WorkerPoolRef is the WorkerPool used by the harness
+                      ActorTemplate.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
             type: object
         type: object
     served: true

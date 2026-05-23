@@ -1,5 +1,5 @@
 import type { AgentResponse } from "@/types";
-import { isOpenshellSandboxRow } from "@/lib/openshellSandboxAgents";
+import { isHarnessListRow, isOpenshellSandboxRow, isSubstrateHarnessRow } from "@/lib/openshellSandboxAgents";
 
 /**
  * Sandbox CR backends that identify an **agent harness** (declarative harness UX: channels, harness create flow, etc.)
@@ -15,19 +15,30 @@ export function isAgentHarnessBackend(value: string | undefined | null): value i
   return AGENT_HARNESS_BACKENDS.some((b) => b === value);
 }
 
+export function getAgentHarnessRuntime(item: AgentResponse): "openshell" | "substrate" | undefined {
+  if (!isHarnessListRow(item)) {
+    return undefined;
+  }
+  if (isSubstrateHarnessRow(item)) {
+    return "substrate";
+  }
+  return "openshell";
+}
+
 /**
  * When this agent row represents an agent harness, returns the AgentHarness CR backend discriminator (e.g. openclaw vs nemoclaw).
  * Use {@link isAgentHarness} for a simple boolean check.
  */
 export function getAgentHarnessBackend(item: AgentResponse): AgentHarnessBackend | undefined {
-  if (!isOpenshellSandboxRow(item)) {
+  if (!isHarnessListRow(item)) {
     return undefined;
   }
-  const backend = item.openshellAgentHarness?.backend;
+  const backend =
+    item.substrateAgentHarness?.backend ?? item.openshellAgentHarness?.backend;
   return isAgentHarnessBackend(backend) ? backend : undefined;
 }
 
-/** True when the agents-list row is an agent harness (OpenShell sandbox whose backend is a known harness runtime). */
+/** True when the agents-list row is an agent harness. */
 export function isAgentHarness(item: AgentResponse): boolean {
   return getAgentHarnessBackend(item) !== undefined;
 }
@@ -79,4 +90,8 @@ export function agentHarnessTypeLabel(backend: AgentHarnessBackend): string {
       return _exhaustive;
     }
   }
+}
+
+export function agentHarnessRuntimeLabel(runtime: "openshell" | "substrate"): string {
+  return runtime === "substrate" ? "Substrate" : "OpenShell";
 }

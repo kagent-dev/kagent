@@ -427,6 +427,18 @@ export interface OpenshellAgentHarnessListEntry {
   endpoint?: string;
 }
 
+/** Merged into GET /api/agents when AgentHarness.spec.runtime is substrate. */
+export interface SubstrateAgentHarnessListEntry {
+  backend: string;
+  runtime: "substrate";
+  actorId?: string;
+  /** Same-origin path for OpenClaw UI (HTTP + WebSocket via kagent proxy to actor pod IP). */
+  gatewayUIPath?: string;
+  modelConfigRef?: string;
+  backendRefId?: string;
+  endpoint?: string;
+}
+
 export interface AgentResponse {
   id: number | string;
   agent: Agent;
@@ -438,6 +450,7 @@ export interface AgentResponse {
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
   openshellAgentHarness?: OpenshellAgentHarnessListEntry;
+  substrateAgentHarness?: SubstrateAgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {
