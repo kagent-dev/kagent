@@ -223,12 +223,26 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
-  # Extra controller env. Examples — OpenShell:
-  # env:
-  #   - name: OPENSHELL_GRPC_ADDR
-  #     value: "openshell.my-namespace.svc.cluster.local:8080"
-  env: []
+  # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
+  # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
+  env:
+    # - name: OPENSHELL_GATEWAY_URL
+    #   value: openshell.openshell.svc.cluster.local:8080
+    # - name: OPENSHELL_INSECURE
+    #   value: "true"
+
+  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
+  # kagent auto-provisions per-harness ActorTemplate (+ optional WorkerPool); users set
+  # spec.substrate.snapshotsConfig.location (gs://) and worker pool ref or create spec.
+  substrate:
+    enabled: false
+    ateApiEndpoint: "dns:///api.ate-system.svc:443"
+    ateApiInsecure: false
+    gatewayToken: "test-token"
+    gatewayTokenSecretName: ""
+    gatewayTokenSecretNamespace: ""
+    pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
+
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
@@ -657,7 +671,7 @@ oauth2-proxy:
     # Skip authentication for kagent's branded login page, health checks, and static assets
     # This allows unauthenticated users to see the landing page and k8s probes to work
     skip-auth-route: "^/(health|login)$"
-    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico).*$"
+    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 

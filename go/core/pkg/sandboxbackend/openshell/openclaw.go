@@ -87,7 +87,7 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Agen
 	gwPort := defaultOpenclawGatewayPort
 	token := b.cfg.Token
 
-	jsonBytes, env, err := openclaw.BuildBootstrapJSON(ctx, b.kubeClient, ah.Namespace, ah, mc, gwPort)
+	jsonBytes, env, err := openclaw.BuildBootstrapJSON(ctx, b.kubeClient, ah.Namespace, ah, mc, openclaw.OpenshellGatewayBootstrap(gwPort), openclaw.DefaultInferenceBaseURL)
 	if err != nil {
 		return fmt.Errorf("build openclaw config: %w", err)
 	}

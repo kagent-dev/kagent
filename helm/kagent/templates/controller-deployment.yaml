@@ -87,6 +87,32 @@ spec:
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- if .Values.controller.substrate.enabled }}
+            - name: SUBSTRATE_ATE_API_ENDPOINT
+              value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
+            {{- if .Values.controller.substrate.ateApiInsecure }}
+            - name: SUBSTRATE_ATE_API_INSECURE
+              value: "true"
+            {{- end }}
+            - name: SUBSTRATE_DEFAULT_ACTOR_TEMPLATE_NAMESPACE
+              value: {{ .Values.controller.substrate.defaultActorTemplateNamespace | quote }}
+            - name: SUBSTRATE_DEFAULT_ACTOR_TEMPLATE_NAME
+              value: {{ .Values.controller.substrate.defaultActorTemplateName | quote }}
+            {{- if .Values.controller.substrate.gatewayTokenSecretName }}
+            - name: SUBSTRATE_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controller.substrate.gatewayTokenSecretName | quote }}
+                  key: token
+            {{- else if .Values.controller.substrate.gatewayToken }}
+            - name: SUBSTRATE_GATEWAY_TOKEN
+              value: {{ .Values.controller.substrate.gatewayToken | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.pauseImage }}
+            - name: SUBSTRATE_PAUSE_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "kagent.fullname" . }}-controller
