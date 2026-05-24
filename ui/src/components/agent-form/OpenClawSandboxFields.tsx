@@ -506,8 +506,8 @@ export function OpenClawSandboxFields({
                     <FieldRoot className="space-y-1.5 sm:col-span-2">
                       <FieldLabel className="text-xs">Allowed Slack users (optional)</FieldLabel>
                       <FieldHint className="text-[11px]">
-                        Restrict who can DM the bot using Slack member IDs (<span className="font-mono">U…</span>). Written to{" "}
-                        <span className="font-mono">SLACK_ALLOWED_USERS</span>. Leave empty to allow all users.
+                        Restrict who can interact with the bot using Slack member IDs (<span className="font-mono">U…</span>). Written to{" "}
+                        <span className="font-mono">SLACK_ALLOWED_USERS</span> as comma-separated values. Leave empty to allow all users.
                       </FieldHint>
                       <Input
                         value={ch.allowedSlackUserIDs}

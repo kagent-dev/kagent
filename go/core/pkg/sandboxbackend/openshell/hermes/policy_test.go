@@ -32,9 +32,8 @@ func TestChannelNetworkPolicyFragment_Slack(t *testing.T) {
 					Name: "sl",
 					Type: v1alpha2.AgentHarnessChannelTypeSlack,
 					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
-						BotToken:      v1alpha2.AgentHarnessChannelCredential{Value: "xoxb-bot"},
-						AppToken:      v1alpha2.AgentHarnessChannelCredential{Value: "xapp-app"},
-						ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "xoxb-bot"},
+						AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "xapp-app"},
 					},
 				},
 			},

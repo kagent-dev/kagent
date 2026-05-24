@@ -330,7 +330,9 @@ export function buildSandboxCRDraft(args: {
         appToken: app,
       };
       if (isClawHarnessBackend(resolveSandboxBackend(args.backend))) {
-        slack.channelAccess = ch.channelAccess;
+        if (ch.channelAccess !== "open") {
+          slack.channelAccess = ch.channelAccess;
+        }
         if (ch.channelAccess === "allowlist") {
           slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
         }

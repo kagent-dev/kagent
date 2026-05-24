@@ -52,11 +52,11 @@ func TelegramAllowFrom(ctx context.Context, kube client.Client, namespace string
 	return nil, nil
 }
 
-// SlackAllowedUsers returns allowed Slack user IDs from the channel spec (Hermes SLACK_ALLOWED_USERS).
-func SlackAllowedUsers(ctx context.Context, kube client.Client, namespace string, spec *v1alpha2.AgentHarnessSlackChannelSpec) ([]string, error) {
-	if len(spec.AllowedUserIDs) > 0 {
-		out := make([]string, 0, len(spec.AllowedUserIDs))
-		for _, id := range spec.AllowedUserIDs {
+// HermesSlackAllowedUsers returns allowed Slack member IDs from the Hermes channel spec (SLACK_ALLOWED_USERS).
+func HermesSlackAllowedUsers(ctx context.Context, kube client.Client, namespace string, opts *v1alpha2.AgentHarnessHermesSlackOptions) ([]string, error) {
+	if len(opts.AllowedUserIDs) > 0 {
+		out := make([]string, 0, len(opts.AllowedUserIDs))
+		for _, id := range opts.AllowedUserIDs {
 			s := strings.TrimSpace(id)
 			if s != "" {
 				out = append(out, s)
@@ -64,8 +64,8 @@ func SlackAllowedUsers(ctx context.Context, kube client.Client, namespace string
 		}
 		return out, nil
 	}
-	if spec.AllowedUserIDsFrom != nil {
-		raw, err := spec.AllowedUserIDsFrom.Resolve(ctx, kube, namespace)
+	if opts.AllowedUserIDsFrom != nil {
+		raw, err := opts.AllowedUserIDsFrom.Resolve(ctx, kube, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("resolve allowedUserIDsFrom: %w", err)
 		}

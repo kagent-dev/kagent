@@ -183,7 +183,7 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.spec.backend).toBe("openclaw");
     });
 
-    it("writes Hermes slack allowedUserIDs without OpenClaw channel access fields", () => {
+    it("writes Hermes slack allowedUserIDs and home channel fields", () => {
       const row = newOpenClawChannelRow();
       row.name = "slack-main";
       row.channelType = "slack";
@@ -206,9 +206,9 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(channels[0].slack.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
       expect(channels[0].slack.homeChannel).toBe("C01234567890");
       expect(channels[0].slack.homeChannelName).toBe("general");
-      expect(channels[0].slack.channelAccess).toBeUndefined();
-      expect(channels[0].slack.allowlistChannels).toBeUndefined();
-      expect(channels[0].slack.interactiveReplies).toBeUndefined();
+      expect(channels[0].slack).not.toHaveProperty("channelAccess");
+      expect(channels[0].slack).not.toHaveProperty("allowlistChannels");
+      expect(channels[0].slack).not.toHaveProperty("interactiveReplies");
     });
   });
 });

@@ -51,6 +51,7 @@ func TestBuildBootstrapArtifacts_TelegramSlack(t *testing.T) {
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "h1", Namespace: ns},
 		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendHermes,
 			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "tg",
@@ -70,11 +71,13 @@ func TestBuildBootstrapArtifacts_TelegramSlack(t *testing.T) {
 					Name: "sl",
 					Type: v1alpha2.AgentHarnessChannelTypeSlack,
 					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
-						BotToken:        v1alpha2.AgentHarnessChannelCredential{Value: "xoxb-bot"},
-						AppToken:        v1alpha2.AgentHarnessChannelCredential{Value: "xapp-app"},
-						AllowedUserIDs:  []string{"U01234567", "U89ABCDEF"},
-						HomeChannel:     "C01234567890",
-						HomeChannelName: "general",
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "xoxb-bot"},
+						AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "xapp-app"},
+						AgentHarnessHermesSlackOptions: v1alpha2.AgentHarnessHermesSlackOptions{
+							AllowedUserIDs:  []string{"U01234567", "U89ABCDEF"},
+							HomeChannel:     "C01234567890",
+							HomeChannelName: "general",
+						},
 					},
 				},
 			},

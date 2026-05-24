@@ -28,7 +28,7 @@ func UpsertMessagingProviders(
 		return nil, fmt.Errorf("openshell: Kubernetes client is required for messaging providers")
 	}
 
-	resolved, err := channels.Resolve(ctx, kube, ah.Namespace, ah.Spec.Channels)
+	resolved, err := channels.Resolve(ctx, kube, ah.Namespace, ah.Spec.Backend, ah.Spec.Channels)
 	if err != nil {
 		return nil, err
 	}

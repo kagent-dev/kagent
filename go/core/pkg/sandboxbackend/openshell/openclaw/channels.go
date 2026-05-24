@@ -13,8 +13,8 @@ type harnessChannels struct {
 	resolved *channels.Resolved
 }
 
-func accumulateHarnessChannels(ctx context.Context, kube client.Client, namespace string, specChannels []v1alpha2.AgentHarnessChannel, env map[string]string) (*harnessChannels, error) {
-	resolved, err := channels.Resolve(ctx, kube, namespace, specChannels)
+func accumulateHarnessChannels(ctx context.Context, kube client.Client, namespace string, backend v1alpha2.AgentHarnessBackendType, specChannels []v1alpha2.AgentHarnessChannel, env map[string]string) (*harnessChannels, error) {
+	resolved, err := channels.Resolve(ctx, kube, namespace, backend, specChannels)
 	if err != nil {
 		return nil, err
 	}

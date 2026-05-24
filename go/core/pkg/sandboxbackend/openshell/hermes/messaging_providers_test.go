@@ -23,6 +23,7 @@ func TestMessagingProviderDefsFromChannels(t *testing.T) {
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "mybot", Namespace: ns},
 		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendHermes,
 			Channels: []v1alpha2.AgentHarnessChannel{
 				{
 					Name: "tg",
@@ -40,7 +41,7 @@ func TestMessagingProviderDefsFromChannels(t *testing.T) {
 			},
 		},
 	}
-	resolved, err := channels.Resolve(context.Background(), kube, ns, ah.Spec.Channels)
+	resolved, err := channels.Resolve(context.Background(), kube, ns, ah.Spec.Backend, ah.Spec.Channels)
 	require.NoError(t, err)
 	defs := channels.MessagingProviderDefs("default-mybot", resolved.Secrets, resolved)
 	require.Len(t, defs, 1)

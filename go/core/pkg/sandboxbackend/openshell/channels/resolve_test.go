@@ -29,7 +29,7 @@ func TestResolve_perChannelTelegramSecrets(t *testing.T) {
 			},
 		},
 	}
-	resolved, err := Resolve(context.Background(), kube, ns, channels)
+	resolved, err := Resolve(context.Background(), kube, ns, v1alpha2.AgentHarnessBackendHermes, channels)
 	require.NoError(t, err)
 	require.Equal(t, "token-a", resolved.Secrets[TelegramBotTokenEnvKey("bot-a")])
 	require.Equal(t, "token-b", resolved.Secrets[TelegramBotTokenEnvKey("bot-b")])
@@ -37,7 +37,7 @@ func TestResolve_perChannelTelegramSecrets(t *testing.T) {
 
 func TestResolve_duplicateChannelName(t *testing.T) {
 	kube := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-	_, err := Resolve(context.Background(), kube, "default", []v1alpha2.AgentHarnessChannel{
+	_, err := Resolve(context.Background(), kube, "default", v1alpha2.AgentHarnessBackendHermes, []v1alpha2.AgentHarnessChannel{
 		{Name: "dup", Type: v1alpha2.AgentHarnessChannelTypeTelegram, Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
 			BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "a"},
 		}},

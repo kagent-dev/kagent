@@ -163,7 +163,7 @@ func BuildBootstrapArtifacts(ctx context.Context, kube client.Client, namespace 
 	execEnv = map[string]string{}
 	var msg *messagingState
 	if ah != nil && len(ah.Spec.Channels) > 0 {
-		msg, err = AccumulateMessagingChannels(ctx, kube, namespace, ah.Spec.Channels, nil)
+		msg, err = AccumulateMessagingChannels(ctx, kube, namespace, ah.Spec.Backend, ah.Spec.Channels, nil)
 		if err != nil {
 			return nil, nil, nil, err
 		}

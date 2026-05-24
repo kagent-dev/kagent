@@ -165,9 +165,11 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T)
 					Name: "s1",
 					Type: v1alpha2.AgentHarnessChannelTypeSlack,
 					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
-						BotToken:      v1alpha2.AgentHarnessChannelCredential{Value: "b"},
-						AppToken:      v1alpha2.AgentHarnessChannelCredential{Value: "a"},
-						ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "b"},
+						AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "a"},
+						AgentHarnessOpenClawSlackOptions: v1alpha2.AgentHarnessOpenClawSlackOptions{
+							ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
+						},
 					},
 				},
 			},

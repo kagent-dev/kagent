@@ -13,8 +13,8 @@ type messagingState struct {
 }
 
 // AccumulateMessagingChannels resolves channel credentials and returns messaging state for Hermes bootstrap.
-func AccumulateMessagingChannels(ctx context.Context, kube client.Client, namespace string, specChannels []v1alpha2.AgentHarnessChannel, _ map[string]string) (*messagingState, error) {
-	resolved, err := channels.Resolve(ctx, kube, namespace, specChannels)
+func AccumulateMessagingChannels(ctx context.Context, kube client.Client, namespace string, backend v1alpha2.AgentHarnessBackendType, specChannels []v1alpha2.AgentHarnessChannel, _ map[string]string) (*messagingState, error) {
+	resolved, err := channels.Resolve(ctx, kube, namespace, backend, specChannels)
 	if err != nil {
 		return nil, err
 	}
