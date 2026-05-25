@@ -10,6 +10,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -168,6 +169,17 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		// TODO: Switch this to 1.0 in release 0.11.0 when all agents are migrated to v1
 		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
 		a2aclient.WithJSONRPCTransport(httpClient),
+		// TODO: Remove this in release 0.11.0 when all agents are migrated to v1
+		a2aclient.WithCompatTransport(
+			a2atype.ProtocolVersion("0.3"),
+			a2atype.TransportProtocolJSONRPC,
+			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
+				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
+					URL:    iface.URL,
+					Client: httpClient,
+				}), nil
+			}),
+		),
 		a2aclient.WithCallInterceptors(
 			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
 		),

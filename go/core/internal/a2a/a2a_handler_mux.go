@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -59,7 +60,8 @@ func (a *handlerMux) SetAgentHandler(
 	tracing middleware,
 ) error {
 	requestHandler := a2asrv.NewHandler(NewPassthroughExecutor(client))
-	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
+	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	cardHandler := a2asrv.NewStaticAgentCardHandler(&card)
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
@@ -68,7 +70,19 @@ func (a *handlerMux) SetAgentHandler(
 			cardHandler.ServeHTTP(w, r)
 			return
 		}
-		jsonrpcHandler.ServeHTTP(w, r)
+		wireVersion, err := common.NegotiateA2AWireVersion(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		switch wireVersion {
+		case common.A2AWireVersionLegacy:
+			legacyJSONRPCHandler.ServeHTTP(w, r)
+		case common.A2AWireVersionV1:
+			v1JSONRPCHandler.ServeHTTP(w, r)
+		default:
+			http.Error(w, fmt.Sprintf("unknown negotiated A2A wire version %q", wireVersion), http.StatusBadRequest)
+		}
 	})
 	middlewares := []middleware{authimpl.NewA2AAuthenticator(a.authenticator)}
 	if tracing != nil {
