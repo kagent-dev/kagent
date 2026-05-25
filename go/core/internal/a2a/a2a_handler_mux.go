@@ -59,10 +59,11 @@ func (a *handlerMux) SetAgentHandler(
 	card a2atype.AgentCard,
 	tracing middleware,
 ) error {
-	requestHandler := a2asrv.NewHandler(NewPassthroughExecutor(client))
+	// TODO: Remove this in release 0.11.0 when all agents are migrated to v1
+	requestHandler := NewPassthroughRequestHandler(client, &card)
 	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
 	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
-	cardHandler := a2asrv.NewStaticAgentCardHandler(&card)
+	cardHandler := a2asrv.NewAgentCardHandler(a2av0.NewStaticAgentCardProducer(&card))
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
