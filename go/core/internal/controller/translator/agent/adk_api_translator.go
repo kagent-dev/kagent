@@ -990,7 +990,7 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 		if len(parts) != 2 {
 			return false
 		}
-		if validation.IsDNS1123Label(parts[0]) != nil || validation.IsDNS1123Label(parts[1]) != nil {
+		if len(validation.IsDNS1123Label(parts[0])) > 0 || len(validation.IsDNS1123Label(parts[1])) > 0 {
 			return false
 		}
 		return true
@@ -1000,7 +1000,7 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 	if len(parts) == 2 {
 		service := parts[0]
 		potentialNamespace := parts[1]
-		if validation.IsDNS1123Label(service) != nil || validation.IsDNS1123Label(potentialNamespace) != nil {
+		if len(validation.IsDNS1123Label(service)) > 0 || len(validation.IsDNS1123Label(potentialNamespace)) > 0 {
 			return false
 		}
 		return a.namespaceExistsOrWatched(ctx, potentialNamespace)
@@ -1009,7 +1009,7 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 	if len(parts) == 3 && parts[2] == "svc" {
 		service := parts[0]
 		potentialNamespace := parts[1]
-		if validation.IsDNS1123Label(service) != nil || validation.IsDNS1123Label(potentialNamespace) != nil {
+		if len(validation.IsDNS1123Label(service)) > 0 || len(validation.IsDNS1123Label(potentialNamespace)) > 0 {
 			return false
 		}
 		return a.namespaceExistsOrWatched(ctx, potentialNamespace)
@@ -1030,8 +1030,6 @@ func (a *adkApiTranslator) namespaceExistsOrWatched(ctx context.Context, potenti
 	return false
 }
 
-	return false
-}
 
 func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (targetURL string, updatedHeaders map[string]string, err error) {
 	// Parse original URL to extract path and hostname

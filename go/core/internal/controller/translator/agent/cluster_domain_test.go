@@ -9,12 +9,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	k8sscheme "k8s.io/client-go/kubernetes/scheme"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestAdkApiTranslator_IsInternalK8sURL(t *testing.T) {
-	scheme := k8sscheme.Scheme
+	scheme := k8sruntime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 
 	namespace := &corev1.Namespace{
