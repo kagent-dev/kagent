@@ -347,7 +347,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
 	}
-	wireVersion, err := negotiatedA2AWireVersion(r)
+	wireVersion, err := utils.NegotiateA2AWireVersion(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
 		return
@@ -355,7 +355,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
 	switch wireVersion {
-	case a2aWireV0:
+	case utils.A2AWireVersionLegacy:
 		legacyTasks := make([]any, 0, len(tasks))
 		for i := range tasks {
 			legacyTask, convErr := trpcv0.ToLegacyTask(tasks[i])
@@ -367,7 +367,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 		}
 		data := api.NewResponse(legacyTasks, "Successfully retrieved session tasks", false)
 		RespondWithJSON(w, http.StatusOK, data)
-	case a2aWireV1:
+	case utils.A2AWireVersionV1:
 		data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
 		RespondWithJSON(w, http.StatusOK, data)
 	default:
