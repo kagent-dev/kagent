@@ -296,7 +296,7 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 		nil,
 		h.ProxyURL,
 		h.SandboxBackend,
-	)
+	).WithClusterDomain(h.ClusterDomain)
 }
 
 func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {

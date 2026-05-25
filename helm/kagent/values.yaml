@@ -527,7 +527,7 @@ cilium-debug-agent:
 grafana-mcp:
   enabled: true
   grafana:
-    url: "grafana.kagent:3000/api"
+    url: "http://grafana.kagent.svc.cluster.local:3000/api"
     serviceAccountToken: ""
     # apiKey: "" # Deprecated - use serviceAccountToken instead.
     # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)

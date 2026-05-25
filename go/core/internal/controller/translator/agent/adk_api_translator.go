@@ -33,6 +33,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -130,6 +131,7 @@ type AdkApiTranslator interface {
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
+	WithClusterDomain(clusterDomain string) AdkApiTranslator
 }
 
 // probeConfig holds readiness probe timing configuration
@@ -177,8 +179,21 @@ func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespa
 		defaultModelConfig: defaultModelConfig,
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
+		clusterDomain:      "cluster.local",
 		sandboxBackend:     sandboxBackend,
 	}
+}
+
+func (a *adkApiTranslator) WithClusterDomain(clusterDomain string) AdkApiTranslator {
+	if a == nil {
+		return a
+	}
+	clusterDomain = strings.TrimSpace(clusterDomain)
+	if clusterDomain == "" {
+		clusterDomain = "cluster.local"
+	}
+	a.clusterDomain = clusterDomain
+	return a
 }
 
 type adkApiTranslator struct {
@@ -187,6 +202,7 @@ type adkApiTranslator struct {
 	defaultModelConfig types.NamespacedName
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
+	clusterDomain      string
 	sandboxBackend     sandboxbackend.Backend
 }
 
@@ -953,30 +969,66 @@ func (a *adkApiTranslator) isInternalK8sURL(ctx context.Context, urlStr, namespa
 		return false
 	}
 
-	// Check if it ends with .svc.cluster.local (definitely internal)
-	if strings.HasSuffix(hostname, ".svc.cluster.local") {
+	clusterDomain := strings.TrimSpace(a.clusterDomain)
+	if clusterDomain == "" {
+		clusterDomain = "cluster.local"
+	}
+	svcDomain := ".svc." + clusterDomain
+
+	// Only treat fully qualified service hostnames as internal if they match
+	// a valid Kubernetes service DNS pattern for the current cluster domain.
+	// Valid forms are:
+	//   service.namespace.svc.<clusterDomain>
+	//   service.namespace.svc
+	//   service.namespace
+	if strings.HasSuffix(hostname, svcDomain) {
+		prefix := strings.TrimSuffix(hostname, svcDomain)
+		if prefix == "" {
+			return false
+		}
+		parts := strings.Split(prefix, ".")
+		if len(parts) != 2 {
+			return false
+		}
+		if validation.IsDNS1123Label(parts[0]) != nil || validation.IsDNS1123Label(parts[1]) != nil {
+			return false
+		}
 		return true
 	}
 
-	// Extract namespace from hostname pattern: {name}.{namespace}
-	// Examples: test-mcp-server.kagent -> namespace is "kagent"
 	parts := strings.Split(hostname, ".")
 	if len(parts) == 2 {
+		service := parts[0]
 		potentialNamespace := parts[1]
-
-		// Check if this namespace exists in the cluster
-		ns := &corev1.Namespace{}
-		err := a.kube.Get(ctx, types.NamespacedName{Name: potentialNamespace}, ns)
-		if err == nil {
-			// Namespace exists, so this is an internal k8s URL
-			return true
+		if validation.IsDNS1123Label(service) != nil || validation.IsDNS1123Label(potentialNamespace) != nil {
+			return false
 		}
-		// Controller is using namespaced RBAC, so check if the namespace is watched
-		if (apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err)) && len(a.watchedNamespaces) > 0 {
-			return slices.Contains(a.watchedNamespaces, potentialNamespace)
-		}
-		// If namespace doesn't exist, it's likely a TLD or external domain
+		return a.namespaceExistsOrWatched(ctx, potentialNamespace)
 	}
+
+	if len(parts) == 3 && parts[2] == "svc" {
+		service := parts[0]
+		potentialNamespace := parts[1]
+		if validation.IsDNS1123Label(service) != nil || validation.IsDNS1123Label(potentialNamespace) != nil {
+			return false
+		}
+		return a.namespaceExistsOrWatched(ctx, potentialNamespace)
+	}
+
+	return false
+}
+
+func (a *adkApiTranslator) namespaceExistsOrWatched(ctx context.Context, potentialNamespace string) bool {
+	ns := &corev1.Namespace{}
+	err := a.kube.Get(ctx, types.NamespacedName{Name: potentialNamespace}, ns)
+	if err == nil {
+		return true
+	}
+	if (apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err)) && len(a.watchedNamespaces) > 0 {
+		return slices.Contains(a.watchedNamespaces, potentialNamespace)
+	}
+	return false
+}
 
 	return false
 }

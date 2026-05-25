@@ -69,6 +69,7 @@ type ServerConfig struct {
 	Authenticator     auth.AuthProvider
 	Authorizer        auth.Authorizer
 	ProxyURL          string
+	ClusterDomain     string
 	Reconciler        reconciler.KagentReconciler
 	SandboxBackend    sandboxbackend.Backend
 }
@@ -89,7 +90,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	return &HTTPServer{
 		config:        config,
 		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
+		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.ClusterDomain, config.Reconciler, config.SandboxBackend),
 		authenticator: config.Authenticator,
 	}, nil
 }

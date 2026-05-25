@@ -38,18 +38,20 @@ type Base struct {
 	DatabaseService    database.Client
 	Authorizer         auth.Authorizer // Interface for authorization checks
 	ProxyURL           string
+	ClusterDomain      string
 	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxBackend sandboxbackend.Backend) *Handlers {
+func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, clusterDomain string, rcnclr reconciler.KagentReconciler, sandboxBackend sandboxbackend.Backend) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
 		DatabaseService:    dbService,
 		Authorizer:         authorizer,
 		ProxyURL:           proxyURL,
+		ClusterDomain:      clusterDomain,
 		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
 	}
