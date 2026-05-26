@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,11 +10,11 @@ import (
 	"strings"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type InvokeCfg struct {
@@ -80,26 +81,20 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		return
 	}
 
-	var a2aClientOpts []a2aclient.Option
-	a2aClientOpts = append(a2aClientOpts, a2aclient.WithTimeout(cfg.Config.Timeout))
-
+	clientOpts := clia2a.ClientOptions{Timeout: cfg.Config.Timeout}
 	if cfg.Token != "" {
-		a2aClientOpts = append(a2aClientOpts, a2aclient.WithHTTPClient(&http.Client{
+		clientOpts.HTTPClient = &http.Client{
+			Timeout: cfg.Config.Timeout,
 			Transport: &bearerTokenTransport{
 				base:  http.DefaultTransport,
 				token: cfg.Token,
 			},
-		}))
+		}
 	}
 
-	var a2aClient *a2aclient.A2AClient
-	var err error
+	var a2aURL string
 	if cfg.URLOverride != "" {
-		a2aClient, err = a2aclient.NewA2AClient(cfg.URLOverride, a2aClientOpts...)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
-			return
-		}
+		a2aURL = cfg.URLOverride
 	} else {
 		if cfg.Agent == "" {
 			fmt.Fprintln(os.Stderr, "Agent is required")
@@ -118,55 +113,43 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 			return
 		}
 
-		a2aURL := buildA2AURL(cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent, agentResponse.Data)
-		a2aClient, err = a2aclient.NewA2AClient(a2aURL, a2aClientOpts...)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
-			return
-		}
+		a2aURL = buildA2AURL(cfg.Config.KAgentURL, cfg.Config.Namespace, cfg.Agent, agentResponse.Data)
 	}
 
-	var sessionID *string
-	if cfg.Session != "" {
-		sessionID = &cfg.Session
+	a2aClient, err := clia2a.NewClient(ctx, a2aURL, clientOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating A2A client: %v\n", err)
+		return
 	}
+
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(task))
+	if cfg.Session != "" {
+		msg.ContextID = cfg.Session
+	}
+	req := &a2atype.SendMessageRequest{Message: msg}
 
 	// Use A2A client to send message
 	if cfg.Stream {
 		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		defer cancel()
 
-		result, err := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{
-			Message: protocol.Message{
-				Kind:      protocol.KindMessage,
-				Role:      protocol.MessageRoleUser,
-				ContextID: sessionID,
-				Parts:     []protocol.Part{protocol.NewTextPart(task)},
-			},
-		})
+		ch, err := clia2a.StreamToChannel(ctx, a2aClient, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
 			return
 		}
-		StreamA2AEvents(result, cfg.Config.Verbose)
+		StreamA2AEvents(ch, cfg.Config.Verbose)
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		defer cancel()
 
-		result, err := a2aClient.SendMessage(ctx, protocol.SendMessageParams{
-			Message: protocol.Message{
-				Kind:      protocol.KindMessage,
-				Role:      protocol.MessageRoleUser,
-				ContextID: sessionID,
-				Parts:     []protocol.Part{protocol.NewTextPart(task)},
-			},
-		})
+		result, err := a2aClient.SendMessage(ctx, req)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
 			return
 		}
 
-		jsn, err := result.MarshalJSON()
+		jsn, err := json.Marshal(result)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error marshaling result: %v\n", err)
 			return

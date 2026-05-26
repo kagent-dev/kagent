@@ -12,14 +12,14 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/utils"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/muesli/reflow/wordwrap"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
-// SendMessageFn abstracts the A2A client's StreamMessage method for easier testing.
-type SendMessageFn func(ctx context.Context, params protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error)
+// SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.
+type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) (<-chan a2atype.Event, error)
 
 // RunChat starts the TUI chat, blocking until the user exits.
 func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bool) error {
@@ -30,7 +30,7 @@ func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bo
 }
 
 type a2aEventMsg struct {
-	Event protocol.StreamingMessageEvent
+	Event a2atype.Event
 }
 
 type streamDoneMsg struct{}
@@ -63,7 +63,7 @@ type chatModel struct {
 	spin spinner.Model
 
 	send      SendMessageFn
-	streamCh  <-chan protocol.StreamingMessageEvent
+	streamCh  <-chan a2atype.Event
 	cancel    context.CancelFunc
 	streaming bool
 
@@ -223,16 +223,11 @@ func (m *chatModel) submit(text string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	params := protocol.SendMessageParams{
-		Message: protocol.Message{
-			Kind:      protocol.KindMessage,
-			Role:      protocol.MessageRoleUser,
-			ContextID: &m.sessionID,
-			Parts:     []protocol.Part{protocol.NewTextPart(text)},
-		},
-	}
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))
+	msg.ContextID = m.sessionID
+	req := &a2atype.SendMessageRequest{Message: msg}
 
-	ch, err := m.send(ctx, params)
+	ch, err := m.send(ctx, req)
 	if err != nil {
 		m.appendError(err)
 		m.streaming = false
@@ -261,44 +256,39 @@ func (m *chatModel) appendUser(text string) {
 	m.appendLine(theme.UserStyle().Render("You:") + " " + text)
 }
 
-func (m *chatModel) appendEvent(ev protocol.StreamingMessageEvent) {
-	switch res := ev.Result.(type) {
-	case *protocol.TaskStatusUpdateEvent:
-		if res.Final {
+func (m *chatModel) appendEvent(ev a2atype.Event) {
+	switch res := ev.(type) {
+	case *a2atype.TaskStatusUpdateEvent:
+		final := res.Status.State.Terminal()
+		if final {
 			m.working = false
 			m.updateStatus()
+		} else if res.Status.Timestamp != nil {
+			m.setWorkingTime(*res.Status.Timestamp)
 		} else {
-			// Timestamp is RFC3339 string; parse to time for consistent elapsed display
-			if ts, err := time.Parse(time.RFC3339Nano, res.Status.Timestamp); err == nil {
-				m.setWorkingTime(ts)
-			} else {
-				m.setWorkingTime(time.Time{})
-			}
+			m.setWorkingTime(time.Time{})
 		}
 		if res.Status.Message != nil {
-			// Handle tool calls and results in the message
-			m.handleMessageParts(*res.Status.Message, res.Final)
+			m.handleMessageParts(res.Status.Message, final)
 		}
-	case *protocol.TaskArtifactUpdateEvent:
-		// Render artifact content when the last chunk arrives
-		if res.LastChunk != nil && *res.LastChunk {
+	case *a2atype.TaskArtifactUpdateEvent:
+		if res.LastChunk {
 			text := extractTextFromParts(res.Artifact.Parts)
 			if strings.TrimSpace(text) != "" {
 				m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 			}
 		}
-	case *protocol.Message:
-		m.handleMessageParts(*res, true)
+	case *a2atype.Message:
+		m.handleMessageParts(res, true)
 
-	case *protocol.Task:
-		// Show the last message in the task history
+	case *a2atype.Task:
 		if len(res.History) > 0 {
 			last := res.History[len(res.History)-1]
 			m.handleMessageParts(last, true)
 		}
 	default:
 		if m.verbose {
-			if b, err := ev.MarshalJSON(); err == nil {
+			if b, err := json.Marshal(ev); err == nil {
 				m.appendLine(theme.AgentStyle().Render("Agent (raw):") + "\n" + string(b))
 			}
 		}
@@ -310,66 +300,74 @@ func (m *chatModel) appendError(err error) {
 }
 
 // handleMessageParts processes a message and displays text, tool calls, and tool results
-func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool) {
+func (m *chatModel) handleMessageParts(msg *a2atype.Message, shouldDisplay bool) {
+	if msg == nil {
+		return
+	}
+
 	var textParts []string
 	var toolCalls []toolCall
 	var toolResults []toolResult
 
-	// Process all parts
 	for _, part := range msg.Parts {
-		if tp, ok := part.(*protocol.TextPart); ok {
-			textParts = append(textParts, tp.Text)
-		} else if dp, ok := part.(*protocol.DataPart); ok {
-			// Debug: log what we're seeing
-			if m.verbose {
-				if metaJSON, err := json.Marshal(dp.Metadata); err == nil {
-					m.appendLine(theme.DimStyle().Render(fmt.Sprintf("DEBUG: DataPart metadata: %s", string(metaJSON))))
-				}
-				if dataJSON, err := json.Marshal(dp.Data); err == nil {
-					m.appendLine(theme.DimStyle().Render(fmt.Sprintf("DEBUG: DataPart data: %s", string(dataJSON))))
-				}
-			}
+		if part == nil {
+			continue
+		}
+		if text := part.Text(); text != "" {
+			textParts = append(textParts, text)
+			continue
+		}
 
-			// Check if this is a tool call or tool result
-			if dp.Metadata == nil {
-				continue
-			}
+		data := part.Data()
+		if data == nil {
+			continue
+		}
 
-			typeVal, found := utils.GetMetadataValue(dp.Metadata, "type")
-			if !found {
-				continue
+		if m.verbose {
+			if metaJSON, err := json.Marshal(part.Metadata); err == nil {
+				m.appendLine(theme.DimStyle().Render(fmt.Sprintf("DEBUG: DataPart metadata: %s", string(metaJSON))))
 			}
-			kagentType, ok := typeVal.(string)
-			if !ok {
-				continue
+			if dataJSON, err := json.Marshal(data); err == nil {
+				m.appendLine(theme.DimStyle().Render(fmt.Sprintf("DEBUG: DataPart data: %s", string(dataJSON))))
 			}
+		}
 
-			dataMap, ok := dp.Data.(map[string]any)
-			if !ok {
-				continue
-			}
+		if part.Metadata == nil {
+			continue
+		}
 
-			switch kagentType {
-			case "function_call":
-				call := toolCall{
-					Name: getString(dataMap, "name"),
-					ID:   getString(dataMap, "id"),
-					Args: dataMap["args"],
-				}
-				toolCalls = append(toolCalls, call)
-			case "function_response":
-				result := toolResult{
-					Name:     getString(dataMap, "name"),
-					ID:       getString(dataMap, "id"),
-					Response: dataMap["response"],
-				}
-				toolResults = append(toolResults, result)
+		typeVal, found := utils.GetMetadataValue(part.Metadata, "type")
+		if !found {
+			continue
+		}
+		kagentType, ok := typeVal.(string)
+		if !ok {
+			continue
+		}
+
+		dataMap, ok := data.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		switch kagentType {
+		case "function_call":
+			call := toolCall{
+				Name: getString(dataMap, "name"),
+				ID:   getString(dataMap, "id"),
+				Args: dataMap["args"],
 			}
+			toolCalls = append(toolCalls, call)
+		case "function_response":
+			result := toolResult{
+				Name:     getString(dataMap, "name"),
+				ID:       getString(dataMap, "id"),
+				Response: dataMap["response"],
+			}
+			toolResults = append(toolResults, result)
 		}
 	}
 
-	// Always display tool calls and results as they happen (even if not final)
-	// Display tool calls
 	for _, call := range toolCalls {
 		var argsStr string
 		if call.Args != nil {
@@ -390,7 +388,6 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 		m.appendLine(display)
 	}
 
-	// Display tool results
 	for _, result := range toolResults {
 		var responseStr string
 		if result.Response != nil {
@@ -411,12 +408,11 @@ func (m *chatModel) handleMessageParts(msg protocol.Message, shouldDisplay bool)
 		m.appendLine(display)
 	}
 
-	// Display text content (only on final or if explicitly requested)
 	if shouldDisplay {
 		text := strings.Join(textParts, "")
 		if strings.TrimSpace(text) != "" {
 			style := theme.UserStyle()
-			if msg.Role == protocol.MessageRoleAgent {
+			if msg.Role == a2atype.MessageRoleAgent {
 				style = theme.AgentStyle()
 			}
 			m.appendLine(style.Render(fmt.Sprintf("%s:", msg.Role)) + "\n" + text)
@@ -451,26 +447,24 @@ func (m *chatModel) SetInputVisible(visible bool) {
 	m.showInput = visible
 }
 
-// extractTextFromParts concatenates text from a slice of protocol.Part, stringifying non-text when reasonable.
-func extractTextFromParts(parts []protocol.Part) string {
+func extractTextFromParts(parts a2atype.ContentParts) string {
 	b := strings.Builder{}
 	for _, p := range parts {
-		if tp, ok := p.(*protocol.TextPart); ok {
-			b.WriteString(tp.Text)
+		if p == nil {
 			continue
 		}
-
-		if dp, ok := p.(*protocol.DataPart); ok {
-			if jp, err := json.Marshal(dp.Data); err == nil {
+		if text := p.Text(); text != "" {
+			b.WriteString(text)
+			continue
+		}
+		if data := p.Data(); data != nil {
+			if jp, err := json.Marshal(data); err == nil {
 				b.WriteString(string(jp))
 			}
-			continue
 		}
 	}
 	return b.String()
 }
-
-// styles now provided by theme package
 
 type tickMsg time.Time
 
@@ -502,7 +496,6 @@ func (m *chatModel) updateStatus() {
 	}
 }
 
-// getString safely extracts a string value from a map
 func getString(m map[string]any, key string) string {
 	if val, ok := m[key]; ok {
 		if str, ok := val.(string); ok {
