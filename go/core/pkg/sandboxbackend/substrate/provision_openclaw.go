@@ -25,7 +25,10 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		return "", nil, fmt.Errorf("substrate provisioner kubernetes client is required")
 	}
 
-	token := strings.TrimSpace(p.Defaults.GatewayToken)
+	token, err := ResolveGatewayToken(ctx, p.Client, ah)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
+	}
 	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort)
 
 	var jsonBytes []byte

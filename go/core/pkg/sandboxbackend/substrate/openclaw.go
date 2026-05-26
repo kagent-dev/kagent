@@ -17,8 +17,8 @@ import (
 
 const (
 	defaultActorHostSuffix = "actors.resources.substrate.ate.dev"
-	defaultSubstrateGWPort  = int32(80)
-	actorIDPrefix           = "ahr"
+	defaultSubstrateGWPort = int32(80)
+	actorIDPrefix          = "ahr"
 )
 
 var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
@@ -200,11 +200,14 @@ func validateSubstrateSpec(ah *v1alpha2.AgentHarness) error {
 	if ah.Spec.Substrate == nil {
 		return fmt.Errorf("spec.substrate is required when runtime is substrate")
 	}
+	if err := ValidateGatewayTokenSpec(ah.Spec.Substrate); err != nil {
+		return err
+	}
 	if ah.Spec.Substrate.ActorTemplateRef != nil && strings.TrimSpace(ah.Spec.Substrate.ActorTemplateRef.Name) != "" {
 		return nil
 	}
-	if strings.TrimSpace(ah.Spec.Substrate.SnapshotsConfig.Location) == "" {
-		return fmt.Errorf("spec.substrate.snapshotsConfig.location is required when not using actorTemplateRef")
+	if loc := substrateSnapshotsLocation(ah); !strings.HasPrefix(loc, "gs://") {
+		return fmt.Errorf("spec.substrate.snapshotsConfig.location must be a gs:// URI (Substrate snapshots are GCS-only today)")
 	}
 	return nil
 }

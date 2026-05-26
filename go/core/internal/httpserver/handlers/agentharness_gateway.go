@@ -10,21 +10,18 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	substrateGatewayTokenSecretKey = "token"
 	// OpenClaw 2026.3.28+ returns 403 without operator scopes on HTTP/WS when only Bearer token is sent.
 	openclawDefaultOperatorScopes = "operator.admin"
 	// Origin OpenClaw accepts by default for bind=lan port=80 (localhost/127.0.0.1 on gateway port).
@@ -34,26 +31,10 @@ const (
 // AgentHarnessGatewayConfig configures Substrate harness HTTP/WebSocket proxy.
 // Traffic is proxied directly to the actor ateom pod IP on port 80 (no atenet-router fallback).
 type AgentHarnessGatewayConfig struct {
-	GatewayToken     string
-	GatewayTokenFile string
-	AteAPIEndpoint   string
-	AteAPIInsecure         bool
-	DialTimeout            time.Duration
-	CallTimeout            time.Duration
-}
-
-func (c *AgentHarnessGatewayConfig) resolveToken() (string, error) {
-	if c == nil {
-		return "", nil
-	}
-	if c.GatewayTokenFile != "" {
-		data, err := os.ReadFile(c.GatewayTokenFile)
-		if err != nil {
-			return "", fmt.Errorf("read substrate gateway token file: %w", err)
-		}
-		return strings.TrimSpace(string(data)), nil
-	}
-	return strings.TrimSpace(c.GatewayToken), nil
+	AteAPIEndpoint string
+	AteAPIInsecure bool
+	DialTimeout    time.Duration
+	CallTimeout    time.Duration
 }
 
 // HandleAgentHarnessGateway proxies browser traffic to the actor OpenClaw gateway (pod IP when available).
@@ -342,24 +323,5 @@ func readGatewayResponseBody(resp *http.Response) ([]byte, error) {
 }
 
 func (h *Handlers) resolveHarnessGatewayToken(ctx context.Context, ah *v1alpha2.AgentHarness) (string, error) {
-	if ah.Spec.Substrate != nil && ah.Spec.Substrate.GatewayTokenSecretRef != nil {
-		ref := ah.Spec.Substrate.GatewayTokenSecretRef
-		ns := ref.Namespace
-		if ns == "" {
-			ns = ah.Namespace
-		}
-		var secret corev1.Secret
-		if err := h.KubeClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, &secret); err != nil {
-			return "", fmt.Errorf("get gateway token secret %s/%s: %w", ns, ref.Name, err)
-		}
-		if secret.Data == nil {
-			return "", fmt.Errorf("gateway token secret %s/%s is empty", ns, ref.Name)
-		}
-		val, ok := secret.Data[substrateGatewayTokenSecretKey]
-		if !ok {
-			return "", fmt.Errorf("gateway token secret %s/%s missing key %q", ns, ref.Name, substrateGatewayTokenSecretKey)
-		}
-		return strings.TrimSpace(string(val)), nil
-	}
-	return h.AgentHarnessGateway.resolveToken()
+	return substrate.ResolveGatewayToken(ctx, h.KubeClient, ah)
 }
