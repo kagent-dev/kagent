@@ -15,12 +15,12 @@
     "supportedInterfaces": [
       {
         "protocolBinding": "JSONRPC",
-        "protocolVersion": "0.3",
+        "protocolVersion": "1.0",
         "url": "http://agent-with-custom-sa.test:8080"
       },
       {
         "protocolBinding": "JSONRPC",
-        "protocolVersion": "1.0",
+        "protocolVersion": "0.3",
         "url": "http://agent-with-custom-sa.test:8080"
       }
     ],
@@ -62,7 +62,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"agent_with_custom_sa\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://agent-with-custom-sa.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://agent-with-custom-sa.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://agent-with-custom-sa.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-with-custom-sa.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"},{\"url\":\"http://agent-with-custom-sa.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"0.3\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"agent_with_custom_sa\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -107,7 +107,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "4875306436828307681"
+              "kagent.dev/config-hash": "10485794827683908468"
             },
             "labels": {
               "app": "kagent",

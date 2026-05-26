@@ -15,12 +15,12 @@
     "supportedInterfaces": [
       {
         "protocolBinding": "JSONRPC",
-        "protocolVersion": "0.3",
+        "protocolVersion": "1.0",
         "url": "http://anthropic-agent.test:8080"
       },
       {
         "protocolBinding": "JSONRPC",
-        "protocolVersion": "1.0",
+        "protocolVersion": "0.3",
         "url": "http://anthropic-agent.test:8080"
       }
     ],
@@ -61,7 +61,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"anthropic_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://anthropic-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://anthropic-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"},{\"url\":\"http://anthropic-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"0.3\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"anthropic_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
       }
     },
@@ -131,7 +131,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "1266575541990203530"
+              "kagent.dev/config-hash": "7371281520668963991"
             },
             "labels": {
               "app": "kagent",
