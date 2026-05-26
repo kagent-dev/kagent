@@ -88,8 +88,15 @@ func applySubPath(dest, subPath string) error {
 		}
 	}()
 
-	if err := copyTree(src, tmp); err != nil {
-		return err
+	// cp -rL: follow symlinks (matches the original behavior); both paths
+	// are constructed by us, never user-supplied, and are passed as argv —
+	// no shell, no metacharacter risk. Trailing "/." copies *contents* of
+	// src into tmp, not src itself.
+	cp := exec.Command("cp", "-rL", "--", src+"/.", tmp)
+	cp.Stdout = os.Stdout
+	cp.Stderr = os.Stderr
+	if err := cp.Run(); err != nil {
+		return fmt.Errorf("cp subPath contents: %w", err)
 	}
 	if err := os.RemoveAll(dest); err != nil {
 		return err
