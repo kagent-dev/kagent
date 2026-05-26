@@ -29,7 +29,7 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
 	}
-	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort)
+	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort, openClawControlUIBasePath(ah))
 
 	var jsonBytes []byte
 	var envMap map[string]string
@@ -59,6 +59,13 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 	containerEnv := openClawEnvVars(envMap)
 	script = openClawStartupScript(jsonBytes, gw.Port)
 	return script, containerEnv, nil
+}
+
+func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
+	if ah == nil {
+		return ""
+	}
+	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
 }
 
 func openClawEnvVars(envMap map[string]string) []corev1.EnvVar {

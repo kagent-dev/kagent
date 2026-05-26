@@ -1,11 +1,8 @@
 package handlers
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -175,7 +172,8 @@ func agentHarnessGatewayPublicPrefix(namespace, name string) string {
 
 // resolveGatewayUpstreamPath maps the public URL to the upstream path on the actor.
 // redirectTo is set when the browser should use a trailing slash under /gateway/.
-// HTTP and WebSocket upgrades to the gateway entry both proxy to upstream / (OpenClaw gateway UI).
+// OpenClaw is configured with the same controlUi.basePath, so the proxy preserves
+// the public gateway base path when forwarding to the actor.
 func resolveGatewayUpstreamPath(requestPath, namespace, name string, wsUpgrade bool) (upstreamPath, redirectTo string, ok bool) {
 	base := agentHarnessHarnessBase(namespace, name)
 	if !strings.HasPrefix(requestPath, base) {
@@ -188,30 +186,16 @@ func resolveGatewayUpstreamPath(requestPath, namespace, name string, wsUpgrade b
 
 	switch {
 	case rel == "/gateway":
-		_ = wsUpgrade
-		return "/", agentHarnessGatewayPublicPrefix(namespace, name), true
-	case strings.HasPrefix(rel, "/gateway/"):
-		sub := strings.TrimPrefix(rel, "/gateway")
-		if sub == "" {
-			sub = "/"
+		upstream := agentHarnessGatewayPublicPrefix(namespace, name)
+		if wsUpgrade {
+			return upstream, "", true
 		}
-		return sub, "", true
-	case isHarnessStaticAssetPath(rel):
-		return rel, "", true
+		return upstream, upstream, true
+	case strings.HasPrefix(rel, "/gateway/"):
+		return requestPath, "", true
 	default:
 		return "", "", false
 	}
-}
-
-func isHarnessStaticAssetPath(rel string) bool {
-	if strings.HasPrefix(rel, "/assets/") {
-		return true
-	}
-	switch rel {
-	case "/manifest.webmanifest", "/vite.svg", "/favicon.ico":
-		return true
-	}
-	return strings.HasPrefix(rel, "/favicon")
 }
 
 // normalizeOpenClawBrowserOrigin rewrites Origin/Referer so OpenClaw accepts WS/API from kagent-ui
@@ -239,66 +223,45 @@ func isWebSocketUpgrade(r *http.Request) bool {
 func newAgentHarnessGatewayProxy(target *url.URL, upstreamHost, token, publicPrefix, namespace, name string, log interface {
 	Error(error, string, ...any)
 }) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.FlushInterval = -1
-	proxy.Transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ResponseHeaderTimeout: 0,
-		IdleConnTimeout:       90 * time.Second,
-	}
-	origDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		origDirector(req)
-		req.Host = upstreamHost
-		req.Header.Set("Host", upstreamHost)
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		req.Header.Set("x-openclaw-scopes", openclawDefaultOperatorScopes)
-		normalizeOpenClawBrowserOrigin(req)
-		subPath, _, pathOK := resolveGatewayUpstreamPath(req.URL.Path, namespace, name, isWebSocketUpgrade(req))
-		if !pathOK {
-			subPath = "/"
-		}
-		if subPath == "" {
-			subPath = "/"
-		} else if !strings.HasPrefix(subPath, "/") {
-			subPath = "/" + subPath
-		}
-		req.URL.Path = subPath
-		req.URL.RawPath = subPath
+	proxy := &httputil.ReverseProxy{
+		FlushInterval: -1,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 0,
+			IdleConnTimeout:       90 * time.Second,
+		},
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.Host = upstreamHost
+			if token != "" {
+				pr.Out.Header.Set("Authorization", "Bearer "+token)
+			}
+			pr.Out.Header.Set("x-openclaw-scopes", openclawDefaultOperatorScopes)
+			normalizeOpenClawBrowserOrigin(pr.Out)
+			subPath, _, pathOK := resolveGatewayUpstreamPath(pr.In.URL.Path, namespace, name, isWebSocketUpgrade(pr.In))
+			if !pathOK {
+				subPath = "/"
+			}
+			if subPath == "" {
+				subPath = "/"
+			} else if !strings.HasPrefix(subPath, "/") {
+				subPath = "/" + subPath
+			}
+			pr.Out.URL.Path = subPath
+			pr.Out.URL.RawPath = subPath
+		},
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		// Do not read or rewrite WebSocket upgrade responses (would break 101 handshakes).
 		if resp.StatusCode == http.StatusSwitchingProtocols {
 			return nil
 		}
 
-		resp.Header.Del("Content-Security-Policy")
-		resp.Header.Del("Content-Security-Policy-Report-Only")
-
 		if loc := resp.Header.Get("Location"); loc != "" {
-			if strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, publicPrefix) {
-				resp.Header.Set("Location", strings.TrimSuffix(publicPrefix, "/")+loc)
+			publicBase := strings.TrimSuffix(publicPrefix, "/")
+			if strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, publicBase) {
+				resp.Header.Set("Location", publicBase+loc)
 			}
 		}
-
-		ct := resp.Header.Get("Content-Type")
-		if !shouldRewriteGatewayBody(ct) {
-			return nil
-		}
-		body, err := readGatewayResponseBody(resp)
-		if err != nil {
-			return err
-		}
-		rewritten := rewriteGatewayBody(body, ct, publicPrefix)
-		if strings.Contains(strings.ToLower(ct), "text/html") {
-			rewritten = injectGatewayClientShim(rewritten, token)
-		}
-		resp.Header.Del("Content-Encoding")
-		resp.Header.Del("Content-Length")
-		resp.ContentLength = int64(len(rewritten))
-		resp.Body = io.NopCloser(bytes.NewReader(rewritten))
 		return nil
 	}
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
@@ -306,20 +269,6 @@ func newAgentHarnessGatewayProxy(target *url.URL, upstreamHost, token, publicPre
 		http.Error(rw, "gateway proxy error", http.StatusBadGateway)
 	}
 	return proxy
-}
-
-func readGatewayResponseBody(resp *http.Response) ([]byte, error) {
-	var reader io.Reader = resp.Body
-	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-		gz, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		defer gz.Close()
-		reader = gz
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(reader)
 }
 
 func (h *Handlers) resolveHarnessGatewayToken(ctx context.Context, ah *v1alpha2.AgentHarness) (string, error) {

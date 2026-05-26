@@ -92,6 +92,8 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	auth := gw["auth"].(map[string]any)
 	require.Equal(t, "token", auth["mode"])
 	require.Equal(t, "some-token", auth["token"])
+	controlUI := gw["controlUi"].(map[string]any)
+	require.Equal(t, "/api/agentharnesses/kagent/peterj-claw/gateway", controlUI["basePath"])
 	_, hasModels := root["models"]
 	require.False(t, hasModels, "substrate bootstrap should omit models unless ModelConfig sets an explicit baseUrl")
 	require.Contains(t, root, "agents")

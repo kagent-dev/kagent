@@ -12,11 +12,11 @@ type bootstrapDocument struct {
 }
 
 type gatewaySection struct {
-	Mode      string             `json:"mode"`
-	Bind      string             `json:"bind"`
-	Auth      gatewayAuth        `json:"auth"`
-	Port      int                `json:"port"`
-	ControlUi *controlUiSection  `json:"controlUi,omitempty"`
+	Mode      string            `json:"mode"`
+	Bind      string            `json:"bind"`
+	Auth      gatewayAuth       `json:"auth"`
+	Port      int               `json:"port"`
+	ControlUi *controlUiSection `json:"controlUi,omitempty"`
 }
 
 type gatewayAuth struct {
@@ -25,6 +25,7 @@ type gatewayAuth struct {
 }
 
 type controlUiSection struct {
+	BasePath                     string   `json:"basePath,omitempty"`
 	AllowedOrigins               []string `json:"allowedOrigins,omitempty"`
 	DangerouslyDisableDeviceAuth bool     `json:"dangerouslyDisableDeviceAuth,omitempty"`
 }

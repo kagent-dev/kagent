@@ -60,18 +60,18 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router            *mux.Router
-	BindAddr          string
-	KubeClient        ctrl_client.Client
-	A2AHandler        a2a.A2AHandlerMux
-	MCPHandler        *mcp.MCPHandler
-	WatchedNamespaces []string
-	DbClient          dbpkg.Client
-	Authenticator     auth.AuthProvider
-	Authorizer        auth.Authorizer
-	ProxyURL          string
-	Reconciler        reconciler.KagentReconciler
-	SandboxBackend        sandboxbackend.Backend
+	Router              *mux.Router
+	BindAddr            string
+	KubeClient          ctrl_client.Client
+	A2AHandler          a2a.A2AHandlerMux
+	MCPHandler          *mcp.MCPHandler
+	WatchedNamespaces   []string
+	DbClient            dbpkg.Client
+	Authenticator       auth.AuthProvider
+	Authorizer          auth.Authorizer
+	ProxyURL            string
+	Reconciler          reconciler.KagentReconciler
+	SandboxBackend      sandboxbackend.Backend
 	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
 }
 
@@ -89,8 +89,8 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	// Initialize database
 
 	return &HTTPServer{
-		config:        config,
-		router:        config.Router,
+		config: config,
+		router: config.Router,
 		handlers: handlers.NewHandlers(
 			config.KubeClient,
 			defaultModelConfig,
@@ -316,7 +316,6 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
 
 	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) to the actor pod IP :80.
-	// Includes /gateway/* and mis-resolved static paths (/assets/, manifest, etc.).
 	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)

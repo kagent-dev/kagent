@@ -82,12 +82,7 @@ func isAgentHarnessGatewayPath(path string) bool {
 	if !strings.HasPrefix(path, "/api/agentharnesses/") {
 		return false
 	}
-	for _, marker := range []string{"/gateway", "/assets/", "/manifest.webmanifest", "/favicon"} {
-		if strings.Contains(path, marker) {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(path, "/gateway")
 }
 
 func contentTypeMiddleware(next http.Handler) http.Handler {
