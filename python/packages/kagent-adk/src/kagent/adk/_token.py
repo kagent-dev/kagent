@@ -64,7 +64,7 @@ class KAgentTokenService:
 
     async def _add_headers(self, request: httpx.Request):
         token = await self._get_token()
-        headers = {"X-Agent-Name": self.app_name}
+        headers = {"X-Agent-Name": self.app_name, "A2A-Version": "1.0"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         if user_id := get_request_user_id():

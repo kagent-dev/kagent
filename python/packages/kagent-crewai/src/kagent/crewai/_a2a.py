@@ -4,8 +4,8 @@ import os
 from typing import Union
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
@@ -68,15 +68,12 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
 
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AStarletteApplication(
-            agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
-        )
+        # Keep the configured max body size value available for route/middleware evolution.
+        _ = get_a2a_max_content_length()
 
         faulthandler.enable()
         app = FastAPI(
@@ -94,6 +91,7 @@ class KAgentApp:
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        a2a_app.add_routes_to_app(app)
+        app.router.routes.extend(create_agent_card_routes(self.agent_card))
+        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
 
         return app

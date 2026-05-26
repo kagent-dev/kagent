@@ -37,7 +37,6 @@ from a2a.types import (
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
 from agents.agent import Agent
 from agents.run import Runner
@@ -139,8 +138,8 @@ class OpenAIAgentExecutor(AgentExecutor):
             if hasattr(result, "final_output") and result.final_output:
                 final_message = Message(
                     message_id=str(uuid.uuid4()),
-                    role=Role.agent,
-                    parts=[Part(TextPart(text=str(result.final_output)))],
+                    role=Role.ROLE_AGENT,
+                    parts=[Part(text=str(result.final_output))],
                 )
 
                 # Publish final artifact
@@ -161,7 +160,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.completed,
+                            state=TaskState.TASK_STATE_COMPLETED,
                             timestamp=datetime.now(UTC).isoformat(),
                         ),
                         context_id=context.context_id,
@@ -171,7 +170,7 @@ class OpenAIAgentExecutor(AgentExecutor):
             else:
                 # No output - publish based on aggregator state
                 if (
-                    task_result_aggregator.task_state == TaskState.working
+                    task_result_aggregator.task_state == TaskState.TASK_STATE_WORKING
                     and task_result_aggregator.task_status_message is not None
                     and task_result_aggregator.task_status_message.parts
                 ):
@@ -190,7 +189,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                         TaskStatusUpdateEvent(
                             task_id=context.task_id,
                             status=TaskStatus(
-                                state=TaskState.completed,
+                                state=TaskState.TASK_STATE_COMPLETED,
                                 timestamp=datetime.now(UTC).isoformat(),
                             ),
                             context_id=context.context_id,
@@ -237,7 +236,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.submitted,
+                        state=TaskState.TASK_STATE_SUBMITTED,
                         message=context.message,
                         timestamp=datetime.now(UTC).isoformat(),
                     ),
@@ -255,7 +254,7 @@ class OpenAIAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
                 status=TaskStatus(
-                    state=TaskState.working,
+                    state=TaskState.TASK_STATE_WORKING,
                     timestamp=datetime.now(UTC).isoformat(),
                 ),
                 context_id=context.context_id,
@@ -298,12 +297,12 @@ class OpenAIAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.failed,
+                        state=TaskState.TASK_STATE_FAILED,
                         timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text="Execution timed out"))],
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text="Execution timed out")],
                         ),
                     ),
                     context_id=context.context_id,
@@ -319,12 +318,12 @@ class OpenAIAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.failed,
+                        state=TaskState.TASK_STATE_FAILED,
                         timestamp=datetime.now(UTC).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=f"Execution failed: {error_message}"))],
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=f"Execution failed: {error_message}")],
                             metadata={
                                 get_kagent_metadata_key("error_type"): type(e).__name__,
                                 get_kagent_metadata_key("error_detail"): error_message,

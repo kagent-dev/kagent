@@ -6,15 +6,15 @@ from typing import Any
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
-    DataPart,
     Message,
     Part,
     Role,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -58,12 +58,12 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=f"Task started: {event.task.name}"))],
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=f"Task started: {event.task.name}")],
                         ),
                     ),
                     context_id=self.context.context_id,
@@ -79,12 +79,12 @@ class A2ACrewAIListener(BaseEventListener):
                     TaskStatusUpdateEvent(
                         task_id=self.context.task_id,
                         status=TaskStatus(
-                            state=TaskState.working,
+                            state=TaskState.TASK_STATE_WORKING,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=f"Task completed: {event.task.name}\n"))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=f"Task completed: {event.task.name}\n")],
                             ),
                         ),
                         context_id=self.context.context_id,
@@ -99,16 +99,14 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
+                            role=Role.ROLE_AGENT,
                             parts=[
                                 Part(
-                                    TextPart(
-                                        text=f"Agent {event.agent.id} started working on task: {event.task_prompt}"
-                                    )
+                                    text=f"Agent {event.agent.id} started working on task: {event.task_prompt}"
                                 )
                             ],
                         ),
@@ -126,12 +124,12 @@ class A2ACrewAIListener(BaseEventListener):
                     TaskStatusUpdateEvent(
                         task_id=self.context.task_id,
                         status=TaskStatus(
-                            state=TaskState.working,
+                            state=TaskState.TASK_STATE_WORKING,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=str(event.output)))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=str(event.output))],
                             ),
                         ),
                         context_id=self.context.context_id,
@@ -146,25 +144,26 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
+                            role=Role.ROLE_AGENT,
                             parts=[
                                 Part(
-                                    DataPart(
-                                        data={
+                                    data=ParseDict(
+                                        {
                                             "id": event.tool_class,
                                             "name": event.tool_name,
                                             "args": event.tool_args,
                                         },
-                                        metadata={
-                                            get_kagent_metadata_key(
-                                                A2A_DATA_PART_METADATA_TYPE_KEY
-                                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-                                        },
-                                    )
+                                        Value(),
+                                    ),
+                                    metadata={
+                                        get_kagent_metadata_key(
+                                            A2A_DATA_PART_METADATA_TYPE_KEY
+                                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+                                    },
                                 )
                             ],
                         ),
@@ -181,25 +180,26 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
+                            role=Role.ROLE_AGENT,
                             parts=[
                                 Part(
-                                    DataPart(
-                                        data={
+                                    data=ParseDict(
+                                        {
                                             "id": event.tool_class,
                                             "name": event.tool_name,
                                             "response": event.output,
                                         },
-                                        metadata={
-                                            get_kagent_metadata_key(
-                                                A2A_DATA_PART_METADATA_TYPE_KEY
-                                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-                                        },
-                                    )
+                                        Value(),
+                                    ),
+                                    metadata={
+                                        get_kagent_metadata_key(
+                                            A2A_DATA_PART_METADATA_TYPE_KEY
+                                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                                    },
                                 )
                             ],
                         ),
@@ -216,16 +216,14 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
+                            role=Role.ROLE_AGENT,
                             parts=[
                                 Part(
-                                    TextPart(
-                                        text=f"Method {event.method_name} from flow {event.flow_name} started execution."
-                                    )
+                                    text=f"Method {event.method_name} from flow {event.flow_name} started execution."
                                 )
                             ],
                         ),
@@ -242,16 +240,14 @@ class A2ACrewAIListener(BaseEventListener):
                 TaskStatusUpdateEvent(
                     task_id=self.context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
+                            role=Role.ROLE_AGENT,
                             parts=[
                                 Part(
-                                    TextPart(
-                                        text=f"Method {event.method_name} from flow {event.flow_name} finished execution."
-                                    )
+                                    text=f"Method {event.method_name} from flow {event.flow_name} finished execution."
                                 )
                             ],
                         ),
