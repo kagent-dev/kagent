@@ -67,6 +67,37 @@ def service(mock_client):
 
 
 @pytest.mark.asyncio
+async def test_create_session_passes_user_id_as_query_param():
+    """create_session must include user_id as a query param on POST /api/sessions.
+
+    Regression test for the SessionNotFoundError caused by a user_id mismatch:
+    the controller's UnsecureAuthenticator resolves identity from the query param
+    (or X-User-Id header), not the JSON body.  Without the query param the
+    controller falls back to "admin@kagent.dev" for the session create, while
+    every subsequent GET uses the A2A-derived user_id — guaranteeing a 404.
+    Fixes: https://github.com/kagent-dev/kagent/issues/1882
+    """
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 201
+    mock_response.json.return_value = {"data": {"id": "sess-1", "user_id": "A2A_USER_ctx123"}}
+    mock_response.raise_for_status = MagicMock()
+
+    client = MagicMock(spec=httpx.AsyncClient)
+    client.post = AsyncMock(return_value=mock_response)
+
+    svc = KAgentSessionService(client)
+    await svc.create_session(app_name="my-agent", user_id="A2A_USER_ctx123", session_id="ctx123")
+
+    client.post.assert_called_once()
+    call_kwargs = client.post.call_args.kwargs
+    assert call_kwargs.get("params", {}).get("user_id") == "A2A_USER_ctx123", (
+        f"Expected params['user_id']='A2A_USER_ctx123', got params={call_kwargs.get('params')!r}. "
+        "Without this query param the controller's UnsecureAuthenticator falls back "
+        "to 'admin@kagent.dev', causing a SessionNotFoundError on subsequent lookups."
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_session_returns_none_on_404(mock_client):
     """A 404 response returns None without raising."""
     svc = KAgentSessionService(mock_client(response_json=None, status_code=404))
