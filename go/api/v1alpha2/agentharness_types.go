@@ -117,7 +117,7 @@ type AgentHarnessSlackChannelSpec struct {
 	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +required
-	AppToken AgentHarnessChannelCredential `json:"appToken"`
+	AppToken                         AgentHarnessChannelCredential `json:"appToken"`
 	AgentHarnessOpenClawSlackOptions `json:",inline"`
 	AgentHarnessHermesSlackOptions   `json:",inline"`
 }
