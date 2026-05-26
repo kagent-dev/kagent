@@ -62,7 +62,7 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
-  const initialNamespace = !isEditMode && agentNamespace ? agentNamespace : "default";
+  const initialNamespace = !isEditMode && agentNamespace?.trim() ? agentNamespace.trim() : "default";
 
   type SelectedModelType = ModelConfig;
 

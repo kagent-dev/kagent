@@ -67,7 +67,7 @@ describe("new agent namespace query", () => {
   });
 
   it("initializes the editable namespace from ?namespace= in create mode", async () => {
-    mockUseSearchParams.mockReturnValue(new URLSearchParams("namespace=kagent"));
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("namespace=%20kagent%20"));
 
     render(<AgentPage />);
 
