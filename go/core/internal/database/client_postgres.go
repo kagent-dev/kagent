@@ -199,6 +199,8 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
+// TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
+// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
 func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
 	legacyTask, err := trpcv0.ToLegacyTask(task)
 	if err != nil {
@@ -246,6 +248,8 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID string) error {
 
 // ── Push Notifications ────────────────────────────────────────────────────────
 
+// TODO(0.11.0): Switch push notification writes to v1 storage format and remove legacy conversion from this write path.
+// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0.
 func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {
 	legacyConfig := trpcv0.ToLegacyPushConfig(config)
 	data, err := json.Marshal(legacyConfig)
@@ -742,6 +746,7 @@ func toEvent(r dbgen.Event) *dbpkg.Event {
 	}
 }
 
+//nolint:unused // Kept for parity with other row mappers and future raw task DB APIs.
 func toTask(r dbgen.Task) *dbpkg.Task {
 	return &dbpkg.Task{
 		ID:              r.ID,
@@ -872,6 +877,7 @@ func strPtrIfNotEmpty(s string) *string {
 	return &s
 }
 
+// parseVersionedTask parses a task from a string and a version, handles conversion from legacy to v1 format.
 func parseVersionedTask(data string, version *string) (*a2a.Task, error) {
 	switch {
 	case version == nil || *version == "":
@@ -895,6 +901,7 @@ func parseVersionedTask(data string, version *string) (*a2a.Task, error) {
 	}
 }
 
+// parseVersionedPushConfig parses a push notification config from a string and a version, handles conversion from legacy to v1 format.
 func parseVersionedPushConfig(data string, version *string) (*a2a.PushConfig, error) {
 	switch {
 	case version == nil || *version == "":

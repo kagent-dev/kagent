@@ -3,6 +3,7 @@ package a2a
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -59,7 +60,7 @@ func (a *handlerMux) SetAgentHandler(
 	card a2atype.AgentCard,
 	tracing middleware,
 ) error {
-	// TODO: Remove this in release 0.11.0 when all agents are migrated to v1
+	// TODO(cleanup): Replace this protocol mux with the standard v1 handler stack once legacy clients/runtimes are unsupported.
 	requestHandler := NewPassthroughRequestHandler(client, &card)
 	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
 	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
@@ -89,8 +90,8 @@ func (a *handlerMux) SetAgentHandler(
 	if tracing != nil {
 		middlewares = append(middlewares, tracing)
 	}
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		handler = middlewares[i].Wrap(handler)
+	for _, middleware := range slices.Backward(middlewares) {
+		handler = middleware.Wrap(handler)
 	}
 
 	a.lock.Lock()

@@ -149,7 +149,7 @@ func (a *adkApiTranslator) buildConfigSecret(
 		cfgJSON = string(bCfg)
 	}
 	if card != nil {
-		// TODO: replace this with the v1 agent card producer in release 0.11.0
+		// TODO(0.11.0): use the v1 agent card producer once managed runtimes no longer need legacy top-level fields.
 		producer := a2av0.NewStaticAgentCardProducer(card)
 		jsonProducer, ok := producer.(a2asrv.AgentCardJSONProducer)
 		if !ok {
