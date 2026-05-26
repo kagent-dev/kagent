@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"testing"
@@ -71,8 +72,8 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 	if gotScopes != openclawDefaultOperatorScopes {
 		t.Fatalf("x-openclaw-scopes = %q", gotScopes)
 	}
-	if gotPath != "/" {
-		t.Fatalf("upstream path = %q, want /", gotPath)
+	if gotPath != publicPrefix {
+		t.Fatalf("upstream path = %q, want %q", gotPath, publicPrefix)
 	}
 	body, _ := io.ReadAll(rec.Body)
 	if !strings.Contains(string(body), "ok") {
@@ -80,7 +81,7 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 	}
 }
 
-func TestGatewayProxyDirectorTargetsPodIPOnWebSocketPath(t *testing.T) {
+func TestGatewayProxyRewriteTargetsPodIPOnWebSocketPath(t *testing.T) {
 	t.Parallel()
 	const podIP = "10.244.0.29"
 	ns, name := "kagent", "my-claw"
@@ -96,29 +97,30 @@ func TestGatewayProxyDirectorTargetsPodIPOnWebSocketPath(t *testing.T) {
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Origin", "http://localhost:8001")
 	req.Header.Set("Referer", "http://localhost:8001/api/agentharnesses/kagent/my-claw/gateway/")
+	outReq := req.Clone(req.Context())
 
-	proxy.Director(req)
+	proxy.Rewrite(&httputil.ProxyRequest{In: req, Out: outReq})
 
-	if req.Host != podIP {
-		t.Fatalf("Host = %q, want pod IP", req.Host)
+	if outReq.Host != podIP {
+		t.Fatalf("Host = %q, want pod IP", outReq.Host)
 	}
-	if req.URL.Host != podIP+":80" {
-		t.Fatalf("URL.Host = %q", req.URL.Host)
+	if outReq.URL.Host != podIP+":80" {
+		t.Fatalf("URL.Host = %q", outReq.URL.Host)
 	}
-	if req.URL.Path != "/" {
-		t.Fatalf("URL.Path = %q, want /", req.URL.Path)
+	if outReq.URL.Path != publicPrefix {
+		t.Fatalf("URL.Path = %q, want %q", outReq.URL.Path, publicPrefix)
 	}
-	if req.Header.Get("Authorization") != "Bearer tok" {
+	if outReq.Header.Get("Authorization") != "Bearer tok" {
 		t.Fatalf("missing Authorization")
 	}
-	if req.Header.Get("x-openclaw-scopes") != openclawDefaultOperatorScopes {
+	if outReq.Header.Get("x-openclaw-scopes") != openclawDefaultOperatorScopes {
 		t.Fatalf("missing scopes header")
 	}
-	if req.Header.Get("Origin") != openclawLoopbackOrigin {
-		t.Fatalf("Origin = %q, want %q", req.Header.Get("Origin"), openclawLoopbackOrigin)
+	if outReq.Header.Get("Origin") != openclawLoopbackOrigin {
+		t.Fatalf("Origin = %q, want %q", outReq.Header.Get("Origin"), openclawLoopbackOrigin)
 	}
-	if req.Header.Get("Referer") != openclawLoopbackOrigin+"/" {
-		t.Fatalf("Referer = %q", req.Header.Get("Referer"))
+	if outReq.Header.Get("Referer") != openclawLoopbackOrigin+"/" {
+		t.Fatalf("Referer = %q", outReq.Header.Get("Referer"))
 	}
 }
 

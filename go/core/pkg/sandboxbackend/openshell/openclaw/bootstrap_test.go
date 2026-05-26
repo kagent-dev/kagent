@@ -79,7 +79,7 @@ func TestBuildBootstrapJSON_SubstrateOmitsModelsWhenNoExplicitBaseURL(t *testing
 	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap("tok", 80), openclaw.SubstrateBootstrapDefaultBaseURL)
+	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap("tok", 80, "/api/agentharnesses/default/s1/gateway"), openclaw.SubstrateBootstrapDefaultBaseURL)
 	require.NoError(t, err)
 
 	var root map[string]any

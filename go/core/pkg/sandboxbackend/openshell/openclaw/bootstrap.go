@@ -13,15 +13,16 @@ import (
 
 // GatewayBootstrapConfig describes the gateway section of openclaw.json for a harness runtime.
 type GatewayBootstrapConfig struct {
-	Port     int
-	Bind     string // loopback | lan
-	AuthMode string // none | token
-	Token    string // required when AuthMode is token
+	Port      int
+	Bind      string // loopback | lan
+	AuthMode  string // none | token
+	Token     string // required when AuthMode is token
 	ControlUI *ControlUIBootstrapConfig
 }
 
 // ControlUIBootstrapConfig maps to gateway.controlUi in openclaw.json.
 type ControlUIBootstrapConfig struct {
+	BasePath                     string
 	AllowedOrigins               []string
 	DangerouslyDisableDeviceAuth bool
 }
@@ -32,17 +33,29 @@ func OpenshellGatewayBootstrap(port int) GatewayBootstrapConfig {
 }
 
 // SubstrateGatewayBootstrap is the gateway profile for Agent Substrate actors (port 80, token auth, proxied Control UI).
-func SubstrateGatewayBootstrap(token string, port int) GatewayBootstrapConfig {
+func SubstrateGatewayBootstrap(token string, port int, controlUIBasePath string) GatewayBootstrapConfig {
 	return GatewayBootstrapConfig{
 		Port:     port,
 		Bind:     "lan",
 		AuthMode: "token",
 		Token:    strings.TrimSpace(token),
 		ControlUI: &ControlUIBootstrapConfig{
+			BasePath:                     normalizeControlUIBasePath(controlUIBasePath),
 			AllowedOrigins:               []string{"*"},
 			DangerouslyDisableDeviceAuth: true,
 		},
 	}
+}
+
+func normalizeControlUIBasePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return strings.TrimRight(path, "/")
 }
 
 // BuildBootstrapJSON builds ~/.openclaw/openclaw.json contents plus environment variables that must be present when
@@ -177,6 +190,7 @@ func buildGatewaySection(gw GatewayBootstrapConfig) gatewaySection {
 	}
 	if gw.ControlUI != nil {
 		section.ControlUi = &controlUiSection{
+			BasePath:                     normalizeControlUIBasePath(gw.ControlUI.BasePath),
 			AllowedOrigins:               gw.ControlUI.AllowedOrigins,
 			DangerouslyDisableDeviceAuth: gw.ControlUI.DangerouslyDisableDeviceAuth,
 		}
