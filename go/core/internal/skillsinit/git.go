@@ -23,7 +23,10 @@ func CloneGit(ref GitRef) error {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
 		}
-		if err := runGitIn(ref.Dest, "checkout", ref.Ref); err != nil {
+		// `--` separator prevents a ref starting with `-` from being parsed
+		// as a flag. Refs are already validated upstream as 40-char hex when
+		// IsCommit is true, but defense in depth costs nothing.
+		if err := runGitIn(ref.Dest, "checkout", "--", ref.Ref); err != nil {
 			return err
 		}
 	} else {

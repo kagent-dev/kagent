@@ -1,7 +1,6 @@
 package skillsinit
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,7 +15,7 @@ import (
 //
 // homeDir is the binary's $HOME — exposed for tests. In production callers
 // should pass os.UserHomeDir() or "/root".
-func Run(ctx context.Context, cfg Config, homeDir string) error {
+func Run(cfg Config, homeDir string) error {
 	if len(cfg.ImagePullSecrets) > 0 {
 		dockerCfgPath := filepath.Join(os.TempDir(), "kagent-docker-config", "config.json")
 		dockerCfgDir, err := MergeDockerConfigs(DockerSecretsDir, cfg.ImagePullSecrets, dockerCfgPath)

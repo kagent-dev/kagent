@@ -9,7 +9,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"os"
 
@@ -29,7 +28,7 @@ func main() {
 		home = "/root"
 	}
 
-	if err := skillsinit.Run(context.Background(), cfg, home); err != nil {
+	if err := skillsinit.Run(cfg, home); err != nil {
 		log.Fatalf("skills-init: %v", err)
 	}
 }

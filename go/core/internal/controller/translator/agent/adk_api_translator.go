@@ -1165,6 +1165,26 @@ func gitSSHHost(rawURL string) (skillsinit.SSHHost, bool) {
 	return skillsinit.SSHHost{Host: host}, true
 }
 
+// validSkillNamePattern restricts skill directory names to a safe alphabet.
+// The name becomes the final path segment under /skills/, so anything beyond
+// [a-zA-Z0-9._-] (notably "/" and "..") could escape the skills volume.
+var validSkillNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validateSkillName rejects names that would escape /skills/ or look like
+// dotfiles that hide the skill.
+func validateSkillName(name string) error {
+	if name == "" {
+		return fmt.Errorf("skill name is empty")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("skill name %q is reserved", name)
+	}
+	if !validSkillNamePattern.MatchString(name) {
+		return fmt.Errorf("skill name %q must match %s", name, validSkillNamePattern)
+	}
+	return nil
+}
+
 // validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
 func validateSubPath(p string) error {
 	if p == "" {
@@ -1233,6 +1253,9 @@ func prepareSkillsInitConfig(
 		ref.Ref = gitRef
 
 		name := gitSkillName(ref)
+		if err := validateSkillName(name); err != nil {
+			return skillsinit.Config{}, fmt.Errorf("git skill %q: %w", ref.URL, err)
+		}
 		if seen[name] {
 			return skillsinit.Config{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
@@ -1261,6 +1284,9 @@ func prepareSkillsInitConfig(
 
 	for _, imageRef := range ociRefs {
 		name := ociSkillName(imageRef)
+		if err := validateSkillName(name); err != nil {
+			return skillsinit.Config{}, fmt.Errorf("oci skill %q: %w", imageRef, err)
+		}
 		if seen[name] {
 			return skillsinit.Config{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
