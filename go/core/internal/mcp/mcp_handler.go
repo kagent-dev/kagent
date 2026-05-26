@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -67,12 +69,21 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	server := mcpsdk.NewServer(impl, nil)
 	handler.server = server
 
-	// Add list_agents tool
+	// Add list_agents tool.
+	// InputSchema is set explicitly (rather than reflected from the empty
+	// ListAgentsInput struct) so the serialized schema includes "properties": {}.
+	// OpenAI strict mode rejects object schemas without a properties key.
+	// See https://github.com/kagent-dev/kagent/issues/1889.
 	mcpsdk.AddTool[ListAgentsInput, ListAgentsOutput](
 		server,
 		&mcpsdk.Tool{
 			Name:        "list_agents",
 			Description: "List invokable kagent agents (accepted + deploymentReady)",
+			InputSchema: &jsonschema.Schema{
+				Type:                 "object",
+				Properties:           map[string]*jsonschema.Schema{},
+				AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
+			},
 		},
 		handler.handleListAgents,
 	)
@@ -88,11 +99,15 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	)
 
 	// Create HTTP handler
+	var httpOpts *mcpsdk.StreamableHTTPOptions
+	if env.KagentMCPStateless.Get() {
+		httpOpts = &mcpsdk.StreamableHTTPOptions{Stateless: true}
+	}
 	handler.httpHandler = mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server {
 			return server
 		},
-		nil,
+		httpOpts,
 	)
 
 	return handler, nil
