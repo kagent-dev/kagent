@@ -354,6 +354,8 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	}
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
+
+	// TODO(cleanup): Remove legacy API conversion after legacy wire support is no longer supported.
 	switch wireVersion {
 	case utils.A2AWireVersionLegacy:
 		legacyTasks := make([]any, 0, len(tasks))

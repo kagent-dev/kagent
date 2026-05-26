@@ -166,13 +166,15 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	httpClient := debugHTTPClient()
 	client, err := a2aclient.NewFromEndpoints(
 		ctx,
-		// TODO: Switch this to 1.0 in release 0.11.0 when all agents are migrated to v1
+		// TODO(0.11.0): Prefer A2A 1.0 interfaces by default once managed runtimes are v1-capable.
+		// Keep legacy fallback during rollout so old agent pods continue to serve traffic.
 		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
 		a2aclient.WithJSONRPCTransport(httpClient),
-		// TODO: Remove this in release 0.11.0 when all agents are migrated to v1
+		// TODO(cleanup): Remove the compat transport after legacy runtimes are unsupported.
 		a2aclient.WithCompatTransport(
 			a2atype.ProtocolVersion("0.3"),
 			a2atype.TransportProtocolJSONRPC,
+			// This creates a legacy JSON-RPC transport that is used to forward traffic to agents that are still on the legacy A2A wire.
 			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
 				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
 					URL:    iface.URL,
@@ -234,6 +236,7 @@ func a2aRoutePath(agent v1alpha2.AgentObject) string {
 	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
 }
 
+// cloneInterfacesWithURL clones the interfaces and sets the URL to the given value.
 func cloneInterfacesWithURL(interfaces []*a2atype.AgentInterface, url string) []*a2atype.AgentInterface {
 	if len(interfaces) == 0 {
 		return []*a2atype.AgentInterface{
@@ -259,6 +262,8 @@ func cloneInterfacesWithURL(interfaces []*a2atype.AgentInterface, url string) []
 	return result
 }
 
+// filterInterfacesByVersion filters the interfaces to only include the ones that match the given version.
+// Currently, this is used to select the A2A 0.3 interface for managed agents.
 func filterInterfacesByVersion(interfaces []*a2atype.AgentInterface, version a2atype.ProtocolVersion) []*a2atype.AgentInterface {
 	filtered := make([]*a2atype.AgentInterface, 0, len(interfaces))
 	for _, i := range interfaces {

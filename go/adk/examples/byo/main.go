@@ -50,7 +50,7 @@ import (
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/agent/workflowagents/parallelagent"
 	"google.golang.org/adk/runner"
-	"google.golang.org/adk/server/adka2a"
+	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // TODO(0.11.0): migrate Go ADK runtime to adka2a/v2.
 	adksession "google.golang.org/adk/session"
 )
 

@@ -175,13 +175,13 @@ func toLegacyMessage(message *a2av1.Message) (*trpc.Message, error) {
 	result := &trpc.Message{
 		Kind:             trpc.KindMessage,
 		MessageID:        message.ID,
-		ContextID:        strPtr(contextID),
+		ContextID:        new(contextID),
 		Extensions:       message.Extensions,
 		Metadata:         message.Metadata,
 		Parts:            parts,
 		ReferenceTaskIDs: toLegacyTaskIDs(message.ReferenceTasks),
 		Role:             toLegacyMessageRole(message.Role),
-		TaskID:           strPtr(taskID),
+		TaskID:           new(taskID),
 	}
 	return result, nil
 }
@@ -200,8 +200,8 @@ func toLegacyArtifact(artifact *a2av1.Artifact) (*trpc.Artifact, error) {
 
 	return &trpc.Artifact{
 		ArtifactID:  id,
-		Name:        strPtr(name),
-		Description: strPtr(description),
+		Name:        new(name),
+		Description: new(description),
 		Metadata:    artifact.Metadata,
 		Extensions:  artifact.Extensions,
 		Parts:       parts,
@@ -248,8 +248,8 @@ func toLegacyPart(part *a2av1.Part) (trpc.Part, error) {
 		return trpc.FilePart{
 			Kind: trpc.KindFile,
 			File: &trpc.FileWithURI{
-				Name:     strPtr(fileName),
-				MimeType: strPtr(mimeType),
+				Name:     new(fileName),
+				MimeType: new(mimeType),
 				URI:      urlString,
 			},
 			Metadata: part.Metadata,
@@ -262,8 +262,8 @@ func toLegacyPart(part *a2av1.Part) (trpc.Part, error) {
 		return trpc.FilePart{
 			Kind: trpc.KindFile,
 			File: &trpc.FileWithBytes{
-				Name:     strPtr(fileName),
-				MimeType: strPtr(mimeType),
+				Name:     new(fileName),
+				MimeType: new(mimeType),
 				Bytes:    string(raw),
 			},
 			Metadata: part.Metadata,
@@ -326,10 +326,6 @@ func formatTimestamp(timestamp *time.Time) string {
 		return ""
 	}
 	return timestamp.UTC().Format(time.RFC3339Nano)
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func ToOfficialV0TaskStatus(status trpc.TaskStatus) (legacya2a.TaskStatus, error) {

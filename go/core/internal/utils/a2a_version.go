@@ -17,6 +17,7 @@ const (
 
 // NegotiateA2AWireVersion returns the A2A wire version requested by the client.
 // Missing or explicit 0.3 headers use the legacy/current kagent A2A wire shape.
+// TODO(cleanup): Revisit missing-header behavior once legacy wire clients are unsupported.
 func NegotiateA2AWireVersion(r *http.Request) (A2AWireVersion, error) {
 	version := r.Header.Get(a2atype.SvcParamVersion)
 	switch version {
