@@ -16,8 +16,8 @@ import (
 
 // a2aTracingMiddleware is an A2A server middleware that creates an invoke_agent
 // span for each inbound A2A request, annotated with GenAI semantic convention
-// attributes. The span becomes the parent of any outbound proxy calls made by
-// traceInjectHandler, giving a clean agent-invocation span hierarchy in Jaeger.
+// attributes. Outbound client interceptors inject that span into proxied agent
+// calls, giving a clean agent-invocation span hierarchy in Jaeger.
 type a2aTracingMiddleware struct {
 	agentRef types.NamespacedName
 	provider attribute.KeyValue
