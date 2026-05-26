@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentGrid } from "@/components/AgentGrid";
 import { AgentListView } from "@/components/AgentListView";
 import { Plus, LayoutGrid, List } from "lucide-react";
@@ -35,20 +35,32 @@ export default function AgentList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [view, setView] = useState<AgentsView>("grid");
+  const latestFetchRequestId = useRef(0);
 
   const fetchAgents = useCallback(async () => {
+    const requestId = latestFetchRequestId.current + 1;
+    latestFetchRequestId.current = requestId;
+
     try {
       setLoading(true);
       const result = await getAgents(selectedNamespace ? { namespace: selectedNamespace } : {});
+      if (requestId !== latestFetchRequestId.current) {
+        return;
+      }
       if (result.error) {
         throw new Error(result.error || "Failed to fetch agents");
       }
       setAgents(result.data || []);
       setError("");
     } catch (err) {
+      if (requestId !== latestFetchRequestId.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
-      setLoading(false);
+      if (requestId === latestFetchRequestId.current) {
+        setLoading(false);
+      }
     }
   }, [selectedNamespace]);
 
