@@ -14,7 +14,6 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
-    DataPart,
     Message,
     Part,
     Role,
@@ -22,8 +21,8 @@ from a2a.types import (
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
+from google.protobuf.json_format import MessageToDict
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -83,7 +82,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.submitted,
+                            state=TaskState.TASK_STATE_SUBMITTED,
                             message=context.message,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                         ),
@@ -96,7 +95,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
+                        state=TaskState.TASK_STATE_WORKING,
                         timestamp=datetime.now(timezone.utc).isoformat(),
                     ),
                     context_id=context.context_id,
@@ -115,8 +114,10 @@ class CrewAIAgentExecutor(AgentExecutor):
                 inputs = None
                 if context.message and context.message.parts:
                     for part in context.message.parts:
-                        if isinstance(part, DataPart):
-                            inputs = part.root.data
+                        if part.HasField("data"):
+                            data_payload = MessageToDict(part.data)
+                            if isinstance(data_payload, dict):
+                                inputs = data_payload
                             break
                 if inputs is None:
                     user_input = context.get_user_input()
@@ -161,7 +162,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                         context_id=context.context_id,
                         artifact=Artifact(
                             artifact_id=str(uuid.uuid4()),
-                            parts=[Part(TextPart(text=result_text))],
+                                parts=[Part(text=result_text)],
                         ),
                     )
                 )
@@ -169,7 +170,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.completed,
+                            state=TaskState.TASK_STATE_COMPLETED,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                         ),
                         context_id=context.context_id,
@@ -183,12 +184,12 @@ class CrewAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
+                            state=TaskState.TASK_STATE_FAILED,
                             timestamp=datetime.now(timezone.utc).isoformat(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=str(e)))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=str(e))],
                             ),
                         ),
                         context_id=context.context_id,
