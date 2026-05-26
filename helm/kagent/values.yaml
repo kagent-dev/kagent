@@ -556,6 +556,7 @@ querydoc:
       memory: 512Mi
   openai:
     apiKey: ""
+    # secretRef: ""  # Name of existing Secret containing OPENAI_API_KEY. Takes precedence over apiKey.
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)
