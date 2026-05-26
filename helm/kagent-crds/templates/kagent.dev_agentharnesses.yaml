@@ -86,40 +86,6 @@ spec:
                     slack:
                       description: Slack configures Slack when type is Slack.
                       properties:
-                        allowedUserIDs:
-                          description: AllowedUserIDs restricts which Slack member
-                            IDs may interact with the bot (SLACK_ALLOWED_USERS).
-                          items:
-                            type: string
-                          type: array
-                        allowedUserIDsFrom:
-                          description: ValueSource defines a source for configuration
-                            values from a Secret or ConfigMap
-                          properties:
-                            key:
-                              description: The key of the ConfigMap or Secret.
-                              maxLength: 253
-                              type: string
-                            name:
-                              description: The name of the ConfigMap or Secret.
-                              maxLength: 253
-                              type: string
-                            type:
-                              enum:
-                              - ConfigMap
-                              - Secret
-                              type: string
-                          required:
-                          - key
-                          - name
-                          - type
-                          type: object
-                        allowlistChannels:
-                          description: AllowlistChannels is required when channelAccess
-                            is allowlist.
-                          items:
-                            type: string
-                          type: array
                         appToken:
                           description: AgentHarnessChannelCredential supplies a token
                             from an inline value or a Secret/ConfigMap key.
@@ -188,38 +154,82 @@ spec:
                           - message: Exactly one of value or valueFrom must be specified
                             rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
                               && has(self.valueFrom))
-                        channelAccess:
-                          description: AgentHarnessChannelAccess controls whether
-                            the bot listens broadly or only on an allowlist.
-                          enum:
-                          - allowlist
-                          - open
-                          - disabled
-                          type: string
-                        homeChannel:
-                          description: HomeChannel is the default Slack channel ID
-                            for cron/scheduled messages (SLACK_HOME_CHANNEL).
-                          type: string
-                        homeChannelName:
-                          description: HomeChannelName is a human-readable label for
-                            HomeChannel (SLACK_HOME_CHANNEL_NAME).
-                          type: string
-                        interactiveReplies:
-                          default: true
-                          type: boolean
+                        hermes:
+                          description: Hermes configures Hermes-specific Slack settings.
+                          properties:
+                            allowedUserIDs:
+                              description: AllowedUserIDs restricts which Slack member
+                                IDs may interact with the bot (SLACK_ALLOWED_USERS).
+                              items:
+                                type: string
+                              type: array
+                            allowedUserIDsFrom:
+                              description: ValueSource defines a source for configuration
+                                values from a Secret or ConfigMap
+                              properties:
+                                key:
+                                  description: The key of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                name:
+                                  description: The name of the ConfigMap or Secret.
+                                  maxLength: 253
+                                  type: string
+                                type:
+                                  enum:
+                                  - ConfigMap
+                                  - Secret
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              - type
+                              type: object
+                            homeChannel:
+                              description: HomeChannel is the default Slack channel
+                                ID for cron/scheduled messages (SLACK_HOME_CHANNEL).
+                              type: string
+                            homeChannelName:
+                              description: HomeChannelName is a human-readable label
+                                for HomeChannel (SLACK_HOME_CHANNEL_NAME).
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: allowedUserIDs and allowedUserIDsFrom are mutually
+                              exclusive
+                            rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
+                        openclaw:
+                          description: OpenClaw configures OpenClaw/NemoClaw-specific
+                            Slack routing.
+                          properties:
+                            allowlistChannels:
+                              description: AllowlistChannels is required when channelAccess
+                                is allowlist.
+                              items:
+                                type: string
+                              type: array
+                            channelAccess:
+                              description: AgentHarnessChannelAccess controls whether
+                                the bot listens broadly or only on an allowlist.
+                              enum:
+                              - allowlist
+                              - open
+                              - disabled
+                              type: string
+                            interactiveReplies:
+                              default: true
+                              type: boolean
+                          type: object
+                          x-kubernetes-validations:
+                          - message: allowlistChannels is required when channelAccess
+                              is allowlist
+                            rule: '!has(self.channelAccess) || self.channelAccess
+                              != ''allowlist'' || (has(self.allowlistChannels) &&
+                              size(self.allowlistChannels) > 0)'
                       required:
                       - appToken
                       - botToken
                       type: object
-                      x-kubernetes-validations:
-                      - message: allowedUserIDs and allowedUserIDsFrom are mutually
-                          exclusive
-                        rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
-                      - message: allowlistChannels is required when channelAccess
-                          is allowlist
-                        rule: '!has(self.channelAccess) || self.channelAccess != ''allowlist''
-                          || (has(self.allowlistChannels) && size(self.allowlistChannels)
-                          > 0)'
                     telegram:
                       description: AgentHarnessTelegramChannelSpec configures Telegram
                         when AgentHarnessChannel.type is Telegram.
@@ -500,6 +510,12 @@ spec:
             required:
             - backend
             type: object
+            x-kubernetes-validations:
+            - message: slack backend-specific settings must match spec.backend
+              rule: '!has(self.channels) || self.channels.all(c, c.type != ''slack''
+                || (has(c.slack) && ((self.backend == ''hermes'' && has(c.slack.hermes)
+                && !has(c.slack.openclaw)) || ((self.backend == ''openclaw'' || self.backend
+                == ''nemoclaw'') && has(c.slack.openclaw) && !has(c.slack.hermes)))))'
           status:
             description: AgentHarnessStatus is the observed state of an AgentHarness.
             properties:

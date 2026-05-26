@@ -73,7 +73,7 @@ func TestBuildBootstrapArtifacts_TelegramSlack(t *testing.T) {
 					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
 						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "xoxb-bot"},
 						AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "xapp-app"},
-						AgentHarnessHermesSlackOptions: v1alpha2.AgentHarnessHermesSlackOptions{
+						Hermes: &v1alpha2.AgentHarnessHermesSlackOptions{
 							AllowedUserIDs:  []string{"U01234567", "U89ABCDEF"},
 							HomeChannel:     "C01234567890",
 							HomeChannelName: "general",

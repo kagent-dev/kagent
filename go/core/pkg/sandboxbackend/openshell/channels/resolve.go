@@ -104,47 +104,20 @@ func (r *Resolved) addSlackChannel(ctx context.Context, kube client.Client, name
 	}
 	switch backend {
 	case v1alpha2.AgentHarnessBackendHermes:
-		if err := rejectOpenClawSlackFields(ch.Name, spec); err != nil {
-			return err
+		opts := spec.Hermes
+		if opts == nil {
+			opts = &v1alpha2.AgentHarnessHermesSlackOptions{}
 		}
-		return r.addHermesSlack(ctx, kube, namespace, ch.Name, spec.BotToken, spec.AppToken, spec.HermesOptions())
+		return r.addHermesSlack(ctx, kube, namespace, ch.Name, spec.BotToken, spec.AppToken, opts)
 	case v1alpha2.AgentHarnessBackendOpenClaw, v1alpha2.AgentHarnessBackendNemoClaw:
-		if err := rejectHermesSlackFields(ch.Name, spec); err != nil {
-			return err
+		opts := spec.OpenClaw
+		if opts == nil {
+			opts = &v1alpha2.AgentHarnessOpenClawSlackOptions{}
 		}
-		return r.addOpenClawSlack(ctx, kube, namespace, ch.Name, spec.BotToken, spec.AppToken, spec.OpenClawOptions())
+		return r.addOpenClawSlack(ctx, kube, namespace, ch.Name, spec.BotToken, spec.AppToken, opts)
 	default:
 		return fmt.Errorf("channel %q: slack channels are not supported for backend %q", ch.Name, backend)
 	}
-}
-
-func rejectOpenClawSlackFields(channelName string, spec *v1alpha2.AgentHarnessSlackChannelSpec) error {
-	opts := spec.OpenClawOptions()
-	if opts == nil {
-		return nil
-	}
-	if opts.ChannelAccess != "" {
-		return fmt.Errorf("channel %q: channelAccess is not supported when backend is hermes", channelName)
-	}
-	if len(opts.AllowlistChannels) > 0 {
-		return fmt.Errorf("channel %q: allowlistChannels is not supported when backend is hermes", channelName)
-	}
-	if opts.InteractiveReplies != nil {
-		return fmt.Errorf("channel %q: interactiveReplies is not supported when backend is hermes", channelName)
-	}
-	return nil
-}
-
-func rejectHermesSlackFields(channelName string, spec *v1alpha2.AgentHarnessSlackChannelSpec) error {
-	opts := spec.HermesOptions()
-	if opts == nil {
-		return nil
-	}
-	if len(opts.AllowedUserIDs) > 0 || opts.AllowedUserIDsFrom != nil ||
-		strings.TrimSpace(opts.HomeChannel) != "" || strings.TrimSpace(opts.HomeChannelName) != "" {
-		return fmt.Errorf("channel %q: Hermes slack fields are not supported when backend is openclaw or nemoclaw", channelName)
-	}
-	return nil
 }
 
 func (r *Resolved) putSlackCredentials(ctx context.Context, kube client.Client, namespace, channelName string, botToken, appToken v1alpha2.AgentHarnessChannelCredential) error {

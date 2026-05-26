@@ -111,31 +111,19 @@ type AgentHarnessHermesSlackOptions struct {
 }
 
 // AgentHarnessSlackChannelSpec configures Slack when AgentHarnessChannel.type is Slack.
-// YAML is flat: botToken, appToken, plus backend-specific fields. Which fields apply is determined
-// by spec.backend on the AgentHarness; OpenClaw and Hermes settings are separate structs in Go.
+// Backend-specific settings live under the matching backend key; AgentHarnessSpec validation
+// requires the key to match spec.backend.
 type AgentHarnessSlackChannelSpec struct {
 	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +required
-	AppToken                         AgentHarnessChannelCredential `json:"appToken"`
-	AgentHarnessOpenClawSlackOptions `json:",inline"`
-	AgentHarnessHermesSlackOptions   `json:",inline"`
-}
-
-// OpenClawOptions returns OpenClaw/NemoClaw Slack settings embedded in the spec.
-func (s *AgentHarnessSlackChannelSpec) OpenClawOptions() *AgentHarnessOpenClawSlackOptions {
-	if s == nil {
-		return nil
-	}
-	return &s.AgentHarnessOpenClawSlackOptions
-}
-
-// HermesOptions returns Hermes Slack settings embedded in the spec.
-func (s *AgentHarnessSlackChannelSpec) HermesOptions() *AgentHarnessHermesSlackOptions {
-	if s == nil {
-		return nil
-	}
-	return &s.AgentHarnessHermesSlackOptions
+	AppToken AgentHarnessChannelCredential `json:"appToken"`
+	// OpenClaw configures OpenClaw/NemoClaw-specific Slack routing.
+	// +optional
+	OpenClaw *AgentHarnessOpenClawSlackOptions `json:"openclaw,omitempty"`
+	// Hermes configures Hermes-specific Slack settings.
+	// +optional
+	Hermes *AgentHarnessHermesSlackOptions `json:"hermes,omitempty"`
 }
 
 // AgentHarnessChannel declares one messenger binding inside a harness VM.
@@ -161,6 +149,7 @@ type AgentHarnessChannel struct {
 // An AgentHarness is distinct from a SandboxAgent: it has no agent runtime baked
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
+// +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || ((self.backend == 'openclaw' || self.backend == 'nemoclaw') && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
