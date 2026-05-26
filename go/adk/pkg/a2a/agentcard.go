@@ -3,7 +3,7 @@ package a2a
 import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // TODO(0.11.0): migrate Go ADK runtime to adka2a/v2.
+	"google.golang.org/adk/server/adka2a"
 )
 
 // EnrichAgentCard populates the agent card with skills derived from the ADK
