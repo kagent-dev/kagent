@@ -172,12 +172,18 @@ export class KagentA2AClient {
                   return;
                 }
 
+                let eventData: Record<string, unknown>;
                 try {
-                  const eventData = JSON.parse(dataString);
-                  yield (eventData.result || eventData) as StreamResponse;
-                } catch (error) {
-                  console.error("❌ Failed to parse SSE data:", error, dataString);
+                  eventData = JSON.parse(dataString);
+                } catch {
+                  console.error("❌ Failed to parse SSE data:", dataString);
+                  continue;
                 }
+                if (eventData.error) {
+                  const err = eventData.error as { code?: number; message?: string };
+                  throw new Error(`A2A error ${err.code ?? "unknown"}: ${err.message ?? "unknown error"}`);
+                }
+                yield (eventData.result || eventData) as StreamResponse;
               }
             }
           }
