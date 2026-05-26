@@ -43,13 +43,14 @@ func FetchOCI(ref OCIRef, insecure bool) error {
 	pr, pw := io.Pipe()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- crane.Export(img, pw)
-		pw.Close()
+		exportErr := crane.Export(img, pw)
+		_ = pw.CloseWithError(exportErr)
+		errCh <- exportErr
 	}()
 
 	if err := extractTar(pr, ref.Dest); err != nil {
-		// Drain the export goroutine to avoid a goroutine leak.
-		_, _ = io.Copy(io.Discard, pr)
+		// Abort the export promptly; don't drain potentially large images.
+		_ = pr.CloseWithError(err)
 		<-errCh
 		return fmt.Errorf("extract %s: %w", ref.Image, err)
 	}
