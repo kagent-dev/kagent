@@ -32,7 +32,10 @@ export function DeleteButton({ agentName, namespace, disabled = false, onDeleted
 
     try {
       setIsDeleting(true);
-      await deleteAgent(agentName, namespace);
+      const result = await deleteAgent(agentName, namespace);
+      if (result.error) {
+        throw new Error(result.error);
+      }
 
       await onDeleted?.();
     } catch (error) {
