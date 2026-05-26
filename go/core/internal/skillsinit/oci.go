@@ -139,7 +139,13 @@ func extractTar(r io.Reader, dst string) error {
 }
 
 func safeJoin(dst, name string) (string, error) {
-	cleaned := filepath.Clean("/" + name)
+	// Ensure the tar entry path is treated as relative so filepath.Join doesn't
+	// discard dst. We still validate after joining to prevent escapes via "..".
+	cleaned := filepath.Clean(name)
+	cleaned = strings.TrimPrefix(cleaned, string(os.PathSeparator))
+	if cleaned == "." {
+		return dst, nil
+	}
 	target := filepath.Join(dst, cleaned)
 	if !strings.HasPrefix(target+string(os.PathSeparator), dst+string(os.PathSeparator)) && target != dst {
 		return "", fmt.Errorf("tar entry %q escapes destination", name)
