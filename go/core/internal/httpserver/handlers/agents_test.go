@@ -948,4 +948,42 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
 		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, created.Spec.Backend)
 	})
+
+	t.Run("creates hermes AgentHarness", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		handler, _ := setupTestHandler(t, modelConfig)
+
+		body := map[string]any{
+			"apiVersion": "kagent.dev/v1alpha2",
+			"kind":       "AgentHarness",
+			"metadata": map[string]string{
+				"name":      "my-hermes",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"backend":        "hermes",
+				"description":    "hermes vm",
+				"modelConfigRef": "test-model-config",
+			},
+		}
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/agentharnesses", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleCreateAgentHarness(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+		var response api.StandardResponse[api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, response.Data.OpenshellAgentHarness.Backend)
+
+		var created v1alpha2.AgentHarness
+		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-hermes"}, &created))
+		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, created.Spec.Backend)
+	})
 }

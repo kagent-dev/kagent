@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,6 +81,16 @@ func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
 	require.ElementsMatch(t, []string{"api.openai.com", "api.anthropic.com", "*.slack.com"}, hosts)
 }
 
+func TestBuildClawCreateRequest_PinsBaseImage(t *testing.T) {
+	sbx := &v1alpha2.AgentHarness{
+		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
+		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+	}
+	req, unsupported := buildClawCreateRequest(sbx, nil)
+	require.Empty(t, unsupported)
+	require.Equal(t, openclaw.NemoclawSandboxBaseImage, req.GetSpec().GetTemplate().GetImage())
+}
+
 func TestBuildOpenshellCreateRequest_OpenClaw_NoAllowedDomains_HasRegistryPolicies(t *testing.T) {
 	sbx := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: "ns"},
@@ -154,9 +165,11 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T)
 					Name: "s1",
 					Type: v1alpha2.AgentHarnessChannelTypeSlack,
 					Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
-						BotToken:      v1alpha2.AgentHarnessChannelCredential{Value: "b"},
-						AppToken:      v1alpha2.AgentHarnessChannelCredential{Value: "a"},
-						ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "b"},
+						AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "a"},
+						OpenClaw: &v1alpha2.AgentHarnessOpenClawSlackOptions{
+							ChannelAccess: v1alpha2.AgentHarnessChannelAccessOpen,
+						},
 					},
 				},
 			},
@@ -171,10 +184,15 @@ func TestBuildOpenshellCreateRequest_OpenClaw_Slack_HasSlackPolicy(t *testing.T)
 	require.Equal(t, "slack.com", s.GetEndpoints()[0].GetHost())
 	require.Equal(t, "api.slack.com", s.GetEndpoints()[1].GetHost())
 	require.Equal(t, "hooks.slack.com", s.GetEndpoints()[2].GetHost())
-	require.Equal(t, "wss-primary.slack.com", s.GetEndpoints()[3].GetHost())
-	require.Equal(t, "skip", s.GetEndpoints()[3].GetTls())
-	require.Equal(t, "wss-backup.slack.com", s.GetEndpoints()[4].GetHost())
-	require.Equal(t, "skip", s.GetEndpoints()[4].GetTls())
+	wssPrimary := s.GetEndpoints()[3]
+	require.Equal(t, "wss-primary.slack.com", wssPrimary.GetHost())
+	require.Equal(t, "websocket", wssPrimary.GetProtocol())
+	require.True(t, wssPrimary.GetWebsocketCredentialRewrite())
+	wssBackup := s.GetEndpoints()[4]
+	require.Equal(t, "wss-backup.slack.com", wssBackup.GetHost())
+	require.Equal(t, "websocket", wssBackup.GetProtocol())
+	require.True(t, wssBackup.GetWebsocketCredentialRewrite())
+	require.True(t, s.GetEndpoints()[0].GetRequestBodyCredentialRewrite())
 }
 
 func TestBuildOpenshellCreateRequest_OpenClaw_AllowedDomains_OmitsNPMPresetHosts(t *testing.T) {
@@ -202,4 +220,49 @@ func TestBuildOpenshellCreateRequest_OpenClaw_AllowedDomains_OmitsNPMPresetHosts
 		hosts = append(hosts, ep.GetHost())
 	}
 	require.ElementsMatch(t, []string{"api.openai.com"}, hosts)
+}
+
+func TestBuildOpenshellCreateRequest_Hermes_BaselinePolicy(t *testing.T) {
+	sbx := &v1alpha2.AgentHarness{
+		ObjectMeta: metav1.ObjectMeta{Name: "h1", Namespace: "ns"},
+		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendHermes},
+	}
+	req, unsupported := buildHermesCreateRequest(sbx, nil)
+	require.Empty(t, unsupported)
+	require.Equal(t, hermes.HermesSandboxBaseImage, req.GetSpec().GetTemplate().GetImage())
+
+	pol := req.GetSpec().GetPolicy()
+	require.NotNil(t, pol)
+	net := pol.GetNetworkPolicies()
+	require.Contains(t, net, hermes.NetworkPolicyKeyNVIDIA)
+	require.Contains(t, net, hermes.NetworkPolicyKeyNousResearch)
+	require.Contains(t, net, hermes.NetworkPolicyKeyPyPI)
+	require.NotContains(t, net, openclaw.NetworkPolicyKeyClawhub)
+	require.NotContains(t, net, openclaw.NetworkPolicyKeyNPMYarn)
+
+	fs := pol.GetFilesystem()
+	require.Contains(t, fs.GetReadWrite(), hermes.HermesConfigDir)
+	require.Contains(t, fs.GetReadOnly(), "/opt/hermes")
+}
+
+func TestBuildOpenshellCreateRequest_Hermes_TelegramChannel(t *testing.T) {
+	sbx := &v1alpha2.AgentHarness{
+		ObjectMeta: metav1.ObjectMeta{Name: "h1", Namespace: "ns"},
+		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendHermes,
+			Channels: []v1alpha2.AgentHarnessChannel{
+				{
+					Name: "tg",
+					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "tok"},
+					},
+				},
+			},
+		},
+	}
+	req, _ := buildAgentHarnessOpenshellCreateRequest(sbx)
+	net := req.GetSpec().GetPolicy().GetNetworkPolicies()
+	require.Contains(t, net, hermes.NetworkPolicyKeyTelegram)
+	require.Equal(t, "telegram", net[hermes.NetworkPolicyKeyTelegram].GetName())
 }

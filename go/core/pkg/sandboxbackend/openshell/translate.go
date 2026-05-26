@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
 	inferencev1 "github.com/kagent-dev/kagent/go/api/openshell/gen/inferencev1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -158,35 +155,16 @@ func translateModelConfig(
 	providerRecordName := openclaw.GatewayProviderRecordName(modelConfig.Spec.Provider)
 	model := modelConfig.Spec.Model
 
-	getProviderResp, err := osCli.GetProvider(ctx, &openshellv1.GetProviderRequest{Name: providerRecordName})
-	exists := false
-	if err != nil {
-		if status.Code(err) != codes.NotFound {
-			return fmt.Errorf("GetProvider %s: %w", providerRecordName, err)
-		}
-	} else if getProviderResp.GetProvider() != nil {
-		exists = true
-	}
-
-	providerProto := &datamodelv1.Provider{
-		Metadata: &datamodelv1.ObjectMeta{Name: providerRecordName},
-		Type:     providerRecordName,
+	if err := UpsertGatewayProvider(ctx, osCli, GatewayProviderDef{
+		Name: providerRecordName,
+		Type: providerRecordName,
 		Credentials: map[string]string{
 			"apiKey": apiKey,
 		},
+	}); err != nil {
+		return fmt.Errorf("upsert inference provider %s: %w", providerRecordName, err)
 	}
-
-	if exists {
-		if _, err := osCli.UpdateProvider(ctx, &openshellv1.UpdateProviderRequest{Provider: providerProto}); err != nil {
-			return fmt.Errorf("UpdateProvider %s: %w", providerRecordName, err)
-		}
-		ctrllog.FromContext(ctx).Info("updated gateway provider", "name", providerRecordName)
-	} else {
-		if _, err := osCli.CreateProvider(ctx, &openshellv1.CreateProviderRequest{Provider: providerProto}); err != nil {
-			return fmt.Errorf("CreateProvider %s: %w", providerRecordName, err)
-		}
-		ctrllog.FromContext(ctx).Info("created gateway provider", "name", providerRecordName)
-	}
+	ctrllog.FromContext(ctx).Info("upserted gateway provider", "name", providerRecordName)
 
 	if _, err := inference.SetClusterInference(ctx, &inferencev1.SetClusterInferenceRequest{
 		ProviderName: providerRecordName,

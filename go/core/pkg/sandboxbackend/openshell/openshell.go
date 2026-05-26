@@ -4,7 +4,7 @@
 // Use Dial to obtain OpenShellClients (shared connection for openshell.v1.OpenShell
 // and openshell.inference.v1.Inference).
 //
-// • NewOpenClawBackend — pin the sandbox image to NemoclawSandboxBaseImage, translateModelConfig
+// • NewOpenClawBackend — pin the sandbox image to openclaw.NemoclawSandboxBaseImage, translateModelConfig
 // when modelConfigRef is set, run OpenClaw bootstrap after Ready. The same instance
 // is registered for spec.backend=openclaw and nemoclaw (see app wiring).
 //
@@ -30,7 +30,6 @@ type agentHarnessOpenShellBackend struct {
 	*AgentHarnessOpenShellClient
 	kubeClient  client.Client
 	backendName v1alpha2.AgentHarnessBackendType
-	buildCreate func(*v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string)
 }
 
 func newAgentHarnessOpenShellBackend(
@@ -39,13 +38,11 @@ func newAgentHarnessOpenShellBackend(
 	cfg Config,
 	recorder record.EventRecorder,
 	name v1alpha2.AgentHarnessBackendType,
-	build func(*v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string),
 ) *agentHarnessOpenShellBackend {
 	return &agentHarnessOpenShellBackend{
 		AgentHarnessOpenShellClient: newAgentHarnessOpenShellClient(clients, cfg, recorder),
 		kubeClient:                  kubeClient,
 		backendName:                 name,
-		buildCreate:                 build,
 	}
 }
 
@@ -77,14 +74,6 @@ func (b *agentHarnessOpenShellBackend) findExistingSandbox(ctx context.Context, 
 		return sandboxbackend.EnsureResult{}, false, fmt.Errorf("openshell GetSandbox %s: %w", name, err)
 	}
 	return sandboxbackend.EnsureResult{}, false, nil
-}
-
-// createSandbox builds the gateway create request via b.buildCreate and submits it. Callers must
-// already have applied CallCtx and withAuth to ctx and confirmed via findExistingSandbox that no
-// sandbox exists yet.
-func (b *agentHarnessOpenShellBackend) createSandbox(ctx context.Context, ah *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
-	req, unsupported := b.buildCreate(ah)
-	return b.CreateAgentHarnessSandbox(ctx, ah, req, unsupported)
 }
 
 // GetStatus implements AsyncBackend.

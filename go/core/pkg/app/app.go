@@ -739,9 +739,11 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	}
 
 	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
+	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
 	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
 		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
 		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
+		v1alpha2.AgentHarnessBackendHermes:   hermesBackend,
 	}, nil
 }
 

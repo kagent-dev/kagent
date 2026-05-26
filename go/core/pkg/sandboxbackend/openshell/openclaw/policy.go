@@ -60,6 +60,10 @@ var (
 		{Allow: &sandboxv1.L7Allow{Method: "GET", Path: "/**"}},
 		{Allow: &sandboxv1.L7Allow{Method: "POST", Path: "/**"}},
 	}
+	slackWssRules = []*sandboxv1.L7Rule{
+		{Allow: &sandboxv1.L7Allow{Method: "GET", Path: "/**"}},
+		{Allow: &sandboxv1.L7Allow{Method: "WEBSOCKET_TEXT", Path: "/**"}},
+	}
 )
 
 // restNetworkEndpoint is HTTPS:443 with protocol rest + enforce and explicit L7 rules (OpenShell policy schema).
@@ -70,6 +74,23 @@ func restNetworkEndpoint(host string, rules []*sandboxv1.L7Rule) *sandboxv1.Netw
 		Protocol:    endpointProtocolREST,
 		Enforcement: endpointEnforcement,
 		Rules:       rules,
+	}
+}
+
+func restSlackNetworkEndpoint(host string) *sandboxv1.NetworkEndpoint {
+	ep := restNetworkEndpoint(host, slackRESTRules)
+	ep.RequestBodyCredentialRewrite = true
+	return ep
+}
+
+func slackWssNetworkEndpoint(host string) *sandboxv1.NetworkEndpoint {
+	return &sandboxv1.NetworkEndpoint{
+		Host:                       host,
+		Ports:                      []uint32{443},
+		Protocol:                   "websocket",
+		Enforcement:                endpointEnforcement,
+		WebsocketCredentialRewrite: true,
+		Rules:                      slackWssRules,
 	}
 }
 
@@ -152,11 +173,11 @@ func slackNetworkPolicyRule() *sandboxv1.NetworkPolicyRule {
 	return &sandboxv1.NetworkPolicyRule{
 		Name: "slack",
 		Endpoints: []*sandboxv1.NetworkEndpoint{
-			restNetworkEndpoint("slack.com", slackRESTRules),
-			restNetworkEndpoint("api.slack.com", slackRESTRules),
-			restNetworkEndpoint("hooks.slack.com", slackRESTRules),
-			wssTunnelEndpoint("wss-primary.slack.com"),
-			wssTunnelEndpoint("wss-backup.slack.com"),
+			restSlackNetworkEndpoint("slack.com"),
+			restSlackNetworkEndpoint("api.slack.com"),
+			restSlackNetworkEndpoint("hooks.slack.com"),
+			slackWssNetworkEndpoint("wss-primary.slack.com"),
+			slackWssNetworkEndpoint("wss-backup.slack.com"),
 		},
 		Binaries: messengerChannelNodeBinaries,
 	}

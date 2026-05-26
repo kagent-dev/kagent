@@ -16,9 +16,6 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// NemoclawSandboxBaseImage is the container image used for OpenClaw/NemoClaw harness sandboxes.
-const NemoclawSandboxBaseImage = "ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4"
-
 // ClawBackend implements AsyncBackend and PostReadyBackend for OpenClaw- and
 // NemoClaw-typed AgentHarness resources: sync ModelConfig to the OpenShell control plane before create,
 // fixed sandbox image, and post-ready OpenClaw bootstrap when modelConfigRef is set.
@@ -36,15 +33,12 @@ func NewOpenClawBackend(kubeClient client.Client, clients *OpenShellClients, cfg
 		agentHarnessOpenShellBackend: newAgentHarnessOpenShellBackend(
 			kubeClient, clients, cfg, recorder,
 			v1alpha2.AgentHarnessBackendOpenClaw,
-			buildClawCreateRequest,
 		),
 	}
 }
 
 // EnsureAgentHarness is the OpenClaw/NemoClaw EnsureAgentHarness flow: idempotent gateway lookup,
 // then translateModelConfig (apply ModelConfigRef onto the gateway) before CreateSandbox.
-// Future backends (e.g. Hermes) follow the same pattern: findExistingSandbox + own translation step
-// + createSandbox, with no callback fields.
 func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
 	if ah == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
@@ -56,10 +50,7 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	if res, found, err := b.findExistingSandbox(ctx, ah); err != nil || found {
 		return res, err
 	}
-	if err := translateModelConfig(ctx, ah, b.kubeClient, b.clients); err != nil {
-		return sandboxbackend.EnsureResult{}, err
-	}
-	return b.createSandbox(ctx, ah)
+	return b.ensureAgentHarnessSandbox(ctx, ah, buildClawCreateRequest)
 }
 
 const defaultOpenclawGatewayPort = 18800
@@ -86,6 +77,10 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Agen
 	mc := &v1alpha2.ModelConfig{}
 	if err := b.kubeClient.Get(ctx, modelConfigRef, mc); err != nil {
 		return fmt.Errorf("get ModelConfig: %w", err)
+	}
+
+	if _, err := UpsertMessagingProviders(ctx, b.clients, b.kubeClient, ah); err != nil {
+		return fmt.Errorf("upsert messaging providers: %w", err)
 	}
 
 	providerRecord := openclaw.GatewayProviderRecordName(mc.Spec.Provider)
@@ -135,14 +130,15 @@ func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Agen
 	return nil
 }
 
-func buildClawCreateRequest(ah *v1alpha2.AgentHarness) (*openshellv1.CreateSandboxRequest, []string) {
+func buildClawCreateRequest(ah *v1alpha2.AgentHarness, messagingProviders []string) (*openshellv1.CreateSandboxRequest, []string) {
 	req, unsupported := buildAgentHarnessOpenshellCreateRequest(ah)
 	if req.GetSpec().GetTemplate() == nil {
 		req.Spec.Template = &openshellv1.SandboxTemplate{}
 	}
 
 	if ah.Spec.Image == "" {
-		req.Spec.Template.Image = NemoclawSandboxBaseImage
+		req.Spec.Template.Image = openclaw.NemoclawSandboxBaseImage
 	}
+	attachMessagingProviders(req, messagingProviders)
 	return req, unsupported
 }

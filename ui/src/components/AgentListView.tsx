@@ -18,7 +18,12 @@ import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
 import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
-import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
+import {
+  agentHarnessIcon,
+  agentHarnessTypeLabel,
+  getAgentHarnessBackend,
+  isAgentHarness,
+} from "@/lib/agentHarness";
 import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 
 interface AgentListViewProps {
@@ -228,21 +233,26 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
 
-  const chatPath =
-    sshSandbox && item.openshellAgentHarness
-      ? openshellTerminalHref({
-          gatewaySandboxName: item.openshellAgentHarness.gatewaySandboxName,
-          namespace,
-          crName: name,
-          modelConfigRef: item.modelConfigRef,
-          clawHarness: agentHarness,
-        })
-      : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
-  const goChat = useCallback(() => {
+  const gatewaySandboxName = item.openshellAgentHarness?.gatewaySandboxName;
+  const chatPath = useMemo(
+    () =>
+      sshSandbox && gatewaySandboxName
+        ? openshellTerminalHref({
+            gatewaySandboxName,
+            namespace,
+            crName: name,
+            modelConfigRef: item.modelConfigRef,
+            harnessBackend,
+          })
+        : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
+    [sshSandbox, gatewaySandboxName, namespace, name, item.modelConfigRef, harnessBackend],
+  );
+
+  const goChat = () => {
     if (isReady) {
       router.push(chatPath);
     }
-  }, [chatPath, isReady, router]);
+  };
 
   const handleEdit = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -293,7 +303,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
                   aria-hidden
                   title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellAgentHarness?.backend}
                 >
-                  🦞
+                  {harnessBackend ? agentHarnessIcon(harnessBackend) : "🦞"}
                 </span>
               ) : (
                 <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
