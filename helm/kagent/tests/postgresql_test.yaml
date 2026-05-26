@@ -238,9 +238,8 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].securityContext.capabilities.drop
           content: ALL
-      - equal:
-          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
-          value: RuntimeDefault
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile
 
   - it: should allow bundled postgres pod security context override
     template: postgresql.yaml

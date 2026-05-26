@@ -9,7 +9,7 @@ grafana:
 image:
   registry: mcp
   repository: grafana
-  pullPolicy: Always 
+  pullPolicy: Always
   tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
 
 nameOverride: ""
@@ -20,8 +20,20 @@ serviceAccount:
   annotations: {}
   name: ""
 
-securityContext: {}
-  
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsUser: 1000
+  runAsGroup: 999
+
 tolerations: []
 
 nodeSelector: {}
@@ -57,4 +69,3 @@ volumeMounts: []
 # Deployment configuration - used to populate the ConfigMap template.
 # Add custom configuration values here as needed.
 config:
-

@@ -319,3 +319,80 @@ func TestAllowedRequestHeaders_ReturnsNilWhenNoMatches(t *testing.T) {
 		t.Errorf("expected nil when no allowed headers are present, got %v", got)
 	}
 }
+
+// TestDynamicHeaders_OverridePropagatedAndAllowedHeaders verifies dynamic headers
+// take precedence over propagated and allowed request headers.
+func TestDynamicHeaders_OverridePropagatedAndAllowedHeaders(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedCustom string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedCustom = r.Header.Get("X-Custom")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := a2aCtx(map[string][]string{
+		"Authorization": {"Bearer incoming"},
+		"X-Custom":      {"custom-from-request"},
+	})
+
+	rt := &headerRoundTripper{
+		base:           http.DefaultTransport,
+		propagateToken: true,
+		allowedHeaders: []string{"Authorization", "X-Custom"},
+		headerProvider: func(context.Context) map[string]string {
+			return map[string]string{
+				"Authorization": "Bearer sts-exchanged",
+				"X-Custom":      "custom-from-dynamic",
+			}
+		},
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer sts-exchanged" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer sts-exchanged")
+	}
+	if capturedCustom != "custom-from-dynamic" {
+		t.Errorf("X-Custom: got %q, want %q", capturedCustom, "custom-from-dynamic")
+	}
+}
+
+// TestStaticHeaders_OverrideDynamic verifies static configured headers remain
+// the highest-precedence source.
+func TestStaticHeaders_OverrideDynamic(t *testing.T) {
+	t.Parallel()
+	var capturedAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerRoundTripper{
+		base:    http.DefaultTransport,
+		headers: map[string]string{"Authorization": "Bearer static"},
+		headerProvider: func(context.Context) map[string]string {
+			return map[string]string{"Authorization": "Bearer dynamic"}
+		},
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer static" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
+	}
+}
