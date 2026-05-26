@@ -1,6 +1,6 @@
 """Tests for KAgentRemoteA2ATool."""
 
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -121,7 +121,7 @@ async def _async_yield(*items) -> AsyncIterator:
 def _make_tool(
     *,
     httpx_client: httpx.AsyncClient | None = None,
-    header_provider=None,
+    header_provider: Callable[[Any], dict[str, str]] | None = None,
 ) -> KAgentRemoteA2ATool:
     return KAgentRemoteA2ATool(
         name="k8s_agent",

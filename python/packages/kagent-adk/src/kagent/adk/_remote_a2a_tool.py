@@ -285,18 +285,19 @@ class KAgentRemoteA2ATool(BaseTool):
                 if isinstance(hdrs, dict):
                     inbound_headers = hdrs
 
+        if not parent_context_id:
+            return {}
+
         root_context_id = (
             inbound_headers.get(ROOT_CONTEXT_ID_HEADER)
             or inbound_headers.get(PARENT_CONTEXT_ID_HEADER)
             or parent_context_id
         )
 
-        headers: dict[str, str] = {}
-        if parent_context_id:
-            headers[PARENT_CONTEXT_ID_HEADER] = str(parent_context_id)
-        if root_context_id:
-            headers[ROOT_CONTEXT_ID_HEADER] = str(root_context_id)
-        return headers
+        return {
+            PARENT_CONTEXT_ID_HEADER: str(parent_context_id),
+            ROOT_CONTEXT_ID_HEADER: str(root_context_id),
+        }
 
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
         """Execute the remote agent tool.
