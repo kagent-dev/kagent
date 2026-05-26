@@ -13,6 +13,7 @@ import (
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -30,6 +31,7 @@ type fakeGateway struct {
 
 	mu        sync.Mutex
 	sandboxes map[string]*openshellv1.Sandbox
+	providers map[string]*datamodelv1.Provider
 	createErr error
 	getErr    error
 	deleteErr error
@@ -92,25 +94,48 @@ func (f *fakeGateway) DeleteSandbox(_ context.Context, req *openshellv1.DeleteSa
 }
 
 func (f *fakeGateway) CreateProvider(_ context.Context, req *openshellv1.CreateProviderRequest) (*openshellv1.ProviderResponse, error) {
-	meta := req.GetProvider().GetMetadata()
-	name := ""
-	if meta != nil {
-		name = meta.GetName()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.providers == nil {
+		f.providers = map[string]*datamodelv1.Provider{}
 	}
-	return &openshellv1.ProviderResponse{
-		Provider: &datamodelv1.Provider{
-			Metadata: &datamodelv1.ObjectMeta{Id: "fake-provider-id", Name: name},
-			Type:     req.GetProvider().GetType(),
-		},
-	}, nil
+	p := req.GetProvider()
+	name := ""
+	if p.GetMetadata() != nil {
+		name = p.GetMetadata().GetName()
+	}
+	stored := &datamodelv1.Provider{
+		Metadata:    &datamodelv1.ObjectMeta{Id: "fake-provider-id", Name: name},
+		Type:        p.GetType(),
+		Credentials: p.GetCredentials(),
+	}
+	f.providers[name] = stored
+	return &openshellv1.ProviderResponse{Provider: stored}, nil
 }
 
-func (f *fakeGateway) GetProvider(_ context.Context, _ *openshellv1.GetProviderRequest) (*openshellv1.ProviderResponse, error) {
-	return nil, status.Error(codes.NotFound, "provider not found")
+func (f *fakeGateway) GetProvider(_ context.Context, req *openshellv1.GetProviderRequest) (*openshellv1.ProviderResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.providers[req.GetName()]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "provider not found")
+	}
+	return &openshellv1.ProviderResponse{Provider: p}, nil
 }
 
 func (f *fakeGateway) UpdateProvider(_ context.Context, req *openshellv1.UpdateProviderRequest) (*openshellv1.ProviderResponse, error) {
-	return &openshellv1.ProviderResponse{Provider: req.GetProvider()}, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.providers == nil {
+		f.providers = map[string]*datamodelv1.Provider{}
+	}
+	p := req.GetProvider()
+	name := ""
+	if p.GetMetadata() != nil {
+		name = p.GetMetadata().GetName()
+	}
+	f.providers[name] = p
+	return &openshellv1.ProviderResponse{Provider: p}, nil
 }
 
 func (f *fakeGateway) ExecSandbox(req *openshellv1.ExecSandboxRequest, stream grpc.ServerStreamingServer[openshellv1.ExecSandboxEvent]) error {
@@ -422,5 +447,59 @@ func TestEnsureSandbox_Claw_PinsNemoclawBaseImage(t *testing.T) {
 	defer fg.mu.Unlock()
 	sb := fg.sandboxes["ns1-a1"]
 	require.NotNil(t, sb)
-	require.Equal(t, NemoclawSandboxBaseImage, sb.GetSpec().GetTemplate().GetImage())
+	require.Equal(t, openclaw.NemoclawSandboxBaseImage, sb.GetSpec().GetTemplate().GetImage())
+}
+
+func TestUpsertMessagingProviders(t *testing.T) {
+	ns := "default"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "tg", Namespace: ns},
+		Data:       map[string][]byte{"token": []byte("tg-secret")},
+	}
+	kube := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(secret).Build()
+
+	ah := &v1alpha2.AgentHarness{
+		ObjectMeta: metav1.ObjectMeta{Name: "hermes1", Namespace: ns},
+		Spec: v1alpha2.AgentHarnessSpec{
+			Channels: []v1alpha2.AgentHarnessChannel{
+				{
+					Name: "tg",
+					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha2.AgentHarnessChannelCredential{
+							ValueFrom: &v1alpha2.ValueSource{
+								Type: v1alpha2.SecretValueSource,
+								Name: "tg",
+								Key:  "token",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	c, _, fg, _, cleanup := startFake(t)
+	defer cleanup()
+	clients := &OpenShellClients{OpenShell: c}
+
+	names, err := UpsertMessagingProviders(context.Background(), clients, kube, ah)
+	require.NoError(t, err)
+	require.Equal(t, []string{"default-hermes1-telegram-TG"}, names)
+
+	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	p := fg.providers["default-hermes1-telegram-TG"]
+	require.NotNil(t, p)
+	require.Equal(t, "tg-secret", p.GetCredentials()["TELEGRAM_BOT_TOKEN_TG"])
+	require.Equal(t, "generic", p.GetType())
+}
+
+func TestBuildHermesCreateRequest_AttachesMessagingProviders(t *testing.T) {
+	ah := &v1alpha2.AgentHarness{
+		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: "ns1"},
+		Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendHermes},
+	}
+	req, _ := buildHermesCreateRequest(ah, []string{"ns1-a1-telegram-bridge"})
+	require.Contains(t, req.GetSpec().GetProviders(), "ns1-a1-telegram-bridge")
 }

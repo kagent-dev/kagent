@@ -19,7 +19,7 @@ import type {
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
-import type { OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessSandboxBackend, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
 import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -49,8 +49,9 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** OpenClaw AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; backend openclaw). */
+  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw, nemoclaw, or hermes backend). */
   openClawSandbox?: OpenClawSandboxFormSlice;
+  harnessBackend?: AgentHarnessSandboxBackend;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -188,6 +189,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         const oc = validateOpenClawSandboxForm({
           openClaw: data.openClawSandbox,
           modelRef: data.modelName,
+          backend: data.harnessBackend,
         });
         if (oc) {
           errors.openClawSandbox = oc;
