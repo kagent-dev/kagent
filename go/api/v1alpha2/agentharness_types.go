@@ -42,8 +42,8 @@ func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
 type AgentHarnessRuntime string
 
 const (
-	AgentHarnessRuntimeOpenshell  AgentHarnessRuntime = "openshell"
-	AgentHarnessRuntimeSubstrate  AgentHarnessRuntime = "substrate"
+	AgentHarnessRuntimeOpenshell AgentHarnessRuntime = "openshell"
+	AgentHarnessRuntimeSubstrate AgentHarnessRuntime = "substrate"
 )
 
 // AgentHarnessSubstrateSnapshotsConfig points at a GCS prefix for actor memory snapshots.
@@ -58,13 +58,13 @@ type AgentHarnessSubstrateSnapshotsConfig struct {
 // AgentHarnessSubstrateWorkerPoolSpec creates a dedicated WorkerPool for this harness.
 // Mutually exclusive with workerPoolRef.
 type AgentHarnessSubstrateWorkerPoolSpec struct {
-	// Replicas is the number of ateom worker pods. Defaults to 2 when unset or zero.
+	// Replicas is the number of ateom worker pods. Defaults to 1 when unset or zero.
 	// +optional
-	// +kubebuilder:default=2
+	// +kubebuilder:default=1
 	Replicas int32 `json:"replicas,omitempty"`
 
 	// AteomImage is the ateom herder image (pullable registry ref, not ko://).
-	// Required when kagent auto-provisions a WorkerPool (spec.workerPool without workerPoolRef).
+	// Overrides the controller-wide substrate ateom image default for this WorkerPool.
 	// +optional
 	AteomImage string `json:"ateomImage,omitempty"`
 }
@@ -73,6 +73,7 @@ type AgentHarnessSubstrateWorkerPoolSpec struct {
 //
 // By default kagent provisions a per-harness ActorTemplate (and optionally a WorkerPool).
 // Set actorTemplateRef only to adopt an existing template (advanced / legacy).
+// +kubebuilder:validation:XValidation:rule="(has(self.gatewayToken) && !has(self.gatewayTokenSecretRef)) || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))",message="Exactly one of gatewayToken or gatewayTokenSecretRef must be specified"
 type AgentHarnessSubstrateSpec struct {
 	// WorkerPoolRef references an existing ate.dev WorkerPool (namespace/name).
 	// Mutually exclusive with workerPool.
@@ -83,9 +84,10 @@ type AgentHarnessSubstrateSpec struct {
 	// +optional
 	WorkerPool *AgentHarnessSubstrateWorkerPoolSpec `json:"workerPool,omitempty"`
 
-	// SnapshotsConfig is required for auto-provisioned templates (GCS gs:// location).
-	// +required
-	SnapshotsConfig AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig"`
+	// SnapshotsConfig configures actor memory snapshots. Defaults to
+	// gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
 
 	// WorkloadImage overrides the default nemoclaw/openclaw sandbox image in the ActorTemplate.
 	// +optional
@@ -101,8 +103,14 @@ type AgentHarnessSubstrateSpec struct {
 	// +kubebuilder:default=80
 	GatewayPort int32 `json:"gatewayPort,omitempty"`
 
+	// GatewayToken is the OpenClaw gateway Bearer token for this harness.
+	// Prefer gatewayTokenSecretRef for production secrets.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	GatewayToken string `json:"gatewayToken,omitempty"`
+
 	// GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
-	// When unset, the controller falls back to --substrate-gateway-token(-file).
+	// The Secret must contain a "token" key.
 	// +optional
 	GatewayTokenSecretRef *TypedReference `json:"gatewayTokenSecretRef,omitempty"`
 }

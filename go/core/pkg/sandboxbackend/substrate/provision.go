@@ -23,7 +23,8 @@ const (
 	annotationManagedWorkerPool    = AnnotationManagedWorkerPool
 	annotationManagedActorTemplate = AnnotationManagedActorTemplate
 
-	defaultWorkerPoolReplicas = int32(2)
+	defaultWorkerPoolReplicas = int32(1)
+	defaultSnapshotsBucket    = "ate-snapshots"
 	defaultOpenClawContainer  = "openclaw"
 )
 
@@ -34,8 +35,8 @@ type ProvisionDefaults struct {
 	RunscAMD64SHA256     string
 	RunscARM64URL        string
 	RunscARM64SHA256     string
+	DefaultAteomImage    string
 	DefaultWorkloadImage string
-	GatewayToken         string
 }
 
 // ateActorDeleter removes actors from ate-api during harness teardown.
@@ -115,13 +116,13 @@ func (p *Provisioner) Ensure(ctx context.Context, ah *v1alpha2.AgentHarness) (En
 
 func validateSubstrateProvisionSpec(ah *v1alpha2.AgentHarness) error {
 	sub := ah.Spec.Substrate
+	if err := ValidateGatewayTokenSpec(sub); err != nil {
+		return err
+	}
 	if sub.ActorTemplateRef != nil && strings.TrimSpace(sub.ActorTemplateRef.Name) != "" {
 		return nil
 	}
-	loc := strings.TrimSpace(sub.SnapshotsConfig.Location)
-	if loc == "" {
-		return fmt.Errorf("spec.substrate.snapshotsConfig.location is required when not using actorTemplateRef")
-	}
+	loc := substrateSnapshotsLocation(ah)
 	if !strings.HasPrefix(loc, "gs://") {
 		return fmt.Errorf("spec.substrate.snapshotsConfig.location must be a gs:// URI (Substrate snapshots are GCS-only today)")
 	}
@@ -156,7 +157,10 @@ func (p *Provisioner) ensureWorkerPool(ctx context.Context, ah *v1alpha2.AgentHa
 		ateomImage = strings.TrimSpace(sub.WorkerPool.AteomImage)
 	}
 	if ateomImage == "" {
-		return types.NamespacedName{}, false, fmt.Errorf("ateom image is not configured (set spec.substrate.workerPool.ateomImage)")
+		ateomImage = strings.TrimSpace(p.Defaults.DefaultAteomImage)
+	}
+	if ateomImage == "" {
+		return types.NamespacedName{}, false, fmt.Errorf("ateom image is not configured (set controller substrate ateomImage or spec.substrate.workerPool.ateomImage)")
 	}
 
 	desired := &atev1alpha1.WorkerPool{
@@ -232,7 +236,7 @@ func (p *Provisioner) ensureActorTemplate(ctx context.Context, ah *v1alpha2.Agen
 				Namespace: wpKey.Namespace,
 			},
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: strings.TrimSpace(ah.Spec.Substrate.SnapshotsConfig.Location),
+				Location: substrateSnapshotsLocation(ah),
 			},
 		},
 	}
@@ -275,6 +279,22 @@ func defaultRunscConfig(d ProvisionDefaults) atev1alpha1.RunscConfig {
 			SHA256Hash: d.RunscARM64SHA256,
 		},
 	}
+}
+
+func substrateSnapshotsLocation(ah *v1alpha2.AgentHarness) string {
+	if ah == nil {
+		return defaultSubstrateSnapshotsLocation("", "")
+	}
+	if sub := ah.Spec.Substrate; sub != nil && sub.SnapshotsConfig != nil {
+		if loc := strings.TrimSpace(sub.SnapshotsConfig.Location); loc != "" {
+			return loc
+		}
+	}
+	return defaultSubstrateSnapshotsLocation(ah.Namespace, ah.Name)
+}
+
+func defaultSubstrateSnapshotsLocation(namespace, name string) string {
+	return fmt.Sprintf("gs://%s/%s/%s", defaultSnapshotsBucket, namespace, name)
 }
 
 func provisionLabels(ah *v1alpha2.AgentHarness) map[string]string {

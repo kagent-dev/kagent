@@ -16,7 +16,4 @@ type Config struct {
 
 	// ProvisionDefaults configures auto-created WorkerPool/ActorTemplate resources.
 	ProvisionDefaults ProvisionDefaults
-
-	// GatewayToken is the OpenClaw gateway Bearer token injected by the HTTP proxy.
-	GatewayToken string
 }

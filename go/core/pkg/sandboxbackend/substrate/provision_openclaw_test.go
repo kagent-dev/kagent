@@ -43,7 +43,8 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 		Spec: v1alpha2.AgentHarnessSpec{
 			ModelConfigRef: "default-model-config",
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				SnapshotsConfig: v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
+				GatewayToken: "some-token",
+				SnapshotsConfig: &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
 					Location: "gs://bucket/prefix/",
 				},
 			},
@@ -52,8 +53,7 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
 	p := &Provisioner{
-		Client:   kube,
-		Defaults: ProvisionDefaults{GatewayToken: "some-token"},
+		Client: kube,
 	}
 
 	script, env, err := p.buildOpenClawActorStartup(context.Background(), ah)
@@ -97,6 +97,58 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	require.Contains(t, root, "agents")
 }
 
+func TestBuildOpenClawActorStartup_WithHarnessGatewayToken(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+
+	ns := "kagent"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "openclaw-token", Namespace: ns},
+		Data:       map[string][]byte{GatewayTokenSecretKey: []byte("secret-token")},
+	}
+	for _, tt := range []struct {
+		name      string
+		substrate *v1alpha2.AgentHarnessSubstrateSpec
+		wantToken string
+	}{
+		{
+			name: "inline token",
+			substrate: &v1alpha2.AgentHarnessSubstrateSpec{
+				GatewayToken: "inline-token",
+			},
+			wantToken: "inline-token",
+		},
+		{
+			name: "secret token",
+			substrate: &v1alpha2.AgentHarnessSubstrateSpec{
+				GatewayTokenSecretRef: &v1alpha2.TypedReference{Name: "openclaw-token"},
+			},
+			wantToken: "secret-token",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret.DeepCopy()).Build()
+			p := &Provisioner{
+				Client: kube,
+			}
+			ah := &v1alpha2.AgentHarness{
+				ObjectMeta: metav1.ObjectMeta{Name: "claw", Namespace: ns},
+				Spec: v1alpha2.AgentHarnessSpec{
+					Substrate: tt.substrate,
+				},
+			}
+
+			script, _, err := p.buildOpenClawActorStartup(context.Background(), ah)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantToken, gatewayTokenFromStartup(t, script))
+		})
+	}
+}
+
 func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -123,7 +175,8 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 		Spec: v1alpha2.AgentHarnessSpec{
 			ModelConfigRef: "mc",
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				SnapshotsConfig: v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
+				GatewayToken: "some-token",
+				SnapshotsConfig: &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
 					Location: "gs://bucket/prefix/",
 				},
 			},
@@ -150,4 +203,28 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &root))
 	openai := root["models"].(map[string]any)["providers"].(map[string]any)["openai"].(map[string]any)
 	require.Equal(t, "https://api.example/v1", openai["baseUrl"])
+}
+
+func gatewayTokenFromStartup(t *testing.T, script string) string {
+	t.Helper()
+
+	var payload string
+	for _, line := range strings.Split(script, "\n") {
+		if strings.Contains(line, "base64 -d") {
+			start := strings.Index(line, `'`) + 1
+			end := strings.LastIndex(line, `'`)
+			require.Greater(t, end, start)
+			payload = line[start:end]
+			break
+		}
+	}
+	require.NotEmpty(t, payload)
+	raw, decErr := base64.StdEncoding.DecodeString(payload)
+	require.NoError(t, decErr)
+	var root map[string]any
+	require.NoError(t, json.Unmarshal(raw, &root))
+	gw := root["gateway"].(map[string]any)
+	auth := gw["auth"].(map[string]any)
+	token, _ := auth["token"].(string)
+	return token
 }

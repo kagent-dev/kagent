@@ -411,7 +411,11 @@ func (in *AgentHarnessSubstrateSpec) DeepCopyInto(out *AgentHarnessSubstrateSpec
 		*out = new(AgentHarnessSubstrateWorkerPoolSpec)
 		**out = **in
 	}
-	out.SnapshotsConfig = in.SnapshotsConfig
+	if in.SnapshotsConfig != nil {
+		in, out := &in.SnapshotsConfig, &out.SnapshotsConfig
+		*out = new(AgentHarnessSubstrateSnapshotsConfig)
+		**out = **in
+	}
 	if in.ActorTemplateRef != nil {
 		in, out := &in.ActorTemplateRef, &out.ActorTemplateRef
 		*out = new(TypedReference)
