@@ -33,17 +33,50 @@ describe("validateOpenClawSandboxForm sections", () => {
     expect(r?.message).toContain("not a valid hostname");
   });
 
-  it("tags channel credential failures as channels", () => {
+    it("tags channel credential failures as channels", () => {
+      const row = newOpenClawChannelRow();
+      row.name = "slack1";
+      row.channelType = "slack";
+      row.botToken = "";
+      const r = validateOpenClawSandboxForm({
+        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+        modelRef: "ns/m1",
+      });
+      expect(r?.section).toBe("channels");
+      expect(r?.message).toContain("slack1");
+    });
+
+  it("rejects duplicate channel binding names", () => {
+    const row = newOpenClawChannelRow();
+    row.name = "dup";
+    row.channelType = "telegram";
+    row.botToken = "token-a";
+    const row2 = newOpenClawChannelRow();
+    row2.name = "dup";
+    row2.channelType = "telegram";
+    row2.botToken = "token-b";
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row, row2] },
+      modelRef: "ns/m1",
+    });
+    expect(r?.section).toBe("channels");
+    expect(r?.message).toContain("Duplicate");
+  });
+
+  it("requires Slack allowlist channels when backend is unset (defaults to openclaw)", () => {
     const row = newOpenClawChannelRow();
     row.name = "slack1";
     row.channelType = "slack";
-    row.botToken = "";
+    row.botToken = "xoxb-test";
+    row.appToken = "xapp-test";
+    row.channelAccess = "allowlist";
+    row.allowlistChannels = "";
     const r = validateOpenClawSandboxForm({
       openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("channels");
-    expect(r?.message).toContain("slack1");
+    expect(r?.message).toContain("allowlist");
   });
 });
 
@@ -148,6 +181,34 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.apiVersion).toBe("kagent.dev/v1alpha2");
       expect(draft.kind).toBe("AgentHarness");
       expect(draft.spec.backend).toBe("openclaw");
+    });
+
+    it("writes Hermes slack allowedUserIDs and home channel fields", () => {
+      const row = newOpenClawChannelRow();
+      row.name = "slack-main";
+      row.channelType = "slack";
+      row.botToken = "xoxb-test";
+      row.appToken = "xapp-test";
+      row.allowedSlackUserIDs = "U01234567 U89ABCDEF";
+      row.slackHomeChannel = "C01234567890";
+      row.slackHomeChannelName = "general";
+      const draft = buildSandboxCRDraft({
+        name: "h1",
+        namespace: "ns",
+        description: "",
+        modelRef: "m1",
+        backend: "hermes",
+        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+      });
+      expect("error" in draft).toBe(false);
+      if ("error" in draft) return;
+      const channels = draft.spec.channels as { slack: Record<string, unknown> }[];
+      expect(channels[0].slack.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
+      expect(channels[0].slack.homeChannel).toBe("C01234567890");
+      expect(channels[0].slack.homeChannelName).toBe("general");
+      expect(channels[0].slack).not.toHaveProperty("channelAccess");
+      expect(channels[0].slack).not.toHaveProperty("allowlistChannels");
+      expect(channels[0].slack).not.toHaveProperty("interactiveReplies");
     });
   });
 });
