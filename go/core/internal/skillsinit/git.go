@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 )
 
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
@@ -112,12 +113,7 @@ func applySubPath(dest, subPath string) error {
 }
 
 func hasDotDot(p string) bool {
-	for _, seg := range splitAll(p) {
-		if seg == ".." {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(splitAll(p), "..")
 }
 
 func splitAll(p string) []string {

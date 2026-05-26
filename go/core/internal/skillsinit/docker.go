@@ -3,6 +3,7 @@ package skillsinit
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 )
@@ -33,9 +34,7 @@ func MergeDockerConfigs(secretsDir string, secretNames []string, outPath string)
 			return "", fmt.Errorf("parse %s: %w", path, err)
 		}
 		dst := merged["auths"].(map[string]any)
-		for k, v := range parsed.Auths {
-			dst[k] = v
-		}
+		maps.Copy(dst, parsed.Auths)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o700); err != nil {
