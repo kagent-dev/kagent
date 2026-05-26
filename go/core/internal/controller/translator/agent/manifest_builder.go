@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -9,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
+	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
@@ -40,6 +43,11 @@ type podRuntimeInputs struct {
 	volumes         []corev1.Volume
 	volumeMounts    []corev1.VolumeMount
 	securityContext *corev1.SecurityContext
+	// skillsInitConfigMap is the ConfigMap (when skills are configured) that
+	// carries the JSON configuration consumed by the skills-init binary. It
+	// is added to AgentOutputs.Manifest and content-hashed into the pod
+	// template annotations so changes trigger a rollout.
+	skillsInitConfigMap *corev1.ConfigMap
 }
 
 func (a *adkApiTranslator) BuildManifest(
@@ -70,6 +78,10 @@ func (a *adkApiTranslator) BuildManifest(
 	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Config, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
 	if err != nil {
 		return nil, err
+	}
+
+	if podRuntime.skillsInitConfigMap != nil {
+		outputs.Manifest = append(outputs.Manifest, podRuntime.skillsInitConfigMap)
 	}
 
 	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configSecret.configHash)
@@ -250,7 +262,7 @@ func buildPodRuntime(
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
 	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
-	initContainers, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
+	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
 	if err != nil {
 		return nil, err
 	}
@@ -272,11 +284,12 @@ func buildPodRuntime(
 	envVars = append(envVars, sharedEnv...)
 
 	return &podRuntimeInputs{
-		initContainers:  initContainers,
-		envVars:         envVars,
-		volumes:         volumes,
-		volumeMounts:    volumeMounts,
-		securityContext: buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
+		initContainers:      initContainers,
+		envVars:             envVars,
+		volumes:             volumes,
+		volumeMounts:        volumeMounts,
+		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
+		skillsInitConfigMap: skillsInitCM,
 	}, nil
 }
 
@@ -340,16 +353,16 @@ func buildSkillsRuntime(
 	volumes *[]corev1.Volume,
 	volumeMounts *[]corev1.VolumeMount,
 	needCodeExecIsolation *bool,
-) ([]corev1.Container, error) {
+) ([]corev1.Container, *corev1.ConfigMap, error) {
 	spec := manifestCtx.agent.GetAgentSpec()
 	if spec.Skills == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	skills := spec.Skills.Refs
 	gitRefs := spec.Skills.GitRefs
 	if len(skills) == 0 && len(gitRefs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	*needCodeExecIsolation = true
@@ -378,7 +391,9 @@ func buildSkillsRuntime(
 		initEnv = append(initEnv, spec.Skills.InitContainer.Env...)
 	}
 
-	container, skillsVolumes, err := buildSkillsInitContainer(
+	container, skillsVolumes, configMap, err := buildSkillsInitContainer(
+		manifestCtx.agent.GetName(),
+		manifestCtx.agent.GetNamespace(),
 		gitRefs,
 		spec.Skills.GitAuthSecretRef,
 		skills,
@@ -389,11 +404,11 @@ func buildSkillsRuntime(
 		spec.Skills.ImagePullSecrets,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build skills init container: %w", err)
+		return nil, nil, fmt.Errorf("failed to build skills init container: %w", err)
 	}
 
 	*volumes = append(*volumes, skillsVolumes...)
-	return container, nil
+	return container, configMap, nil
 }
 
 func projectedTokenVolume() corev1.Volume {
@@ -443,6 +458,14 @@ func buildPodTemplate(
 		podTemplateAnnotations = map[string]string{}
 	}
 	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	if cm := runtimeInputs.skillsInitConfigMap; cm != nil {
+		// Hash the rendered config so a content change in the skills-init
+		// ConfigMap triggers a pod rollout — the PodSpec only names the
+		// ConfigMap, so without this annotation Kubernetes would leave the
+		// pod running against stale config.
+		sum := sha256.Sum256([]byte(cm.Data[skillsinit.ConfigMapKey]))
+		podTemplateAnnotations["kagent.dev/skills-init-hash"] = hex.EncodeToString(sum[:8])
+	}
 
 	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent.GetAgentSpec()))
 

@@ -279,7 +279,7 @@ build-golang-adk-full: buildx-create
 .PHONY: build-skills-init
 build-skills-init: ## Build and push the skills-init image
 build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile docker/skills-init
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
 .PHONY: push

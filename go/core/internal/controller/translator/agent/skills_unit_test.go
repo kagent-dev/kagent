@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -119,7 +120,7 @@ func Test_gitSSHHost(t *testing.T) {
 	tests := []struct {
 		name   string
 		rawURL string
-		want   sshHostData
+		want   skillsinit.SSHHost
 		wantOK bool
 	}{
 		{
@@ -130,31 +131,31 @@ func Test_gitSSHHost(t *testing.T) {
 		{
 			name:   "scp-style ssh repo",
 			rawURL: "git@github.com:org/repo.git",
-			want:   sshHostData{Host: "github.com"},
+			want:   skillsinit.SSHHost{Host: "github.com"},
 			wantOK: true,
 		},
 		{
 			name:   "ssh url with non-default port",
 			rawURL: "ssh://git@gitea-ssh.gitea:2222/gitops/repo.git",
-			want:   sshHostData{Host: "gitea-ssh.gitea", Port: "2222"},
+			want:   skillsinit.SSHHost{Host: "gitea-ssh.gitea", Port: "2222"},
 			wantOK: true,
 		},
 		{
 			name:   "ssh url without explicit port",
 			rawURL: "ssh://git@gitea-ssh.gitea/gitops/repo.git",
-			want:   sshHostData{Host: "gitea-ssh.gitea"},
+			want:   skillsinit.SSHHost{Host: "gitea-ssh.gitea"},
 			wantOK: true,
 		},
 		{
 			name:   "git+ssh url with port",
 			rawURL: "git+ssh://git@example.com:2222/org/repo.git",
-			want:   sshHostData{Host: "example.com", Port: "2222"},
+			want:   skillsinit.SSHHost{Host: "example.com", Port: "2222"},
 			wantOK: true,
 		},
 		{
 			name:   "ssh url with default port 22 normalizes to empty",
 			rawURL: "ssh://git@gitea-ssh.gitea:22/gitops/repo.git",
-			want:   sshHostData{Host: "gitea-ssh.gitea"},
+			want:   skillsinit.SSHHost{Host: "gitea-ssh.gitea"},
 			wantOK: true,
 		},
 		{
@@ -223,7 +224,7 @@ func Test_validateSubPath(t *testing.T) {
 	}
 }
 
-func Test_prepareSkillsInitData_duplicateNames(t *testing.T) {
+func Test_prepareSkillsInitConfig_duplicateNames(t *testing.T) {
 	tests := []struct {
 		name    string
 		gitRefs []v1alpha2.GitRepo
@@ -276,7 +277,7 @@ func Test_prepareSkillsInitData_duplicateNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := prepareSkillsInitData(tt.gitRefs, nil, tt.ociRefs, false, nil)
+			_, err := prepareSkillsInitConfig(tt.gitRefs, nil, tt.ociRefs, false, nil)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -287,8 +288,8 @@ func Test_prepareSkillsInitData_duplicateNames(t *testing.T) {
 	}
 }
 
-func Test_prepareSkillsInitData_pathTraversal(t *testing.T) {
-	_, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_pathTraversal(t *testing.T) {
+	_, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "../escape"},
 		},
@@ -298,8 +299,8 @@ func Test_prepareSkillsInitData_pathTraversal(t *testing.T) {
 	assert.Contains(t, err.Error(), "must not contain '..'")
 }
 
-func Test_prepareSkillsInitData_absolutePath(t *testing.T) {
-	_, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_absolutePath(t *testing.T) {
+	_, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "/etc/passwd"},
 		},
@@ -309,8 +310,8 @@ func Test_prepareSkillsInitData_absolutePath(t *testing.T) {
 	assert.Contains(t, err.Error(), "must be relative")
 }
 
-func Test_prepareSkillsInitData_authMountPath(t *testing.T) {
-	data, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_authMountPath(t *testing.T) {
+	data, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{{URL: "https://github.com/org/repo", Ref: "main"}},
 		&corev1.LocalObjectReference{Name: "my-secret"},
 		nil, false, nil,
@@ -319,8 +320,8 @@ func Test_prepareSkillsInitData_authMountPath(t *testing.T) {
 	assert.Equal(t, "/git-auth", data.AuthMountPath)
 }
 
-func Test_prepareSkillsInitData_sshHosts(t *testing.T) {
-	data, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_sshHosts(t *testing.T) {
+	data, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/https-repo", Ref: "main"},
 			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
@@ -332,14 +333,14 @@ func Test_prepareSkillsInitData_sshHosts(t *testing.T) {
 		false, nil,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, []sshHostData{
+	assert.Equal(t, []skillsinit.SSHHost{
 		{Host: "gitea-ssh.gitea"},
 		{Host: "github.com"},
 	}, data.SSHHosts)
 }
 
-func Test_prepareSkillsInitData_sshHostsDedupesDefaultPort(t *testing.T) {
-	data, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_sshHostsDedupesDefaultPort(t *testing.T) {
+	data, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{
 			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
 			{URL: "ssh://git@github.com:22/org/ssh-repo.git", Ref: "main", Name: "ssh-repo"},
@@ -349,13 +350,13 @@ func Test_prepareSkillsInitData_sshHostsDedupesDefaultPort(t *testing.T) {
 		false, nil,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, []sshHostData{
+	assert.Equal(t, []skillsinit.SSHHost{
 		{Host: "github.com"},
 	}, data.SSHHosts)
 }
 
-func Test_prepareSkillsInitData_noAuthSkipsSSHHosts(t *testing.T) {
-	data, err := prepareSkillsInitData(
+func Test_prepareSkillsInitConfig_noAuthSkipsSSHHosts(t *testing.T) {
+	data, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{
 			{URL: "git@github.com:org/scp-repo.git", Ref: "main"},
 			{URL: "ssh://git@gitea-ssh.gitea/gitops/ssh-repo.git", Ref: "main", Name: "ssh-repo"},

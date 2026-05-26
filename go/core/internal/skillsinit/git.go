@@ -1,0 +1,129 @@
+package skillsinit
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+)
+
+// CloneGit fetches a single git ref into ref.Dest. All user-controlled
+// strings (URL, Ref, SubPath) are passed to git as separate argv entries via
+// exec.Command — they never pass through a shell, so metacharacters in any of
+// them are inert.
+//
+// When ref.IsCommit is true we do a full clone then `git checkout <sha>`,
+// because shallow `--branch` does not accept commit SHAs. When false we use a
+// depth-1 branch/tag clone.
+//
+// SubPath, if set, rewrites the destination so the final layout matches the
+// requested in-repo subdirectory.
+func CloneGit(ref GitRef) error {
+	if ref.IsCommit {
+		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
+			return err
+		}
+		if err := runGitIn(ref.Dest, "checkout", ref.Ref); err != nil {
+			return err
+		}
+	} else {
+		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, ref.Dest); err != nil {
+			return err
+		}
+	}
+
+	if ref.SubPath != "" {
+		if err := applySubPath(ref.Dest, ref.SubPath); err != nil {
+			return fmt.Errorf("apply subPath %q: %w", ref.SubPath, err)
+		}
+	}
+	return nil
+}
+
+func runGit(args ...string) error {
+	return runGitIn("", args...)
+}
+
+func runGitIn(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	return cmd.Run()
+}
+
+// applySubPath replaces dest with the contents of dest/subPath. The result is
+// that dest contains only the requested subdirectory. We materialize the
+// content into a sibling tmp dir under the same parent so the final rename is
+// atomic on the same filesystem.
+func applySubPath(dest, subPath string) error {
+	// Defense in depth: refuse traversal even if upstream validation slipped.
+	clean := filepath.Clean(subPath)
+	if filepath.IsAbs(clean) || hasDotDot(clean) {
+		return fmt.Errorf("invalid subPath %q", subPath)
+	}
+
+	src := filepath.Join(dest, clean)
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat subPath: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("subPath %q is not a directory", subPath)
+	}
+
+	parent := filepath.Dir(dest)
+	tmp, err := os.MkdirTemp(parent, ".skill-subpath-*")
+	if err != nil {
+		return fmt.Errorf("mktemp: %w", err)
+	}
+	// Best-effort cleanup if we fail before the rename.
+	cleanupTmp := tmp
+	defer func() {
+		if cleanupTmp != "" {
+			os.RemoveAll(cleanupTmp)
+		}
+	}()
+
+	if err := copyTree(src, tmp); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dest); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return err
+	}
+	cleanupTmp = ""
+	return nil
+}
+
+func hasDotDot(p string) bool {
+	for _, seg := range splitAll(p) {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func splitAll(p string) []string {
+	var out []string
+	for p != "" && p != "." && p != "/" {
+		dir, base := filepath.Split(p)
+		if base != "" {
+			out = append([]string{base}, out...)
+		}
+		if dir == p {
+			break
+		}
+		p = filepath.Clean(dir)
+		if p == "." {
+			break
+		}
+	}
+	return out
+}
