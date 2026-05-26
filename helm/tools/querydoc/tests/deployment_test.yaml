@@ -2,6 +2,7 @@ suite: test querydoc deployment
 templates:
   - deployment.yaml
   - configmap.yaml
+  - secret.yaml
 tests:
   - it: should render deployment with default values
     template: deployment.yaml
@@ -163,3 +164,57 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should not include secretRef by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: RELEASE-NAME-querydoc
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: should reference chart-owned Secret when only openai.apiKey is set
+    template: deployment.yaml
+    set:
+      openai:
+        apiKey: foo
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: RELEASE-NAME-querydoc
+      - exists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: should reference external Secret when openai.secretRef is set
+    template: deployment.yaml
+    set:
+      openai:
+        secretRef: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: my-secret
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: secretRef should win over apiKey when both are set
+    template: deployment.yaml
+    set:
+      openai:
+        apiKey: foo
+        secretRef: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: my-secret
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
