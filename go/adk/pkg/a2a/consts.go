@@ -1,6 +1,6 @@
 package a2a
 
-import "google.golang.org/adk/server/adka2a" //nolint:staticcheck // TODO(0.11.0): migrate Go ADK runtime to adka2a/v2.
+import "google.golang.org/adk/server/adka2a"
 
 const (
 	StateKeySessionName = "session_name"
