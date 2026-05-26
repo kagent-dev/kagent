@@ -74,6 +74,7 @@ type AgentHarnessTelegramChannelSpec struct {
 	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
 	// +optional
 	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
@@ -87,6 +88,7 @@ type AgentHarnessOpenClawSlackOptions struct {
 	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess,omitempty"`
 	// AllowlistChannels is required when channelAccess is allowlist.
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
 	// +optional
 	// +kubebuilder:default=true
@@ -99,6 +101,7 @@ type AgentHarnessOpenClawSlackOptions struct {
 type AgentHarnessHermesSlackOptions struct {
 	// AllowedUserIDs restricts which Slack member IDs may interact with the bot (SLACK_ALLOWED_USERS).
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
 	// +optional
 	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
@@ -185,6 +188,7 @@ type AgentHarnessSpec struct {
 
 	// Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	Channels []AgentHarnessChannel `json:"channels,omitempty"`
 }
 

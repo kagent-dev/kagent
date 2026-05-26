@@ -162,6 +162,7 @@ spec:
                                 IDs may interact with the bot (SLACK_ALLOWED_USERS).
                               items:
                                 type: string
+                              maxItems: 1024
                               type: array
                             allowedUserIDsFrom:
                               description: ValueSource defines a source for configuration
@@ -207,6 +208,7 @@ spec:
                                 is allowlist.
                               items:
                                 type: string
+                              maxItems: 1024
                               type: array
                             channelAccess:
                               description: AgentHarnessChannelAccess controls whether
@@ -237,6 +239,7 @@ spec:
                         allowedUserIDs:
                           items:
                             type: string
+                          maxItems: 1024
                           type: array
                         allowedUserIDsFrom:
                           description: ValueSource defines a source for configuration
@@ -317,6 +320,7 @@ spec:
                       match type
                     rule: (self.type == 'telegram' && has(self.telegram) && !has(self.slack))
                       || (self.type == 'slack' && has(self.slack) && !has(self.telegram))
+                maxItems: 1024
                 type: array
               description:
                 description: Description is a short human-readable summary shown in
