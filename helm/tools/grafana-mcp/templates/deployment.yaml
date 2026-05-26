@@ -19,6 +19,10 @@ spec:
         {{- include "grafana-mcp.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "grafana-mcp.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

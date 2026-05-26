@@ -2,6 +2,7 @@ suite: test querydoc deployment
 templates:
   - deployment.yaml
   - configmap.yaml
+  - secret.yaml
 tests:
   - it: should render deployment with default values
     template: deployment.yaml
@@ -76,13 +77,38 @@ tests:
           path: spec.template.metadata.labels["app.kubernetes.io/instance"]
           value: RELEASE-NAME
 
-  - it: should not set pod security context by default
+  - it: should apply default pod security context
     template: deployment.yaml
     asserts:
-      - notExists:
-          path: spec.template.spec.securityContext
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
 
-  - it: should set pod security context when podSecurityContext is provided
+  - it: should apply default container security context
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 14000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsGroup
+          value: 14000
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile
+
+  - it: should allow pod security context override
     template: deployment.yaml
     set:
       podSecurityContext:
@@ -94,6 +120,20 @@ tests:
           value: true
       - equal:
           path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+
+  - it: should allow container security context override
+    template: deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFilesystem: false
+        runAsUser: 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
           value: 1000
 
   - it: should set nodeSelector
@@ -124,3 +164,57 @@ tests:
             value: AI
             effect: NoSchedule
             operator: Equal
+
+  - it: should not include secretRef by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: RELEASE-NAME-querydoc
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: should reference chart-owned Secret when only openai.apiKey is set
+    template: deployment.yaml
+    set:
+      openai:
+        apiKey: foo
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: RELEASE-NAME-querydoc
+      - exists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: should reference external Secret when openai.secretRef is set
+    template: deployment.yaml
+    set:
+      openai:
+        secretRef: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: my-secret
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
+
+  - it: secretRef should win over apiKey when both are set
+    template: deployment.yaml
+    set:
+      openai:
+        apiKey: foo
+        secretRef: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: my-secret
+      - notExists:
+          path: spec.template.metadata.annotations.checksum/secret
