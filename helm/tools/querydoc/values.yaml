@@ -52,6 +52,7 @@ config:
 # Secret configuration
 openai:
   apiKey: ""
+  # secretRef: ""  # Name of existing Secret containing OPENAI_API_KEY. Takes precedence over apiKey.
 
 # OTEL configuration
 otel:
