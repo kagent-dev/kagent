@@ -9,8 +9,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-// TODO(cleanup): once legacy traffic is unsupported, use the standard v1 handler
-// stack directly.
 type PassthroughRequestHandler struct {
 	client *a2aclient.Client
 	card   *a2atype.AgentCard
@@ -22,7 +20,6 @@ var _ a2asrv.RequestHandler = (*PassthroughRequestHandler)(nil)
 // A2A endpoints. It delegates each request directly to the selected upstream
 // agent client and intentionally bypasses a2asrv.NewHandler, which would create
 // local task state and apply v1 task-processing invariants to legacy streams.
-// Keep this while the controller bridges mixed 0.3 and 1.0 clients/runtimes;
 func NewPassthroughRequestHandler(client *a2aclient.Client, card *a2atype.AgentCard) *PassthroughRequestHandler {
 	return &PassthroughRequestHandler{
 		client: client,
