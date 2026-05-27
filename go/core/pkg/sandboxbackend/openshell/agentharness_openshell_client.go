@@ -177,11 +177,23 @@ func (c *AgentHarnessOpenShellClient) ExecSandboxID(ctx context.Context, sandbox
 	return name, nil
 }
 
+type ExecSandboxResult struct {
+	ExitCode int32
+	Stdout   string
+	Stderr   string
+}
+
 // ExecSandbox runs a command inside the sandbox via OpenShell ExecSandbox streaming RPC.
 func (c *AgentHarnessOpenShellClient) ExecSandbox(ctx context.Context, sandboxID string, command []string, stdin []byte, env map[string]string, timeoutSec uint32) (int32, string, error) {
+	res, err := c.ExecSandboxOutput(ctx, sandboxID, command, stdin, env, timeoutSec)
+	return res.ExitCode, res.Stderr, err
+}
+
+// ExecSandboxOutput runs a command inside the sandbox and captures stdout, stderr, and the exit code.
+func (c *AgentHarnessOpenShellClient) ExecSandboxOutput(ctx context.Context, sandboxID string, command []string, stdin []byte, env map[string]string, timeoutSec uint32) (ExecSandboxResult, error) {
 	osCli := c.openShell()
 	if osCli == nil {
-		return -1, "", fmt.Errorf("openshell client is nil")
+		return ExecSandboxResult{ExitCode: -1}, fmt.Errorf("openshell client is nil")
 	}
 	req := &openshellv1.ExecSandboxRequest{
 		SandboxId:      sandboxID,
@@ -194,8 +206,9 @@ func (c *AgentHarnessOpenShellClient) ExecSandbox(ctx context.Context, sandboxID
 	}
 	stream, err := osCli.ExecSandbox(ctx, req)
 	if err != nil {
-		return -1, "", err
+		return ExecSandboxResult{ExitCode: -1}, err
 	}
+	var stdout strings.Builder
 	var stderr strings.Builder
 	var exitCode int32 = -1
 	for {
@@ -204,10 +217,13 @@ func (c *AgentHarnessOpenShellClient) ExecSandbox(ctx context.Context, sandboxID
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return exitCode, stderr.String(), err
+			return ExecSandboxResult{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}, err
 		}
 		switch p := ev.GetPayload().(type) {
 		case *openshellv1.ExecSandboxEvent_Stdout:
+			if p.Stdout != nil {
+				stdout.Write(p.Stdout.GetData())
+			}
 		case *openshellv1.ExecSandboxEvent_Stderr:
 			if p.Stderr != nil {
 				stderr.Write(p.Stderr.GetData())
@@ -219,9 +235,9 @@ func (c *AgentHarnessOpenShellClient) ExecSandbox(ctx context.Context, sandboxID
 		}
 	}
 	if exitCode == -1 {
-		return exitCode, stderr.String(), fmt.Errorf("ExecSandbox finished without exit status")
+		return ExecSandboxResult{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}, fmt.Errorf("ExecSandbox finished without exit status")
 	}
-	return exitCode, stderr.String(), nil
+	return ExecSandboxResult{ExitCode: exitCode, Stdout: stdout.String(), Stderr: stderr.String()}, nil
 }
 
 // ErrEmptyResponse is returned when OpenShell returns success with an empty Sandbox payload.

@@ -26,6 +26,7 @@ import (
 type A2ARegistrar struct {
 	cache          crcache.Cache
 	handlerMux     A2AHandlerMux
+	clientRegistry *AgentClientRegistry
 	a2aBaseURL     string
 	sandboxA2AURL  string
 	authenticator  auth.AuthProvider
@@ -37,19 +38,24 @@ var _ manager.Runnable = (*A2ARegistrar)(nil)
 func NewA2ARegistrar(
 	cache crcache.Cache,
 	mux A2AHandlerMux,
+	clientRegistry *AgentClientRegistry,
 	a2aBaseUrl string,
 	sandboxA2ABaseURL string,
 	authenticator auth.AuthProvider,
 	streamingMaxBuf int,
 	streamingInitialBuf int,
 	streamingTimeout time.Duration,
-) *A2ARegistrar {
+) (*A2ARegistrar, error) {
+	if clientRegistry == nil {
+		return nil, fmt.Errorf("clientRegistry must not be nil")
+	}
 	reg := &A2ARegistrar{
-		cache:         cache,
-		handlerMux:    mux,
-		a2aBaseURL:    a2aBaseUrl,
-		sandboxA2AURL: sandboxA2ABaseURL,
-		authenticator: authenticator,
+		cache:          cache,
+		handlerMux:     mux,
+		clientRegistry: clientRegistry,
+		a2aBaseURL:     a2aBaseUrl,
+		sandboxA2AURL:  sandboxA2ABaseURL,
+		authenticator:  authenticator,
 		a2aBaseOptions: []a2aclient.Option{
 			a2aclient.WithTimeout(streamingTimeout),
 			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
@@ -57,7 +63,7 @@ func NewA2ARegistrar(
 		},
 	}
 
-	return reg
+	return reg, nil
 }
 
 func (a *A2ARegistrar) NeedLeaderElection() bool {
@@ -117,6 +123,7 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			ref := a2aRouteKey(agent)
 			a.handlerMux.RemoveAgentHandler(ref)
+			a.clientRegistry.delete(ref)
 			log.V(1).Info("removed A2A handler", "agent", ref)
 		},
 	}); err != nil {
@@ -182,9 +189,12 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	cardCopy := *card
 	cardCopy.URL = a.a2aRouteURL(agent)
 
-	if err := a.handlerMux.SetAgentHandler(a2aRouteKey(agent), client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
+	routeRef := a2aRouteKey(agent)
+	if err := a.handlerMux.SetAgentHandler(routeRef, client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
 		return fmt.Errorf("set handler for %s: %w", agentRef, err)
 	}
+
+	a.clientRegistry.set(routeRef, client)
 
 	log.V(1).Info("registered/updated A2A handler", "agent", agentRef)
 	return nil

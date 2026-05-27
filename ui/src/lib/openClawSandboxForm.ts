@@ -1,5 +1,6 @@
 import type { ValueSource } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { generateId } from "@/lib/utils";
 
 /** Default Sandbox CR backend when the harness form does not specify one. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
@@ -39,7 +40,7 @@ export interface OpenClawChannelRow {
 
 export function newOpenClawChannelRow(): OpenClawChannelRow {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name: "",
     channelType: "telegram",
     botTokenSource: "inline",
