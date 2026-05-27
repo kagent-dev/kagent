@@ -628,12 +628,8 @@ _KAGENT_COMPACTION_PROMPT = (
     " information and decisions made, as well as any unresolved"
     " questions or tasks. The summary should be concise and capture the"
     " essence of the interaction.\n\n"
-    "IMPORTANT: When referencing any tools or agents that were used,"
-    " you MUST preserve their exact registered names including any"
-    " namespace prefixes (for example: 'kagent__default__agent_name')."
-    " Never shorten, abbreviate, or rephrase tool or agent names.\n\n"
     "{conversation_history}"
-)
+) + _KAGENT_TOOL_NAME_WARNING
 
 
 def build_adk_context_configs(
