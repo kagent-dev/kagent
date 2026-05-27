@@ -71,13 +71,14 @@ spec:
 
     # Optional: kagent auto-creates a WorkerPool when workerPoolRef is unset.
     # Replicas default to 1 and ateomImage defaults to controller.substrate.ateomImage.
+    # NOTE: use single worker for now due to https://github.com/agent-substrate/substrate/issues/50
+    gatewayToken: test-token
     workerPool:
-      replicas: 2
+      replicas: 1
     #   ateomImage: localhost:5001/ateom-gvisor:latest
 
     # Required: configure the OpenClaw gateway token for this harness.
     # Use either gatewayToken or gatewayTokenSecretRef. The Secret must contain key "token".
-    gatewayToken: test-token
     # gatewayTokenSecretRef:
     #   name: openclaw-gateway-token
     #   namespace: kagent
@@ -139,6 +140,8 @@ spec:
 ```
 
 The generated `command` contains a base64-encoded `openclaw.json`, so the live object will be more verbose than the abbreviated example above. `pauseImage`, runsc URLs and hashes, and the default workload image come from controller/Helm configuration unless overridden on the `AgentHarness`; the gateway token comes from `spec.substrate.gatewayToken` or `gatewayTokenSecretRef`. kagent also sets `gateway.controlUi.basePath` to `/api/agentharnesses/<namespace>/<name>/gateway` so OpenClaw serves the Control UI under the same path kagent proxies.
+
+When `modelConfigRef` or `spec.channels` are set, credentials are **not** copied into the ActorTemplate or `openclaw.json` as plaintext. kagent writes `valueFrom.secretKeyRef` (or inline `value` for harness inline tokens) on the ActorTemplate container env; Substrate `ate-api` resolves those refs at actor resume. In `openclaw.json`, kagent uses OpenClaw [env SecretRefs](https://docs.openclaw.ai/gateway/secrets) (`{source:"env",provider:"default",id:"<VAR>"}`) for `models.providers.*.apiKey`, `channels.telegram.accounts.*.botToken`, and `channels.slack.accounts.*.botToken` / `appToken`. Rotate a Secret and recreate the ActorTemplate golden snapshot when keys change.
 
 Port-forward the UI:
 

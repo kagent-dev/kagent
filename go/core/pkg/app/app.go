@@ -59,6 +59,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
@@ -845,7 +846,7 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 			RunscARM64URL:        cfg.Substrate.RunscARM64URL,
 			RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
 			DefaultAteomImage:    cfg.Substrate.AteomImage,
-			DefaultWorkloadImage: openshell.NemoclawSandboxBaseImage,
+			DefaultWorkloadImage: openclaw.NemoclawSandboxBaseImage,
 		},
 	}
 	return sc
@@ -862,7 +863,7 @@ func substrateProvisionerFromConfig(kubeClient client.Client, cfg *Config, ate *
 			RunscARM64URL:        cfg.Substrate.RunscARM64URL,
 			RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
 			DefaultAteomImage:    cfg.Substrate.AteomImage,
-			DefaultWorkloadImage: openshell.NemoclawSandboxBaseImage,
+			DefaultWorkloadImage: openclaw.NemoclawSandboxBaseImage,
 		},
 	}
 }

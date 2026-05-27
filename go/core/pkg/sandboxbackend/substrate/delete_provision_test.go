@@ -44,7 +44,7 @@ func TestProvisionerDelete_DeletesGoldenActor(t *testing.T) {
 			Name:      "peterj-claw",
 			Namespace: ns,
 			Annotations: map[string]string{
-				annotationManagedActorTemplate: "true",
+				AnnotationManagedActorTemplate: "true",
 			},
 		},
 	}

@@ -16,6 +16,31 @@ func GatewayProviderRecordName(provider v1alpha2.ModelProvider) string {
 	return strings.ToLower(string(provider))
 }
 
+// ModelConfigAPIKeyEnvVar returns a container env var that references the ModelConfig API key Secret.
+// Substrate ate-api resolves secretKeyRef when resuming an actor (see workload_spec in substrate ate-api).
+func ModelConfigAPIKeyEnvVar(mc *v1alpha2.ModelConfig) (corev1.EnvVar, error) {
+	if mc == nil {
+		return corev1.EnvVar{}, fmt.Errorf("ModelConfig is required")
+	}
+	if mc.Spec.APIKeyPassthrough {
+		return corev1.EnvVar{}, fmt.Errorf("APIKeyPassthrough is not supported for Substrate OpenClaw provisioning from ModelConfig")
+	}
+	if mc.Spec.APIKeySecret == "" || mc.Spec.APIKeySecretKey == "" {
+		return corev1.EnvVar{}, fmt.Errorf("modelConfig %s/%s requires apiKeySecret and apiKeySecretKey", mc.Namespace, mc.Name)
+	}
+	return corev1.EnvVar{
+		Name: DefaultAPIKeyEnvVar(mc.Spec.Provider),
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: mc.Spec.APIKeySecret,
+				},
+				Key: mc.Spec.APIKeySecretKey,
+			},
+		},
+	}, nil
+}
+
 // ResolveModelConfigAPIKey reads the API key from the Secret referenced by ModelConfig.
 func ResolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha2.ModelConfig) (string, error) {
 	if mc.Spec.APIKeyPassthrough {
