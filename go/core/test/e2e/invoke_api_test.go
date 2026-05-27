@@ -23,7 +23,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -232,6 +231,9 @@ func setupSandboxAgentWithOptions(t *testing.T, cli client.Client, modelConfigNa
 	return agent
 }
 
+// newA2AClient creates a v2 A2A client targeting baseURL directly via JSON-RPC.
+// The controller always serves both wire versions at the agent's path prefix; the
+// A2A-Version header (default: 1.0) tells the mux which handler to use.
 func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers map[string]string) *a2aclient.Client {
 	t.Helper()
 	if httpClient == nil {
@@ -240,22 +242,22 @@ func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	if _, ok := headers["A2A-Version"]; !ok {
-		headers["A2A-Version"] = string(a2atype.Version)
-	}
+	// TODO(0.11.0): Uncomment these lines to set v1 header after 0.11.0 to test v1 clients after migration
+	// if _, ok := headers["A2A-Version"]; !ok {
+	// 	headers["A2A-Version"] = string(a2atype.Version)
+	// }
 
-	resolver := agentcard.NewResolver(httpClient)
-	resolveOpts := make([]agentcard.ResolveOption, 0, len(headers))
-	for k, v := range headers {
-		resolveOpts = append(resolveOpts, agentcard.WithRequestHeader(k, v))
-	}
-
-	card, err := resolver.Resolve(t.Context(), baseURL, resolveOpts...)
-	require.NoError(t, err)
-
-	a2aClient, err := a2aclient.NewFromCard(
+	// Use NewFromEndpoints with the explicit base URL rather than NewFromCard:
+	// the card's SupportedInterfaces contain the controller's internal cluster URL,
+	// which is unreachable from the test machine via port-forward.
+	endpointURL := strings.TrimRight(baseURL, "/") + "/"
+	a2aClient, err := a2aclient.NewFromEndpoints(
 		t.Context(),
-		card,
+		[]*a2atype.AgentInterface{{
+			URL:             endpointURL,
+			ProtocolVersion: a2atype.Version,
+			ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+		}},
 		a2aclient.WithJSONRPCTransport(httpClient),
 		a2aclient.WithCallInterceptors(a2a.NewStaticHeadersInterceptor(headers)),
 	)
