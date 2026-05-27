@@ -22,8 +22,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 type AgentType string
@@ -128,7 +126,23 @@ type A2AConfig struct {
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
-type AgentSkill server.AgentSkill
+// AgentSkill describes a specific capability or function of the agent.
+type AgentSkill struct {
+	// ID is the unique identifier for the skill.
+	ID string `json:"id,omitempty"`
+	// Name is the human-readable name of the skill.
+	Name string `json:"name"`
+	// Description is an optional detailed description of the skill.
+	Description string `json:"description,omitempty"`
+	// Tags are optional tags for categorization.
+	Tags []string `json:"tags,omitempty"`
+	// Examples are optional usage examples.
+	Examples []string `json:"examples,omitempty"`
+	// InputModes are the supported input data modes/types.
+	InputModes []string `json:"inputModes,omitempty"`
+	// OutputModes are the supported output data modes/types.
+	OutputModes []string `json:"outputModes,omitempty"`
+}
 
 const (
 	AgentConditionTypeAccepted = "Accepted"

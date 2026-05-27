@@ -99,9 +99,7 @@ spec:
                             type: string
                           type: array
                       required:
-                      - id
                       - name
-                      - tags
                       type: object
                     minItems: 1
                     type: array
@@ -7722,9 +7720,7 @@ spec:
                                 type: string
                               type: array
                           required:
-                          - id
                           - name
-                          - tags
                           type: object
                         minItems: 1
                         type: array

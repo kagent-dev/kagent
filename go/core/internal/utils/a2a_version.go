@@ -5,27 +5,14 @@ import (
 	"net/http"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 )
 
-type A2AWireVersion string
-
-const (
-	A2AWireVersionLegacy A2AWireVersion = "v0"
-	A2AWireVersionV1     A2AWireVersion = "v1"
-)
-
-// NegotiateA2AWireVersion returns the A2A wire version requested by the client.
-// Missing or explicit 0.3 headers use the legacy/current kagent A2A wire shape.
-// TODO(cleanup): Revisit missing-header behavior once legacy wire clients are unsupported.
-func NegotiateA2AWireVersion(r *http.Request) (A2AWireVersion, error) {
+// NegotiateA2AWireVersion validates and returns the A2A wire version from the request.
+// Requires A2A-Version: 1.0. Missing or unrecognized versions are rejected.
+func NegotiateA2AWireVersion(r *http.Request) error {
 	version := r.Header.Get(a2atype.SvcParamVersion)
-	switch version {
-	case "", string(a2av0.Version):
-		return A2AWireVersionLegacy, nil
-	case string(a2atype.Version):
-		return A2AWireVersionV1, nil
-	default:
-		return "", fmt.Errorf("unsupported A2A version %q", version)
+	if version == string(a2atype.Version) {
+		return nil
 	}
+	return fmt.Errorf("unsupported A2A version %q: this server requires A2A-Version: %s", version, a2atype.Version)
 }

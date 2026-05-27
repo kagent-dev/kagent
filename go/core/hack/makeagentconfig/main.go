@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 func main() {
@@ -22,16 +22,24 @@ func main() {
 		},
 		Instruction: "You are a test agent. The system prompt doesn't matter because we're using a mock server.",
 	}
-	card := &server.AgentCard{
+	card := &a2atype.AgentCard{
 		Name:        "test_agent",
 		Description: "Test agent",
-		URL:         "http://localhost:8080",
-		Capabilities: server.AgentCapabilities{
-			Streaming: new(true), StateTransitionHistory: new(true),
+		SupportedInterfaces: []*a2atype.AgentInterface{
+			{
+				URL:             "http://localhost:8080",
+				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+				ProtocolVersion: a2atype.Version,
+			},
+		},
+		Capabilities: a2atype.AgentCapabilities{
+			Streaming: true,
 		},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
-		Skills:             []server.AgentSkill{{ID: "test", Name: "test", Description: new("test"), Tags: []string{"test"}}},
+		Skills: []a2atype.AgentSkill{
+			{ID: "test", Name: "test", Description: "test", Tags: []string{"test"}},
+		},
 	}
 
 	// do we have mcp everything port open?

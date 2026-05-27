@@ -10,7 +10,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -168,18 +167,6 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		ctx,
 		card.SupportedInterfaces,
 		a2aclient.WithJSONRPCTransport(httpClient),
-		// TODO(cleanup): Remove the compat transport after legacy runtimes are unsupported.
-		a2aclient.WithCompatTransport(
-			a2atype.ProtocolVersion("0.3"),
-			a2atype.TransportProtocolJSONRPC,
-			// This creates a legacy JSON-RPC transport that is used to forward traffic to agents that are still on the legacy A2A wire.
-			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
-				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
-					URL:    iface.URL,
-					Client: httpClient,
-				}), nil
-			}),
-		),
 		a2aclient.WithCallInterceptors(
 			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
 		),

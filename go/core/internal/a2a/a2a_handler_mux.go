@@ -60,10 +60,8 @@ func (a *handlerMux) SetAgentHandler(
 	card a2atype.AgentCard,
 	tracing middleware,
 ) error {
-	// TODO(cleanup): Replace this protocol mux with the standard v1 handler stack once legacy clients/runtimes are unsupported.
 	requestHandler := NewPassthroughRequestHandler(client, &card)
-	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
-	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	jsonRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	cardHandler := a2asrv.NewAgentCardHandler(a2av0.NewStaticAgentCardProducer(&card))
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
@@ -72,19 +70,11 @@ func (a *handlerMux) SetAgentHandler(
 			cardHandler.ServeHTTP(w, r)
 			return
 		}
-		wireVersion, err := common.NegotiateA2AWireVersion(r)
-		if err != nil {
+		if err := common.NegotiateA2AWireVersion(r); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		switch wireVersion {
-		case common.A2AWireVersionLegacy:
-			legacyJSONRPCHandler.ServeHTTP(w, r)
-		case common.A2AWireVersionV1:
-			v1JSONRPCHandler.ServeHTTP(w, r)
-		default:
-			http.Error(w, fmt.Sprintf("unknown negotiated A2A wire version %q", wireVersion), http.StatusBadRequest)
-		}
+		jsonRPCHandler.ServeHTTP(w, r)
 	})
 	middlewares := []middleware{authimpl.NewA2AAuthenticator(a.authenticator)}
 	if tracing != nil {

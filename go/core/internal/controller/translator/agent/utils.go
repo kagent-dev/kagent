@@ -19,11 +19,6 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
 				ProtocolVersion: a2atype.Version,
 			},
-			{
-				URL:             fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
-				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
-				ProtocolVersion: a2atype.ProtocolVersion("0.3"),
-			},
 		},
 		Capabilities: a2atype.AgentCapabilities{
 			Streaming:         true,
@@ -40,7 +35,7 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 			card.Skills = append(card.Skills, a2atype.AgentSkill{
 				ID:          skill.ID,
 				Name:        skill.Name,
-				Description: derefString(skill.Description),
+				Description: skill.Description,
 				Tags:        skill.Tags,
 				Examples:    skill.Examples,
 				InputModes:  skill.InputModes,
@@ -49,11 +44,4 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 		}
 	}
 	return &card
-}
-
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
