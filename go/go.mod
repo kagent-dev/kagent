@@ -47,7 +47,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/text v0.37.0
-	google.golang.org/adk v1.2.0
+	google.golang.org/adk v1.3.0
 	google.golang.org/genai v1.57.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/yaml.v3 v3.0.1
