@@ -28,7 +28,7 @@ func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	h, err := NewMCPHandler(kubeClient, "http://unused", nil, time.Minute)
+	h, err := NewMCPHandler(kubeClient, nil, nil)
 	require.NoError(t, err)
 
 	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
