@@ -107,8 +107,12 @@ func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.H
 	if h.ID == "" {
 		return nil
 	}
-	if err := b.client.deleteActorSequenced(ctx, h.ID); err != nil {
+	done, err := b.client.AdvanceActorDelete(ctx, h.ID)
+	if err != nil {
 		return fmt.Errorf("substrate delete actor %q: %w", h.ID, err)
+	}
+	if !done {
+		return fmt.Errorf("substrate delete actor %q in progress", h.ID)
 	}
 	return nil
 }
@@ -150,22 +154,9 @@ func ActorHost(actorID string, suffix string) string {
 }
 
 func actorTemplateRef(ah *v1alpha2.AgentHarness, cfg Config) (string, string) {
-	if ah.Status.Substrate != nil && ah.Status.Substrate.ActorTemplateRef.Name != "" {
-		ref := ah.Status.Substrate.ActorTemplateRef
-		ns := ref.Namespace
-		if ns == "" {
-			ns = ah.Namespace
-		}
-		return ns, ref.Name
-	}
 	if ah.Spec.Substrate != nil && ah.Spec.Substrate.ActorTemplateRef != nil {
-		ref := ah.Spec.Substrate.ActorTemplateRef
-		ns := ref.Namespace
-		if ns == "" {
-			ns = ah.Namespace
-		}
-		if ref.Name != "" {
-			return ns, ref.Name
+		if ref := ah.Spec.Substrate.ActorTemplateRef; ref.Name != "" {
+			return ah.Namespace, ref.Name
 		}
 	}
 	// Auto-provisioned template in the harness namespace (also when status was not persisted yet).
@@ -196,18 +187,6 @@ func validateSubstrateSpec(ah *v1alpha2.AgentHarness) error {
 	}
 	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
 		return fmt.Errorf("substrate backend called for runtime %q", runtime)
-	}
-	if ah.Spec.Substrate == nil {
-		return fmt.Errorf("spec.substrate is required when runtime is substrate")
-	}
-	if err := ValidateGatewayTokenSpec(ah.Spec.Substrate); err != nil {
-		return err
-	}
-	if ah.Spec.Substrate.ActorTemplateRef != nil && strings.TrimSpace(ah.Spec.Substrate.ActorTemplateRef.Name) != "" {
-		return nil
-	}
-	if loc := substrateSnapshotsLocation(ah); !strings.HasPrefix(loc, "gs://") {
-		return fmt.Errorf("spec.substrate.snapshotsConfig.location must be a gs:// URI (Substrate snapshots are GCS-only today)")
 	}
 	return nil
 }

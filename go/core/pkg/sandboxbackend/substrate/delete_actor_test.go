@@ -1,18 +1,15 @@
 package substrate
 
-import (
-	"testing"
-	"time"
+import "testing"
 
-	"github.com/agent-substrate/substrate/proto/ateapipb"
-)
-
-func TestEnsureActorSuspendedAlreadySuspended(t *testing.T) {
+func TestAdvanceActorDeleteEmptyID(t *testing.T) {
 	t.Parallel()
 	c := &Client{}
-	deadline := time.Now().Add(time.Minute)
-	err := c.ensureActorSuspended(t.Context(), "ahr-test", ateapipb.Actor_STATUS_SUSPENDED, deadline)
+	done, err := c.AdvanceActorDelete(t.Context(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !done {
+		t.Fatal("expected done for empty actor id")
 	}
 }
