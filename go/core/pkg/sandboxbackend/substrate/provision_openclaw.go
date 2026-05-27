@@ -1,10 +1,13 @@
 package substrate
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"text/template"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -13,6 +16,16 @@ import (
 )
 
 const defaultSubstrateOpenClawGatewayPort = 80
+
+//go:embed templates/openclaw_startup.sh.tmpl
+var openClawStartupScriptTmplContent string
+
+var openClawStartupScriptTmpl = template.Must(template.New("openclaw_startup").Parse(openClawStartupScriptTmplContent))
+
+type openClawStartupScriptData struct {
+	OpenClawJSONBase64 string
+	GatewayPort        int
+}
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
 // When spec.modelConfigRef is set, openclaw.json includes models/agents/channels like the OpenShell bootstrap path.
@@ -54,7 +67,10 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		}
 		containerEnv = []corev1.EnvVar{{Name: "HOME", Value: "/root"}}
 	}
-	script = openClawStartupScript(jsonBytes, gw.Port)
+	script, err = openClawStartupScript(jsonBytes, gw.Port)
+	if err != nil {
+		return "", nil, err
+	}
 	return script, containerEnv, nil
 }
 
@@ -65,17 +81,13 @@ func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
 	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
 }
 
-func openClawStartupScript(jsonBytes []byte, gwPort int) string {
-	b64 := base64.StdEncoding.EncodeToString(jsonBytes)
-	return strings.Join([]string{
-		"set -e",
-		`mkdir -p "${HOME}/.openclaw"`,
-		fmt.Sprintf(`echo '%s' | base64 -d > "${HOME}/.openclaw/openclaw.json"`, b64),
-		fmt.Sprintf("openclaw gateway run --port %d --allow-unconfigured >>/tmp/openclaw-gateway.log 2>&1 &", gwPort),
-		`for i in $(seq 1 60); do`,
-		`  curl -sf http://127.0.0.1:80/ >/dev/null 2>&1 && echo "gateway up" && break`,
-		"  sleep 1",
-		"done",
-		"tail -f /tmp/openclaw-gateway.log /dev/null",
-	}, "\n")
+func openClawStartupScript(jsonBytes []byte, gwPort int) (string, error) {
+	var buf bytes.Buffer
+	if err := openClawStartupScriptTmpl.Execute(&buf, openClawStartupScriptData{
+		OpenClawJSONBase64: base64.StdEncoding.EncodeToString(jsonBytes),
+		GatewayPort:        gwPort,
+	}); err != nil {
+		return "", fmt.Errorf("render openclaw startup script: %w", err)
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
 }

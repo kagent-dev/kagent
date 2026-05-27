@@ -1,0 +1,9 @@
+set -e
+mkdir -p "${HOME}/.openclaw"
+echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
+openclaw gateway run --port {{.GatewayPort}} --allow-unconfigured >>/tmp/openclaw-gateway.log 2>&1 &
+for i in $(seq 1 60); do
+  curl -sf http://127.0.0.1:{{.GatewayPort}}/ >/dev/null 2>&1 && echo "gateway up" && break
+  sleep 1
+done
+tail -f /tmp/openclaw-gateway.log /dev/null
