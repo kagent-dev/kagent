@@ -21,7 +21,7 @@ func (p *Provisioner) Delete(ctx context.Context, ah *v1alpha2.AgentHarness) err
 	if ah == nil || ah.Annotations == nil {
 		return nil
 	}
-	if ah.Annotations[annotationManagedActorTemplate] == "true" {
+	if ah.Annotations[AnnotationManagedActorTemplate] == "true" {
 		key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
 		if err := p.deleteGoldenActor(ctx, key); err != nil {
 			return err
@@ -35,7 +35,7 @@ func (p *Provisioner) Delete(ctx context.Context, ah *v1alpha2.AgentHarness) err
 			return err
 		}
 	}
-	if ah.Annotations[annotationManagedWorkerPool] == "true" {
+	if ah.Annotations[AnnotationManagedWorkerPool] == "true" {
 		key := types.NamespacedName{Namespace: ah.Namespace, Name: workerPoolName(ah)}
 		var wp atev1alpha1.WorkerPool
 		if err := p.Client.Get(ctx, key, &wp); err == nil {

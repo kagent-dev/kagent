@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -32,7 +31,7 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort, openClawControlUIBasePath(ah))
 
 	var jsonBytes []byte
-	var envMap map[string]string
+	var containerEnv []corev1.EnvVar
 
 	ref := strings.TrimSpace(ah.Spec.ModelConfigRef)
 	if ref != "" {
@@ -44,7 +43,7 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		if getErr := p.Client.Get(ctx, mcRef, mc); getErr != nil {
 			return "", nil, fmt.Errorf("get ModelConfig %s: %w", mcRef, getErr)
 		}
-		jsonBytes, envMap, err = openclaw.BuildBootstrapJSON(ctx, p.Client, ah.Namespace, ah, mc, gw, openclaw.SubstrateBootstrapDefaultBaseURL)
+		jsonBytes, containerEnv, err = openclaw.BuildSubstrateBootstrapJSON(ctx, p.Client, ah.Namespace, ah, mc, gw)
 		if err != nil {
 			return "", nil, fmt.Errorf("build openclaw bootstrap json: %w", err)
 		}
@@ -53,10 +52,8 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		if err != nil {
 			return "", nil, fmt.Errorf("build gateway-only openclaw json: %w", err)
 		}
-		envMap = map[string]string{}
+		containerEnv = []corev1.EnvVar{{Name: "HOME", Value: "/root"}}
 	}
-
-	containerEnv := openClawEnvVars(envMap)
 	script = openClawStartupScript(jsonBytes, gw.Port)
 	return script, containerEnv, nil
 }
@@ -66,20 +63,6 @@ func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
 		return ""
 	}
 	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
-}
-
-func openClawEnvVars(envMap map[string]string) []corev1.EnvVar {
-	keys := make([]string, 0, len(envMap))
-	for k := range envMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	out := make([]corev1.EnvVar, 0, len(keys)+1)
-	for _, k := range keys {
-		out = append(out, corev1.EnvVar{Name: k, Value: envMap[k]})
-	}
-	out = append(out, corev1.EnvVar{Name: "HOME", Value: "/root"})
-	return out
 }
 
 func openClawStartupScript(jsonBytes []byte, gwPort int) string {

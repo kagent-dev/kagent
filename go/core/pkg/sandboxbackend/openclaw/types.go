@@ -36,11 +36,11 @@ type modelsSection struct {
 }
 
 type providerSettings struct {
-	BaseURL string      `json:"baseUrl,omitempty"`
-	APIKey  string      `json:"apiKey"`
-	Auth    string      `json:"auth"`
-	API     string      `json:"api"`
-	Models  []modelSlot `json:"models"`
+	BaseURL string          `json:"baseUrl,omitempty"`
+	APIKey  credentialValue `json:"apiKey"`
+	Auth    string          `json:"auth"`
+	API     string          `json:"api"`
+	Models  []modelSlot     `json:"models"`
 }
 
 type modelSlot struct {
@@ -72,11 +72,11 @@ type telegramBundle struct {
 }
 
 type telegramAccount struct {
-	Name      string   `json:"name"`
-	Enabled   bool     `json:"enabled"`
-	BotToken  string   `json:"botToken"`
-	DMPolicy  string   `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom,omitempty"`
+	Name      string          `json:"name"`
+	Enabled   bool            `json:"enabled"`
+	BotToken  credentialValue `json:"botToken"`
+	DMPolicy  string          `json:"dmPolicy"`
+	AllowFrom []string        `json:"allowFrom,omitempty"`
 }
 
 type slackBundle struct {
@@ -90,11 +90,11 @@ type slackBundle struct {
 }
 
 type slackAccount struct {
-	Name              string    `json:"name"`
-	Enabled           bool      `json:"enabled"`
-	Mode              string    `json:"mode"`
-	BotToken          string    `json:"botToken"`
-	AppToken          string    `json:"appToken"`
+	Name              string          `json:"name"`
+	Enabled           bool            `json:"enabled"`
+	Mode              string          `json:"mode"`
+	BotToken          credentialValue `json:"botToken"`
+	AppToken          credentialValue `json:"appToken"`
 	UserTokenReadOnly bool      `json:"userTokenReadOnly"`
 	GroupPolicy       string    `json:"groupPolicy"`
 	Capabilities      slackCaps `json:"capabilities"`
@@ -112,9 +112,14 @@ type groupDM struct {
 
 type secretsSection struct {
 	Providers map[string]secretProvider `json:"providers"`
+	Defaults  *secretsDefaults          `json:"defaults,omitempty"`
 }
 
 type secretProvider struct {
 	Source    string   `json:"source"`
-	Allowlist []string `json:"allowlist"`
+	Allowlist []string `json:"allowlist,omitempty"`
+}
+
+type secretsDefaults struct {
+	Env string `json:"env"`
 }

@@ -63,11 +63,17 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 
 	var foundKey bool
 	for _, e := range env {
-		if e.Name == "OPENAI_API_KEY" && e.Value == "sk-test" {
-			foundKey = true
+		if e.Name != "OPENAI_API_KEY" {
+			continue
 		}
+		require.NotNil(t, e.ValueFrom)
+		require.NotNil(t, e.ValueFrom.SecretKeyRef)
+		require.Equal(t, "openai-key", e.ValueFrom.SecretKeyRef.Name)
+		require.Equal(t, "OPENAI_API_KEY", e.ValueFrom.SecretKeyRef.Key)
+		require.Empty(t, e.Value, "API key must not be inlined in ActorTemplate env")
+		foundKey = true
 	}
-	require.True(t, foundKey, "expected OPENAI_API_KEY in container env")
+	require.True(t, foundKey, "expected OPENAI_API_KEY secretKeyRef in container env")
 
 	// Decode embedded JSON from the base64 line in the startup script.
 	var payload string

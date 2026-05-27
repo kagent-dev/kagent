@@ -5,7 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 )
 
 func TestResolveSSHRemoteCommand(t *testing.T) {

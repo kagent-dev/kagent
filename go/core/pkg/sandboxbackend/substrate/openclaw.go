@@ -115,7 +115,7 @@ func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.H
 
 func (b *ClawBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.AgentHarness, h sandboxbackend.Handle) error {
 	// OpenClaw config is baked into the ActorTemplate golden snapshot at provision time
-	// (see substrate.Provisioner.buildOpenClawActorStartup — same openclaw.BuildBootstrapJSON as OpenShell).
+	// (see substrate/provision_openclaw.go — openclaw.BuildSubstrateBootstrapJSON with secretKeyRef env).
 	_ = ctx
 	_ = ah
 	_ = h
