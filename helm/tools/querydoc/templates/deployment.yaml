@@ -14,7 +14,7 @@ spec:
     metadata:
       annotations:
         checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- if .Values.openai.apiKey }}
+        {{- if and .Values.openai.apiKey (not .Values.openai.secretRef) }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- end }}
       labels:
@@ -46,9 +46,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "querydoc.fullname" . }}
-            {{- if .Values.openai.apiKey }}
+            {{- if or .Values.openai.apiKey .Values.openai.secretRef }}
             - secretRef:
-                name: {{ include "querydoc.fullname" . }}
+                name: {{ .Values.openai.secretRef | default (include "querydoc.fullname" .) | quote }}
             {{- end }}
           ports:
             - name: http

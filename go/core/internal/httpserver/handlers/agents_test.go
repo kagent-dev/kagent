@@ -500,6 +500,92 @@ func TestHandleListAgents(t *testing.T) {
 		}
 		require.True(t, found)
 	})
+
+	t.Run("filters Agent and AgentHarness rows by namespace query parameter", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		agentDefault := createTestAgent("agent-in-default", modelConfig)
+		agentOther := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "agent-in-other", Namespace: "other"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					ModelConfig: modelConfig.Name,
+				},
+			},
+		}
+		harnessDefault := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-default", Namespace: "default"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+				ModelConfigRef: "test-model-config",
+			},
+		}
+		harnessOther := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "harness-other", Namespace: "other"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+				ModelConfigRef: "test-model-config",
+			},
+		}
+		unsupportedHarnessDefault := &v1alpha2.AgentHarness{
+			ObjectMeta: metav1.ObjectMeta{Name: "unsupported-harness", Namespace: "default"},
+			Spec: v1alpha2.AgentHarnessSpec{
+				Backend:        v1alpha2.AgentHarnessBackendType("unsupported"),
+				ModelConfigRef: "test-model-config",
+			},
+		}
+		handler, _ := setupTestHandler(t, agentDefault, agentOther, harnessDefault, harnessOther, unsupportedHarnessDefault, modelConfig)
+
+		req := httptest.NewRequest("GET", "/api/agents?namespace=default", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 2)
+
+		byName := make(map[string]api.AgentResponse, len(response.Data))
+		for _, row := range response.Data {
+			byName[row.Agent.Metadata.Name] = row
+			require.Equal(t, "default", row.Agent.Metadata.Namespace)
+		}
+		require.Contains(t, byName, "agent-in-default")
+		require.Contains(t, byName, "harness-default")
+		require.NotContains(t, byName, "agent-in-other")
+		require.NotContains(t, byName, "harness-other")
+		require.NotContains(t, byName, "unsupported-harness")
+	})
+
+	// Kubernetes namespace names must be DNS-1123 labels. Rejecting invalid input
+	// before calling the Kubernetes client keeps the list path consistent with
+	// other resource handlers and avoids surprising cross-namespace behavior.
+	t.Run("returns 400 for invalid namespace query value", func(t *testing.T) {
+		handler, _ := setupTestHandler(t)
+
+		req := httptest.NewRequest("GET", "/api/agents?namespace=INVALID_NS!", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("returns 400 for namespace query value with leading or trailing whitespace", func(t *testing.T) {
+		handler, _ := setupTestHandler(t)
+
+		req := httptest.NewRequest("GET", "/api/agents?namespace=%20default", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Contains(t, w.Body.String(), "must not contain leading or trailing whitespace")
+	})
 }
 
 func TestHandleListSandboxAgents(t *testing.T) {
@@ -861,5 +947,43 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		var created v1alpha2.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
 		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, created.Spec.Backend)
+	})
+
+	t.Run("creates hermes AgentHarness", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		handler, _ := setupTestHandler(t, modelConfig)
+
+		body := map[string]any{
+			"apiVersion": "kagent.dev/v1alpha2",
+			"kind":       "AgentHarness",
+			"metadata": map[string]string{
+				"name":      "my-hermes",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"backend":        "hermes",
+				"description":    "hermes vm",
+				"modelConfigRef": "test-model-config",
+			},
+		}
+		raw, err := json.Marshal(body)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/agentharnesses", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleCreateAgentHarness(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+		var response api.StandardResponse[api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, response.Data.OpenshellAgentHarness.Backend)
+
+		var created v1alpha2.AgentHarness
+		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-hermes"}, &created))
+		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, created.Spec.Backend)
 	})
 }

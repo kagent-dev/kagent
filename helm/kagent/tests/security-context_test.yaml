@@ -16,6 +16,9 @@ tests:
       - equal:
           path: spec.template.spec.securityContext.runAsNonRoot
           value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
 
   - it: should apply default container security context to controller
     template: controller-deployment.yaml
@@ -23,6 +26,14 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile
 
   - it: should allow controller pod security context override
     template: controller-deployment.yaml
@@ -87,12 +98,30 @@ tests:
   # =============================================================================
   # UI Security Context Tests
   # =============================================================================
-  - it: should apply UI-specific container security context override
+  - it: should apply default pod security context to UI
+    template: ui-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should apply default container security context to UI
     template: ui-deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile
 
   - it: should have nextjs-cache volume for UI
     template: ui-deployment.yaml

@@ -39,7 +39,7 @@ func BuildBootstrapJSON(ctx context.Context, kube client.Client, namespace strin
 	providerRecord := GatewayProviderRecordName(mc.Spec.Provider)
 	doc := buildCoreBootstrapDocument(mc, gwPort, apiKeyEnv, providerRecord, modelID, apiAdapter)
 
-	chState, err := accumulateHarnessChannels(ctx, kube, namespace, sbx.Spec.Channels, env)
+	chState, err := accumulateHarnessChannels(ctx, kube, namespace, sbx.Spec.Backend, sbx.Spec.Channels, env)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -59,6 +59,7 @@ func buildCoreBootstrapDocument(mc *v1alpha2.ModelConfig, gwPort int, apiKeyEnv,
 	return bootstrapDocument{
 		Gateway: gatewaySection{
 			Mode: "local",
+			Bind: "loopback",
 			Auth: gatewayAuth{Mode: "none"},
 			Port: gwPort,
 		},

@@ -1,0 +1,102 @@
+suite: test grafana-mcp deployment
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+tests:
+  - it: should render deployment with default values
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-grafana-mcp
+      - equal:
+          path: spec.replicas
+          value: 1
+      - hasDocuments:
+          count: 1
+
+  - it: should have correct container name
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: grafana-mcp
+
+  - it: should have correct service account name
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-grafana-mcp
+
+  - it: should have correct container port
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8000
+
+  # =============================================================================
+  # Security Context Tests
+  # =============================================================================
+  - it: should apply default pod security context
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should apply default container security context
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsGroup
+          value: 999
+      - isNull:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile
+
+  - it: should allow pod security context override
+    template: deployment.yaml
+    set:
+      podSecurityContext:
+        runAsNonRoot: true
+        fsGroup: 2000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 2000
+
+  - it: should allow container security context override
+    template: deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFilesystem: false
+        runAsUser: 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 1000

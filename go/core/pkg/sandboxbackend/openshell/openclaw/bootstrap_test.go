@@ -95,11 +95,13 @@ func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	raw, env, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
 	require.NoError(t, err)
 	require.Equal(t, "sk-test", env["OPENAI_API_KEY"])
-	require.Equal(t, "telegram-bot-token", env["KAGENT_SB_CH_TG1_TELEGRAM_BOT"])
+	require.Equal(t, "telegram-bot-token", env["TELEGRAM_BOT_TOKEN_TG1"])
 
 	var root map[string]any
 	require.NoError(t, json.Unmarshal(raw, &root))
 	require.Contains(t, root, "gateway")
+	gw := root["gateway"].(map[string]any)
+	require.Equal(t, "loopback", gw["bind"])
 	require.Contains(t, root, "models")
 	require.Contains(t, root, "agents")
 	models := root["models"].(map[string]any)
@@ -116,11 +118,11 @@ func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	kagent := secProvs["kagent"].(map[string]any)
 	require.Equal(t, "env", kagent["source"])
 	al := kagent["allowlist"].([]any)
-	require.ElementsMatch(t, []any{"KAGENT_SB_CH_TG1_TELEGRAM_BOT", "OPENAI_API_KEY"}, al)
+	require.ElementsMatch(t, []any{"TELEGRAM_BOT_TOKEN_TG1", "OPENAI_API_KEY"}, al)
 	ch := root["channels"].(map[string]any)
 	require.Contains(t, ch, "telegram")
 	tg := ch["telegram"].(map[string]any)
 	tgAcc := tg["accounts"].(map[string]any)
 	tg1 := tgAcc["tg1"].(map[string]any)
-	require.Equal(t, "telegram-bot-token", tg1["botToken"])
+	require.Equal(t, "openshell:resolve:env:TELEGRAM_BOT_TOKEN_TG1", tg1["botToken"])
 }

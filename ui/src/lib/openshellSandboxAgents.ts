@@ -1,4 +1,5 @@
 import type { AgentResponse } from "@/types";
+import type { AgentHarnessBackend } from "@/lib/agentHarness";
 
 export function isOpenshellSandboxRow(item: AgentResponse): boolean {
   return Boolean(item.openshellAgentHarness?.gatewaySandboxName);
@@ -10,10 +11,8 @@ export type OpenshellTerminalLinkParams = {
   /** Sandbox CR name (Kubernetes metadata.name). */
   crName?: string;
   modelConfigRef?: string;
-  /**
-   * OpenClaw / NemoClaw harness: terminal offers “Launch plain shell” vs default session (e.g. `openclaw tui`).
-   */
-  clawHarness?: boolean;
+  /** AgentHarness.spec.backend (openclaw, nemoclaw, hermes). */
+  harnessBackend?: AgentHarnessBackend;
 };
 
 /** Opens `/openshell` with auto-connect when the page loads (`connect=1`). */
@@ -22,8 +21,11 @@ export function openshellTerminalHref(params: OpenshellTerminalLinkParams): stri
     sandbox: params.gatewaySandboxName,
     connect: "1",
   });
-  if (params.clawHarness) {
+  if (params.harnessBackend === "openclaw" || params.harnessBackend === "nemoclaw") {
     q.set("clawHarness", "1");
+  }
+  if (params.harnessBackend) {
+    q.set("harnessBackend", params.harnessBackend);
   }
   const ns = params.namespace?.trim();
   const name = params.crName?.trim();

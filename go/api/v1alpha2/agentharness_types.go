@@ -18,13 +18,24 @@ import (
 
 // AgentHarnessBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openclaw;nemoclaw
+// +kubebuilder:validation:Enum=openclaw;nemoclaw;hermes
 type AgentHarnessBackendType string
 
 const (
 	AgentHarnessBackendOpenClaw AgentHarnessBackendType = "openclaw"
 	AgentHarnessBackendNemoClaw AgentHarnessBackendType = "nemoclaw"
+	AgentHarnessBackendHermes   AgentHarnessBackendType = "hermes"
 )
+
+// IsKnownAgentHarnessBackend reports backends the OpenShell harness controller and API expose.
+func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
+	switch b {
+	case AgentHarnessBackendOpenClaw, AgentHarnessBackendNemoClaw, AgentHarnessBackendHermes:
+		return true
+	default:
+		return false
+	}
+}
 
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.
 // +kubebuilder:validation:Enum=telegram;slack
@@ -63,29 +74,62 @@ type AgentHarnessTelegramChannelSpec struct {
 	// +required
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
 	// +optional
 	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
 }
 
-// AgentHarnessSlackChannelSpec configures Slack when AgentHarnessChannel.type is Slack.
+// AgentHarnessOpenClawSlackOptions configures OpenClaw/NemoClaw-specific Slack routing.
 //
-// +kubebuilder:validation:XValidation:rule="self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
-type AgentHarnessSlackChannelSpec struct {
-	// +required
-	BotToken AgentHarnessChannelCredential `json:"botToken"`
-	// +required
-	AppToken AgentHarnessChannelCredential `json:"appToken"`
-	// +required
-	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess"`
+// +kubebuilder:validation:XValidation:rule="!has(self.channelAccess) || self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
+type AgentHarnessOpenClawSlackOptions struct {
 	// +optional
+	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess,omitempty"`
+	// AllowlistChannels is required when channelAccess is allowlist.
+	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
 	// +optional
 	// +kubebuilder:default=true
 	InteractiveReplies *bool `json:"interactiveReplies,omitempty"`
 }
 
-// AgentHarnessChannel declares one messenger binding inside an OpenClaw/NemoClaw harness VM.
+// AgentHarnessHermesSlackOptions configures Hermes-specific Slack settings (env vars in the sandbox).
+//
+// +kubebuilder:validation:XValidation:rule="!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))",message="allowedUserIDs and allowedUserIDsFrom are mutually exclusive"
+type AgentHarnessHermesSlackOptions struct {
+	// AllowedUserIDs restricts which Slack member IDs may interact with the bot (SLACK_ALLOWED_USERS).
+	// +optional
+	// +kubebuilder:validation:MaxItems=1024
+	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
+	// +optional
+	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
+	// HomeChannel is the default Slack channel ID for cron/scheduled messages (SLACK_HOME_CHANNEL).
+	// +optional
+	HomeChannel string `json:"homeChannel,omitempty"`
+	// HomeChannelName is a human-readable label for HomeChannel (SLACK_HOME_CHANNEL_NAME).
+	// +optional
+	HomeChannelName string `json:"homeChannelName,omitempty"`
+}
+
+// AgentHarnessSlackChannelSpec configures Slack when AgentHarnessChannel.type is Slack.
+// Backend-specific settings live under the matching backend key; AgentHarnessSpec validation
+// requires the key to match spec.backend.
+type AgentHarnessSlackChannelSpec struct {
+	// +required
+	BotToken AgentHarnessChannelCredential `json:"botToken"`
+	// +required
+	AppToken AgentHarnessChannelCredential `json:"appToken"`
+	// OpenClaw configures OpenClaw/NemoClaw-specific Slack routing.
+	// +optional
+	OpenClaw *AgentHarnessOpenClawSlackOptions `json:"openclaw,omitempty"`
+	// Hermes configures Hermes-specific Slack settings.
+	// +optional
+	Hermes *AgentHarnessHermesSlackOptions `json:"hermes,omitempty"`
+}
+
+// AgentHarnessChannel declares one messenger binding inside a harness VM.
 //
 // +kubebuilder:validation:XValidation:rule="(self.type == 'telegram' && has(self.telegram) && !has(self.slack)) || (self.type == 'slack' && has(self.slack) && !has(self.telegram))",message="exactly one of telegram or slack must be set and must match type"
 type AgentHarnessChannel struct {
@@ -97,6 +141,7 @@ type AgentHarnessChannel struct {
 	Type AgentHarnessChannelType `json:"type"`
 	// +optional
 	Telegram *AgentHarnessTelegramChannelSpec `json:"telegram,omitempty"`
+	// Slack configures Slack when type is Slack.
 	// +optional
 	Slack *AgentHarnessSlackChannelSpec `json:"slack,omitempty"`
 }
@@ -107,6 +152,7 @@ type AgentHarnessChannel struct {
 // An AgentHarness is distinct from a SandboxAgent: it has no agent runtime baked
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
+// +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || ((self.backend == 'openclaw' || self.backend == 'nemoclaw') && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
@@ -118,7 +164,8 @@ type AgentHarnessSpec struct {
 
 	// Image is the container image to run in the harness VM, if the backend
 	// supports per-resource images. Backends openclaw and nemoclaw pin the image
-	// to the NemoClaw sandbox base when this field is empty.
+	// to the NemoClaw sandbox base when this field is empty; backend hermes pins
+	// to the Hermes sandbox base image when empty.
 	// +optional
 	Image string `json:"image,omitempty"`
 
@@ -141,6 +188,7 @@ type AgentHarnessSpec struct {
 
 	// Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
 	// +optional
+	// +kubebuilder:validation:MaxItems=1024
 	Channels []AgentHarnessChannel `json:"channels,omitempty"`
 }
 

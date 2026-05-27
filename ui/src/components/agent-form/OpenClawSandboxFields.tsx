@@ -12,11 +12,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
 import type {
+  AgentHarnessSandboxBackend,
   OpenClawChannelRow,
   OpenClawSandboxFormSlice,
   OpenClawSandboxFormValidationError,
 } from "@/lib/openClawSandboxForm";
-import { newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
+import { isClawHarnessBackend, newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
 
 const OPENCLAW_DOCS_ROOT = "https://docs.openclaw.ai";
 
@@ -42,7 +43,14 @@ function ChannelSetupHint({ title, lines }: { title: string; lines: React.ReactN
   );
 }
 
-function ChannelTypeSetupHints({ channelType }: { channelType: OpenClawChannelRow["channelType"] }) {
+function ChannelTypeSetupHints({
+  channelType,
+  harnessBackend,
+}: {
+  channelType: OpenClawChannelRow["channelType"];
+  harnessBackend?: AgentHarnessSandboxBackend;
+}) {
+  const clawSlack = isClawHarnessBackend(harnessBackend);
   switch (channelType) {
     case "telegram":
       return (
@@ -72,38 +80,52 @@ function ChannelTypeSetupHints({ channelType }: { channelType: OpenClawChannelRo
         />
       );
     case "slack":
+      if (clawSlack) {
+        return (
+          <ChannelSetupHint
+            title="Slack setup (Socket Mode)"
+            lines={[
+              <>
+                <strong>Bot token (<span className="font-mono">xoxb-…</span>):</strong> Slack API → your app →{" "}
+                <strong>OAuth &amp; Permissions</strong> → <strong>Install to Workspace</strong> → copy{" "}
+                <strong>Bot User OAuth Token</strong>.
+              </>,
+              <>
+                <strong>App-level token (<span className="font-mono">xapp-…</span>):</strong> Enable{" "}
+                <strong>Socket Mode</strong> and create an app-level token (maps to{" "}
+                <span className="font-mono">SLACK_APP_TOKEN</span>).
+              </>,
+              <>
+                <strong>Channel access / allowlist:</strong> Slack channel IDs (<span className="font-mono">C…</span> /{" "}
+                <span className="font-mono">G…</span>) when access is <span className="font-mono">allowlist</span>.
+              </>,
+              <>
+                More detail: <DocLink href={`${OPENCLAW_DOCS_ROOT}/channels/slack`}>OpenClaw · Slack</DocLink>.
+              </>,
+            ]}
+          />
+        );
+      }
       return (
         <ChannelSetupHint
-          title="Slack setup (Socket Mode)"
+          title="Hermes Slack setup"
           lines={[
             <>
-              <strong>Bot token (<span className="font-mono">xoxb-…</span>):</strong> Slack API → your app →{" "}
-              <strong>OAuth &amp; Permissions</strong> → <strong>Install to Workspace</strong> (or reinstall) → copy{" "}
-              <strong>Bot User OAuth Token</strong>.
+              <strong>Bot + app tokens:</strong> Same Socket Mode tokens as OpenClaw (<span className="font-mono">xoxb-</span> and{" "}
+              <span className="font-mono">xapp-</span>). Stored as OpenShell providers and resolved at egress.
             </>,
             <>
-              <strong>App-level token (<span className="font-mono">xapp-…</span>):</strong> In the app settings, enable{" "}
-              <strong>Socket Mode</strong>, create an app-level token with the connection scope Socket Mode needs, and copy it.
-              Both tokens are required for typical Socket Mode bots (same idea as{" "}
-              <span className="font-mono">SLACK_BOT_TOKEN</span> + <span className="font-mono">SLACK_APP_TOKEN</span> in OpenClaw).
+              <strong>Allowed Slack users:</strong> Optional Slack member IDs (<span className="font-mono">U…</span>) who may DM the
+              bot. Maps to <span className="font-mono">SLACK_ALLOWED_USERS</span> in the sandbox. Leave empty to allow all users the
+              app can see.
             </>,
             <>
-              Turn on event subscriptions (socket) for messages and app mentions as needed; under <strong>App Home</strong>, enable
-              tabs if you rely on DMs/home.
+              Profile → <strong>⋯</strong> → <strong>Copy member ID</strong> in Slack, or inspect gateway logs after a DM.
             </>,
             <>
-              <strong>Channel access / allowlist:</strong> Use Slack channel IDs (often <span className="font-mono">C…</span> public,{" "}
-              <span className="font-mono">G…</span> private multi-person). Right‑click channel → <strong>Copy link</strong> or use{" "}
-              <strong>Copy channel ID</strong> if exposed in the client. Maps to{" "}
-              <span className="font-mono">spec.channels[].slack.allowlistChannels</span> when access is{" "}
-              <span className="font-mono">allowlist</span>.
-            </>,
-            <>
-              <strong>Interactive replies:</strong> When enabled, OpenClaw can use Slack interactive/thread-style replies where
-              supported (maps to <span className="font-mono">interactiveReplies</span>).
-            </>,
-            <>
-              More detail: <DocLink href={`${OPENCLAW_DOCS_ROOT}/channels/slack`}>OpenClaw · Slack</DocLink>.
+              <strong>Home channel (optional):</strong> Default channel for cron/scheduled messages (
+              <span className="font-mono">SLACK_HOME_CHANNEL</span>, channel ID <span className="font-mono">C…</span>). Optional display
+              name maps to <span className="font-mono">SLACK_HOME_CHANNEL_NAME</span>.
             </>,
           ]}
         />
@@ -117,11 +139,19 @@ interface OpenClawSandboxFieldsProps {
   value: OpenClawSandboxFormSlice;
   onChange: (next: OpenClawSandboxFormSlice) => void;
   disabled: boolean;
+  harnessBackend?: AgentHarnessSandboxBackend;
   /** From {@link validateOpenClawSandboxForm}; includes `section` for placement + focus. */
   validationError?: OpenClawSandboxFormValidationError;
 }
 
-export function OpenClawSandboxFields({ value, onChange, disabled, validationError }: OpenClawSandboxFieldsProps) {
+export function OpenClawSandboxFields({
+  value,
+  onChange,
+  disabled,
+  harnessBackend,
+  validationError,
+}: OpenClawSandboxFieldsProps) {
+  const clawBackend = isClawHarnessBackend(harnessBackend);
   const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const section = validationError?.section ?? null;
@@ -226,7 +256,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, validationErr
                 </div>
 
                 <div className="mt-3">
-                  <ChannelTypeSetupHints channelType={ch.channelType} />
+                  <ChannelTypeSetupHints channelType={ch.channelType} harnessBackend={harnessBackend} />
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -388,6 +418,7 @@ export function OpenClawSandboxFields({ value, onChange, disabled, validationErr
                         </>
                       )}
                     </div>
+                    {clawBackend && (
                     <div className="mt-3 flex gap-3 rounded-md border border-border/50 bg-muted/15 p-3">
                       <Checkbox
                         id={`och-ir-${ch.id}`}
@@ -412,10 +443,11 @@ export function OpenClawSandboxFields({ value, onChange, disabled, validationErr
                         </p>
                       </div>
                     </div>
+                    )}
                   </>
                 )}
 
-                {ch.channelType === "slack" && (
+                {ch.channelType === "slack" && clawBackend && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <FieldRoot className="space-y-1.5">
                       <FieldLabel className="text-xs">Channel access</FieldLabel>
@@ -466,6 +498,67 @@ export function OpenClawSandboxFields({ value, onChange, disabled, validationErr
                         />
                       </FieldRoot>
                     )}
+                  </div>
+                )}
+
+                {ch.channelType === "slack" && !clawBackend && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <FieldRoot className="space-y-1.5 sm:col-span-2">
+                      <FieldLabel className="text-xs">Allowed Slack users (optional)</FieldLabel>
+                      <FieldHint className="text-[11px]">
+                        Restrict who can interact with the bot using Slack member IDs (<span className="font-mono">U…</span>). Written to{" "}
+                        <span className="font-mono">SLACK_ALLOWED_USERS</span> as comma-separated values. Leave empty to allow all users.
+                      </FieldHint>
+                      <Input
+                        value={ch.allowedSlackUserIDs}
+                        onChange={(e) => {
+                          const channels = value.channels.map((c) =>
+                            c.id === ch.id ? { ...c, allowedSlackUserIDs: e.target.value } : c,
+                          );
+                          set({ channels });
+                        }}
+                        placeholder="U01234567, U89ABCDEF (comma or space separated)"
+                        disabled={disabled}
+                        autoComplete="off"
+                      />
+                    </FieldRoot>
+                    <FieldRoot className="space-y-1.5">
+                      <FieldLabel className="text-xs">Home channel ID (optional)</FieldLabel>
+                      <FieldHint className="text-[11px]">
+                        Default channel for cron/scheduled messages (<span className="font-mono">SLACK_HOME_CHANNEL</span>, e.g.{" "}
+                        <span className="font-mono">C01234567890</span>).
+                      </FieldHint>
+                      <Input
+                        value={ch.slackHomeChannel}
+                        onChange={(e) => {
+                          const channels = value.channels.map((c) =>
+                            c.id === ch.id ? { ...c, slackHomeChannel: e.target.value } : c,
+                          );
+                          set({ channels });
+                        }}
+                        placeholder="C01234567890"
+                        disabled={disabled}
+                        autoComplete="off"
+                      />
+                    </FieldRoot>
+                    <FieldRoot className="space-y-1.5">
+                      <FieldLabel className="text-xs">Home channel name (optional)</FieldLabel>
+                      <FieldHint className="text-[11px]">
+                        Human-readable label (<span className="font-mono">SLACK_HOME_CHANNEL_NAME</span>, e.g. general).
+                      </FieldHint>
+                      <Input
+                        value={ch.slackHomeChannelName}
+                        onChange={(e) => {
+                          const channels = value.channels.map((c) =>
+                            c.id === ch.id ? { ...c, slackHomeChannelName: e.target.value } : c,
+                          );
+                          set({ channels });
+                        }}
+                        placeholder="general"
+                        disabled={disabled}
+                        autoComplete="off"
+                      />
+                    </FieldRoot>
                   </div>
                 )}
 

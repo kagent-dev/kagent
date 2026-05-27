@@ -11,7 +11,9 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
@@ -32,6 +34,30 @@ func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient
 	return ctx, nil
 }
 
+// authzForwardingInterceptor forwards the Authorization header from the
+// incoming A2A request context to outbound sub-agent A2A calls.
+type authzForwardingInterceptor struct {
+	a2aclient.PassthroughInterceptor
+}
+
+func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ctx, nil
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ctx, nil
+	}
+	if len(req.Meta.Get(constants.AuthorizationHeader)) > 0 {
+		return ctx, nil
+	}
+	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
+		req.Meta.Append(constants.AuthorizationHeader, vals[0])
+	}
+	return ctx, nil
+}
+
 // remoteA2AInput is the typed argument for the remote A2A function tool.
 type remoteA2AInput struct {
 	Request string `json:"request"`
@@ -40,11 +66,12 @@ type remoteA2AInput struct {
 // remoteA2AState holds the mutable state for one remote A2A agent connection.
 // All external interaction goes through the tool.Tool returned by NewKAgentRemoteA2ATool.
 type remoteA2AState struct {
-	name         string
-	description  string
-	baseURL      string
-	httpClient   *http.Client
-	extraHeaders map[string]string
+	name           string
+	description    string
+	baseURL        string
+	httpClient     *http.Client
+	extraHeaders   map[string]string
+	propagateToken bool
 
 	a2aClient *a2aclient.Client
 	agentCard *a2atype.AgentCard
@@ -62,18 +89,19 @@ type remoteA2AState struct {
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
 // If httpClient is nil, a default client is created. The client's transport is
 // wrapped with otelhttp to propagate W3C trace context to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string) (tool.Tool, string, error) {
+func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken bool) (tool.Tool, string, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
-		name:          name,
-		description:   description,
-		baseURL:       baseURL,
-		httpClient:    httpClient,
-		extraHeaders:  extraHeaders,
-		lastContextID: a2atype.NewContextID(),
+		name:           name,
+		description:    description,
+		baseURL:        baseURL,
+		httpClient:     httpClient,
+		extraHeaders:   extraHeaders,
+		propagateToken: propagateToken,
+		lastContextID:  a2atype.NewContextID(),
 	}
 	ft, err := functiontool.New(functiontool.Config{
 		Name:        name,
@@ -119,10 +147,14 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		for k, v := range s.extraHeaders {
 			meta.Append(k, v)
 		}
-		opts = append(opts, a2aclient.WithInterceptors(
+		interceptors := []a2aclient.CallInterceptor{
 			a2aclient.NewStaticCallMetaInjector(meta),
 			&userIDForwardingInterceptor{},
-		))
+		}
+		if s.propagateToken {
+			interceptors = append(interceptors, &authzForwardingInterceptor{})
+		}
+		opts = append(opts, a2aclient.WithInterceptors(interceptors...))
 
 		client, err := a2aclient.NewFromCard(ctx, card, opts...)
 		if err != nil {

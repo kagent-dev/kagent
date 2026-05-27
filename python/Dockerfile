@@ -1,5 +1,7 @@
 ### STAGE 1: base image
 ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG UV_VERSION=0.11.15
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base-os
 
 # Build arg to control SSL verification (set DISABLE_SSL_VERIFY=1 to skip SSL checks)
@@ -14,11 +16,15 @@ RUN --mount=type=cache,target=/var/cache/apk,rw \
     if [ "$DISABLE_SSL_VERIFY" = "1" ]; then \
         echo "WARNING: Disabling SSL verification for apk (development only)"; \
         apk update --no-check-certificate && apk add --no-check-certificate \
-            curl openssl bash git ca-certificates uv libstdc++; \
+            curl openssl bash git ca-certificates libstdc++; \
     else \
         apk update && apk add \
-            curl openssl bash git ca-certificates uv libstdc++; \
+            curl openssl bash git ca-certificates libstdc++; \
     fi
+
+# Install uv from upstream so we control the version and pick up rkyv fixes
+# independently of the Wolfi apk release cadence.
+COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
 ### STAGE 2: python
 FROM base-os AS python-os
@@ -74,6 +80,7 @@ RUN --mount=type=cache,target=/root/.npm \
     git clone --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa https://github.com/anthropic-experimental/sandbox-runtime.git && \
     cd sandbox-runtime && \
     npm install --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 && \
+    npm install --save-exact brace-expansion@5.0.6 && \
     npm run build && \
     # CVE-2026-26996: all minimatch instances (3.1.2, 9.0.5) are transitive dev
     # deps (eslint, typescript-eslint). Prune dev deps after build to remove them.

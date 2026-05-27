@@ -27,67 +27,74 @@ func NewProxyAuthenticator(userIDClaim string) *ProxyAuthenticator {
 
 func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (auth.Session, error) {
 	authHeader := reqHeaders.Get("Authorization")
-
-	// Always read agent identity from X-Agent-Name header (used by agents calling back)
 	agentID := reqHeaders.Get("X-Agent-Name")
 
-	// If we have a Bearer token, parse JWT
-	if tokenString, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
-		// Parse JWT without validation (oauth2-proxy or k8s service account already validated)
-		rawClaims, err := parseJWTPayload(tokenString)
-		if err != nil {
-			return nil, ErrUnauthenticated
-		}
+	tokenString, ok := strings.CutPrefix(authHeader, "Bearer ")
+	if !ok {
+		return nil, ErrUnauthenticated
+	}
 
-		userID, _ := rawClaims[a.userIDClaim].(string)
-		if userID == "" && a.userIDClaim != "sub" {
+	// Parse JWT without validation (oauth2-proxy or k8s service account already validated)
+	rawClaims, err := parseJWTPayload(tokenString)
+	if err != nil {
+		return nil, ErrUnauthenticated
+	}
+
+	if agentID != "" {
+		// Agent call: the Bearer SA token authenticates the pod; the caller's
+		// identity should be supplied explicitly via X-User-Id / user_id.
+		// Fall back to the SA sub claim for direct calls to agent pods that
+		// do not yet propagate the caller identity.
+		userID := userIDFromRequest(reqHeaders, query)
+		if userID == "" {
 			userID, _ = rawClaims["sub"].(string)
 		}
 		if userID == "" {
 			return nil, ErrUnauthenticated
 		}
-
 		return &SimpleSession{
 			P: auth.Principal{
-				User:   auth.User{ID: userID},
-				Agent:  auth.Agent{ID: agentID},
-				Claims: rawClaims,
+				User:  auth.User{ID: userID},
+				Agent: auth.Agent{ID: agentID},
 			},
 			authHeader: authHeader,
 		}, nil
 	}
 
-	// Fall back to service account auth for internal agent-to-controller calls.
-	// Requires X-Agent-Name to identify the calling agent.
-	if agentID == "" {
-		return nil, ErrUnauthenticated
-	}
-
-	// Agents authenticate via user_id query param or X-User-Id header
-	userID := query.Get("user_id")
-	if userID == "" {
-		userID = reqHeaders.Get("X-User-Id")
+	// Direct user call: identity comes from the OIDC JWT claims.
+	userID, _ := rawClaims[a.userIDClaim].(string)
+	if userID == "" && a.userIDClaim != "sub" {
+		userID, _ = rawClaims["sub"].(string)
 	}
 	if userID == "" {
 		return nil, ErrUnauthenticated
 	}
-
 	return &SimpleSession{
 		P: auth.Principal{
-			User: auth.User{
-				ID: userID,
-			},
-			Agent: auth.Agent{
-				ID: agentID,
-			},
+			User:   auth.User{ID: userID},
+			Claims: rawClaims,
 		},
 		authHeader: authHeader,
 	}, nil
 }
 
+// userIDFromRequest returns the user identity from the user_id query param or
+// X-User-Id header, preferring the query param.
+func userIDFromRequest(headers http.Header, query url.Values) string {
+	if v := query.Get("user_id"); v != "" {
+		return v
+	}
+	return headers.Get("X-User-Id")
+}
+
 func (a *ProxyAuthenticator) UpstreamAuth(r *http.Request, session auth.Session, upstreamPrincipal auth.Principal) error {
-	if simpleSession, ok := session.(*SimpleSession); ok && simpleSession.authHeader != "" {
-		r.Header.Set("Authorization", simpleSession.authHeader)
+	if simpleSession, ok := session.(*SimpleSession); ok {
+		if simpleSession.authHeader != "" {
+			r.Header.Set("Authorization", simpleSession.authHeader)
+		}
+		if userID := simpleSession.P.User.ID; userID != "" {
+			r.Header.Set("X-User-Id", userID)
+		}
 	}
 	return nil
 }

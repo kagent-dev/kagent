@@ -5,7 +5,11 @@ import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { defaultOpenClawSandboxFormSlice, type OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
+import {
+  defaultOpenClawSandboxFormSlice,
+  type AgentHarnessSandboxBackend,
+  type OpenClawSandboxFormSlice,
+} from "@/lib/openClawSandboxForm";
 import type { ModelConfig } from "@/types";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { useRouter } from "next/navigation";
@@ -22,7 +26,17 @@ import type { AgentFormValidationErrors } from "@/components/agent-form/agent-fo
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
 
-const HARNESS_OPTIONS = [{ value: "nemoclaw-openclaw", label: "NemoClaw (OpenClaw)" }] as const;
+const HARNESS_OPTIONS = [
+  { value: "nemoclaw-openclaw", label: "NemoClaw (OpenClaw)", backend: "openclaw" as const },
+  { value: "hermes", label: "Hermes", backend: "hermes" as const },
+] as const;
+
+const HERMES_DEFAULT_IMAGE = "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest";
+
+function harnessBackendForType(harnessType: (typeof HARNESS_OPTIONS)[number]["value"]): AgentHarnessSandboxBackend {
+  const opt = HARNESS_OPTIONS.find((o) => o.value === harnessType);
+  return opt?.backend ?? "openclaw";
+}
 
 function AgentHarnessPageContent() {
   const router = useRouter();
@@ -68,11 +82,6 @@ function AgentHarnessPageContent() {
   }, [formDirty]);
 
   const validateForm = () => {
-    if (state.harnessType !== "nemoclaw-openclaw") {
-      toast.error("Unsupported harness type.");
-      return false;
-    }
-
     const formData: Partial<AgentFormData> = {
       name: state.name,
       namespace: state.namespace,
@@ -80,6 +89,7 @@ function AgentHarnessPageContent() {
       type: "OpenClawSandbox",
       modelName: state.selectedModel?.ref || "",
       openClawSandbox: state.openClaw,
+      harnessBackend: harnessBackendForType(state.harnessType),
     };
 
     const newErrors = validateAgentData(formData);
@@ -136,11 +146,6 @@ function AgentHarnessPageContent() {
       return;
     }
 
-    if (state.harnessType !== "nemoclaw-openclaw") {
-      toast.error("Unsupported harness type.");
-      return;
-    }
-
     try {
       setState((prev) => ({ ...prev, isSubmitting: true }));
 
@@ -156,6 +161,7 @@ function AgentHarnessPageContent() {
         tools: [],
         modelName: state.selectedModel.ref,
         openClawSandbox: state.openClaw,
+        harnessBackend: harnessBackendForType(state.harnessType),
       };
       const ocResult = await createNewAgent(ocPayload);
       if (ocResult.error) {
@@ -250,12 +256,16 @@ function AgentHarnessPageContent() {
                   <FieldLabel htmlFor="agent-harness-field-type">Harness type</FieldLabel>
                   <Select
                     value={state.harnessType}
-                    onValueChange={(val) =>
-                      setState((prev) => ({
-                        ...prev,
-                        harnessType: val as FormState["harnessType"],
-                      }))
-                    }
+                    onValueChange={(val) => {
+                      const harnessType = val as FormState["harnessType"];
+                      setState((prev) => {
+                        const next = { ...prev, harnessType };
+                        if (harnessType === "hermes" && !prev.openClaw.image.trim()) {
+                          next.openClaw = { ...prev.openClaw, image: HERMES_DEFAULT_IMAGE };
+                        }
+                        return next;
+                      });
+                    }}
                     disabled={disabled}
                   >
                     <SelectTrigger id="agent-harness-field-type" className="w-full">
@@ -308,6 +318,7 @@ function AgentHarnessPageContent() {
 
               <OpenClawSandboxFields
                 value={state.openClaw}
+                harnessBackend={harnessBackendForType(state.harnessType)}
                 onChange={(openClaw) =>
                   setState((prev) => ({
                     ...prev,

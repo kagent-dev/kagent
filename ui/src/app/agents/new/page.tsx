@@ -8,6 +8,7 @@ import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections 
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
+import { generateId } from "@/lib/utils";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
@@ -162,7 +163,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       return {
         ...prev,
         errors: { ...prev.errors, promptSources: undefined },
-        promptSourceRows: [...nonEmpty, { id: crypto.randomUUID(), name: t, alias: "" }],
+        promptSourceRows: [...nonEmpty, { id: generateId(), name: t, alias: "" }],
       };
     });
   }, []);
@@ -200,14 +201,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
-                const memorySpec = decl?.memory ?? (agent.spec as { memory?: { modelConfig: string; ttlDays?: number } })?.memory;
+                const memorySpec = decl?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
                 const pt = decl?.promptTemplate;
                 const srcRows: PromptSourceRow[] =
                   pt?.dataSources?.map((ds) => ({
-                    id: crypto.randomUUID(),
+                    id: generateId(),
                     name: ds.name || "",
                     alias: ds.alias || "",
                   })) ?? [newPromptSourceRow()];

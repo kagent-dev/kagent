@@ -427,6 +427,10 @@ spec:
             - "I need a CiliumNetworkPolicy for my application."
             - "How do I write a policy to allow only specific DNS queries?"
             - "What's the syntax for creating a Cilium egress policy?"
+    {{- if .Values.compaction }}
+    context:
+      compaction: {{- toYaml .Values.compaction | nindent 8 }}
+    {{- end }}
     deployment:
       {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:

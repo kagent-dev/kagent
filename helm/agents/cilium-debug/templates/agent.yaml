@@ -155,6 +155,10 @@ spec:
             - "Monitor real-time traffic using cilium-dbg monitor"
             - "Check the health status of Cilium endpoints"
             - "Verify encryption status between pods"
+    {{- if .Values.compaction }}
+    context:
+      compaction: {{- toYaml .Values.compaction | nindent 8 }}
+    {{- end }}
     deployment:
       {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
       imagePullSecrets:
