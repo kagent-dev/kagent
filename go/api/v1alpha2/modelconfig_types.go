@@ -256,6 +256,24 @@ type BedrockConfig struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
+
+	// PromptCaching enables Bedrock prompt caching by appending a CachePoint
+	// block at the end of the Converse request's `system` content array and
+	// the end of the `tools` array. Bedrock will cache the prefix up to and
+	// including those cache points across requests in the same region for
+	// roughly 5 minutes after first use, billing the cached portion at a
+	// reduced rate on cache hits.
+	//
+	// Recommended for tool-using agents that make many Converse calls per
+	// task with a stable system prompt and tool set — the per-call input
+	// token count can drop by 70-90% on hit. Has no effect on models that
+	// don't support caching; the marker is ignored by Bedrock for those.
+	//
+	// See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+	// for the current list of supported models and minimum prefix sizes.
+	// +optional
+	// +kubebuilder:default=false
+	PromptCaching bool `json:"promptCaching,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.

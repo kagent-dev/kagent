@@ -797,6 +797,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			},
 			Region:                       model.Spec.Bedrock.Region,
 			AdditionalModelRequestFields: additionalFields,
+			PromptCaching:                model.Spec.Bedrock.PromptCaching,
 		}
 
 		// Populate TLS fields in BaseModel

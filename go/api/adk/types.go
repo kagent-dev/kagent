@@ -251,6 +251,11 @@ type Bedrock struct {
 	// additionalModelRequestFields in the Converse API. Use this for provider-specific
 	// options outside the standard InferenceConfiguration block.
 	AdditionalModelRequestFields map[string]any `json:"additional_model_request_fields,omitempty"`
+	// PromptCaching enables Bedrock prompt caching by appending a CachePoint
+	// block to the end of the system content array and the end of the tools
+	// array in the Converse request. See the v1alpha2.BedrockConfig CRD doc
+	// for context.
+	PromptCaching bool `json:"prompt_caching,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {

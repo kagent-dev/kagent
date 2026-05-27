@@ -251,6 +251,12 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
 
     extra_headers: Optional[dict[str, str]] = None
     additional_model_request_fields: Optional[dict[str, Any]] = None
+    # When True, append a CachePoint block to the end of the Converse
+    # request's `system` content array and the end of the `toolConfig.tools`
+    # array. Bedrock caches the prefix up to and including those markers
+    # across requests in the same region; cached portion is billed at a
+    # reduced rate on hit. See AWS docs for supported models / minimums.
+    prompt_caching: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -288,12 +294,23 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                 text = "\n".join(p.text for p in si.parts or [] if p.text)
                 if text:
                     kwargs["system"] = [{"text": text}]
+            # If prompt caching is on, mark the end of the system content as
+            # a cache breakpoint. Bedrock caches everything up to and including
+            # this point for ~5 minutes; subsequent requests with the same
+            # prefix hit the cache. No-op if we didn't produce any system text.
+            if self.prompt_caching and kwargs.get("system"):
+                kwargs["system"].append({"cachePoint": {"type": "default"}})
 
         if llm_request.config and llm_request.config.tools:
             genai_tools = [t for t in llm_request.config.tools if hasattr(t, "function_declarations")]
             if genai_tools:
                 converse_tools = _convert_tools_to_converse(genai_tools, tool_name_map, tool_name_counter)
                 if converse_tools:
+                    # CachePoint at the END of the tool list: tool definitions
+                    # are usually the biggest static chunk of an agent request
+                    # and benefit most from caching.
+                    if self.prompt_caching:
+                        converse_tools.append({"cachePoint": {"type": "default"}})
                     kwargs["toolConfig"] = {"tools": converse_tools}
 
         # Reverse map lets us restore original tool names from sanitized names in Bedrock responses.
