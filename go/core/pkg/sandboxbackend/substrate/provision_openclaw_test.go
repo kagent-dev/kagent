@@ -131,7 +131,7 @@ func TestBuildOpenClawActorStartup_WithHarnessGatewayToken(t *testing.T) {
 		{
 			name: "secret token",
 			substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayTokenSecretRef: &v1alpha2.TypedReference{Name: "openclaw-token"},
+				GatewayTokenSecretRef: &v1alpha2.TypedLocalReference{Name: "openclaw-token"},
 			},
 			wantToken: "secret-token",
 		},

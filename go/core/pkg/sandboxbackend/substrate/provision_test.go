@@ -14,7 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
-func TestValidateSubstrateProvisionSpec(t *testing.T) {
+func TestSubstrateSnapshotsLocationDefault(t *testing.T) {
 	t.Parallel()
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
@@ -22,40 +22,11 @@ func TestValidateSubstrateProvisionSpec(t *testing.T) {
 			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
 				GatewayToken: "test-token",
-				SnapshotsConfig: &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
-					Location: "gs://bucket/prefix/",
-				},
 			},
 		},
 	}
-	if err := validateSubstrateProvisionSpec(ah); err != nil {
-		t.Fatalf("expected valid: %v", err)
-	}
-
-	ah.Spec.Substrate.SnapshotsConfig = nil
-	if err := validateSubstrateProvisionSpec(ah); err != nil {
-		t.Fatalf("expected default snapshots config to be valid: %v", err)
-	}
 	if got := substrateSnapshotsLocation(ah); got != "gs://ate-snapshots/kagent/claw" {
 		t.Fatalf("got default snapshots location %q", got)
-	}
-
-	ah.Spec.Substrate.GatewayToken = ""
-	if err := validateSubstrateProvisionSpec(ah); err == nil {
-		t.Fatal("expected error when gateway token is not configured")
-	}
-
-	ah.Spec.Substrate.GatewayToken = "test-token"
-	ah.Spec.Substrate.SnapshotsConfig = &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{Location: "s3://nope"}
-	if err := validateSubstrateProvisionSpec(ah); err == nil {
-		t.Fatal("expected error for non-gs location")
-	}
-
-	ah.Spec.Substrate.SnapshotsConfig.Location = "gs://ok"
-	ah.Spec.Substrate.WorkerPoolRef = &v1alpha2.TypedReference{Name: "pool"}
-	ah.Spec.Substrate.WorkerPool = &v1alpha2.AgentHarnessSubstrateWorkerPoolSpec{Replicas: 2}
-	if err := validateSubstrateProvisionSpec(ah); err == nil {
-		t.Fatal("expected error for workerPoolRef and workerPool together")
 	}
 }
 

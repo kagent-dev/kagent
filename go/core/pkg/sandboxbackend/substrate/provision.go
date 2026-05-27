@@ -9,13 +9,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// Ensure creates or updates Substrate CRs and waits for ActorTemplate Ready.
+// Ensure creates or updates Substrate CRs and reports whether ActorTemplate is Ready (controller requeues until true).
 func (p *Provisioner) Ensure(ctx context.Context, ah *v1alpha2.AgentHarness) (EnsureResult, error) {
 	if ah == nil || ah.Spec.Substrate == nil {
 		return EnsureResult{}, fmt.Errorf("spec.substrate is required")
-	}
-	if err := validateSubstrateProvisionSpec(ah); err != nil {
-		return EnsureResult{}, err
 	}
 
 	if ah.Spec.Substrate.ActorTemplateRef != nil && strings.TrimSpace(ah.Spec.Substrate.ActorTemplateRef.Name) != "" {
@@ -48,11 +45,7 @@ func (p *Provisioner) Ensure(ctx context.Context, ah *v1alpha2.AgentHarness) (En
 
 func (p *Provisioner) ensureAdoptedActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (EnsureResult, error) {
 	ref := ah.Spec.Substrate.ActorTemplateRef
-	ns := ref.Namespace
-	if ns == "" {
-		ns = ah.Namespace
-	}
-	tmplKey := types.NamespacedName{Namespace: ns, Name: ref.Name}
+	tmplKey := types.NamespacedName{Namespace: ah.Namespace, Name: ref.Name}
 	ready, err := p.actorTemplateReady(ctx, tmplKey)
 	if err != nil {
 		return EnsureResult{}, err

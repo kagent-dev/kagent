@@ -16,11 +16,7 @@ import (
 func (p *Provisioner) ensureWorkerPool(ctx context.Context, ah *v1alpha2.AgentHarness) (types.NamespacedName, bool, error) {
 	sub := ah.Spec.Substrate
 	if sub.WorkerPoolRef != nil && strings.TrimSpace(sub.WorkerPoolRef.Name) != "" {
-		ns := sub.WorkerPoolRef.Namespace
-		if ns == "" {
-			ns = ah.Namespace
-		}
-		key := types.NamespacedName{Namespace: ns, Name: sub.WorkerPoolRef.Name}
+		key := types.NamespacedName{Namespace: ah.Namespace, Name: sub.WorkerPoolRef.Name}
 		var wp atev1alpha1.WorkerPool
 		if err := p.Client.Get(ctx, key, &wp); err != nil {
 			return types.NamespacedName{}, false, fmt.Errorf("get WorkerPool %s: %w", key, err)

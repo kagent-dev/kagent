@@ -33,7 +33,7 @@ type ProvisionDefaults struct {
 
 // ateActorDeleter removes actors from ate-api during harness teardown.
 type ateActorDeleter interface {
-	deleteActorSequenced(ctx context.Context, actorID string) error
+	AdvanceActorDelete(ctx context.Context, actorID string) (bool, error)
 }
 
 // Provisioner ensures WorkerPool and ActorTemplate exist for a substrate AgentHarness.
@@ -51,24 +51,6 @@ type EnsureResult struct {
 	ActorTemplateReady   bool
 	ManagedWorkerPool    bool
 	ManagedActorTemplate bool
-}
-
-func validateSubstrateProvisionSpec(ah *v1alpha2.AgentHarness) error {
-	sub := ah.Spec.Substrate
-	if err := ValidateGatewayTokenSpec(sub); err != nil {
-		return err
-	}
-	if sub.ActorTemplateRef != nil && strings.TrimSpace(sub.ActorTemplateRef.Name) != "" {
-		return nil
-	}
-	loc := substrateSnapshotsLocation(ah)
-	if !strings.HasPrefix(loc, "gs://") {
-		return fmt.Errorf("spec.substrate.snapshotsConfig.location must be a gs:// URI (Substrate snapshots are GCS-only today)")
-	}
-	if sub.WorkerPoolRef != nil && strings.TrimSpace(sub.WorkerPoolRef.Name) != "" && sub.WorkerPool != nil {
-		return fmt.Errorf("spec.substrate.workerPoolRef and workerPool are mutually exclusive")
-	}
-	return nil
 }
 
 func defaultRunscConfig(d ProvisionDefaults) atev1alpha1.RunscConfig {
