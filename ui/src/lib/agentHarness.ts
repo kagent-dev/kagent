@@ -7,7 +7,7 @@ import { isOpenshellSandboxRow } from "@/lib/openshellSandboxAgents";
  *
  * Extend this union when new harness runtimes are added; pair with UI/server handling for each backend.
  */
-export const AGENT_HARNESS_BACKENDS = ["openclaw", "nemoclaw"] as const;
+export const AGENT_HARNESS_BACKENDS = ["openclaw", "nemoclaw", "hermes"] as const;
 
 export type AgentHarnessBackend = (typeof AGENT_HARNESS_BACKENDS)[number];
 
@@ -32,6 +32,39 @@ export function isAgentHarness(item: AgentResponse): boolean {
   return getAgentHarnessBackend(item) !== undefined;
 }
 
+/**
+ * Default interactive command when opening the OpenShell terminal for a harness backend.
+ * Keep in sync with Go: openclaw.DefaultSSHLaunchCommand / hermes.DefaultSSHLaunchCommand.
+ */
+export function defaultHarnessSSHLaunchCommand(backend: AgentHarnessBackend): string {
+  switch (backend) {
+    case "hermes":
+      return "cd /sandbox/.hermes && exec hermes";
+    case "openclaw":
+    case "nemoclaw":
+      return "openclaw tui";
+    default: {
+      const _exhaustive: never = backend;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Emoji shown beside harness agents in list/card views. */
+export function agentHarnessIcon(backend: AgentHarnessBackend): string {
+  switch (backend) {
+    case "hermes":
+      return "☤";
+    case "openclaw":
+    case "nemoclaw":
+      return "🦞";
+    default: {
+      const _exhaustive: never = backend;
+      return _exhaustive;
+    }
+  }
+}
+
 /** Short label for the agent list “type” column; harness-specific where known. */
 export function agentHarnessTypeLabel(backend: AgentHarnessBackend): string {
   switch (backend) {
@@ -39,6 +72,8 @@ export function agentHarnessTypeLabel(backend: AgentHarnessBackend): string {
       return "OpenClaw";
     case "nemoclaw":
       return "NemoClaw";
+    case "hermes":
+      return "Hermes";
     default: {
       const _exhaustive: never = backend;
       return _exhaustive;

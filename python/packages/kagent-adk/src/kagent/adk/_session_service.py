@@ -46,8 +46,14 @@ class KAgentSessionService(BaseSessionService):
             request_data["source"] = state.get("source", "")
 
         # Make API call to create session
+        # Pass user_id as a query param so the controller's auth middleware
+        # (UnsecureAuthenticator) reads it consistently — matching the user_id
+        # used by get_session, list_sessions, delete_session, and append_event.
+        # Without this, unsecure-mode requests fall back to "admin@kagent.dev"
+        # while all lookups use the A2A-derived user_id, causing SessionNotFoundError.
         response = await self.client.post(
             "/api/sessions",
+            params={"user_id": user_id},
             json=request_data,
         )
         response.raise_for_status()

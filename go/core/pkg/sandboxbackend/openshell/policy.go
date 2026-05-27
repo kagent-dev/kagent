@@ -6,6 +6,7 @@ import (
 	sandboxv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/sandboxv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"google.golang.org/protobuf/proto"
 )
@@ -86,9 +87,20 @@ func applyAllowedDomainsPolicy(sbx *v1alpha2.AgentHarness, net map[string]*sandb
 	if sbx != nil && openclaw.IsClawSandboxBackend(sbx.Spec.Backend) {
 		domainList = openclaw.OmitNPMPresetRegistryHosts(domainList)
 	}
-	if rule := allowedDomainsNetworkPolicyRule(domainList); rule != nil {
+	if rule := allowedDomainsNetworkPolicyRuleForHarness(sbx, domainList); rule != nil {
 		net[kagentAllowedDomainsNetworkPolicyKey] = rule
 	}
+}
+
+func allowedDomainsNetworkPolicyRuleForHarness(ah *v1alpha2.AgentHarness, domains []string) *sandboxv1.NetworkPolicyRule {
+	rule := allowedDomainsNetworkPolicyRule(domains)
+	if rule == nil {
+		return nil
+	}
+	if ah != nil && hermes.IsHermesSandboxBackend(ah.Spec.Backend) {
+		rule.Binaries = hermes.AllowedDomainsBinaries()
+	}
+	return rule
 }
 
 // mergeOpenShellSandboxPolicies merges two OpenShell SandboxPolicy fragments for AgentHarness provisioning.
@@ -149,9 +161,12 @@ func openShellSandboxPolicyForAgentHarness(ah *v1alpha2.AgentHarness) *sandboxv1
 		return nil
 	}
 	var pol *sandboxv1.SandboxPolicy
-	if openclaw.IsClawSandboxBackend(ah.Spec.Backend) {
+	switch {
+	case openclaw.IsClawSandboxBackend(ah.Spec.Backend):
 		pol = mergeOpenShellSandboxPolicies(openclaw.BaselineSandboxPolicy(), openclaw.ChannelNetworkPolicyFragment(ah))
-	} else {
+	case hermes.IsHermesSandboxBackend(ah.Spec.Backend):
+		pol = mergeOpenShellSandboxPolicies(hermes.BaselineHermesSandboxPolicy(), hermes.ChannelNetworkPolicyFragment(ah))
+	default:
 		pol = openclaw.ChannelNetworkPolicyFragment(ah)
 	}
 	pol = mergeOpenShellSandboxPolicies(pol, sandboxPolicyFragmentFromNetwork(ah, applyAllowedDomainsPolicy))

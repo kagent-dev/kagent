@@ -18,7 +18,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
-import { agentHarnessTypeLabel, getAgentHarnessBackend, isAgentHarness } from "@/lib/agentHarness";
+import {
+  agentHarnessIcon,
+  agentHarnessTypeLabel,
+  getAgentHarnessBackend,
+  isAgentHarness,
+} from "@/lib/agentHarness";
 import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
 import { cn } from "@/lib/utils";
 
@@ -85,7 +90,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
                 aria-hidden
                 title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellAgentHarness?.backend}
               >
-                🦞
+                {harnessBackend ? agentHarnessIcon(harnessBackend) : "🦞"}
               </span>
             ) : (
               <Terminal className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden />
@@ -174,7 +179,7 @@ export function AgentCard({ agentResponse }: AgentCardProps) {
           namespace: agent.metadata.namespace,
           crName: agent.metadata.name,
           modelConfigRef: agentResponse.modelConfigRef,
-          clawHarness: agentHarness,
+          harnessBackend: harnessBackend,
         })
       : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
 

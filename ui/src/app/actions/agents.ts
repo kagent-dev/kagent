@@ -478,6 +478,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
         description: agentConfig.description || "",
         modelRef: agentConfig.modelName || "",
         openClaw: agentConfig.openClawSandbox,
+        backend: agentConfig.harnessBackend,
       });
       if ("error" in draft) {
         throw new Error(draft.error);
