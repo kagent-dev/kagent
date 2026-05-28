@@ -530,18 +530,28 @@ type A2AConfig struct {
 // AgentSkill describes a specific capability or function of the agent.
 type AgentSkill struct {
 	// ID is the unique identifier for the skill.
+	// +optional
 	ID string `json:"id,omitempty"`
 	// Name is the human-readable name of the skill.
+	// +kubebuilder:validation:MinLength=1
+	// +required
 	Name string `json:"name"`
 	// Description is an optional detailed description of the skill.
+	// +optional
 	Description string `json:"description,omitempty"`
 	// Tags are optional tags for categorization.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
 	Tags []string `json:"tags,omitempty"`
 	// Examples are optional usage examples.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
 	Examples []string `json:"examples,omitempty"`
-	// InputModes are the supported input data modes/types.
+	// InputModes are the supported input MIME types for this skill, overriding the agent's defaults.
+	// +optional
 	InputModes []string `json:"inputModes,omitempty"`
-	// OutputModes are the supported output data modes/types.
+	// OutputModes are the supported output MIME types for this skill, overriding the agent's defaults.
+	// +optional
 	OutputModes []string `json:"outputModes,omitempty"`
 }
 
