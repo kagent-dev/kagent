@@ -245,12 +245,14 @@ controller:
   #   readOnly: true
 
   # -- Custom startup probe for the controller container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Setting a value replaces the default probe entirely — include a handler
+  # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=15, initialDelaySeconds=15
   startupProbe: {}
 
   # -- Custom readiness probe for the controller container.
-  # Override to adjust thresholds, use exec-based probes, or change the health path.
+  # Setting a value replaces the default probe entirely — include a handler
+  # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
 
