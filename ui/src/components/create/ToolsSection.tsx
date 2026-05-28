@@ -184,13 +184,15 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
                       </p>
                     </div>
                     <Button
+                      type="button"
+                      aria-label="Remove tool"
                       variant="ghost"
                       size="sm"
                       className="h-8 w-8 shrink-0 p-0"
                       onClick={() => handleRemoveTool(parentToolIdentifier, mcpToolName)}
                       disabled={isSubmitting}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-4 w-4" aria-hidden />
                     </Button>
                   </div>
                   <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
@@ -242,8 +244,8 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
-                      <X className="h-4 w-4" />
+                    <Button type="button" aria-label="Remove tool" variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
+                      <X className="h-4 w-4" aria-hidden />
                     </Button>
                   </div>
                 </div>
@@ -261,6 +263,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         <div className="flex justify-between items-center">
           <h3 className="text-sm font-medium">Selected Tools and Agents</h3>
           <Button
+            type="button"
             onClick={() => {
               setShowToolSelector(true);
             }}
@@ -282,6 +285,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
               <h4 className="text-lg font-medium mb-2">No tools or agents selected</h4>
               <p className="text-muted-foreground text-sm mb-4">Add tools or agents to enhance your agent</p>
               <Button
+                type="button"
                 onClick={() => {
                   setShowToolSelector(true);
                 }}
