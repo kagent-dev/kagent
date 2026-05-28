@@ -244,6 +244,18 @@ controller:
   #   mountPath: "/etc/foo"
   #   readOnly: true
 
+  # -- Custom startup probe for the controller container.
+  # Setting a value replaces the default probe entirely — include a handler
+  # (httpGet / exec / tcpSocket / grpc) when overriding.
+  # @default -- httpGet /health on port http, periodSeconds=15, initialDelaySeconds=15
+  startupProbe: {}
+
+  # -- Custom readiness probe for the controller container.
+  # Setting a value replaces the default probe entirely — include a handler
+  # (httpGet / exec / tcpSocket / grpc) when overriding.
+  # @default -- httpGet /health on port http, periodSeconds=30
+  readinessProbe: {}
+
 # ==============================================================================
 # UI CONFIGURATION
 # ==============================================================================
