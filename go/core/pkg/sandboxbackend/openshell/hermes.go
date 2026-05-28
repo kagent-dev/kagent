@@ -144,13 +144,8 @@ func (b *HermesBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Ag
 		return fmt.Errorf("start hermes gateway: exit %d: %s", code, strings.TrimSpace(stderr))
 	}
 
-	waitGateway := hermes.GatewayListenWaitScript(hermes.HermesInternalGatewayPort)
-	code, stderr, err = b.ExecSandbox(withAuth(gwCtx, token), execID, []string{"sh", "-c", waitGateway}, nil, execEnv, 45)
-	if err != nil {
+	if err := b.waitHermesGatewayListen(withAuth(gwCtx, token), execID, hermes.HermesInternalGatewayPort, execEnv); err != nil {
 		return fmt.Errorf("wait for hermes gateway listen: %w", err)
-	}
-	if code != 0 {
-		return fmt.Errorf("wait for hermes gateway listen: exit %d: %s", code, strings.TrimSpace(stderr))
 	}
 
 	socatStart := fmt.Sprintf(
@@ -168,6 +163,37 @@ func (b *HermesBackend) OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.Ag
 
 	ctrllog.FromContext(ctx).Info("hermes bootstrap completed", "agentHarness", ah.Namespace+"/"+ah.Name)
 	return nil
+}
+
+func (b *HermesBackend) waitHermesGatewayListen(ctx context.Context, execID string, port int, execEnv map[string]string) error {
+	listenAddr := fmt.Sprintf("127.0.0.1:%d", port)
+	var lastResult ExecSandboxResult
+	for range 30 {
+		result, err := b.ExecSandboxOutput(ctx, execID, []string{"ss", "-tln"}, nil, execEnv, 5)
+		if err != nil {
+			return err
+		}
+		lastResult = result
+		if result.ExitCode != 0 {
+			return fmt.Errorf("ss -tln exit %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+		}
+		if strings.Contains(result.Stdout, listenAddr) {
+			return nil
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf(
+		"timed out after 30s waiting for %s; last ss output: %s; stderr: %s",
+		listenAddr,
+		strings.TrimSpace(lastResult.Stdout),
+		strings.TrimSpace(lastResult.Stderr),
+	)
 }
 
 func buildHermesCreateRequest(ah *v1alpha2.AgentHarness, messagingProviders []string) (*openshellv1.CreateSandboxRequest, []string) {

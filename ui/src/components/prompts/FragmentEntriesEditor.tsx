@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2 } from "lucide-react";
+import { generateId } from "@/lib/utils";
 
 export interface FragmentRow {
   id: string;
@@ -16,10 +17,10 @@ export interface FragmentRow {
 export function rowsFromData(data: Record<string, string>): FragmentRow[] {
   const keys = Object.keys(data);
   if (keys.length === 0) {
-    return [{ id: crypto.randomUUID(), key: "", value: "" }];
+    return [{ id: generateId(), key: "", value: "" }];
   }
   return keys.map((key) => ({
-    id: crypto.randomUUID(),
+    id: generateId(),
     key,
     value: data[key] ?? "",
   }));
@@ -51,11 +52,11 @@ export function FragmentEntriesEditor({
 
   const removeRow = (id: string) => {
     const next = rows.filter((r) => r.id !== id);
-    onRowsChange(next.length > 0 ? next : [{ id: crypto.randomUUID(), key: "", value: "" }]);
+    onRowsChange(next.length > 0 ? next : [{ id: generateId(), key: "", value: "" }]);
   };
 
   const addRow = () => {
-    onRowsChange([...rows, { id: crypto.randomUUID(), key: "", value: "" }]);
+    onRowsChange([...rows, { id: generateId(), key: "", value: "" }]);
   };
 
   return (

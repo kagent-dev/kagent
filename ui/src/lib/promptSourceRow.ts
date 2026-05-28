@@ -1,3 +1,5 @@
+import { generateId } from "@/lib/utils";
+
 export interface PromptSourceRow {
   id: string;
   name: string;
@@ -5,5 +7,5 @@ export interface PromptSourceRow {
 }
 
 export function newPromptSourceRow(): PromptSourceRow {
-  return { id: crypto.randomUUID(), name: "", alias: "" };
+  return { id: generateId(), name: "", alias: "" };
 }

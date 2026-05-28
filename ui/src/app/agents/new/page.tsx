@@ -8,6 +8,7 @@ import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections 
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
+import { generateId } from "@/lib/utils";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
@@ -163,7 +164,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       return {
         ...prev,
         errors: { ...prev.errors, promptSources: undefined },
-        promptSourceRows: [...nonEmpty, { id: crypto.randomUUID(), name: t, alias: "" }],
+        promptSourceRows: [...nonEmpty, { id: generateId(), name: t, alias: "" }],
       };
     });
   }, []);
@@ -208,7 +209,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 const pt = decl?.promptTemplate;
                 const srcRows: PromptSourceRow[] =
                   pt?.dataSources?.map((ds) => ({
-                    id: crypto.randomUUID(),
+                    id: generateId(),
                     name: ds.name || "",
                     alias: ds.alias || "",
                   })) ?? [newPromptSourceRow()];
