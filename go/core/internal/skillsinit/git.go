@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 )
 
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
@@ -64,12 +63,12 @@ func runGitIn(dir string, args ...string) error {
 // content into a sibling tmp dir under the same parent so the final rename is
 // atomic on the same filesystem.
 func applySubPath(dest, subPath string) error {
-	// Defense in depth: refuse traversal even if upstream validation slipped.
-	clean := filepath.Clean(subPath)
-	if filepath.IsAbs(clean) || hasDotDot(clean) {
+	// Defense in depth: filepath.IsLocal rejects absolute paths, ".."
+	// segments, and reserved names — exactly the set we want to refuse.
+	if !filepath.IsLocal(subPath) {
 		return fmt.Errorf("invalid subPath %q", subPath)
 	}
-
+	clean := filepath.Clean(subPath)
 	src := filepath.Join(dest, clean)
 	info, err := os.Stat(src)
 	if err != nil {
@@ -112,24 +111,3 @@ func applySubPath(dest, subPath string) error {
 	return nil
 }
 
-func hasDotDot(p string) bool {
-	return slices.Contains(splitAll(p), "..")
-}
-
-func splitAll(p string) []string {
-	var out []string
-	for p != "" && p != "." && p != "/" {
-		dir, base := filepath.Split(p)
-		if base != "" {
-			out = append([]string{base}, out...)
-		}
-		if dir == p {
-			break
-		}
-		p = filepath.Clean(dir)
-		if p == "." {
-			break
-		}
-	}
-	return out
-}

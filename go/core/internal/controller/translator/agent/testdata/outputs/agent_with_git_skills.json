@@ -151,8 +151,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "9443054578640766875",
-              "kagent.dev/skills-init-hash": "9fa4c702efa19e21"
+              "kagent.dev/config-hash": "16162636769325195580"
             },
             "labels": {
               "app": "kagent",
@@ -258,9 +257,6 @@
             ],
             "initContainers": [
               {
-                "command": [
-                  "/usr/local/bin/skills-init"
-                ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
                 "resources": {

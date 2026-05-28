@@ -203,11 +203,14 @@ func Test_validateSubPath(t *testing.T) {
 		{name: "empty is valid", path: "", wantErr: ""},
 		{name: "simple relative path", path: "skills/k8s", wantErr: ""},
 		{name: "single segment", path: "subdir", wantErr: ""},
-		{name: "absolute path rejected", path: "/etc/passwd", wantErr: "must be relative"},
-		{name: "dotdot at start rejected", path: "../escape", wantErr: "must not contain '..'"},
-		{name: "dotdot in middle rejected", path: "a/../b", wantErr: "must not contain '..'"},
-		{name: "dotdot at end rejected", path: "a/b/..", wantErr: "must not contain '..'"},
-		{name: "bare dotdot rejected", path: "..", wantErr: "must not contain '..'"},
+		{name: "absolute path rejected", path: "/etc/passwd", wantErr: "relative path"},
+		{name: "dotdot at start rejected", path: "../escape", wantErr: "relative path"},
+		{name: "deep traversal rejected", path: "a/../../escape", wantErr: "relative path"},
+		{name: "bare dotdot rejected", path: "..", wantErr: "relative path"},
+		// filepath.IsLocal collapses ".." segments before evaluating: "a/../b" cleans to
+		// "b" and "a/b/.." cleans to "a" — both are safe in-repo subdirs and accepted.
+		{name: "dotdot in middle that cleans to local is ok", path: "a/../b", wantErr: ""},
+		{name: "dotdot at end that cleans to local is ok", path: "a/b/..", wantErr: ""},
 		{name: "dots in name are ok", path: "my.skill/v1.0", wantErr: ""},
 	}
 
@@ -296,7 +299,7 @@ func Test_prepareSkillsInitConfig_pathTraversal(t *testing.T) {
 		nil, nil, false, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must not contain '..'")
+	assert.Contains(t, err.Error(), "relative path")
 }
 
 func Test_prepareSkillsInitConfig_absolutePath(t *testing.T) {
@@ -307,7 +310,7 @@ func Test_prepareSkillsInitConfig_absolutePath(t *testing.T) {
 		nil, nil, false, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be relative")
+	assert.Contains(t, err.Error(), "relative path")
 }
 
 func Test_prepareSkillsInitConfig_authMountPath(t *testing.T) {
@@ -495,9 +498,12 @@ func Test_prepareSkillsInitConfig_preservesInjectionStringsAsData(t *testing.T) 
 // Test_prepareSkillsInitConfig_subPathRejectsInjection covers the SubPath
 // branch with the same battery the original heredoc would have interpolated.
 func Test_prepareSkillsInitConfig_subPathRejectsInjection(t *testing.T) {
+	// "a/../b" is intentionally not in this list: filepath.Clean collapses it
+	// to "b", which is a safe in-repo subdirectory, so we accept it. The
+	// dangerous cases are escaping ".." and absolute paths.
 	cases := []string{
 		"../escape",
-		"a/../b",
+		"a/../../escape",
 		"/etc/passwd",
 	}
 	for _, p := range cases {

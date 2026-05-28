@@ -10,7 +10,7 @@ package main
 
 import (
 	"log"
-	"os"
+	"os/user"
 
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 )
@@ -23,9 +23,17 @@ func main() {
 		log.Fatalf("skills-init: %v", err)
 	}
 
-	home, _ := os.UserHomeDir()
+	// Resolve home from /etc/passwd via the current uid rather than $HOME so
+	// the binary behaves consistently regardless of how the container was
+	// invoked. The image's user is created with a fixed home dir, so this is
+	// deterministic in production and overridable in tests via the user db.
+	u, err := user.Current()
+	if err != nil {
+		log.Fatalf("skills-init: lookup current user: %v", err)
+	}
+	home := u.HomeDir
 	if home == "" {
-		home = "/root"
+		log.Fatalf("skills-init: current user %q has no home directory", u.Username)
 	}
 
 	if err := skillsinit.Run(cfg, home); err != nil {

@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -31,10 +29,20 @@ type manifestContext struct {
 }
 
 type configSecretInputs struct {
-	secret     *corev1.Secret
-	configHash uint64
-	volumes    []corev1.Volume
-	mounts     []corev1.VolumeMount
+	secret  *corev1.Secret
+	volumes []corev1.Volume
+	mounts  []corev1.VolumeMount
+	// hashInput is the byte payload that should be folded into the pod
+	// template's config-hash annotation. Hashing is done by the caller once
+	// all rollout-relevant inputs (including the skills-init ConfigMap) are
+	// known.
+	hashInput configHashInput
+}
+
+type configHashInput struct {
+	agentCfg   []byte
+	agentCard  []byte
+	secretData []byte
 }
 
 type podRuntimeInputs struct {
@@ -80,11 +88,20 @@ func (a *adkApiTranslator) BuildManifest(
 		return nil, err
 	}
 
+	var skillsInitCfg []byte
 	if podRuntime.skillsInitConfigMap != nil {
 		outputs.Manifest = append(outputs.Manifest, podRuntime.skillsInitConfigMap)
+		// Folded into the same rollout-trigger hash as the rest of the pod
+		// config — the PodSpec only names the ConfigMap, so Kubernetes
+		// wouldn't otherwise restart the pod when its rendered config changes.
+		skillsInitCfg = []byte(podRuntime.skillsInitConfigMap.Data[skillsinit.ConfigMapKey])
+	}
+	var configHash uint64
+	if h := configSecret.hashInput; h.agentCfg != nil || h.agentCard != nil || h.secretData != nil || skillsInitCfg != nil {
+		configHash = computeConfigHash(h.agentCfg, h.agentCard, h.secretData, skillsInitCfg)
 	}
 
-	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configSecret.configHash)
+	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configHash)
 
 	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate)
 	if err != nil {
@@ -146,7 +163,7 @@ func (a *adkApiTranslator) buildConfigSecret(
 	cfgJSON := ""
 	agentCard := ""
 	srtSettingsJSON := ""
-	var configHash uint64
+	var hashInput configHashInput
 	var volumes []corev1.Volume
 	var mounts []corev1.VolumeMount
 
@@ -180,7 +197,11 @@ func (a *adkApiTranslator) buildConfigSecret(
 		hashData := make([]byte, 0, len(secretData)+len(srtSettingsJSON))
 		hashData = append(hashData, secretData...)
 		hashData = append(hashData, srtSettingsJSON...)
-		configHash = computeConfigHash([]byte(cfgJSON), []byte(agentCard), hashData)
+		hashInput = configHashInput{
+			agentCfg:   []byte(cfgJSON),
+			agentCard:  []byte(agentCard),
+			secretData: hashData,
+		}
 		volumes = []corev1.Volume{{
 			Name: "config",
 			VolumeSource: corev1.VolumeSource{
@@ -196,9 +217,9 @@ func (a *adkApiTranslator) buildConfigSecret(
 			ObjectMeta: manifestCtx.objectMeta(),
 			StringData: buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON),
 		},
-		configHash: configHash,
-		volumes:    volumes,
-		mounts:     mounts,
+		volumes:   volumes,
+		mounts:    mounts,
+		hashInput: hashInput,
 	}, nil
 }
 
@@ -458,14 +479,6 @@ func buildPodTemplate(
 		podTemplateAnnotations = map[string]string{}
 	}
 	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
-	if cm := runtimeInputs.skillsInitConfigMap; cm != nil {
-		// Hash the rendered config so a content change in the skills-init
-		// ConfigMap triggers a pod rollout — the PodSpec only names the
-		// ConfigMap, so without this annotation Kubernetes would leave the
-		// pod running against stale config.
-		sum := sha256.Sum256([]byte(cm.Data[skillsinit.ConfigMapKey]))
-		podTemplateAnnotations["kagent.dev/skills-init-hash"] = hex.EncodeToString(sum[:8])
-	}
 
 	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent.GetAgentSpec()))
 

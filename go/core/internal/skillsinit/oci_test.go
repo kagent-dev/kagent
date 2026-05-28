@@ -12,13 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test_safeJoin_rejectsEscape covers every shape of tar-entry name that the
-// original `tar xf` pipeline would have happily honored: absolute paths,
-// ".." traversal, and combinations thereof. A malicious skill image is the
-// motivating threat — these names must never produce paths outside dst.
-func Test_safeJoin_rejectsEscape(t *testing.T) {
-	dst := "/tmp/skills/dest"
-
+// Test_tarEntryToLocal_rejectsEscape covers every shape of tar-entry name
+// that the original `tar xf` pipeline would have happily honored: absolute
+// paths, ".." traversal, and combinations thereof. A malicious skill image
+// is the motivating threat — these names must never produce paths outside dst.
+func Test_tarEntryToLocal_rejectsEscape(t *testing.T) {
 	cases := []struct {
 		name    string
 		entry   string
@@ -27,19 +25,19 @@ func Test_safeJoin_rejectsEscape(t *testing.T) {
 		{"plain file", "file.txt", false},
 		{"nested file", "a/b/c.txt", false},
 		{"dot-only", ".", false},
-		{"leading slash stripped", "/file.txt", false}, // joined under dst, not at /
+		{"leading slash stripped", "/file.txt", false}, // re-rooted under dst, not at /
 		{"traversal", "../escape", true},
 		{"traversal mid-path", "a/../../escape", true},
-		{"absolute escape", "/etc/passwd", false}, // safeJoin strips leading "/" but result is dst/etc/passwd which is under dst — that's intentional
+		{"absolute escape", "/etc/passwd", false}, // strips leading "/" so result is dst/etc/passwd — under dst, intentional
 		{"deep traversal", "../../../etc/passwd", true},
 		{"trailing traversal", "a/b/../../..", true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := safeJoin(dst, tc.entry)
+			_, err := tarEntryToLocal(tc.entry)
 			if tc.wantErr {
-				require.Error(t, err, "safeJoin(%q, %q) must reject", dst, tc.entry)
+				require.Error(t, err, "tarEntryToLocal(%q) must reject", tc.entry)
 			} else {
 				require.NoError(t, err)
 			}

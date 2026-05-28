@@ -360,9 +360,9 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				// There should be exactly one init container
 				assert.Len(t, initContainers, 1, "should have exactly one init container")
 
-				// The new binary is invoked with a single argv entry.
-				require.Len(t, skillsInitContainer.Command, 1)
-				assert.Equal(t, "/usr/local/bin/skills-init", skillsInitContainer.Command[0])
+				// Command is intentionally omitted so the image's
+				// ENTRYPOINT is the single source of truth for the binary path.
+				assert.Empty(t, skillsInitContainer.Command, "Command should be unset; ENTRYPOINT carries the binary path")
 
 				cfg := findSkillsInitConfig(t, outputs.Manifest, tt.agent.Name)
 
@@ -592,8 +592,7 @@ func Test_AdkApiTranslator_SkillsImagePullSecrets(t *testing.T) {
 			require.Equal(t, "skills-init", initContainers[0].Name, "the single init container must be skills-init")
 
 			skillsInitContainer := &initContainers[0]
-			require.Len(t, skillsInitContainer.Command, 1)
-			assert.Equal(t, "/usr/local/bin/skills-init", skillsInitContainer.Command[0])
+			assert.Empty(t, skillsInitContainer.Command, "Command should be unset; ENTRYPOINT carries the binary path")
 
 			cfg := findSkillsInitConfig(t, outputs.Manifest, tt.agent.Name)
 

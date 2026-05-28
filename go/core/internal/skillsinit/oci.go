@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -73,14 +74,16 @@ func hostPlatform() (*v1.Platform, error) {
 	return &v1.Platform{OS: "linux", Architecture: arch}, nil
 }
 
-// extractTar writes the tar stream into dst. We refuse entries that escape
-// dst via absolute paths or ".." segments — the old `tar xf` accepted those,
-// and untrusted skill images are exactly the case where that's dangerous.
+// extractTar writes the tar stream into dst. All filesystem operations go
+// through an os.Root anchored at dst, so any path or symlink that would
+// resolve outside dst is rejected by the kernel.
 func extractTar(r io.Reader, dst string) error {
-	dstAbs, err := filepath.Abs(dst)
+	root, err := os.OpenRoot(dst)
 	if err != nil {
-		return err
+		return fmt.Errorf("open root %s: %w", dst, err)
 	}
+	defer root.Close()
+
 	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
@@ -90,23 +93,26 @@ func extractTar(r io.Reader, dst string) error {
 		if err != nil {
 			return err
 		}
-		target, err := safeJoin(dstAbs, hdr.Name)
+		rel, err := tarEntryToLocal(hdr.Name)
 		if err != nil {
-			return err
+			return fmt.Errorf("tar entry %q: %w", hdr.Name, err)
+		}
+		if rel == "" {
+			continue
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)|0o700); err != nil {
+			if err := root.MkdirAll(rel, os.FileMode(hdr.Mode)|0o700); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 				return err
 			}
 			// OCI layers can overwrite read-only files from earlier layers.
 			// Removing first avoids EACCES when O_TRUNC would otherwise fail.
-			_ = os.Remove(target)
-			f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)
+			_ = root.Remove(rel)
+			f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)
 			if err != nil {
 				return err
 			}
@@ -116,20 +122,14 @@ func extractTar(r io.Reader, dst string) error {
 			}
 			f.Close()
 		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 				return err
 			}
-			// Reject symlinks whose target escapes dst.
-			linkTarget := hdr.Linkname
-			if filepath.IsAbs(linkTarget) {
-				return fmt.Errorf("tar entry %q has absolute symlink target %q", hdr.Name, linkTarget)
+			if err := validateSymlinkTarget(hdr.Name, rel, hdr.Linkname); err != nil {
+				return err
 			}
-			resolved := filepath.Clean(filepath.Join(filepath.Dir(target), linkTarget))
-			if !strings.HasPrefix(resolved+string(os.PathSeparator), dstAbs+string(os.PathSeparator)) && resolved != dstAbs {
-				return fmt.Errorf("tar entry %q symlink target %q escapes destination", hdr.Name, linkTarget)
-			}
-			_ = os.Remove(target)
-			if err := os.Symlink(linkTarget, target); err != nil {
+			_ = root.Remove(rel)
+			if err := root.Symlink(hdr.Linkname, rel); err != nil {
 				return err
 			}
 		default:
@@ -138,17 +138,45 @@ func extractTar(r io.Reader, dst string) error {
 	}
 }
 
-func safeJoin(dst, name string) (string, error) {
-	// Ensure the tar entry path is treated as relative so filepath.Join doesn't
-	// discard dst. We still validate after joining to prevent escapes via "..".
-	cleaned := filepath.Clean(name)
-	cleaned = strings.TrimPrefix(cleaned, string(os.PathSeparator))
-	if cleaned == "." {
-		return dst, nil
+// tarEntryToLocal converts a tar header name (always slash-separated, may
+// have a leading "/") into a local OS path that's guaranteed to stay inside
+// the root. Returns "" for the no-op "." / "" entries. Delegates the actual
+// safety check to filepath.Localize, which rejects ".." segments and any
+// path that can't be a relative local path.
+func tarEntryToLocal(name string) (string, error) {
+	// Strip leading "/" — tar convention for "absolute" entries is to re-root
+	// them under the destination, not to escape. Strip trailing "/" too since
+	// tar directory entries carry one and filepath.Localize rejects it.
+	// filepath.Localize then catches ".." traversal and anything else not
+	// locally representable.
+	trimmed := strings.Trim(name, "/")
+	if trimmed == "" || trimmed == "." {
+		return "", nil
 	}
-	target := filepath.Join(dst, cleaned)
-	if !strings.HasPrefix(target+string(os.PathSeparator), dst+string(os.PathSeparator)) && target != dst {
-		return "", fmt.Errorf("tar entry %q escapes destination", name)
+	local, err := filepath.Localize(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("escapes destination: %w", err)
 	}
-	return target, nil
+	return local, nil
 }
+
+// validateSymlinkTarget rejects symlinks whose target would resolve outside
+// the root. os.Root.Symlink itself only creates the link verbatim — it does
+// not enforce that the target stays in-root — so we have to check here.
+func validateSymlinkTarget(entryName, linkPath, linkTarget string) error {
+	if filepath.IsAbs(linkTarget) {
+		return fmt.Errorf("tar entry %q has absolute symlink target %q", entryName, linkTarget)
+	}
+	// Resolve link target relative to the link's *directory*. We use slash-
+	// based path.Join + path.Clean because tar names are slash-separated and
+	// the result is then validated as a single relative path.
+	resolved := path.Join(filepath.ToSlash(filepath.Dir(linkPath)), filepath.ToSlash(linkTarget))
+	if resolved == "" || resolved == "." {
+		return nil
+	}
+	if !filepath.IsLocal(filepath.FromSlash(resolved)) {
+		return fmt.Errorf("tar entry %q symlink target %q escapes destination", entryName, linkTarget)
+	}
+	return nil
+}
+

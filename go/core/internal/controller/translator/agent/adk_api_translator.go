@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -1004,11 +1006,12 @@ func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (tar
 	return targetURL, updatedHeaders, nil
 }
 
-func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
+func computeConfigHash(agentCfg, agentCard, secretData, skillsInitCfg []byte) uint64 {
 	hasher := sha256.New()
 	hasher.Write(agentCfg)
 	hasher.Write(agentCard)
 	hasher.Write(secretData)
+	hasher.Write(skillsInitCfg)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
 }
@@ -1177,7 +1180,7 @@ func validateSkillName(name string) error {
 		return fmt.Errorf("skill name is empty")
 	}
 	if name == "." || name == ".." {
-		return fmt.Errorf("skill name %q is reserved", name)
+		return fmt.Errorf("skill name %q is not a valid directory name", name)
 	}
 	if !validSkillNamePattern.MatchString(name) {
 		return fmt.Errorf("skill name %q must match %s", name, validSkillNamePattern)
@@ -1190,11 +1193,10 @@ func validateSubPath(p string) error {
 	if p == "" {
 		return nil
 	}
-	if path.IsAbs(p) {
-		return fmt.Errorf("skill subPath must be relative, got %q", p)
-	}
-	if slices.Contains(strings.Split(p, "/"), "..") {
-		return fmt.Errorf("skill subPath must not contain '..', got %q", p)
+	// filepath.IsLocal rejects absolute paths, ".." segments, and anything
+	// else that can't be a local relative path — exactly the threat model here.
+	if !filepath.IsLocal(p) {
+		return fmt.Errorf("skill subPath must be a relative path without '..' segments, got %q", p)
 	}
 	return nil
 }
@@ -1318,6 +1320,18 @@ func SkillsInitConfigMapName(agentName string) string {
 	return agentName + SkillsInitConfigMapSuffix
 }
 
+// validateSkillsInitConfigMapName enforces the K8s DNS-1123 subdomain rules
+// on the derived ConfigMap name. Agent names are already constrained by the
+// CRD, but the suffix can push borderline names over the 253-char limit, so
+// we fail fast here with a clear message rather than letting the apiserver
+// reject the eventual write.
+func validateSkillsInitConfigMapName(name string) error {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return fmt.Errorf("derived skills-init ConfigMap name %q is invalid: %s", name, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 // buildSkillsInitContainer assembles the init container, its volumes, and the
 // ConfigMap holding its JSON configuration. The container runs a kagent-owned
 // Go binary that consumes the ConfigMap; no shell is involved, so
@@ -1353,6 +1367,9 @@ func buildSkillsInitContainer(
 	}
 
 	cmName := SkillsInitConfigMapName(agentName)
+	if err := validateSkillsInitConfigMapName(cmName); err != nil {
+		return nil, nil, nil, err
+	}
 	configMap = &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
@@ -1415,10 +1432,11 @@ func buildSkillsInitContainer(
 		})
 	}
 
+	// Command is intentionally omitted: the skills-init image's ENTRYPOINT
+	// is the single source of truth for the binary path.
 	skillsInitContainer := corev1.Container{
 		Name:            "skills-init",
 		Image:           DefaultSkillsInitImageConfig.Image(),
-		Command:         []string{"/usr/local/bin/skills-init"},
 		VolumeMounts:    volumeMounts,
 		SecurityContext: initSecCtx,
 		Env:             envVars,
