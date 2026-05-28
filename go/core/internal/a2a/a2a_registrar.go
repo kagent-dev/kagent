@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -42,9 +41,6 @@ func NewA2ARegistrar(
 	a2aBaseUrl string,
 	sandboxA2ABaseURL string,
 	authenticator auth.AuthProvider,
-	_ int,
-	_ int,
-	_ time.Duration,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
 		return nil, fmt.Errorf("clientRegistry must not be nil")
@@ -170,7 +166,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		// Keep legacy fallback during rollout so old agent pods continue to serve traffic.
 		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
 		a2aclient.WithJSONRPCTransport(httpClient),
-		// TODO(cleanup): Remove the compat transport after legacy runtimes are unsupported.
+		// TODO(0.11.0): Remove the compat transport after legacy runtimes are unsupported.
 		a2aclient.WithCompatTransport(
 			a2atype.ProtocolVersion("0.3"),
 			a2atype.TransportProtocolJSONRPC,
@@ -204,19 +200,22 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	return nil
 }
 
+// debugHTTPClient returns nil in normal operation, letting the a2aclient SDK apply its
+// default 3-minute request timeout. In debug mode it overrides the dial target so all
+// A2A traffic is redirected to a fixed address (e.g. a local proxy).
 func debugHTTPClient() *http.Client {
 	debugAddr := env.KagentA2ADebugAddr.Get()
-	if debugAddr != "" {
-		client := new(http.Client)
-		client.Transport = &http.Transport{
+	if debugAddr == "" {
+		return nil
+	}
+	return &http.Client{
+		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
-		}
-		return client
+		},
 	}
-	return &http.Client{}
 }
 
 func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {

@@ -60,7 +60,6 @@ func (a *handlerMux) SetAgentHandler(
 	card a2atype.AgentCard,
 	tracing middleware,
 ) error {
-	// TODO(cleanup): Replace this protocol mux with the standard v1 handler stack once legacy clients/runtimes are unsupported.
 	requestHandler := NewPassthroughRequestHandler(client, &card)
 	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
 	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)

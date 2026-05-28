@@ -10,6 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// staticHeadersInterceptor injects agent-level static headers (e.g. API keys, tenant IDs)
+// into every outgoing A2A call. Headers are fixed at construction time so they are never
+// re-resolved per request, which makes the interceptor safe for concurrent calls.
+// Currently this is only used for testing in invoke_api_test.go
 type staticHeadersInterceptor struct {
 	a2aclient.PassthroughInterceptor
 	headers map[string]string
@@ -28,6 +32,11 @@ func (s *staticHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Re
 	return ctx, nil, nil
 }
 
+// upstreamAuthInterceptor applies per-request auth when the controller proxies an A2A call
+// to a managed agent. Auth must be evaluated per request because the session principal is only
+// available in the call context, not at agent registration time. It also propagates W3C
+// TraceContext so distributed traces span across the controller→agent hop without agents
+// needing to handle propagation themselves.
 type upstreamAuthInterceptor struct {
 	a2aclient.PassthroughInterceptor
 	authProvider auth.AuthProvider

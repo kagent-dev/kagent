@@ -40,7 +40,7 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 			card.Skills = append(card.Skills, a2atype.AgentSkill{
 				ID:          skill.ID,
 				Name:        skill.Name,
-				Description: derefString(skill.Description),
+				Description: skill.Description,
 				Tags:        skill.Tags,
 				Examples:    skill.Examples,
 				InputModes:  skill.InputModes,
@@ -49,11 +49,4 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 		}
 	}
 	return &card
-}
-
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
