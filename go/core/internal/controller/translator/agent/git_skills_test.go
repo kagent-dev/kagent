@@ -369,7 +369,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				if tt.wantContainsBranch != "" {
 					found := false
 					for _, g := range cfg.GitRefs {
-						if g.Ref == tt.wantContainsBranch && !g.IsCommit {
+						if g.Ref == tt.wantContainsBranch && !g.Full {
 							found = true
 						}
 					}
@@ -379,7 +379,7 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				if tt.wantContainsCommit != "" {
 					found := false
 					for _, g := range cfg.GitRefs {
-						if g.Ref == tt.wantContainsCommit && g.IsCommit {
+						if g.Ref == tt.wantContainsCommit && g.Full {
 							found = true
 						}
 					}

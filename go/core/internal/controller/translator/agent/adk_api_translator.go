@@ -1276,11 +1276,11 @@ func prepareSkillsInitConfig(
 		}
 
 		cfg.GitRefs = append(cfg.GitRefs, skillsinit.GitRef{
-			URL:      ref.URL,
-			Ref:      gitRef,
-			Dest:     skillsinit.SkillsDir + "/" + name,
-			IsCommit: isCommitSHA(gitRef),
-			SubPath:  subPath,
+			URL:     ref.URL,
+			Ref:     gitRef,
+			Dest:    skillsinit.SkillsDir + "/" + name,
+			Full:    isCommitSHA(gitRef),
+			SubPath: subPath,
 		})
 	}
 

@@ -12,20 +12,20 @@ import (
 // exec.Command — they never pass through a shell, so metacharacters in any of
 // them are inert.
 //
-// When ref.IsCommit is true we do a full clone then `git checkout <sha>`,
+// When ref.Full is true we do a full clone then `git checkout <sha>`,
 // because shallow `--branch` does not accept commit SHAs. When false we use a
 // depth-1 branch/tag clone.
 //
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
 func CloneGit(ref GitRef) error {
-	if ref.IsCommit {
+	if ref.Full {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
 		}
 		// `--` separator prevents a ref starting with `-` from being parsed
 		// as a flag. Refs are already validated upstream as 40-char hex when
-		// IsCommit is true, but defense in depth costs nothing.
+		// Full is true, but defense in depth costs nothing.
 		if err := runGitIn(ref.Dest, "checkout", "--", ref.Ref); err != nil {
 			return err
 		}

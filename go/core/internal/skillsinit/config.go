@@ -55,11 +55,13 @@ type Config struct {
 // GitRef describes a single git clone operation.
 type GitRef struct {
 	URL string `json:"url"`
-	// Ref is a branch name, tag, or commit SHA. When IsCommit is true a
-	// full clone + checkout is used; otherwise a shallow --branch clone.
-	Ref      string `json:"ref"`
-	Dest     string `json:"dest"`
-	IsCommit bool   `json:"isCommit,omitempty"`
+	// Ref is a branch name, tag, or commit SHA.
+	Ref  string `json:"ref"`
+	Dest string `json:"dest"`
+	// Full requests a full (non-shallow) clone followed by `git checkout`.
+	// Set when Ref is a commit SHA, since shallow `--branch` does not accept
+	// SHAs. The default (false) is a depth-1 branch/tag clone.
+	Full bool `json:"full,omitempty"`
 	// SubPath, if set, names a subdirectory inside the clone that becomes
 	// the final skill root.
 	SubPath string `json:"subPath,omitempty"`

@@ -93,7 +93,7 @@
     },
     {
       "data": {
-        "config.json": "{\"authMountPath\":\"/git-auth\",\"gitRefs\":[{\"url\":\"https://github.com/org/my-skills\",\"ref\":\"v2.0.0\",\"dest\":\"/skills/k8s-skill\",\"subPath\":\"skills/k8s\"},{\"url\":\"https://github.com/org/another-skill\",\"ref\":\"abc123def456abc123def456abc123def456abc1\",\"dest\":\"/skills/another-skill\",\"isCommit\":true},{\"url\":\"https://github.com/org/private-skill\",\"ref\":\"main\",\"dest\":\"/skills/private-skill\"}],\"ociRefs\":[{\"image\":\"ghcr.io/org/oci-skill:v1.0\",\"dest\":\"/skills/oci-skill\"}]}"
+        "config.json": "{\"authMountPath\":\"/git-auth\",\"gitRefs\":[{\"url\":\"https://github.com/org/my-skills\",\"ref\":\"v2.0.0\",\"dest\":\"/skills/k8s-skill\",\"subPath\":\"skills/k8s\"},{\"url\":\"https://github.com/org/another-skill\",\"ref\":\"abc123def456abc123def456abc123def456abc1\",\"dest\":\"/skills/another-skill\",\"full\":true},{\"url\":\"https://github.com/org/private-skill\",\"ref\":\"main\",\"dest\":\"/skills/private-skill\"}],\"ociRefs\":[{\"image\":\"ghcr.io/org/oci-skill:v1.0\",\"dest\":\"/skills/oci-skill\"}]}"
       },
       "metadata": {
         "name": "git-skills-agent-skills-init",
@@ -151,7 +151,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16162636769325195580"
+              "kagent.dev/config-hash": "10322571574088408977"
             },
             "labels": {
               "app": "kagent",
