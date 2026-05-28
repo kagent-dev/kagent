@@ -5,21 +5,20 @@ import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { deleteAgent } from "@/app/actions/agents";
-import { useAgents } from "./AgentsProvider";
 
 interface DeleteButtonProps {
   agentName: string;
   namespace: string;
   disabled?: boolean;
+  onDeleted?: () => Promise<void> | void;
   /** When provided, the button is hidden and the dialog is controlled externally. */
   externalOpen?: boolean;
   onExternalOpenChange?: (open: boolean) => void;
 }
 
-export function DeleteButton({ agentName, namespace, disabled = false, externalOpen, onExternalOpenChange }: DeleteButtonProps) {
+export function DeleteButton({ agentName, namespace, disabled = false, onDeleted, externalOpen, onExternalOpenChange }: DeleteButtonProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { refreshAgents } = useAgents();
 
   const isControlled = externalOpen !== undefined;
   const isOpen = isControlled ? externalOpen : internalOpen;
@@ -33,9 +32,12 @@ export function DeleteButton({ agentName, namespace, disabled = false, externalO
 
     try {
       setIsDeleting(true);
-      await deleteAgent(agentName, namespace);
+      const result = await deleteAgent(agentName, namespace);
+      if (result.error) {
+        throw new Error(result.error);
+      }
 
-      await refreshAgents();
+      await onDeleted?.();
     } catch (error) {
       console.error("Error deleting agent:", error);
     } finally {
