@@ -1218,8 +1218,9 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 	}
 	require.True(t, foundSecretMount, "skills-init should mount the pull secret volume")
 
-	require.Len(t, skillsInit.Command, 1)
-	require.Equal(t, "/usr/local/bin/skills-init", skillsInit.Command[0])
+	// Command is intentionally unset; the skills-init image's ENTRYPOINT is
+	// the single source of truth for the binary path.
+	require.Empty(t, skillsInit.Command, "skills-init Command must be empty so ENTRYPOINT runs")
 
 	// The skills-init binary reads its config from a ConfigMap; verify it
 	// lists each imagePullSecret so the binary will merge their auths.
