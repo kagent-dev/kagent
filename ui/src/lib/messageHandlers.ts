@@ -5,26 +5,27 @@ import type {
   Part,
   StreamResponse,
 } from "@a2a-js/sdk";
-import { TaskState, Role, Message, roleFromJSON } from "@a2a-js/sdk";
+import { TaskState, Role, Message, roleFromJSON, taskStateFromJSON } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, isAgentToolName, a2aPartUtils } from "@/lib/utils";
 import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
-function isInputRequiredState(state: TaskState | undefined): boolean {
-  return state === TaskState.TASK_STATE_INPUT_REQUIRED;
+function isInputRequiredState(state: TaskState | string | undefined): boolean {
+  return taskStateFromJSON(state) === TaskState.TASK_STATE_INPUT_REQUIRED;
 }
 
 function isUserRole(role: Role | string | number | undefined): boolean {
   return roleFromJSON(role) === Role.ROLE_USER;
 }
 
-function isTerminalState(state: TaskState | undefined): boolean {
+function isTerminalState(state: TaskState | string | undefined): boolean {
+  const normalized = taskStateFromJSON(state);
   return (
-    state === TaskState.TASK_STATE_COMPLETED ||
-    state === TaskState.TASK_STATE_FAILED ||
-    state === TaskState.TASK_STATE_CANCELED ||
-    state === TaskState.TASK_STATE_REJECTED
+    normalized === TaskState.TASK_STATE_COMPLETED ||
+    normalized === TaskState.TASK_STATE_FAILED ||
+    normalized === TaskState.TASK_STATE_CANCELED ||
+    normalized === TaskState.TASK_STATE_REJECTED
   );
 }
 
@@ -219,7 +220,7 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
     const status = task.status;
     if (!isInputRequiredState(status?.state) || !status?.message) continue;
 
-    const confirmationParts = findConfirmationParts(status.message as Message);
+    const confirmationParts = findConfirmationParts(Message.fromJSON(status.message));
     if (confirmationParts.length === 0) continue;
 
     for (const confPart of confirmationParts) {
@@ -256,7 +257,7 @@ function findDecisionAfterIndex(
   startIndex: number
 ): Record<string, unknown> | undefined {
   for (let i = startIndex + 1; i < history.length; i++) {
-    const item = history[i];
+    const item = Message.fromJSON(history[i]);
     if (!isUserRole(item.role) || !item.parts) continue;
     for (const p of item.parts) {
       if (!isDataPart(p)) continue;
@@ -418,7 +419,7 @@ export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   let total = 0, prompt = 0, completion = 0;
   for (const task of tasks) {
     for (const item of task.history ?? []) {
-      const msg = item as { role?: number; metadata?: Record<string, unknown>; parts?: Part[] };
+      const msg = Message.fromJSON(item);
       if (isUserRole(msg.role)) continue;
 
       // Message-level usage (most agent messages carry this).

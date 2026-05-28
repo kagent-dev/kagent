@@ -54,7 +54,7 @@ class KAgentApp:
         self.tracing = tracing
 
     def build(self) -> FastAPI:
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        http_client = httpx.AsyncClient(base_url=self.config.url, headers={"A2A-Version": "1.0"})
 
         agent_executor = CrewAIAgentExecutor(
             crew=self._crew,

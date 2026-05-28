@@ -62,7 +62,7 @@ class KAgentTaskStore(TaskStore):
 
         response = await self.client.post(
             "/api/tasks",
-            json=MessageToDict(task, preserving_proto_field_name=True),
+            json=MessageToDict(task),
         )
         response.raise_for_status()
 

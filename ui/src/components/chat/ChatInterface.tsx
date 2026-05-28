@@ -30,7 +30,7 @@ import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Role, TaskState } from "@a2a-js/sdk";
+import { Role, TaskState, taskStateFromJSON } from "@a2a-js/sdk";
 import type { Message, Task, StreamResponse } from "@a2a-js/sdk";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
@@ -179,7 +179,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             // Check for a task still actively running (not input-required, not terminal).
             // input-required is excluded: it needs the approval UI, not a stream.
             activeTask = messagesResponse.data.findLast(
-              task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+              task => RESUBSCRIBE_TASK_STATES.includes(taskStateFromJSON(task.status?.state))
             );
           }
         }
@@ -194,7 +194,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setIsLoading(false);
 
       if (activeTask) {
-        setChatStatus(mapA2AStateToStatus(activeTask.status?.state as TaskState));
+        setChatStatus(mapA2AStateToStatus(activeTask.status?.state));
         await streamResubscribedTask(activeTask.id);
       }
     }

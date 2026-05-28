@@ -28,6 +28,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
         ...authHeaders,
         "Content-Type": "application/json",
         Accept: "application/json",
+        "A2A-Version": "1.0",
         ...options.headers,
       },
       signal: AbortSignal.timeout(30000), // 30 second timeout

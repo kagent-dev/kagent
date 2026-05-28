@@ -115,6 +115,7 @@ func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2a
 		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to create save request: %w", err)
 	}
 	req.Header.Set(headerContentType, contentTypeJSON)
+	req.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
@@ -149,6 +150,7 @@ func (s *KAgentTaskStore) Get(ctx context.Context, taskID a2atype.TaskID) (*a2at
 	if err != nil {
 		return nil, fmt.Errorf("failed to create get request: %w", err)
 	}
+	req.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
 
 	resp, err := s.Client.Do(req)
 	if err != nil {

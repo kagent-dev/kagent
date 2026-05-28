@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
-import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER, Message } from "@a2a-js/sdk";
-import type { Message as A2AMessage, StreamResponse } from "@a2a-js/sdk";
+import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER, Message, StreamResponse } from "@a2a-js/sdk";
+import type { Message as A2AMessage } from "@a2a-js/sdk";
 import { formatA2AClientError } from './a2aErrors';
 
 // A2A JSON-RPC methods
@@ -184,7 +184,7 @@ export class KagentA2AClient {
                   const err = eventData.error as { code?: number; message?: string };
                   throw new Error(`A2A error ${err.code ?? "unknown"}: ${err.message ?? "unknown error"}`);
                 }
-                yield (eventData.result || eventData) as StreamResponse;
+                yield StreamResponse.fromJSON(eventData.result || eventData);
               }
             }
           }

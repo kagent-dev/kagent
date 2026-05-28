@@ -121,6 +121,7 @@ class KAgentApp:
         # Create HTTP client with KAgent backend
         http_client = httpx.AsyncClient(
             base_url=kagent_url_override or self.config.kagent_url,
+            headers={"A2A-Version": "1.0"},
         )
 
         # Create session factory

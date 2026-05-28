@@ -205,8 +205,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		// 9. Emit initial events.
 		if reqCtx.StoredTask == nil {
-			// New task — emit submitted with the user's message
-			submitted := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateSubmitted, reqCtx.Message)
+			// New task — first event must be a *Task (not *TaskStatusUpdateEvent).
+			submitted := a2atype.NewSubmittedTask(reqCtx, reqCtx.Message)
 			if !yield(submitted, nil) {
 				return
 			}
