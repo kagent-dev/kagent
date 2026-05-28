@@ -239,7 +239,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		ctx,
 		card.SupportedInterfaces,
 		a2aclient.WithJSONRPCTransport(httpClient),
-		// TODO(0.11.0): Remove the compat transport after legacy runtimes are unsupported.
+		// TODO(0.12.0): Remove the compat transport after legacy runtimes are unsupported.
 		a2aclient.WithCompatTransport(
 			a2atype.ProtocolVersion("0.3"),
 			a2atype.TransportProtocolJSONRPC,

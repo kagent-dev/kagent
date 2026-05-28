@@ -242,10 +242,9 @@ func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	// TODO(0.11.0): Uncomment these lines to set v1 header after 0.11.0 to test v1 clients after migration
-	// if _, ok := headers["A2A-Version"]; !ok {
-	// 	headers["A2A-Version"] = string(a2atype.Version)
-	// }
+	if _, ok := headers["A2A-Version"]; !ok {
+		headers["A2A-Version"] = string(a2atype.Version)
+	}
 
 	// Use NewFromEndpoints with the explicit base URL rather than NewFromCard:
 	// the card's SupportedInterfaces contain the controller's internal cluster URL,
