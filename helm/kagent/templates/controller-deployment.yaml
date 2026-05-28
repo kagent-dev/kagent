@@ -103,17 +103,27 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.controller.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.controller.startupProbe | nindent 12 }}
+          {{- else }}
           startupProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 15
             initialDelaySeconds: 15
+          {{- end }}
+          {{- if .Values.controller.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.controller.readinessProbe | nindent 12 }}
+          {{- else }}
           readinessProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 30
+          {{- end }}
           {{- if gt (len .Values.controller.volumeMounts) 0 }}
           volumeMounts:
             {{- with .Values.controller.volumeMounts }}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -22,7 +23,7 @@ type SecretsCfg struct {
 	ProjectDir string
 }
 
-func SyncSecretsMcp(cfg *SecretsCfg, environment string) error {
+func SyncSecretsMcp(ctx context.Context, cfg *SecretsCfg, environment string) error {
 	// Determine project root
 	projectRoot := cfg.ProjectDir
 	if projectRoot == "" {
@@ -109,10 +110,10 @@ func SyncSecretsMcp(cfg *SecretsCfg, environment string) error {
 	}
 
 	// Apply to cluster
-	return applySecretToCluster(secret)
+	return applySecretToCluster(ctx, secret)
 }
 
-func applySecretToCluster(secret *corev1.Secret) error {
+func applySecretToCluster(ctx context.Context, secret *corev1.Secret) error {
 	// Get kubeconfig
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -125,18 +126,25 @@ func applySecretToCluster(secret *corev1.Secret) error {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
-	// Check if secret exists
-	_, err = clientset.CoreV1().Secrets(secret.Namespace).Get(context.TODO(), secret.Name, metav1.GetOptions{})
-	if err != nil {
-		// Create if it doesn't exist
-		_, err = clientset.CoreV1().Secrets(secret.Namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
+	// Check if secret exists. Branch on IsNotFound so RBAC, network, or
+	// context-cancellation failures from Get aren't silently treated as
+	// "secret does not exist" and don't fall through to a Create that masks
+	// the real error.
+	existing, err := clientset.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		_, err = clientset.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create secret: %w", err)
 		}
 		fmt.Printf("✅ Secret '%s' created in namespace '%s'.\n", secret.Name, secret.Namespace)
-	} else {
-		// Update if it exists
-		_, err = clientset.CoreV1().Secrets(secret.Namespace).Update(context.TODO(), secret, metav1.UpdateOptions{})
+	case err != nil:
+		return fmt.Errorf("failed to get secret: %w", err)
+	default:
+		// Update requires the live resourceVersion from the existing object;
+		// the Secret we built from .env has none.
+		secret.ResourceVersion = existing.ResourceVersion
+		_, err = clientset.CoreV1().Secrets(secret.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update secret: %w", err)
 		}
