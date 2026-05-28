@@ -179,4 +179,3 @@ func validateSymlinkTarget(entryName, linkPath, linkTarget string) error {
 	}
 	return nil
 }
-

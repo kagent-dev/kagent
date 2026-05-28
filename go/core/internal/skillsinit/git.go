@@ -110,4 +110,3 @@ func applySubPath(dest, subPath string) error {
 	cleanupTmp = ""
 	return nil
 }
-
