@@ -54,8 +54,9 @@ func TestRunMigratesA2AData(t *testing.T) {
 	if stats.TasksMigrated != 1 || stats.PushNotificationsMigrated != 1 {
 		t.Fatalf("stats = %+v", stats)
 	}
-	assertProtocolVersion(t, db, "task", "task-1", ptr("1.0"))
-	assertProtocolVersion(t, db, "push_notification", "push-1", ptr("1.0"))
+	wantV1 := trpcv0.ProtocolVersionV1
+	assertProtocolVersion(t, db, "task", "task-1", &wantV1)
+	assertProtocolVersion(t, db, "push_notification", "push-1", &wantV1)
 	assertTaskLooksV1(t, db)
 	assertPushNotificationLooksV1(t, db)
 
@@ -151,8 +152,4 @@ func mustMarshalLegacyFixture(t *testing.T, fixture any) []byte {
 		t.Fatalf("marshal legacy fixture: %v", err)
 	}
 	return data
-}
-
-func ptr(s string) *string {
-	return &s
 }

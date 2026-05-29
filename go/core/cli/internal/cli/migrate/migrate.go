@@ -17,7 +17,6 @@ type A2ADataOptions struct {
 	PostgresDatabaseURLFile string
 	BatchSize               int
 	DryRun                  bool
-	ConfirmBackup           bool
 }
 
 func NewCommand() *cobra.Command {
@@ -39,14 +38,8 @@ func newA2ADataCommand() *cobra.Command {
 		Use:   "a2a-v1",
 		Short: "Migrate stored A2A task and push notification data to v1",
 		Long: `Migrate stored A2A task and push notification JSON blobs from the legacy
-trpc-a2a-go shape to the official A2A v1 shape.
-
-Stop kagent services and take a database backup before running without --dry-run.`,
+trpc-a2a-go shape to the official A2A v1 shape. Take a database backup before running without --dry-run.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !opts.DryRun && !opts.ConfirmBackup {
-				return fmt.Errorf("refusing to migrate without --confirm-backup; run --dry-run first and confirm a database backup exists")
-			}
-
 			url, err := database.ResolveURL(opts.PostgresDatabaseURL, opts.PostgresDatabaseURLFile)
 			if err != nil {
 				return err
@@ -73,8 +66,8 @@ Stop kagent services and take a database backup before running without --dry-run
 				rowVerb = "would migrate"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "A2A data migration complete (%s):\n", mode)
-			fmt.Fprintf(cmd.OutOrStdout(), "  tasks: %d %s, %d skipped\n", stats.TasksMigrated, rowVerb, stats.TasksSkipped)
-			fmt.Fprintf(cmd.OutOrStdout(), "  push notifications: %d %s, %d skipped\n", stats.PushNotificationsMigrated, rowVerb, stats.PushNotificationsSkipped)
+			fmt.Fprintf(cmd.OutOrStdout(), "  tasks: %d %s, %d skipped, %d failed\n", stats.TasksMigrated, rowVerb, stats.TasksSkipped, stats.TasksFailed)
+			fmt.Fprintf(cmd.OutOrStdout(), "  push notifications: %d %s, %d skipped, %d failed\n", stats.PushNotificationsMigrated, rowVerb, stats.PushNotificationsSkipped, stats.PushNotificationsFailed)
 			fmt.Fprintf(cmd.OutOrStdout(), "  already v1: %d\n", stats.AlreadyV1)
 			return nil
 		},
@@ -84,6 +77,5 @@ Stop kagent services and take a database backup before running without --dry-run
 	cmd.Flags().StringVar(&opts.PostgresDatabaseURLFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	cmd.Flags().IntVar(&opts.BatchSize, "batch-size", opts.BatchSize, "Number of legacy rows to process per batch.")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Convert rows and report counts without writing changes.")
-	cmd.Flags().BoolVar(&opts.ConfirmBackup, "confirm-backup", false, "Confirm that kagent is stopped and a database backup exists.")
 	return cmd
 }

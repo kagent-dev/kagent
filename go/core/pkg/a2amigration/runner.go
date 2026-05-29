@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
@@ -21,8 +22,10 @@ type Options struct {
 type Stats struct {
 	TasksMigrated             int
 	TasksSkipped              int
+	TasksFailed               int
 	PushNotificationsMigrated int
 	PushNotificationsSkipped  int
+	PushNotificationsFailed   int
 	AlreadyV1                 int
 }
 
@@ -59,6 +62,7 @@ WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
 	}
 	stats.TasksMigrated = taskStats.migrated
 	stats.TasksSkipped = taskStats.skipped
+	stats.TasksFailed = taskStats.failed
 
 	pushStats, err := migrateTable(ctx, db, tableConfig{
 		name: "push_notification",
@@ -78,6 +82,7 @@ WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
 	}
 	stats.PushNotificationsMigrated = pushStats.migrated
 	stats.PushNotificationsSkipped = pushStats.skipped
+	stats.PushNotificationsFailed = pushStats.failed
 
 	return stats, nil
 }
@@ -92,6 +97,7 @@ type tableConfig struct {
 type tableStats struct {
 	migrated int
 	skipped  int
+	failed   int
 }
 
 func migrateTable(ctx context.Context, db *pgxpool.Pool, cfg tableConfig, opts Options) (tableStats, error) {
@@ -127,7 +133,9 @@ func migrateTable(ctx context.Context, db *pgxpool.Pool, cfg tableConfig, opts O
 			lastID = row.id
 			converted, err := cfg.convert(row.data)
 			if err != nil {
-				return stats, fmt.Errorf("convert %s row %s: %w", cfg.name, row.id, err)
+				log.Printf("skipping %s row %s: conversion failed: %v", cfg.name, row.id, err)
+				stats.failed++
+				continue
 			}
 			if opts.DryRun {
 				stats.migrated++

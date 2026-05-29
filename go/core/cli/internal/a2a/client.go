@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"time"
 
@@ -23,9 +24,7 @@ type ClientOptions struct {
 // of constructing the endpoint URL directly from the user's config.
 func NewClient(ctx context.Context, baseURL string, opts ClientOptions) (*a2aclient.Client, error) {
 	headers := make(map[string]string, len(opts.Headers)+1)
-	for k, v := range opts.Headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, opts.Headers)
 	if _, ok := headers[a2atype.SvcParamVersion]; !ok {
 		headers[a2atype.SvcParamVersion] = string(a2atype.Version)
 	}

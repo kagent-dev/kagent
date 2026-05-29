@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/utils"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/muesli/reflow/wordwrap"

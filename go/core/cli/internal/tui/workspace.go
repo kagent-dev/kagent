@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -17,12 +18,11 @@ import (
 	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/dialogs"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/keys"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
