@@ -496,3 +496,74 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
+
+  - it: should use default httpGet startup probe
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 15
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
+          value: 15
+
+  - it: should use default httpGet readiness probe
+    template: controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 30
+
+  - it: should allow overriding startup probe
+    template: controller-deployment.yaml
+    set:
+      controller:
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 20
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.timeoutSeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 20
+
+  - it: should allow overriding readiness probe
+    template: controller-deployment.yaml
+    set:
+      controller:
+        readinessProbe:
+          exec:
+            command: ["wget", "-q", "-O-", "http://localhost:8083/health"]
+          periodSeconds: 60
+          timeoutSeconds: 10
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          value: ["wget", "-q", "-O-", "http://localhost:8083/health"]
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 60
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
