@@ -30,10 +30,12 @@ export default function ModelsPage() {
     try {
       setLoading(true);
       const response = await getModelConfigs();
-      if (response.error || !response.data) {
-        throw new Error(response.error || "Failed to fetch models");
+      if (response.error) {
+        throw new Error(response.error);
       }
-      setModels(response.data);
+      // An empty list is valid (no ModelConfigs deployed). The backend omits
+      // `data` for empty collections, so treat missing data as an empty list.
+      setModels(response.data ?? []);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch models";
       setError(errorMessage);
