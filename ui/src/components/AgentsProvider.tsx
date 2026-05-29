@@ -125,11 +125,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchModels = useCallback(async () => {
     try {
       const response = await getModelConfigs();
-      if (!response.data || response.error) {
-        throw new Error(response.error || "Failed to fetch models");
+      if (response.error) {
+        throw new Error(response.error);
       }
 
-      setModels(response.data);
+      // An empty list is a valid result (e.g. no ModelConfigs deployed). The
+      // backend omits `data` for empty collections (json omitempty), so treat
+      // missing data as an empty list rather than a fetch failure.
+      setModels(response.data ?? []);
       setError("");
     } catch (err) {
       console.error("Error fetching models:", err);
