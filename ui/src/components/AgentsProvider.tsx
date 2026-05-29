@@ -280,11 +280,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       const result = await createAgent(agentData);
 
-      if (!result.error) {
-        // Refresh agents to get the newly created one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error creating agent:", error);
@@ -293,7 +288,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Update existing agent
   const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
@@ -308,11 +303,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       // Use the same createAgent endpoint for updates
       const result = await createAgent(agentData, true);
 
-      if (!result.error) {
-        // Refresh agents to get the updated one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error updating agent:", error);
@@ -321,14 +311,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Initial fetches
   useEffect(() => {
-    fetchAgents();
     fetchTools();
     fetchModels();
-  }, [fetchAgents, fetchTools, fetchModels]);
+  }, [fetchTools, fetchModels]);
 
   const value = {
     agents,
