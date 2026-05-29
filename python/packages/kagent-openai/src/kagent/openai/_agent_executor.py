@@ -11,14 +11,6 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
-
-try:
-    from datetime import UTC  # Python 3.11+
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc
 
 try:
     from typing import override  # Python 3.12+
@@ -40,6 +32,7 @@ from a2a.types import (
 )
 from agents.agent import Agent
 from agents.run import Runner
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key
 from pydantic import BaseModel
 
@@ -48,6 +41,10 @@ from ._session_service import KAgentSession
 
 logger = logging.getLogger(__name__)
 
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 class OpenAIAgentExecutorConfig(BaseModel):
     """Configuration for the OpenAIAgentExecutor."""
@@ -161,7 +158,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                         task_id=context.task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_COMPLETED,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            timestamp=_now_timestamp(),
                         ),
                         context_id=context.context_id,
                         final=True,
@@ -190,7 +187,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                             task_id=context.task_id,
                             status=TaskStatus(
                                 state=TaskState.TASK_STATE_COMPLETED,
-                                timestamp=datetime.now(UTC).isoformat(),
+                                timestamp=_now_timestamp(),
                             ),
                             context_id=context.context_id,
                             final=True,
@@ -202,7 +199,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                             task_id=context.task_id,
                             status=TaskStatus(
                                 state=task_result_aggregator.task_state,
-                                timestamp=datetime.now(UTC).isoformat(),
+                                timestamp=_now_timestamp(),
                                 message=task_result_aggregator.task_status_message,
                             ),
                             context_id=context.context_id,
@@ -238,7 +235,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_SUBMITTED,
                         message=context.message,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
                     final=False,
@@ -255,7 +252,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                 task_id=context.task_id,
                 status=TaskStatus(
                     state=TaskState.TASK_STATE_WORKING,
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=_now_timestamp(),
                 ),
                 context_id=context.context_id,
                 final=False,
@@ -298,7 +295,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_FAILED,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -319,7 +316,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_FAILED,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,

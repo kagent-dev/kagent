@@ -1,6 +1,5 @@
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Union
 
 try:
@@ -23,6 +22,8 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from google.protobuf.json_format import MessageToDict
+from google.protobuf.timestamp_pb2 import Timestamp
+from kagent.core.a2a import get_kagent_metadata_key
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -38,6 +39,10 @@ from ._state import KagentFlowPersistence
 
 logger = logging.getLogger(__name__)
 
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 class CrewAIAgentExecutorConfig(BaseModel):
     execution_timeout: float = 300.0
@@ -84,10 +89,9 @@ class CrewAIAgentExecutor(AgentExecutor):
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_SUBMITTED,
                             message=context.message,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=_now_timestamp(),
                         ),
                         context_id=context.context_id,
-                        final=False,
                     )
                 )
 
@@ -96,13 +100,12 @@ class CrewAIAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=False,
                     metadata={
-                        "app_name": self.app_name,
-                        "session_id": context.context_id,
+                        get_kagent_metadata_key("app_name"): self.app_name,
+                        get_kagent_metadata_key("session_id"): context.context_id,
                     },
                 )
             )
@@ -171,10 +174,9 @@ class CrewAIAgentExecutor(AgentExecutor):
                         task_id=context.task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_COMPLETED,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=_now_timestamp(),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
 
@@ -185,7 +187,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                         task_id=context.task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_FAILED,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=_now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.ROLE_AGENT,
@@ -193,7 +195,6 @@ class CrewAIAgentExecutor(AgentExecutor):
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
         finally:
