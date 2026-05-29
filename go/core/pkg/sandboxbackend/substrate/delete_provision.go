@@ -135,4 +135,3 @@ func HarnessNameFromLabels(labels map[string]string) string {
 	}
 	return strings.TrimSpace(labels[HarnessLabelKey])
 }
-

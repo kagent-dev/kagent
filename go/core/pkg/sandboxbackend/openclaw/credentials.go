@@ -81,13 +81,3 @@ func channelCredentialContainerEnv(cred v1alpha2.AgentHarnessChannelCredential, 
 		return corev1.EnvVar{}, fmt.Errorf("unknown value source type %q", cred.ValueFrom.Type)
 	}
 }
-
-// resolvedChannelSecret returns the plaintext value putChannelCredential stored in env.
-// OpenShell bootstrap still inlines channel tokens in openclaw.json; Substrate uses OpenClaw env SecretRefs instead.
-func resolvedChannelSecret(env map[string]string, envKey string) (string, error) {
-	v := strings.TrimSpace(env[envKey])
-	if v == "" {
-		return "", fmt.Errorf("credential %s is missing or empty after resolve", envKey)
-	}
-	return v, nil
-}

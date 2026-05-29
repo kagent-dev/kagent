@@ -179,7 +179,7 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 			},
 		},
 		DeploymentReady: ready,
-		Accepted:      accepted,
+		Accepted:        accepted,
 	}
 
 	switch runtime {
@@ -188,7 +188,7 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 			Backend:        sb.Spec.Backend,
 			Runtime:        runtime,
 			ModelConfigRef: sb.Spec.ModelConfigRef,
-			GatewayUIPath: fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
+			GatewayUIPath:  fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
 		}
 		if sb.Status.BackendRef != nil {
 			subEntry.BackendRefID = sb.Status.BackendRef.ID

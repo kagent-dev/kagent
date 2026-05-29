@@ -53,10 +53,10 @@ const (
 // harness VMs are a generic exec/SSH-able environment with no in-cluster
 // workload owned by kagent.
 type AgentHarnessController struct {
-	Client              client.Client
-	Recorder            events.EventRecorder
-	OpenshellBackends   map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
-	SubstrateBackends   map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	Client               client.Client
+	Recorder             events.EventRecorder
+	OpenshellBackends    map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	SubstrateBackends    map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	SubstrateProvisioner *substrate.Provisioner
 }
 
