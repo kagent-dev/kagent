@@ -57,7 +57,10 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		assertSingleHeader(t, req, RootContextIDHeader, upstreamRoot)
 	})
 
-	t.Run("legacy inbound with only parent header promotes it to root", func(t *testing.T) {
+	t.Run("inbound parent header alone does not seed root", func(t *testing.T) {
+		// Both lineage headers are introduced together, so an inbound request
+		// carrying only a parent header is not a real upstream root. Root must
+		// fall back to our own session id, not the inbound parent.
 		ctx := context.WithValue(context.Background(), parentContextIDContextKey{}, ownSession)
 		ctx = withCallContext(ctx, map[string][]string{
 			ParentContextIDHeader: {upstreamParent},
@@ -69,7 +72,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		}
 
 		assertSingleHeader(t, req, ParentContextIDHeader, ownSession)
-		assertSingleHeader(t, req, RootContextIDHeader, upstreamParent)
+		assertSingleHeader(t, req, RootContextIDHeader, ownSession)
 	})
 
 	t.Run("no session id is a no-op", func(t *testing.T) {

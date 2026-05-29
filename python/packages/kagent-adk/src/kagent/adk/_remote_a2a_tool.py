@@ -261,9 +261,7 @@ class KAgentRemoteA2ATool(BaseTool):
         - ``x-kagent-root-context-id`` is forwarded unchanged when we were
           ourselves called by an upstream agent that set it. If no upstream
           root header is present we are the top of the chain, so our own
-          session id becomes the root. As a transitional fallback we also
-          honor a parent header sent by older callers that did not yet set
-          root.
+          session id becomes the root.
 
         Returns an empty dict when no session id can be resolved (e.g. tests
         that pass a stub tool_context); the outbound request then matches
@@ -288,11 +286,7 @@ class KAgentRemoteA2ATool(BaseTool):
         if not parent_context_id:
             return {}
 
-        root_context_id = (
-            inbound_headers.get(ROOT_CONTEXT_ID_HEADER)
-            or inbound_headers.get(PARENT_CONTEXT_ID_HEADER)
-            or parent_context_id
-        )
+        root_context_id = inbound_headers.get(ROOT_CONTEXT_ID_HEADER) or parent_context_id
 
         return {
             PARENT_CONTEXT_ID_HEADER: str(parent_context_id),

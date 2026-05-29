@@ -556,21 +556,22 @@ class TestLineageHeaderPropagation:
         assert extras.get("x-kagent-parent-context-id") == "router-2"
         assert extras.get("x-kagent-root-context-id") == "chat-1"
 
-    def test_legacy_inbound_with_only_parent_promotes_to_root(self):
-        """If the upstream caller predates the root header, promote its
-        parent header to root so downstream peers still see a stable
-        chain-root identifier."""
+    def test_inbound_parent_only_does_not_seed_root(self):
+        """An inbound parent header alone is not used to derive root: both
+        lineage headers are introduced together, so a request carrying only a
+        parent header is not a real upstream root. Root falls back to our own
+        session id instead."""
         tool = _make_tool()
         ctx = MockToolContext(
             session_id="router-2",
-            session_state={"headers": {"x-kagent-parent-context-id": "legacy-1"}},
+            session_state={"headers": {"x-kagent-parent-context-id": "ignored-1"}},
         )
 
         state = self._build_state(tool, ctx)
         extras = state.get("_a2a_extra_headers", {})
 
         assert extras.get("x-kagent-parent-context-id") == "router-2"
-        assert extras.get("x-kagent-root-context-id") == "legacy-1"
+        assert extras.get("x-kagent-root-context-id") == "router-2"
 
     def test_no_session_id_emits_no_lineage_headers(self):
         """When the caller cannot resolve a session id (e.g. a stub

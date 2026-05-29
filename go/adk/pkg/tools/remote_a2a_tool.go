@@ -65,9 +65,8 @@ func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient
 // every outbound A2A call. Parent comes from a context value populated by the
 // caller (the tool's own ADK session id). Root is forwarded unchanged from the
 // inbound A2A request when present (so the value set by the agent at the start
-// of the chain survives every hop), with a legacy fallback to the inbound
-// parent header for older callers, and a final fallback to our own session id
-// when this agent is the chain root.
+// of the chain survives every hop), with a fallback to our own session id when
+// this agent is the chain root.
 //
 // Pre-existing headers on req.Meta win (analogous to Python's header_provider
 // override), so a caller that sets extraHeaders for either header keeps full
@@ -82,22 +81,16 @@ func (l *lineageHeadersInterceptor) Before(ctx context.Context, req *a2aclient.R
 		return ctx, nil
 	}
 
-	var inboundRoot, inboundParent string
+	var inboundRoot string
 	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
 		if meta := callCtx.RequestMeta(); meta != nil {
 			if vals, ok := meta.Get(RootContextIDHeader); ok && len(vals) > 0 {
 				inboundRoot = vals[0]
 			}
-			if vals, ok := meta.Get(ParentContextIDHeader); ok && len(vals) > 0 {
-				inboundParent = vals[0]
-			}
 		}
 	}
 
 	root := inboundRoot
-	if root == "" {
-		root = inboundParent
-	}
 	if root == "" {
 		root = parent
 	}
