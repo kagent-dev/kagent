@@ -60,6 +60,15 @@ TROUBLESHOOTING:
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 
+{{- if .Values.controller.streaming }}
+################################################################################
+# DEPRECATED VALUES DETECTED                                                   #
+################################################################################
+  controller.streaming.* (maxBufSize, initialBufSize, timeout) were removed in
+  0.10.0. The A2A SDK now handles SSE buffering and timeouts internally.
+  These values are ignored. Please remove them from your values override.
+
+{{- end }}
 {{ if .Values.database.postgres.bundled.enabled -}}
 ################################################################################
 {{- if and (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
