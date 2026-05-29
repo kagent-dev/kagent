@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const getPushNotification = `-- name: GetPushNotification :one
@@ -33,6 +35,43 @@ func (q *Queries) GetPushNotification(ctx context.Context, arg GetPushNotificati
 		&i.ProtocolVersion,
 	)
 	return i, err
+}
+
+const listLegacyPushNotifications = `-- name: ListLegacyPushNotifications :many
+SELECT id, data FROM push_notification
+WHERE protocol_version IS NULL AND id > $1
+ORDER BY id
+LIMIT $2
+`
+
+type ListLegacyPushNotificationsParams struct {
+	ID    string
+	Limit int32
+}
+
+type ListLegacyPushNotificationsRow struct {
+	ID   string
+	Data string
+}
+
+func (q *Queries) ListLegacyPushNotifications(ctx context.Context, arg ListLegacyPushNotificationsParams) ([]ListLegacyPushNotificationsRow, error) {
+	rows, err := q.db.Query(ctx, listLegacyPushNotifications, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLegacyPushNotificationsRow
+	for rows.Next() {
+		var i ListLegacyPushNotificationsRow
+		if err := rows.Scan(&i.ID, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listPushNotifications = `-- name: ListPushNotifications :many
@@ -67,6 +106,28 @@ func (q *Queries) ListPushNotifications(ctx context.Context, taskID string) ([]P
 		return nil, err
 	}
 	return items, nil
+}
+
+const migratePushNotification = `-- name: MigratePushNotification :execresult
+UPDATE push_notification
+SET data = $1, protocol_version = $2, updated_at = NOW()
+WHERE id = $3 AND data = $4 AND protocol_version IS NULL
+`
+
+type MigratePushNotificationParams struct {
+	Data            string
+	ProtocolVersion *string
+	ID              string
+	Data_2          string
+}
+
+func (q *Queries) MigratePushNotification(ctx context.Context, arg MigratePushNotificationParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, migratePushNotification,
+		arg.Data,
+		arg.ProtocolVersion,
+		arg.ID,
+		arg.Data_2,
+	)
 }
 
 const softDeletePushNotification = `-- name: SoftDeletePushNotification :exec

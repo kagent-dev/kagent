@@ -19,3 +19,14 @@ ON CONFLICT (id) DO UPDATE SET
 -- name: SoftDeletePushNotification :exec
 UPDATE push_notification SET deleted_at = NOW()
 WHERE task_id = $1 AND deleted_at IS NULL;
+
+-- name: ListLegacyPushNotifications :many
+SELECT id, data FROM push_notification
+WHERE protocol_version IS NULL AND id > $1
+ORDER BY id
+LIMIT $2;
+
+-- name: MigratePushNotification :execresult
+UPDATE push_notification
+SET data = $1, protocol_version = $2, updated_at = NOW()
+WHERE id = $3 AND data = $4 AND protocol_version IS NULL;

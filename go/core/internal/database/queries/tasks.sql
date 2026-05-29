@@ -33,3 +33,14 @@ WHERE upserted_task.session_id IS NOT NULL
 
 -- name: SoftDeleteTask :exec
 UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: ListLegacyTasks :many
+SELECT id, data FROM task
+WHERE protocol_version IS NULL AND id > $1
+ORDER BY id
+LIMIT $2;
+
+-- name: MigrateTask :execresult
+UPDATE task
+SET data = $1, protocol_version = $2, updated_at = NOW()
+WHERE id = $3 AND data = $4 AND protocol_version IS NULL;

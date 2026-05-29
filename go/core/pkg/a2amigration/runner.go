@@ -7,7 +7,9 @@ import (
 	"io"
 	"log"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 )
 
@@ -34,25 +36,41 @@ func Run(ctx context.Context, db *pgxpool.Pool, opts Options) (Stats, error) {
 		opts.BatchSize = defaultBatchSize
 	}
 
-	alreadyV1, err := countAlreadyV1(ctx, db)
-	if err != nil {
-		return Stats{}, err
-	}
-	stats := Stats{AlreadyV1: alreadyV1}
+	q := dbgen.New(db)
+	v1 := trpcv0.ProtocolVersionV1
+	limit := int32(opts.BatchSize)
 
-	if err := rejectUnknownVersions(ctx, db); err != nil {
+	alreadyV1, err := q.CountAlreadyV1Rows(ctx, &v1)
+	if err != nil {
+		return Stats{}, fmt.Errorf("count v1 rows: %w", err)
+	}
+	stats := Stats{AlreadyV1: int(alreadyV1)}
+
+	if err := rejectUnknownVersions(ctx, q, &v1); err != nil {
 		return stats, err
 	}
 
-	taskStats, err := migrateTable(ctx, db, tableConfig{
+	taskStats, err := migrateTable(ctx, tableConfig{
 		name: "task",
-		selectSQL: `SELECT id, data FROM task
-WHERE protocol_version IS NULL AND id > $1
-ORDER BY id
-LIMIT $2`,
-		updateSQL: `UPDATE task
-SET data = $1, protocol_version = $2, updated_at = NOW()
-WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
+		list: func(ctx context.Context, lastID string) ([]rowData, error) {
+			rows, err := q.ListLegacyTasks(ctx, dbgen.ListLegacyTasksParams{ID: lastID, Limit: limit})
+			if err != nil {
+				return nil, err
+			}
+			result := make([]rowData, len(rows))
+			for i, r := range rows {
+				result[i] = rowData{id: r.ID, data: r.Data}
+			}
+			return result, nil
+		},
+		update: func(ctx context.Context, newData, oldData, id string) (pgconn.CommandTag, error) {
+			return q.MigrateTask(ctx, dbgen.MigrateTaskParams{
+				Data:            newData,
+				ProtocolVersion: &v1,
+				ID:              id,
+				Data_2:          oldData,
+			})
+		},
 		convert: func(data string) ([]byte, error) {
 			return trpcv0.TaskJSONToV1JSON([]byte(data))
 		},
@@ -64,15 +82,27 @@ WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
 	stats.TasksSkipped = taskStats.skipped
 	stats.TasksFailed = taskStats.failed
 
-	pushStats, err := migrateTable(ctx, db, tableConfig{
+	pushStats, err := migrateTable(ctx, tableConfig{
 		name: "push_notification",
-		selectSQL: `SELECT id, data FROM push_notification
-WHERE protocol_version IS NULL AND id > $1
-ORDER BY id
-LIMIT $2`,
-		updateSQL: `UPDATE push_notification
-SET data = $1, protocol_version = $2, updated_at = NOW()
-WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
+		list: func(ctx context.Context, lastID string) ([]rowData, error) {
+			rows, err := q.ListLegacyPushNotifications(ctx, dbgen.ListLegacyPushNotificationsParams{ID: lastID, Limit: limit})
+			if err != nil {
+				return nil, err
+			}
+			result := make([]rowData, len(rows))
+			for i, r := range rows {
+				result[i] = rowData{id: r.ID, data: r.Data}
+			}
+			return result, nil
+		},
+		update: func(ctx context.Context, newData, oldData, id string) (pgconn.CommandTag, error) {
+			return q.MigratePushNotification(ctx, dbgen.MigratePushNotificationParams{
+				Data:            newData,
+				ProtocolVersion: &v1,
+				ID:              id,
+				Data_2:          oldData,
+			})
+		},
 		convert: func(data string) ([]byte, error) {
 			return trpcv0.PushNotificationJSONToV1JSON([]byte(data))
 		},
@@ -88,10 +118,10 @@ WHERE id = $3 AND data = $4 AND protocol_version IS NULL`,
 }
 
 type tableConfig struct {
-	name      string
-	selectSQL string
-	updateSQL string
-	convert   func(data string) ([]byte, error)
+	name    string
+	list    func(ctx context.Context, lastID string) ([]rowData, error)
+	update  func(ctx context.Context, newData, oldData, id string) (pgconn.CommandTag, error)
+	convert func(data string) ([]byte, error)
 }
 
 type tableStats struct {
@@ -100,31 +130,15 @@ type tableStats struct {
 	failed   int
 }
 
-func migrateTable(ctx context.Context, db *pgxpool.Pool, cfg tableConfig, opts Options) (tableStats, error) {
+func migrateTable(ctx context.Context, cfg tableConfig, opts Options) (tableStats, error) {
 	var stats tableStats
 	lastID := ""
 
 	for {
-		rows, err := db.Query(ctx, cfg.selectSQL, lastID, int32(opts.BatchSize))
+		batch, err := cfg.list(ctx, lastID)
 		if err != nil {
 			return stats, fmt.Errorf("list %s rows: %w", cfg.name, err)
 		}
-
-		var batch []rowData
-		for rows.Next() {
-			var row rowData
-			if err := rows.Scan(&row.id, &row.data); err != nil {
-				rows.Close()
-				return stats, fmt.Errorf("scan %s row: %w", cfg.name, err)
-			}
-			batch = append(batch, row)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return stats, fmt.Errorf("iterate %s rows: %w", cfg.name, err)
-		}
-		rows.Close()
-
 		if len(batch) == 0 {
 			return stats, nil
 		}
@@ -141,7 +155,7 @@ func migrateTable(ctx context.Context, db *pgxpool.Pool, cfg tableConfig, opts O
 				stats.migrated++
 				continue
 			}
-			tag, err := db.Exec(ctx, cfg.updateSQL, string(converted), trpcv0.ProtocolVersionV1, row.id, row.data)
+			tag, err := cfg.update(ctx, string(converted), row.data, row.id)
 			if err != nil {
 				return stats, fmt.Errorf("update %s row %s: %w", cfg.name, row.id, err)
 			}
@@ -159,46 +173,19 @@ type rowData struct {
 	data string
 }
 
-func countAlreadyV1(ctx context.Context, db *pgxpool.Pool) (int, error) {
-	var count int
-	err := db.QueryRow(ctx, `SELECT
-	(SELECT COUNT(*) FROM task WHERE protocol_version = $1) +
-	(SELECT COUNT(*) FROM push_notification WHERE protocol_version = $1)`, trpcv0.ProtocolVersionV1).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("count v1 rows: %w", err)
-	}
-	return count, nil
-}
-
-func rejectUnknownVersions(ctx context.Context, db *pgxpool.Pool) error {
-	rows, err := db.Query(ctx, `SELECT table_name, protocol_version, count FROM (
-	SELECT 'task' AS table_name, protocol_version, COUNT(*) AS count
-	FROM task
-	WHERE protocol_version IS NOT NULL AND protocol_version <> $1
-	GROUP BY protocol_version
-	UNION ALL
-	SELECT 'push_notification' AS table_name, protocol_version, COUNT(*) AS count
-	FROM push_notification
-	WHERE protocol_version IS NOT NULL AND protocol_version <> $1
-	GROUP BY protocol_version
-) unknown_versions
-ORDER BY table_name, protocol_version`, trpcv0.ProtocolVersionV1)
+func rejectUnknownVersions(ctx context.Context, q *dbgen.Queries, v1version *string) error {
+	rows, err := q.ListUnknownProtocolVersions(ctx, v1version)
 	if err != nil {
 		return fmt.Errorf("check protocol versions: %w", err)
 	}
-	defer rows.Close()
 
 	var unknown []error
-	for rows.Next() {
-		var tableName, version string
-		var count int
-		if err := rows.Scan(&tableName, &version, &count); err != nil {
-			return fmt.Errorf("scan unknown protocol version: %w", err)
+	for _, row := range rows {
+		version := ""
+		if row.ProtocolVersion != nil {
+			version = *row.ProtocolVersion
 		}
-		unknown = append(unknown, fmt.Errorf("%s has %d row(s) with unsupported protocol_version %q", tableName, count, version))
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate unknown protocol versions: %w", err)
+		unknown = append(unknown, fmt.Errorf("%s has %d row(s) with unsupported protocol_version %q", row.TableName, row.RowCount, version))
 	}
 	return errors.Join(unknown...)
 }
