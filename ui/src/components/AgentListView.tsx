@@ -28,6 +28,7 @@ import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSan
 
 interface AgentListViewProps {
   agentResponse: AgentResponse[];
+  onAgentsChanged?: () => Promise<void> | void;
 }
 
 type SortKey = "name" | "type" | "providerModel" | "toolCount" | "skillsCount" | "state";
@@ -214,7 +215,7 @@ function SortableTh({ col, label, className, textAlign = "left", sort, onSort }:
   );
 }
 
-function AgentListRow({ item }: { item: AgentResponse }) {
+function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgentsChanged?: () => Promise<void> | void }) {
   const { agent, deploymentReady, accepted } = item;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
@@ -389,6 +390,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
           <DeleteButton
             agentName={name}
             namespace={namespace}
+            onDeleted={onAgentsChanged}
             externalOpen={deleteOpen}
             onExternalOpenChange={setDeleteOpen}
           />
@@ -406,7 +408,7 @@ function AgentListRow({ item }: { item: AgentResponse }) {
   return trBody;
 }
 
-export function AgentListView({ agentResponse }: AgentListViewProps) {
+export function AgentListView({ agentResponse, onAgentsChanged }: AgentListViewProps) {
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "name", dir: "asc" });
 
   const onSort = useCallback((col: SortKey) => {
@@ -453,7 +455,7 @@ export function AgentListView({ agentResponse }: AgentListViewProps) {
               item.agent.metadata.namespace || "",
               item.agent.metadata.name || "",
             );
-            return <AgentListRow key={key} item={item} />;
+            return <AgentListRow key={key} item={item} onAgentsChanged={onAgentsChanged} />;
           })}
         </tbody>
       </table>
