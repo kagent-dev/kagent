@@ -19,6 +19,7 @@ from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -84,7 +85,7 @@ class KAgentApp:
     def __init__(
         self,
         agent: Agent | Callable[[], Agent],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig,
         executor_config: OpenAIAgentExecutorConfig | None = None,
         tracing: bool = True,
@@ -93,13 +94,12 @@ class KAgentApp:
 
         Args:
             agent: OpenAI Agent instance or factory function
-            agent_card: A2A agent card describing the agent's capabilities
-            kagent_url: URL of the KAgent backend server
-            app_name: Application name for identification
-            config: Optional executor configuration
+            agent_card: A2A agent card — either an AgentCard protobuf instance or a plain dict
+            config: KAgent configuration
+            executor_config: Optional executor configuration
         """
         self.agent = agent
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or OpenAIAgentExecutorConfig()
         self.tracing = tracing

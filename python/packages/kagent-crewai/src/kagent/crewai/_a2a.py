@@ -9,6 +9,7 @@ from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -42,13 +43,13 @@ class KAgentApp:
         self,
         *,
         crew: Union[Crew, Flow],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig = KAgentConfig(),
         executor_config: CrewAIAgentExecutorConfig | None = None,
         tracing: bool = True,
     ):
         self._crew = crew
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
