@@ -95,10 +95,10 @@ type slackAccount struct {
 	Mode              string          `json:"mode"`
 	BotToken          credentialValue `json:"botToken"`
 	AppToken          credentialValue `json:"appToken"`
-	UserTokenReadOnly bool      `json:"userTokenReadOnly"`
-	GroupPolicy       string    `json:"groupPolicy"`
-	Capabilities      slackCaps `json:"capabilities"`
-	DM                *groupDM  `json:"dm,omitempty"`
+	UserTokenReadOnly bool            `json:"userTokenReadOnly"`
+	GroupPolicy       string          `json:"groupPolicy"`
+	Capabilities      slackCaps       `json:"capabilities"`
+	DM                *groupDM        `json:"dm,omitempty"`
 }
 
 type slackCaps struct {

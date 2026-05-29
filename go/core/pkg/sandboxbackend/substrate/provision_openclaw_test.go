@@ -77,7 +77,7 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 
 	// Decode embedded JSON from the base64 line in the startup script.
 	var payload string
-	for _, line := range strings.Split(script, "\n") {
+	for line := range strings.SplitSeq(script, "\n") {
 		if !strings.Contains(line, "base64 -d") {
 			continue
 		}
@@ -197,7 +197,7 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	require.NoError(t, err)
 
 	var payload string
-	for _, line := range strings.Split(script, "\n") {
+	for line := range strings.SplitSeq(script, "\n") {
 		if strings.Contains(line, "base64 -d") {
 			start := strings.Index(line, `'`) + 1
 			end := strings.LastIndex(line, `'`)
@@ -217,7 +217,7 @@ func gatewayTokenFromStartup(t *testing.T, script string) string {
 	t.Helper()
 
 	var payload string
-	for _, line := range strings.Split(script, "\n") {
+	for line := range strings.SplitSeq(script, "\n") {
 		if strings.Contains(line, "base64 -d") {
 			start := strings.Index(line, `'`) + 1
 			end := strings.LastIndex(line, `'`)

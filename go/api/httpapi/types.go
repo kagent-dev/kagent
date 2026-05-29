@@ -146,13 +146,13 @@ type OpenshellAgentHarnessListEntry struct {
 
 // SubstrateAgentHarnessListEntry is set when runtime is substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend         v1alpha2.AgentHarnessBackendType `json:"backend"`
-	Runtime         v1alpha2.AgentHarnessRuntime     `json:"runtime"`
-	ActorID         string                           `json:"actorId,omitempty"`
+	Backend        v1alpha2.AgentHarnessBackendType `json:"backend"`
+	Runtime        v1alpha2.AgentHarnessRuntime     `json:"runtime"`
+	ActorID        string                           `json:"actorId,omitempty"`
 	GatewayUIPath  string                           `json:"gatewayUIPath,omitempty"`
 	ModelConfigRef string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID    string                           `json:"backendRefId,omitempty"`
-	Endpoint        string                           `json:"endpoint,omitempty"`
+	BackendRefID   string                           `json:"backendRefId,omitempty"`
+	Endpoint       string                           `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
@@ -167,8 +167,8 @@ type AgentResponse struct {
 	DeploymentReady       bool                            `json:"deploymentReady"`
 	Accepted              bool                            `json:"accepted"`
 	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
-	OpenshellAgentHarness  *OpenshellAgentHarnessListEntry  `json:"openshellAgentHarness,omitempty"`
-	SubstrateAgentHarness  *SubstrateAgentHarnessListEntry  `json:"substrateAgentHarness,omitempty"`
+	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
+	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 
 // Session types
