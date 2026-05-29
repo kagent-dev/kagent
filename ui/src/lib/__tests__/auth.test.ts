@@ -178,6 +178,6 @@ describe('getAuthHeadersFromRequest (env-driven)', () => {
 
 describe('CORS_ALLOW_HEADERS', () => {
   it('does not advertise additional forwarded headers cross-origin', () => {
-    expect(CORS_ALLOW_HEADERS).toBe('Content-Type, Authorization, Accept');
+    expect(CORS_ALLOW_HEADERS).toBe('Content-Type, Authorization, Accept, A2A-Version');
   });
 });

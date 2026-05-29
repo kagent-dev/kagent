@@ -2424,7 +2424,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.23" },
+    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=1.0.0" },
     { name = "opentelemetry-api", specifier = ">=1.38.0,<1.39.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.38.0,<1.39.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.38.0,<1.39.0" },

@@ -28,6 +28,16 @@ function dataPart(value: unknown, metadata: Record<string, unknown>) {
   };
 }
 
+// Wire format for data parts stored in task.history (Message.fromJSON expects this).
+function wireDataPart(value: unknown, metadata: Record<string, unknown>) {
+  return {
+    data: value,
+    metadata,
+    filename: "",
+    mediaType: "application/json",
+  };
+}
+
 describe("messageHandlers (v1 native types)", () => {
   test("createMessage builds a v1 message", () => {
     const msg = createMessage("hi", "assistant", { contextId: "ctx", taskId: "task" });
@@ -89,7 +99,7 @@ describe("messageHandlers (v1 native types)", () => {
           contextId: "ctx",
           taskId: "t1",
           role: 2,
-          parts: [dataPart({ id: "call1", name: "my_tool", args: { a: 1 } }, { adk_type: "function_call" })],
+          parts: [wireDataPart({ id: "call1", name: "my_tool", args: { a: 1 } }, { adk_type: "function_call" })],
           metadata: {},
           extensions: [],
           referenceTaskIds: [],
@@ -99,7 +109,7 @@ describe("messageHandlers (v1 native types)", () => {
           contextId: "ctx",
           taskId: "t1",
           role: 2,
-          parts: [dataPart({ id: "call1", name: "my_tool", response: { result: "ok" } }, { adk_type: "function_response" })],
+          parts: [wireDataPart({ id: "call1", name: "my_tool", response: { result: "ok" } }, { adk_type: "function_response" })],
           metadata: {},
           extensions: [],
           referenceTaskIds: [],

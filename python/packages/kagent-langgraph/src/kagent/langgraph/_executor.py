@@ -299,7 +299,9 @@ class LangGraphAgentExecutor(AgentExecutor):
                         Value(),
                     ),
                     metadata={
-                        get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                        get_kagent_metadata_key(
+                            A2A_DATA_PART_METADATA_TYPE_KEY
+                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                         get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
                     },
                 )

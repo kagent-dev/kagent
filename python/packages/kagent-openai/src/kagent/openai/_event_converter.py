@@ -20,11 +20,13 @@ except ImportError:
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (
     Message,
-    Part as A2APart,
     Role,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
+)
+from a2a.types import (
+    Part as A2APart,
 )
 from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.stream_events import (
@@ -33,14 +35,14 @@ from agents.stream_events import (
     RunItemStreamEvent,
     StreamEvent,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_DATA_PART_METADATA_TYPE_KEY,
     get_kagent_metadata_key,
 )
-from google.protobuf.json_format import ParseDict
-from google.protobuf.struct_pb2 import Value
 
 logger = logging.getLogger(__name__)
 
@@ -235,9 +237,7 @@ def _convert_tool_call(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(
-                        A2A_DATA_PART_METADATA_TYPE_KEY
-                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                 },
             )
         ],
@@ -357,9 +357,7 @@ def _convert_agent_updated_event(
             A2APart(
                 data=ParseDict(function_data, Value()),
                 metadata={
-                    get_kagent_metadata_key(
-                        A2A_DATA_PART_METADATA_TYPE_KEY
-                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                 },
             )
         ],

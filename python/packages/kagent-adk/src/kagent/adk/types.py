@@ -2,6 +2,7 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
@@ -30,7 +31,6 @@ logger = logging.getLogger(__name__)
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
 
-AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent-card.json"
 DEFAULT_TIMEOUT = 30.0
 
 # Key used to store headers in session state

@@ -162,7 +162,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                         context_id=context.context_id,
                         artifact=Artifact(
                             artifact_id=str(uuid.uuid4()),
-                                parts=[Part(text=result_text)],
+                            parts=[Part(text=result_text)],
                         ),
                     )
                 )

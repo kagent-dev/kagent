@@ -104,11 +104,7 @@ class A2ACrewAIListener(BaseEventListener):
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
-                            parts=[
-                                Part(
-                                    text=f"Agent {event.agent.id} started working on task: {event.task_prompt}"
-                                )
-                            ],
+                            parts=[Part(text=f"Agent {event.agent.id} started working on task: {event.task_prompt}")],
                         ),
                     ),
                     context_id=self.context.context_id,
@@ -222,9 +218,7 @@ class A2ACrewAIListener(BaseEventListener):
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
                             parts=[
-                                Part(
-                                    text=f"Method {event.method_name} from flow {event.flow_name} started execution."
-                                )
+                                Part(text=f"Method {event.method_name} from flow {event.flow_name} started execution.")
                             ],
                         ),
                     ),
@@ -246,9 +240,7 @@ class A2ACrewAIListener(BaseEventListener):
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
                             parts=[
-                                Part(
-                                    text=f"Method {event.method_name} from flow {event.flow_name} finished execution."
-                                )
+                                Part(text=f"Method {event.method_name} from flow {event.flow_name} finished execution.")
                             ],
                         ),
                     ),
