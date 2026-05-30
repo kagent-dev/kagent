@@ -8,14 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
-
-try:
-    from datetime import UTC  # Python 3.11+
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc
 
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (
@@ -37,6 +29,7 @@ from agents.stream_events import (
 )
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -45,6 +38,12 @@ from kagent.core.a2a import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 
 def convert_openai_event_to_a2a_events(
@@ -176,12 +175,11 @@ def _convert_message_output(
         status=TaskStatus(
             state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -253,12 +251,11 @@ def _convert_tool_call(
         status=TaskStatus(
             state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -316,12 +313,11 @@ def _convert_tool_output(
         status=TaskStatus(
             state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -374,12 +370,11 @@ def _convert_agent_updated_event(
         status=TaskStatus(
             state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]

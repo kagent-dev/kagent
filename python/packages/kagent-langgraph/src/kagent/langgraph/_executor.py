@@ -59,10 +59,12 @@ from ._error_mappings import get_error_metadata, get_user_friendly_error_message
 
 logger = logging.getLogger(__name__)
 
+
 def _now_timestamp() -> Timestamp:
     ts = Timestamp()
     ts.GetCurrentTime()
     return ts
+
 
 class LangGraphAgentExecutorConfig(BaseModel):
     """Configuration for the LangGraphAgentExecutor."""
@@ -206,7 +208,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                         timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
         else:
@@ -219,7 +220,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                         message=task_result_aggregator.task_status_message,
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
 
@@ -317,7 +317,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                     ),
                 ),
                 context_id=context_id,
-                final=False,
             )
         )
 
@@ -444,7 +443,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                     timestamp=_now_timestamp(),
                 ),
                 context_id=context.context_id,
-                final=False,
             )
         )
 
@@ -475,7 +473,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                         ),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
 
@@ -513,7 +510,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                             timestamp=_now_timestamp(),
                         ),
                         context_id=context.context_id,
-                        final=False,
                     )
                 )
 
@@ -567,7 +563,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
             except Exception as e:
@@ -594,7 +589,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                         metadata={
                             get_kagent_metadata_key("error_type"): error_meta["error_type"],
                             get_kagent_metadata_key("error_detail"): error_meta["error_detail"],

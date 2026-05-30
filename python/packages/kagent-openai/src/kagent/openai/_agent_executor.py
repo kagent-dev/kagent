@@ -41,10 +41,12 @@ from ._session_service import KAgentSession
 
 logger = logging.getLogger(__name__)
 
+
 def _now_timestamp() -> Timestamp:
     ts = Timestamp()
     ts.GetCurrentTime()
     return ts
+
 
 class OpenAIAgentExecutorConfig(BaseModel):
     """Configuration for the OpenAIAgentExecutor."""
@@ -161,7 +163,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                             timestamp=_now_timestamp(),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
             else:
@@ -190,7 +191,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                                 timestamp=_now_timestamp(),
                             ),
                             context_id=context.context_id,
-                            final=True,
                         )
                     )
                 else:
@@ -203,7 +203,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                                 message=task_result_aggregator.task_status_message,
                             ),
                             context_id=context.context_id,
-                            final=True,
                         )
                     )
 
@@ -238,7 +237,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                         timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=False,
                 )
             )
 
@@ -255,7 +253,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                     timestamp=_now_timestamp(),
                 ),
                 context_id=context.context_id,
-                final=False,
                 metadata={
                     get_kagent_metadata_key("app_name"): self.app_name,
                     get_kagent_metadata_key("session_id"): session_id,
@@ -303,7 +300,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                         ),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
         except Exception as e:
@@ -328,7 +324,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                         ),
                     ),
                     context_id=context.context_id,
-                    final=True,
                     metadata={
                         get_kagent_metadata_key("error_type"): type(e).__name__,
                         get_kagent_metadata_key("error_detail"): error_message,

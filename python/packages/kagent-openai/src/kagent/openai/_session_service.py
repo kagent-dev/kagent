@@ -6,13 +6,22 @@ storing session data in the KAgent backend via REST API.
 
 from __future__ import annotations
 
+import json
 import logging
+import uuid
 
 import httpx
 from agents.items import TResponseInputItem
 from agents.memory.session import SessionABC
+from google.protobuf.timestamp_pb2 import Timestamp
 
 logger = logging.getLogger(__name__)
+
+
+def _get_timestamp_string() -> str:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts.isoformat()
 
 
 class KAgentSession(SessionABC):
@@ -161,22 +170,12 @@ class KAgentSession(SessionABC):
         await self._ensure_session_exists()
 
         # Store items as an event in the session
-        import json
-        import uuid
-        from datetime import datetime
-
-        try:
-            from datetime import UTC  # Python 3.11+
-        except ImportError:
-            from datetime import timezone
-
-            UTC = timezone.utc
 
         event_data = {
             "id": str(uuid.uuid4()),
             "data": json.dumps(
                 {
-                    "timestamp": datetime.now(UTC).isoformat(),
+                    "timestamp": _get_timestamp_string(),
                     "items": items,
                     "type": "conversation_items",
                 }

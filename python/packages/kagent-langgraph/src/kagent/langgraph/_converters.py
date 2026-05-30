@@ -6,15 +6,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 
 import hashlib
 import uuid
-from datetime import datetime
 from typing import Any
-
-try:
-    from datetime import UTC  # Python 3.11+
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc
 
 from a2a.types import (
     Message,
@@ -26,6 +18,7 @@ from a2a.types import (
 )
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -39,6 +32,12 @@ from langchain_core.messages import (
 )
 
 from ._metadata_utils import get_rich_event_metadata
+
+
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 
 async def _convert_langgraph_event_to_a2a(
@@ -110,11 +109,10 @@ async def _convert_langgraph_event_to_a2a(
                         task_id=task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_WORKING,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            timestamp=_now_timestamp(),
                             message=a2a_message,
                         ),
                         context_id=context_id,
-                        final=False,
                         metadata=get_rich_event_metadata(
                             app_name=app_name,
                             session_id=context_id,
@@ -130,7 +128,7 @@ async def _convert_langgraph_event_to_a2a(
                             task_id=task_id,
                             status=TaskStatus(
                                 state=TaskState.TASK_STATE_WORKING,
-                                timestamp=datetime.now(UTC).isoformat(),
+                                timestamp=_now_timestamp(),
                                 message=Message(
                                     message_id=str(uuid.uuid4()),
                                     role=Role.ROLE_AGENT,
@@ -154,7 +152,6 @@ async def _convert_langgraph_event_to_a2a(
                                 ),
                             ),
                             context_id=context_id,
-                            final=False,
                             metadata=get_rich_event_metadata(
                                 app_name=app_name,
                                 session_id=context_id,

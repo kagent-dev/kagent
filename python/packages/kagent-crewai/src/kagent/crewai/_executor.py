@@ -39,10 +39,12 @@ from ._state import KagentFlowPersistence
 
 logger = logging.getLogger(__name__)
 
+
 def _now_timestamp() -> Timestamp:
     ts = Timestamp()
     ts.GetCurrentTime()
     return ts
+
 
 class CrewAIAgentExecutorConfig(BaseModel):
     execution_timeout: float = 300.0

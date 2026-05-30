@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from a2a.server.agent_execution.context import RequestContext
@@ -15,6 +14,7 @@ from a2a.types import (
 )
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -33,6 +33,12 @@ from crewai.events import (
     ToolUsageFinishedEvent,
     ToolUsageStartedEvent,
 )
+
+
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 
 class A2ACrewAIListener(BaseEventListener):
@@ -59,7 +65,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -67,7 +73,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
@@ -80,7 +85,7 @@ class A2ACrewAIListener(BaseEventListener):
                         task_id=self.context.task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_WORKING,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=_now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.ROLE_AGENT,
@@ -88,7 +93,6 @@ class A2ACrewAIListener(BaseEventListener):
                             ),
                         ),
                         context_id=self.context.context_id,
-                        final=False,
                         metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                     )
                 )
@@ -100,7 +104,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -108,7 +112,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
@@ -121,7 +124,7 @@ class A2ACrewAIListener(BaseEventListener):
                         task_id=self.context.task_id,
                         status=TaskStatus(
                             state=TaskState.TASK_STATE_WORKING,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=_now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
                                 role=Role.ROLE_AGENT,
@@ -129,7 +132,6 @@ class A2ACrewAIListener(BaseEventListener):
                             ),
                         ),
                         context_id=self.context.context_id,
-                        final=False,
                         metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                     )
                 )
@@ -141,7 +143,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -165,7 +167,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
@@ -177,7 +178,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -201,7 +202,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
@@ -213,7 +213,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -223,7 +223,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
@@ -235,7 +234,7 @@ class A2ACrewAIListener(BaseEventListener):
                     task_id=self.context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_WORKING,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
@@ -245,7 +244,6 @@ class A2ACrewAIListener(BaseEventListener):
                         ),
                     ),
                     context_id=self.context.context_id,
-                    final=False,
                     metadata={"app_name": self.app_name, "session_id": self.context.context_id},
                 )
             )
