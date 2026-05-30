@@ -555,7 +555,6 @@ function ModelPageContent() {
     const finalSelectedProvider = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
 
     if (!validateForm() || !finalSelectedProvider) {
-      console.log("Validation failed:", errors);
       toast.error("Please fill in all required fields and correct any errors.");
       return;
     }
