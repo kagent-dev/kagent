@@ -16,10 +16,10 @@ cd substrate
 Build and push **ateom-gvisor** (required for the WorkerPool `ateomImage`):
 
 ```bash
-# build the ateom-gvisor image from the substrate folder
+# build the ateom-gvisor image from the substrate repo root
 export KO_DOCKER_REPO=localhost:5001
 export KO_DEFAULTPLATFORMS=linux/$(go env GOARCH)
-./hack/ko.sh build -B ./cmd/servers/ateom-gvisor
+./hack/run-tool.sh ko build -B ./cmd/ateom-gvisor
 ```
 
 ## 2. Load nemoclaw image
@@ -42,7 +42,12 @@ Install kagent (Substrate must already be running in the cluster):
 
 ```bash
 export KIND_CLUSTER_NAME=kind
-make helm-install KAGENT_HELM_EXTRA_ARGS="--set controller.substrate.enabled=true --set substrateWorkerPool.create=true --set substrateWorkerPool.ateomImage=localhost:5001/ateom-gvisor:latest"
+make helm-install KAGENT_HELM_EXTRA_ARGS="\
+  --set controller.substrate.enabled=true \
+  --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
+  --set controller.substrate.ateApiInsecure=true \
+  --set substrateWorkerPool.create=true \
+  --set substrateWorkerPool.ateomImage=localhost:5001/ateom-gvisor:latest"
 ```
 
 The generated `ActorTemplate` uses `controller.substrate.pauseImage`, `controller.substrate.runscAMD64URL`, `controller.substrate.runscAMD64SHA256`, `controller.substrate.runscARM64URL`, and `controller.substrate.runscARM64SHA256` from the Helm values Override them with `--set` or a values file when you need to pin a different gVisor build.
@@ -79,8 +84,8 @@ spec:
     # gatewayTokenSecretRef:
     #   name: openclaw-gateway-token
 
-    # Optional: override the sandbox image used in the ActorTemplate.
-    # workloadImage: ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4
+    # Optional: override the sandbox image used in the ActorTemplate (must be digest-pinned).
+    # workloadImage: ghcr.io/kagent-dev/nemoclaw/sandbox-base@sha256:d52bee415dc4c0dba7164f9eabe727574c056d4f211781f20af249707883a3b4
 ```
 
 kagent creates an `ActorTemplate` that looks roughly like this:
@@ -110,7 +115,7 @@ spec:
     location: gs://ate-snapshots/kagent/peterj-claw
   containers:
   - name: openclaw
-    image: ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4
+    image: ghcr.io/kagent-dev/nemoclaw/sandbox-base@sha256:d52bee415dc4c0dba7164f9eabe727574c056d4f211781f20af249707883a3b4
     ports:
     - containerPort: 80
     command:
@@ -130,6 +135,8 @@ spec:
 The generated `command` contains a base64-encoded `openclaw.json`, so the live object will be more verbose than the abbreviated example above. `pauseImage`, runsc URLs and hashes, and the default workload image come from controller/Helm configuration unless overridden on the `AgentHarness`; the gateway token comes from `spec.substrate.gatewayToken` or `gatewayTokenSecretRef`. kagent also sets `gateway.controlUi.basePath` to `/api/agentharnesses/<namespace>/<name>/gateway` so OpenClaw serves the Control UI under the same path kagent proxies.
 
 When `modelConfigRef` or `spec.channels` are set, credentials are **not** copied into the ActorTemplate or `openclaw.json` as plaintext. kagent writes `valueFrom.secretKeyRef` (or inline `value` for harness inline tokens) on the ActorTemplate container env; Substrate `ate-api` resolves those refs at actor resume. In `openclaw.json`, kagent uses OpenClaw [env SecretRefs](https://docs.openclaw.ai/gateway/secrets) (`{source:"env",provider:"default",id:"<VAR>"}`) for `models.providers.*.apiKey`, `channels.telegram.accounts.*.botToken`, and `channels.slack.accounts.*.botToken` / `appToken`. Rotate a Secret and recreate the ActorTemplate golden snapshot when keys change.
+
+With `controller.substrate.enabled=true`, the kagent Helm chart installs a namespace-scoped Role and RoleBinding so `ate-api-server` (in `ate-system` by default) can `get` Secrets and ConfigMaps referenced by generated ActorTemplates. Harnesses in other namespaces need that namespace listed in `rbac.namespaces` (or a matching RoleBinding applied manually).
 
 Port-forward the UI:
 

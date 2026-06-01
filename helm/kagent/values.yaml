@@ -237,6 +237,10 @@ controller:
     enabled: false
     ateApiEndpoint: ""
     ateApiInsecure: false
+    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
+    ateApiServer:
+      namespace: ate-system
+      serviceAccount: ate-api-server
     defaultWorkerPool:
       namespace: ""
       name: ""

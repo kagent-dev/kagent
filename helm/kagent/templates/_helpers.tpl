@@ -51,6 +51,17 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
+Namespaces where Substrate ate-api-server needs read access to Secrets and ConfigMaps
+referenced by generated ActorTemplates (install namespace plus rbac.namespaces).
+*/}}
+{{- define "kagent.substrate.envSourceNamespaces" -}}
+{{- $installNs := include "kagent.namespace" . -}}
+{{- $extra := .Values.rbac.namespaces | default list -}}
+{{- $all := append $extra $installNs | uniq | sortAlpha -}}
+{{- join "," $all -}}
+{{- end }}
+
+{{/*
 Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
 Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
 */}}
