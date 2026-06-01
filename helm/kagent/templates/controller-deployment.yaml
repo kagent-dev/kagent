@@ -87,7 +87,7 @@ spec:
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
-            {{- if .Values.controller.substrate.enabled }}
+            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: SUBSTRATE_ATE_API_ENDPOINT
               value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
             {{- if .Values.controller.substrate.ateApiInsecure }}
