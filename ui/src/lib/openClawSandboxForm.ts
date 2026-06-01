@@ -70,12 +70,9 @@ export type HarnessRuntimeForm = "openshell" | "substrate";
 export interface OpenClawSandboxFormSlice {
   /** Harness control plane: OpenShell (default) or Agent Substrate. */
   runtime: HarnessRuntimeForm;
-  /** Use an existing Substrate WorkerPool or let kagent create one per harness. */
-  substrateWorkerPoolMode: "create" | "existing";
-  substrateWorkerPoolRefNamespace: string;
   substrateWorkerPoolRefName: string;
-  substrateWorkerPoolReplicas: string;
-  /** GCS snapshot prefix (gs://bucket/path/) — required for auto-provisioned templates. */
+  substrateGatewayToken: string;
+  /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
   substrateSnapshotsLocation: string;
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
@@ -92,10 +89,8 @@ export interface OpenClawSandboxFormSlice {
 export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
   return {
     runtime: "openshell",
-    substrateWorkerPoolMode: "create",
-    substrateWorkerPoolRefNamespace: "",
     substrateWorkerPoolRefName: "",
-    substrateWorkerPoolReplicas: "2",
+    substrateGatewayToken: "",
     substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
     image: "",
     channels: [],
@@ -197,6 +192,9 @@ export function validateOpenClawSandboxForm(args: {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
+  }
+  if (args.openClaw.runtime === "substrate" && !args.openClaw.substrateGatewayToken.trim()) {
+    return openClawValidationFail("general", "Substrate gateway token is required.");
   }
 
   for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
@@ -391,22 +389,18 @@ export function buildSandboxCRDraft(args: {
     if (!snapshots) {
       return { error: "Substrate snapshots location (gs://…) is required." };
     }
+    const gatewayToken = args.openClaw.substrateGatewayToken?.trim();
+    if (!gatewayToken) {
+      return { error: "Substrate gateway token is required." };
+    }
     const substrate: Record<string, unknown> = {
+      gatewayToken,
       snapshotsConfig: { location: snapshots },
     };
-    if (args.openClaw.substrateWorkerPoolMode === "existing") {
-      const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();
-      if (!wpName) {
-        return { error: "WorkerPool name is required when using an existing pool." };
-      }
+    const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();
+    if (wpName) {
       substrate.workerPoolRef = {
         name: wpName,
-        namespace: args.openClaw.substrateWorkerPoolRefNamespace?.trim() || args.namespace.trim(),
-      };
-    } else {
-      const replicas = Number.parseInt(args.openClaw.substrateWorkerPoolReplicas?.trim() || "2", 10);
-      substrate.workerPool = {
-        replicas: Number.isFinite(replicas) && replicas > 0 ? replicas : 2,
       };
     }
     spec.substrate = substrate;

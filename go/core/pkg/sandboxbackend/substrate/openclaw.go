@@ -26,7 +26,6 @@ var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 // ClawBackend implements AsyncBackend for OpenClaw/NemoClaw on Agent Substrate.
 type ClawBackend struct {
 	client   *Client
-	cfg      Config
 	backend  v1alpha2.AgentHarnessBackendType
 	recorder record.EventRecorder
 }
@@ -34,10 +33,9 @@ type ClawBackend struct {
 var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
 // NewOpenClawBackend returns a substrate backend for openclaw/nemoclaw harness types.
-func NewOpenClawBackend(client *Client, cfg Config, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
+func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
 		client:   client,
-		cfg:      cfg,
 		backend:  backend,
 		recorder: recorder,
 	}
@@ -56,7 +54,7 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	}
 
 	actorID := ActorID(ah)
-	tmplNS, tmplName := actorTemplateRef(ah, b.cfg)
+	tmplNS, tmplName := generatedActorTemplateKey(ah)
 
 	actor, err := b.client.GetActor(ctx, actorID)
 	if err != nil {
@@ -103,23 +101,20 @@ func (b *ClawBackend) GetStatus(ctx context.Context, h sandboxbackend.Handle) (m
 	return actorStatusToCondition(actor)
 }
 
-func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.Handle) error {
+func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.Handle) (bool, error) {
 	if h.ID == "" {
-		return nil
+		return true, nil
 	}
 	done, err := b.client.AdvanceActorDelete(ctx, h.ID)
 	if err != nil {
-		return fmt.Errorf("substrate delete actor %q: %w", h.ID, err)
+		return false, fmt.Errorf("substrate delete actor %q: %w", h.ID, err)
 	}
-	if !done {
-		return fmt.Errorf("substrate delete actor %q in progress", h.ID)
-	}
-	return nil
+	return done, nil
 }
 
 func (b *ClawBackend) OnAgentHarnessReady(_ context.Context, _ *v1alpha2.AgentHarness, _ sandboxbackend.Handle) error {
-	// OpenClaw config is baked into the ActorTemplate golden snapshot at provision time
-	// (see substrate/provision_openclaw.go — openclaw.BuildSubstrateBootstrapJSON with secretKeyRef env).
+	// OpenClaw config is baked into the ActorTemplate golden snapshot when the
+	// generated ActorTemplate is reconciled.
 	return nil
 }
 
@@ -150,19 +145,7 @@ func ActorHost(actorID string, suffix string) string {
 	return actorID + "." + suffix
 }
 
-func actorTemplateRef(ah *v1alpha2.AgentHarness, cfg Config) (string, string) {
-	if ah.Spec.Substrate != nil && ah.Spec.Substrate.ActorTemplateRef != nil {
-		if ref := ah.Spec.Substrate.ActorTemplateRef; ref.Name != "" {
-			return ah.Namespace, ref.Name
-		}
-	}
-	// Auto-provisioned template in the harness namespace (also when status was not persisted yet).
-	if ah.Annotations != nil && ah.Annotations[AnnotationManagedActorTemplate] == "true" {
-		return ah.Namespace, actorTemplateName(ah)
-	}
-	if cfg.DefaultActorTemplateNamespace != "" && cfg.DefaultActorTemplateName != "" {
-		return cfg.DefaultActorTemplateNamespace, cfg.DefaultActorTemplateName
-	}
+func generatedActorTemplateKey(ah *v1alpha2.AgentHarness) (string, string) {
 	return ah.Namespace, actorTemplateName(ah)
 }
 

@@ -29,12 +29,12 @@ type openClawStartupScriptData struct {
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
 // When spec.modelConfigRef is set, openclaw.json includes models/agents/channels like the OpenShell bootstrap path.
-func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []corev1.EnvVar, err error) {
+func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []corev1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
 	}
 	if p.Client == nil {
-		return "", nil, fmt.Errorf("substrate provisioner kubernetes client is required")
+		return "", nil, fmt.Errorf("substrate lifecycle kubernetes client is required")
 	}
 
 	token, err := ResolveGatewayToken(ctx, p.Client, ah)

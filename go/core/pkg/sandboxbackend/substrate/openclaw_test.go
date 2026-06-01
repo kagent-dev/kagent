@@ -32,21 +32,15 @@ func TestActorHost(t *testing.T) {
 	}
 }
 
-func TestActorTemplateRefManagedProvisioner(t *testing.T) {
+func TestGeneratedActorTemplateKey(t *testing.T) {
 	t.Parallel()
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kagent",
 			Name:      "peterj-claw",
-			Annotations: map[string]string{
-				AnnotationManagedActorTemplate: "true",
-			},
 		},
 	}
-	ns, name := actorTemplateRef(ah, Config{
-		DefaultActorTemplateNamespace: "ate-demo-openclaw",
-		DefaultActorTemplateName:      "openclaw",
-	})
+	ns, name := generatedActorTemplateKey(ah)
 	if ns != "kagent" || name != "peterj-claw" {
 		t.Fatalf("got %s/%s, want kagent/peterj-claw", ns, name)
 	}

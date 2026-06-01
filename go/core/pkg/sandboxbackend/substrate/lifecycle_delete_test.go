@@ -9,23 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-type recordingActorDeleter struct {
+type recordingActorClient struct {
 	deleted []string
 }
 
-func (r *recordingActorDeleter) AdvanceActorDelete(_ context.Context, actorID string) (bool, error) {
+func (r *recordingActorClient) deleteActor(_ context.Context, actorID string) (bool, error) {
 	r.deleted = append(r.deleted, actorID)
 	return true, nil
 }
 
-func TestProvisionerAdvanceDelete_DeletesGoldenActor(t *testing.T) {
+func TestLifecycleCleanupGeneratedTemplate_DeletesGoldenActor(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -46,39 +45,25 @@ func TestProvisionerAdvanceDelete_DeletesGoldenActor(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "peterj-claw",
 			Namespace: ns,
-			Annotations: map[string]string{
-				AnnotationManagedActorTemplate: "true",
-			},
 		},
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tmpl).Build()
-	rec := &recordingActorDeleter{}
-	p := &Provisioner{Client: kube, Ate: rec}
+	rec := &recordingActorClient{}
+	p := &Lifecycle{Client: kube, deleteActor: rec.deleteActor}
 
 	var complete bool
 	var err error
 	for range 5 {
-		complete, err = p.AdvanceDelete(context.Background(), ah)
+		complete, err = p.CleanupGeneratedTemplate(context.Background(), ah)
 		require.NoError(t, err)
 		if complete {
 			break
 		}
 	}
-	require.True(t, complete, "AdvanceDelete should finish within a few reconcile passes")
+	require.True(t, complete, "CleanupGeneratedTemplate should finish within a few reconcile passes")
 	require.Equal(t, []string{"golden-actor-uuid"}, rec.deleted)
 
 	var got atev1alpha1.ActorTemplate
-	require.Error(t, kube.Get(context.Background(), client.ObjectKeyFromObject(tmpl), &got))
-}
-
-func TestWorkerPoolDeploymentGoneNotFound(t *testing.T) {
-	t.Parallel()
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	kube := fake.NewClientBuilder().WithScheme(scheme).Build()
-	p := &Provisioner{Client: kube}
-	gone, err := p.workerPoolDeploymentGone(context.Background(), types.NamespacedName{Namespace: "kagent", Name: "claw-wp"})
-	require.NoError(t, err)
-	require.True(t, gone)
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(tmpl), &got))
 }

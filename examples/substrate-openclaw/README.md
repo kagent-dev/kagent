@@ -13,7 +13,7 @@ cd substrate
 
 `--deploy-ate-system` installs the **control plane only** (ate-api, ate-controller, atelet, atenet, …). Your registry catalog will show `ateapi-*`, `atelet-*`, etc., but **not** ateom until you build it.
 
-Build and push **ateom-gvisor** (required for kagent `workerPool.ateomImage`):
+Build and push **ateom-gvisor** (required for the WorkerPool `ateomImage`):
 
 ```bash
 # build the ateom-gvisor image from the substrate folder
@@ -36,21 +36,20 @@ On amd64 hosts, use `--platform linux/amd64` in the pull step.
 
 ## kagent AgentHarness with substrate runtime
 
-kagent **auto-provisions** a per-harness `ActorTemplate` (and optionally a `WorkerPool`).
+kagent generates a per-harness `ActorTemplate` and uses an existing `WorkerPool`.
 
 Install kagent (Substrate must already be running in the cluster):
 
 ```bash
 export KIND_CLUSTER_NAME=kind
-make helm-install KAGENT_HELM_EXTRA_ARGS="--set controller.substrate.enabled=true --set controller.substrate.ateomImage=localhost:5001/ateom-gvisor:latest"
+make helm-install KAGENT_HELM_EXTRA_ARGS="--set controller.substrate.enabled=true --set substrateWorkerPool.create=true --set substrateWorkerPool.ateomImage=localhost:5001/ateom-gvisor:latest"
 ```
 
 The generated `ActorTemplate` uses `controller.substrate.pauseImage`, `controller.substrate.runscAMD64URL`, `controller.substrate.runscAMD64SHA256`, `controller.substrate.runscARM64URL`, and `controller.substrate.runscARM64SHA256` from the Helm values Override them with `--set` or a values file when you need to pin a different gVisor build.
 
-Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://ate-snapshots/<namespace>/<agentharnessname>`. If Helm sets `controller.substrate.ateomImage`, the per-harness `workerPool.ateomImage` can be omitted unless you want to override it.
+Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://ate-snapshots/<namespace>/<agentharnessname>`.
 
-- **Worker pool** — reference an existing pool (`workerPoolRef`) **or** let kagent create one (`workerPool`)
-- **`workerPool.ateomImage`** — optional override for the Helm/controller default (`localhost:5001/ateom-gvisor:latest`)
+- **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool
 - **Gateway token** — required per harness with either `gatewayToken` or `gatewayTokenSecretRef`
 
 ```yaml
@@ -69,33 +68,22 @@ spec:
     # snapshotsConfig:
     #   location: gs://ate-snapshots/kagent/peterj-claw
 
-    # Optional: kagent auto-creates a WorkerPool when workerPoolRef is unset.
-    # Replicas default to 1 and ateomImage defaults to controller.substrate.ateomImage.
-    # NOTE: use single worker for now due to https://github.com/agent-substrate/substrate/issues/50
-    gatewayToken: test-token
-    workerPool:
-      replicas: 1
-    #   ateomImage: localhost:5001/ateom-gvisor:latest
+    # Required unless the controller has a default WorkerPool configured.
+    workerPoolRef:
+      name: kagent-default
 
     # Required: configure the OpenClaw gateway token for this harness.
     # Use either gatewayToken or gatewayTokenSecretRef. The Secret must contain key "token".
+    gatewayToken: test-token
+
     # gatewayTokenSecretRef:
     #   name: openclaw-gateway-token
-    #   namespace: kagent
 
     # Optional: override the sandbox image used in the ActorTemplate.
     # workloadImage: ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4
-
-    # Optional: adopt existing resources instead of auto-create
-    # workerPoolRef:
-    #   name: my-pool
-    #   namespace: ate-system
-    # actorTemplateRef:
-    #   name: my-template
-    #   namespace: ate-system
 ```
 
-When `actorTemplateRef` is not set, kagent creates an `ActorTemplate` that looks roughly like this:
+kagent creates an `ActorTemplate` that looks roughly like this:
 
 ```yaml
 apiVersion: ate.dev/v1alpha1

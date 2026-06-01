@@ -56,35 +56,17 @@ type AgentHarnessSubstrateSnapshotsConfig struct {
 	Location string `json:"location"`
 }
 
-// AgentHarnessSubstrateWorkerPoolSpec creates a dedicated WorkerPool for this harness.
-// Mutually exclusive with workerPoolRef.
-type AgentHarnessSubstrateWorkerPoolSpec struct {
-	// Replicas is the number of ateom worker pods. Defaults to 1 when unset or zero.
-	// +optional
-	// +kubebuilder:default=1
-	Replicas int32 `json:"replicas,omitempty"`
-
-	// AteomImage is the ateom herder image (pullable registry ref, not ko://).
-	// Overrides the controller-wide substrate ateom image default for this WorkerPool.
-	// +optional
-	AteomImage string `json:"ateomImage,omitempty"`
-}
-
 // AgentHarnessSubstrateSpec configures Agent Substrate (WorkerPool + ActorTemplate + Actor).
 //
-// By default kagent provisions a per-harness ActorTemplate (and optionally a WorkerPool).
-// Set actorTemplateRef only to adopt an existing template (advanced / legacy).
+// kagent generates a per-harness ActorTemplate and creates an Actor from it. WorkerPool
+// capacity is referenced from workerPoolRef or the controller default; it is not
+// created or deleted by the AgentHarness controller.
 // +kubebuilder:validation:XValidation:rule="(has(self.gatewayToken) && !has(self.gatewayTokenSecretRef)) || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))",message="Exactly one of gatewayToken or gatewayTokenSecretRef must be specified"
-// +kubebuilder:validation:XValidation:rule="!(has(self.workerPoolRef) && has(self.workerPool))",message="workerPoolRef and workerPool are mutually exclusive"
 type AgentHarnessSubstrateSpec struct {
-	// WorkerPoolRef references an existing ate.dev WorkerPool (namespace/name).
-	// Mutually exclusive with workerPool.
+	// WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+	// When unset, the controller uses its configured default WorkerPool.
 	// +optional
 	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
-
-	// WorkerPool creates a dedicated WorkerPool in the harness namespace when workerPoolRef is unset.
-	// +optional
-	WorkerPool *AgentHarnessSubstrateWorkerPoolSpec `json:"workerPool,omitempty"`
 
 	// SnapshotsConfig configures actor memory snapshots. Defaults to
 	// gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
@@ -94,16 +76,6 @@ type AgentHarnessSubstrateSpec struct {
 	// WorkloadImage overrides the default nemoclaw/openclaw sandbox image in the ActorTemplate.
 	// +optional
 	WorkloadImage string `json:"workloadImage,omitempty"`
-
-	// ActorTemplateRef adopts an existing ate.dev ActorTemplate instead of auto-provisioning.
-	// When set, workerPoolRef/workerPool/snapshotsConfig are ignored for template creation.
-	// +optional
-	ActorTemplateRef *TypedLocalReference `json:"actorTemplateRef,omitempty"`
-
-	// GatewayPort is the port OpenClaw listens on inside the actor (Substrate routes to :80 today).
-	// +optional
-	// +kubebuilder:default=80
-	GatewayPort int32 `json:"gatewayPort,omitempty"`
 
 	// GatewayToken is the OpenClaw gateway Bearer token for this harness.
 	// Prefer gatewayTokenSecretRef for production secrets.
@@ -321,32 +293,14 @@ type AgentHarnessStatus struct {
 	// Connection is populated by the controller when the harness is ready.
 	// +optional
 	Connection *AgentHarnessConnection `json:"connection,omitempty"`
-
-	// Substrate records observed Substrate provisioning state.
-	// +optional
-	Substrate *AgentHarnessSubstrateStatus `json:"substrate,omitempty"`
 }
-
-// AgentHarnessSubstrateStatus is observed Substrate control-plane state for this harness.
-type AgentHarnessSubstrateStatus struct {
-	// Conditions describe substrate provisioning progress (e.g. ActorTemplate golden snapshot).
-	// +optional
-	// +listType=map
-	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// AgentHarnessSubstrateConditionType enumerates substrate-specific condition types.
-const (
-	AgentHarnessSubstrateConditionTypeActorTemplateReady = "ActorTemplateReady"
-	// AgentHarnessSubstrateConditionTypeResourcesCleaned is True when managed Substrate CRs are gone during delete.
-	AgentHarnessSubstrateConditionTypeResourcesCleaned = "ResourcesCleaned"
-)
 
 // AgentHarnessConditionType enumerates the condition types an AgentHarness may report.
 const (
-	AgentHarnessConditionTypeReady    = "Ready"
-	AgentHarnessConditionTypeAccepted = "Accepted"
+	AgentHarnessConditionTypeReady              = "Ready"
+	AgentHarnessConditionTypeAccepted           = "Accepted"
+	AgentHarnessConditionTypeActorTemplateReady = "ActorTemplateReady"
+	AgentHarnessConditionTypeActorReady         = "ActorReady"
 )
 
 // +kubebuilder:object:root=true

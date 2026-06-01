@@ -12,48 +12,56 @@ import (
 )
 
 const (
-	AnnotationManagedWorkerPool    = "kagent.dev/substrate-managed-workerpool"
-	AnnotationManagedActorTemplate = "kagent.dev/substrate-managed-actortemplate"
-
-	defaultWorkerPoolReplicas = int32(1)
-	defaultSnapshotsBucket    = "ate-snapshots"
-	defaultOpenClawContainer  = "openclaw"
+	defaultSnapshotsBucket   = "ate-snapshots"
+	defaultOpenClawContainer = "openclaw"
 )
 
-// ProvisionDefaults are cluster-wide defaults for auto-provisioned Substrate CRs.
-type ProvisionDefaults struct {
+// LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
+type LifecycleDefaults struct {
 	PauseImage           string
 	RunscAMD64URL        string
 	RunscAMD64SHA256     string
 	RunscARM64URL        string
 	RunscARM64SHA256     string
-	DefaultAteomImage    string
 	DefaultWorkloadImage string
+	DefaultWorkerPool    types.NamespacedName
 }
 
-// ateActorDeleter removes actors from ate-api during harness teardown.
-type ateActorDeleter interface {
-	AdvanceActorDelete(ctx context.Context, actorID string) (bool, error)
+// Lifecycle reconciles the Kubernetes lifecycle that kagent owns for a substrate AgentHarness.
+// WorkerPools are externally owned; this helper only resolves the selected WorkerPool.
+type Lifecycle struct {
+	Client      client.Client
+	Defaults    LifecycleDefaults
+	deleteActor func(context.Context, string) (bool, error)
 }
 
-// Provisioner ensures WorkerPool and ActorTemplate exist for a substrate AgentHarness.
-type Provisioner struct {
-	Client   client.Client
-	Defaults ProvisionDefaults
-	// Ate deletes harness and golden snapshot actors before Substrate CRs are removed.
-	Ate ateActorDeleter
+// AgentHarnessLifecycle is the substrate lifecycle surface used by the
+// AgentHarness controller.
+type AgentHarnessLifecycle interface {
+	EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (LifecycleState, error)
+	CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error)
 }
 
-// EnsureResult describes provisioned Substrate resources.
-type EnsureResult struct {
-	WorkerPoolRef        types.NamespacedName
-	ActorTemplateRef     types.NamespacedName
-	ActorTemplateReady   bool
-	ManagedWorkerPool    bool
-	ManagedActorTemplate bool
+var _ AgentHarnessLifecycle = (*Lifecycle)(nil)
+
+func NewLifecycle(kube client.Client, defaults LifecycleDefaults, actors *Client) *Lifecycle {
+	var deleteActor func(context.Context, string) (bool, error)
+	if actors != nil {
+		deleteActor = actors.AdvanceActorDelete
+	}
+	return &Lifecycle{
+		Client:      kube,
+		Defaults:    defaults,
+		deleteActor: deleteActor,
+	}
 }
 
-func defaultRunscConfig(d ProvisionDefaults) atev1alpha1.RunscConfig {
+// LifecycleState describes the generated Substrate lifecycle for an AgentHarness.
+type LifecycleState struct {
+	ActorTemplateReady bool
+}
+
+func defaultRunscConfig(d LifecycleDefaults) atev1alpha1.RunscConfig {
 	return atev1alpha1.RunscConfig{
 		AMD64: &atev1alpha1.RunscPlatformConfig{
 			URL:        d.RunscAMD64URL,
@@ -82,15 +90,11 @@ func defaultSubstrateSnapshotsLocation(namespace, name string) string {
 	return fmt.Sprintf("gs://%s/%s/%s", defaultSnapshotsBucket, namespace, name)
 }
 
-func provisionLabels(ah *v1alpha2.AgentHarness) map[string]string {
+func lifecycleLabels(ah *v1alpha2.AgentHarness) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": "kagent",
 		"kagent.dev/agent-harness":     ah.Name,
 	}
-}
-
-func workerPoolName(ah *v1alpha2.AgentHarness) string {
-	return truncateDNS1123(ah.Name + "-wp")
 }
 
 func actorTemplateName(ah *v1alpha2.AgentHarness) string {

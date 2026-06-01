@@ -9,11 +9,4 @@ type Config struct {
 	Insecure       bool
 	DialTimeout    time.Duration
 	CallTimeout    time.Duration
-
-	// DefaultActorTemplateNamespace/name is a legacy fallback when status/spec refs are unset.
-	DefaultActorTemplateNamespace string
-	DefaultActorTemplateName      string
-
-	// ProvisionDefaults configures auto-created WorkerPool/ActorTemplate resources.
-	ProvisionDefaults ProvisionDefaults
 }

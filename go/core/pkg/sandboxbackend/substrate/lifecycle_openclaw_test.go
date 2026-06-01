@@ -52,7 +52,7 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	p := &Provisioner{
+	p := &Lifecycle{
 		Client: kube,
 	}
 
@@ -140,7 +140,7 @@ func TestBuildOpenClawActorStartup_WithHarnessGatewayToken(t *testing.T) {
 			t.Parallel()
 
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret.DeepCopy()).Build()
-			p := &Provisioner{
+			p := &Lifecycle{
 				Client: kube,
 			}
 			ah := &v1alpha2.AgentHarness{
@@ -192,7 +192,7 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	p := &Provisioner{Client: kube, Defaults: ProvisionDefaults{}}
+	p := &Lifecycle{Client: kube, Defaults: LifecycleDefaults{}}
 	script, _, err := p.buildOpenClawActorStartup(context.Background(), ah)
 	require.NoError(t, err)
 
