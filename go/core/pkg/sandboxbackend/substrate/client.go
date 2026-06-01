@@ -8,6 +8,7 @@ import (
 
 	"github.com/agent-substrate/substrate/proto/ateapipb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -35,20 +36,43 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	if cfg.Insecure {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
 	}
 
 	conn, err := grpc.NewClient(cfg.AteAPIEndpoint, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("substrate: dial ate-api %q: %w", cfg.AteAPIEndpoint, err)
 	}
-	_ = dialCtx
+	// NewClient stays idle until Connect() or an RPC; waitConnReady enforces DialTimeout.
+	conn.Connect()
+	if err := waitConnReady(dialCtx, conn); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("substrate: dial ate-api %q: %w", cfg.AteAPIEndpoint, err)
+	}
 
 	return &Client{
 		ControlClient: ateapipb.NewControlClient(conn),
 		conn:          conn,
 		cfg:           cfg,
 	}, nil
+}
+
+func waitConnReady(ctx context.Context, conn *grpc.ClientConn) error {
+	for {
+		switch s := conn.GetState(); s {
+		case connectivity.Ready:
+			return nil
+		case connectivity.Shutdown:
+			return fmt.Errorf("connection shut down")
+		default:
+			if !conn.WaitForStateChange(ctx, s) {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return fmt.Errorf("connection closed before ready")
+			}
+		}
+	}
 }
 
 func (c *Client) Close() error {

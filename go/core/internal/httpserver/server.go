@@ -315,7 +315,7 @@ func (s *HTTPServer) setupRoutes() {
 	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
 	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
 
-	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) to the actor pod IP :80.
+	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) to the actor pod IP on spec.substrate.gatewayPort.
 	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)

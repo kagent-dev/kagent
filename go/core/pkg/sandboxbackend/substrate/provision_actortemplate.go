@@ -42,7 +42,7 @@ func (p *Provisioner) ensureActorTemplate(ctx context.Context, ah *v1alpha2.Agen
 				{
 					Name:  defaultOpenClawContainer,
 					Image: workloadImage,
-					Ports: []corev1.ContainerPort{{ContainerPort: 80}},
+					Ports: []corev1.ContainerPort{{ContainerPort: GatewayPort(ah)}},
 					Command: []string{
 						"/bin/sh",
 						"-c",

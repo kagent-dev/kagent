@@ -77,6 +77,12 @@ export interface OpenClawSandboxFormSlice {
   substrateWorkerPoolReplicas: string;
   /** GCS snapshot prefix (gs://bucket/path/) — required for auto-provisioned templates. */
   substrateSnapshotsLocation: string;
+  /** OpenClaw gateway Bearer token (inline or Secret in harness namespace). Required when runtime is substrate. */
+  substrateGatewayTokenSource: "inline" | "secret";
+  substrateGatewayToken: string;
+  substrateGatewaySecretName: string;
+  /** Secret data key; controller expects "token" (see GatewayTokenSecretKey). */
+  substrateGatewaySecretKey: string;
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
   channels: OpenClawChannelRow[];
@@ -97,6 +103,10 @@ export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
     substrateWorkerPoolRefName: "",
     substrateWorkerPoolReplicas: "2",
     substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
+    substrateGatewayTokenSource: "inline",
+    substrateGatewayToken: "",
+    substrateGatewaySecretName: "",
+    substrateGatewaySecretKey: "token",
     image: "",
     channels: [],
     allowedDomains: "",
@@ -151,7 +161,7 @@ export function parseAllowedDomainsList(raw: string): string[] {
 }
 
 /** Where to show a harness OpenClaw validation message and which element to focus. */
-export type OpenClawSandboxSectionErrorKind = "allowedDomains" | "channels" | "general";
+export type OpenClawSandboxSectionErrorKind = "allowedDomains" | "channels" | "substrate" | "general";
 
 export interface OpenClawSandboxFormValidationError {
   message: string;
@@ -197,6 +207,22 @@ export function validateOpenClawSandboxForm(args: {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
+  }
+
+  if (args.openClaw.runtime === "substrate") {
+    const gw = substrateGatewayTokenForDraft(args.openClaw);
+    if ("error" in gw) {
+      return openClawValidationFail("substrate", gw.error);
+    }
+    const snapshots = args.openClaw.substrateSnapshotsLocation?.trim();
+    if (!snapshots) {
+      return openClawValidationFail("substrate", "Substrate snapshots location (gs://…) is required.");
+    }
+    if (args.openClaw.substrateWorkerPoolMode === "existing") {
+      if (!args.openClaw.substrateWorkerPoolRefName?.trim()) {
+        return openClawValidationFail("substrate", "WorkerPool name is required when using an existing pool.");
+      }
+    }
   }
 
   for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
@@ -275,6 +301,30 @@ export interface SandboxCRDraft {
   kind: "AgentHarness";
   metadata: { name: string; namespace: string };
   spec: Record<string, unknown>;
+}
+
+/** Maps form fields to exactly one of spec.substrate.gatewayToken | gatewayTokenSecretRef. */
+function substrateGatewayTokenForDraft(
+  openClaw: OpenClawSandboxFormSlice,
+): { gatewayToken: string } | { gatewayTokenSecretRef: { name: string } } | { error: string } {
+  const secretKey = openClaw.substrateGatewaySecretKey.trim() || "token";
+  const cred = credentialFromRow(
+    openClaw.substrateGatewayTokenSource,
+    openClaw.substrateGatewayToken,
+    openClaw.substrateGatewaySecretName,
+    secretKey,
+    "OpenClaw gateway token",
+  );
+  if ("error" in cred) {
+    return { error: cred.error };
+  }
+  if (cred.value !== undefined) {
+    return { gatewayToken: cred.value };
+  }
+  if (cred.valueFrom?.name) {
+    return { gatewayTokenSecretRef: { name: cred.valueFrom.name } };
+  }
+  return { error: "OpenClaw gateway token: inline token or secret name and key are required" };
 }
 
 function modelConfigRefForSandbox(agentNamespace: string, modelRef: string): string {
@@ -391,8 +441,13 @@ export function buildSandboxCRDraft(args: {
     if (!snapshots) {
       return { error: "Substrate snapshots location (gs://…) is required." };
     }
+    const gw = substrateGatewayTokenForDraft(args.openClaw);
+    if ("error" in gw) {
+      return { error: gw.error };
+    }
     const substrate: Record<string, unknown> = {
       snapshotsConfig: { location: snapshots },
+      ...gw,
     };
     if (args.openClaw.substrateWorkerPoolMode === "existing") {
       const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();

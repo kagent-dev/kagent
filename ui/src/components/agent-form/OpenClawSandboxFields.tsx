@@ -184,6 +184,63 @@ export function OpenClawSandboxFields({
         </FieldRoot>
         {value.runtime === "substrate" ? (
           <div className="space-y-4">
+            <FieldError>{section === "substrate" ? validationError?.message : null}</FieldError>
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-gateway-token-source">Gateway token</FieldLabel>
+              <select
+                id="agent-field-substrate-gateway-token-source"
+                className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                disabled={disabled}
+                value={value.substrateGatewayTokenSource}
+                onChange={(e) =>
+                  set({
+                    substrateGatewayTokenSource: e.target.value === "secret" ? "secret" : "inline",
+                  })
+                }
+              >
+                <option value="inline">Inline (dev)</option>
+                <option value="secret">Kubernetes Secret (recommended)</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Bearer token for the OpenClaw gateway inside the actor. Required for Substrate harnesses.
+              </p>
+            </FieldRoot>
+            {value.substrateGatewayTokenSource === "inline" ? (
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token value</FieldLabel>
+                <Input
+                  id="agent-field-substrate-gateway-token"
+                  disabled={disabled}
+                  type="password"
+                  autoComplete="off"
+                  value={value.substrateGatewayToken}
+                  onChange={(e) => set({ substrateGatewayToken: e.target.value })}
+                />
+              </FieldRoot>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FieldRoot>
+                  <FieldLabel htmlFor="agent-field-substrate-gateway-secret-name">Secret name</FieldLabel>
+                  <Input
+                    id="agent-field-substrate-gateway-secret-name"
+                    disabled={disabled}
+                    placeholder="openclaw-gateway-token"
+                    value={value.substrateGatewaySecretName}
+                    onChange={(e) => set({ substrateGatewaySecretName: e.target.value })}
+                  />
+                </FieldRoot>
+                <FieldRoot>
+                  <FieldLabel htmlFor="agent-field-substrate-gateway-secret-key">Secret key</FieldLabel>
+                  <Input
+                    id="agent-field-substrate-gateway-secret-key"
+                    disabled={disabled}
+                    value={value.substrateGatewaySecretKey}
+                    onChange={(e) => set({ substrateGatewaySecretKey: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Must exist in the harness namespace (default key: token).</p>
+                </FieldRoot>
+              </div>
+            )}
             <FieldRoot>
               <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
               <Input

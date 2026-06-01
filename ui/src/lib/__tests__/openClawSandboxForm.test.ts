@@ -183,6 +183,65 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.spec.backend).toBe("openclaw");
     });
 
+    it("requires substrate gateway token in validation", () => {
+      const openClaw = {
+        ...defaultOpenClawSandboxFormSlice(),
+        runtime: "substrate" as const,
+        substrateGatewayToken: "",
+      };
+      const result = validateOpenClawSandboxForm({
+        openClaw,
+        modelRef: "ns/m1",
+      });
+      expect(result?.section).toBe("substrate");
+      expect(result?.message).toContain("gateway token");
+    });
+
+    it("writes spec.substrate.gatewayToken for inline token", () => {
+      const openClaw = {
+        ...defaultOpenClawSandboxFormSlice(),
+        runtime: "substrate" as const,
+        substrateGatewayTokenSource: "inline" as const,
+        substrateGatewayToken: "gw-secret-token",
+      };
+      const draft = buildSandboxCRDraft({
+        name: "h1",
+        namespace: "kagent",
+        description: "",
+        modelRef: "m1",
+        openClaw,
+      });
+      expect("error" in draft).toBe(false);
+      if ("error" in draft) return;
+      expect(draft.spec.runtime).toBe("substrate");
+      const substrate = draft.spec.substrate as Record<string, unknown>;
+      expect(substrate.gatewayToken).toBe("gw-secret-token");
+      expect(substrate).not.toHaveProperty("gatewayTokenSecretRef");
+      expect(substrate.snapshotsConfig).toEqual({ location: "gs://ate-snapshots/kagent/" });
+    });
+
+    it("writes spec.substrate.gatewayTokenSecretRef for secret token", () => {
+      const openClaw = {
+        ...defaultOpenClawSandboxFormSlice(),
+        runtime: "substrate" as const,
+        substrateGatewayTokenSource: "secret" as const,
+        substrateGatewaySecretName: "openclaw-token",
+        substrateGatewaySecretKey: "token",
+      };
+      const draft = buildSandboxCRDraft({
+        name: "h1",
+        namespace: "kagent",
+        description: "",
+        modelRef: "m1",
+        openClaw,
+      });
+      expect("error" in draft).toBe(false);
+      if ("error" in draft) return;
+      const substrate = draft.spec.substrate as Record<string, unknown>;
+      expect(substrate.gatewayTokenSecretRef).toEqual({ name: "openclaw-token" });
+      expect(substrate).not.toHaveProperty("gatewayToken");
+    });
+
     it("writes Hermes slack allowedUserIDs and home channel fields", () => {
       const row = newOpenClawChannelRow();
       row.name = "slack-main";

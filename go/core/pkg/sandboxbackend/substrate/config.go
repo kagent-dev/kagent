@@ -7,8 +7,9 @@ type Config struct {
 	// AteAPIEndpoint is a gRPC target (e.g. dns:///api.ate-system.svc:443).
 	AteAPIEndpoint string
 	Insecure       bool
-	DialTimeout    time.Duration
-	CallTimeout    time.Duration
+	// DialTimeout bounds the initial dial. Zero defaults to 10s in Dial.
+	DialTimeout time.Duration
+	CallTimeout time.Duration
 
 	// DefaultActorTemplateNamespace/name is a legacy fallback when status/spec refs are unset.
 	DefaultActorTemplateNamespace string

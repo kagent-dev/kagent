@@ -15,10 +15,22 @@ const (
 	AnnotationManagedWorkerPool    = "kagent.dev/substrate-managed-workerpool"
 	AnnotationManagedActorTemplate = "kagent.dev/substrate-managed-actortemplate"
 
-	defaultWorkerPoolReplicas = int32(1)
-	defaultSnapshotsBucket    = "ate-snapshots"
-	defaultOpenClawContainer  = "openclaw"
+	defaultWorkerPoolReplicas         = int32(1)
+	defaultSnapshotsBucket            = "ate-snapshots"
+	defaultOpenClawContainer          = "openclaw"
+	defaultSubstrateGatewayPort int32 = 80
 )
+
+// GatewayPort returns spec.substrate.gatewayPort, defaulting to 80 when unset.
+func GatewayPort(ah *v1alpha2.AgentHarness) int32 {
+	if ah == nil || ah.Spec.Substrate == nil {
+		return defaultSubstrateGatewayPort
+	}
+	if p := ah.Spec.Substrate.GatewayPort; p > 0 {
+		return p
+	}
+	return defaultSubstrateGatewayPort
+}
 
 // ProvisionDefaults are cluster-wide defaults for auto-provisioned Substrate CRs.
 type ProvisionDefaults struct {

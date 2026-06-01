@@ -100,7 +100,7 @@ type AgentHarnessSubstrateSpec struct {
 	// +optional
 	ActorTemplateRef *TypedLocalReference `json:"actorTemplateRef,omitempty"`
 
-	// GatewayPort is the port OpenClaw listens on inside the actor (Substrate routes to :80 today).
+	// GatewayPort is the port OpenClaw listens on inside the actor. Defaults to 80.
 	// +optional
 	// +kubebuilder:default=80
 	GatewayPort int32 `json:"gatewayPort,omitempty"`
@@ -292,8 +292,9 @@ type AgentHarnessNetwork struct {
 
 // AgentHarnessConnection describes how clients reach the provisioned harness VM.
 type AgentHarnessConnection struct {
-	// Endpoint is the backend-specific address (gRPC target, SSH host:port,
-	// ...) clients should use to reach the harness.
+	// Endpoint is the backend-specific address clients should use to reach the harness.
+	// OpenShell: gRPC gateway URL with sandbox id (gateway#sandbox). Substrate: kagent
+	// gateway proxy path (/api/agentharnesses/<ns>/<name>/gateway/).
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 }

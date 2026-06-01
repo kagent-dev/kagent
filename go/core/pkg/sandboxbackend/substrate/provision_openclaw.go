@@ -15,8 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const defaultSubstrateOpenClawGatewayPort = 80
-
 //go:embed templates/openclaw_startup.sh.tmpl
 var openClawStartupScriptTmplContent string
 
@@ -41,7 +39,7 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
 	}
-	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort, openClawControlUIBasePath(ah))
+	gw := openclaw.SubstrateGatewayBootstrap(token, int(GatewayPort(ah)), AgentHarnessGatewayControlUIBasePath(ah.Namespace, ah.Name))
 
 	var jsonBytes []byte
 	var containerEnv []corev1.EnvVar
@@ -72,13 +70,6 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		return "", nil, err
 	}
 	return script, containerEnv, nil
-}
-
-func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
-	if ah == nil {
-		return ""
-	}
-	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
 }
 
 func openClawStartupScript(jsonBytes []byte, gwPort int) (string, error) {

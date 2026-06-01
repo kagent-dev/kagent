@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -188,14 +189,11 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 			Backend:        sb.Spec.Backend,
 			Runtime:        runtime,
 			ModelConfigRef: sb.Spec.ModelConfigRef,
-			GatewayUIPath:  fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
+			GatewayUIPath:  substrate.AgentHarnessGatewayUIPath(sb.Namespace, sb.Name),
 		}
 		if sb.Status.BackendRef != nil {
 			subEntry.BackendRefID = sb.Status.BackendRef.ID
 			subEntry.ActorID = sb.Status.BackendRef.ID
-		}
-		if sb.Status.Connection != nil {
-			subEntry.Endpoint = sb.Status.Connection.Endpoint
 		}
 		resp.SubstrateAgentHarness = subEntry
 	default:
