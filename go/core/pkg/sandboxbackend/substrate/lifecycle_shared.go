@@ -30,9 +30,9 @@ type LifecycleDefaults struct {
 // Lifecycle reconciles the Kubernetes lifecycle that kagent owns for a substrate AgentHarness.
 // WorkerPools are externally owned; this helper only resolves the selected WorkerPool.
 type Lifecycle struct {
-	Client      client.Client
-	Defaults    LifecycleDefaults
-	deleteActor func(context.Context, string) (bool, error)
+	Client    client.Client
+	Defaults  LifecycleDefaults
+	AteClient *Client
 }
 
 // AgentHarnessLifecycle is the substrate lifecycle surface used by the
@@ -44,15 +44,11 @@ type AgentHarnessLifecycle interface {
 
 var _ AgentHarnessLifecycle = (*Lifecycle)(nil)
 
-func NewLifecycle(kube client.Client, defaults LifecycleDefaults, actors *Client) *Lifecycle {
-	var deleteActor func(context.Context, string) (bool, error)
-	if actors != nil {
-		deleteActor = actors.AdvanceActorDelete
-	}
+func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Client) *Lifecycle {
 	return &Lifecycle{
-		Client:      kube,
-		Defaults:    defaults,
-		deleteActor: deleteActor,
+		Client:    kube,
+		Defaults:  defaults,
+		AteClient: ateClient,
 	}
 }
 
