@@ -3,6 +3,7 @@ package substrate
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
@@ -94,12 +95,8 @@ func mergeLabels(existing, desired map[string]string) map[string]string {
 		return nil
 	}
 	merged := make(map[string]string, len(existing)+len(desired))
-	for k, v := range existing {
-		merged[k] = v
-	}
-	for k, v := range desired {
-		merged[k] = v
-	}
+	maps.Copy(merged, existing)
+	maps.Copy(merged, desired)
 	return merged
 }
 

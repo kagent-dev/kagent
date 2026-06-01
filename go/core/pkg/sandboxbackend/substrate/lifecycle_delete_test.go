@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
@@ -24,10 +25,8 @@ type recordingActorClient struct {
 }
 
 func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.GetActorResponse, error) {
-	for _, deleted := range r.deleted {
-		if deleted == in.GetActorId() {
-			return nil, status.Error(codes.NotFound, "actor deleted")
-		}
+	if slices.Contains(r.deleted, in.GetActorId()) {
+		return nil, status.Error(codes.NotFound, "actor deleted")
 	}
 	return &ateapipb.GetActorResponse{
 		Actor: &ateapipb.Actor{
