@@ -42,10 +42,7 @@ func (p *Lifecycle) CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.A
 }
 
 func deleteGoldenActor(ctx context.Context, ateClient *Client, actorID string) (bool, error) {
-	if ateClient == nil {
-		return false, fmt.Errorf("substrate ate-api client is required")
-	}
-	return ateClient.AdvanceActorDelete(ctx, actorID)
+	return deleteActor(ctx, ateClient, actorID)
 }
 
 func (p *Lifecycle) goldenActorID(ctx context.Context, tmplKey types.NamespacedName) (string, error) {

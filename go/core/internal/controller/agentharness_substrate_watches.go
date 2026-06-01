@@ -13,7 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
-func (r *AgentHarnessController) enqueueAgentHarnessForSubstrateResource(ctx context.Context, obj client.Object) []reconcile.Request {
+func (r *SubstrateAgentHarnessController) enqueueAgentHarnessForSubstrateResource(ctx context.Context, obj client.Object) []reconcile.Request {
 	harnessName := substrate.HarnessNameFromLabels(obj.GetLabels())
 	if harnessName == "" {
 		return nil
@@ -26,8 +26,8 @@ func (r *AgentHarnessController) enqueueAgentHarnessForSubstrateResource(ctx con
 	}}
 }
 
-func (r *AgentHarnessController) substrateWatches(b *builder.Builder) *builder.Builder {
-	if r == nil || r.SubstrateLifecycle == nil {
+func (r *SubstrateAgentHarnessController) substrateWatches(b *builder.Builder) *builder.Builder {
+	if r == nil {
 		return b
 	}
 	return b.

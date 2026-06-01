@@ -594,41 +594,51 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	kubeClient := mgr.GetClient()
-	var openshellBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
-	var substrateBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	var openshellOpenClawBackend sandboxbackend.AsyncBackend
+	var openshellHermesBackend sandboxbackend.AsyncBackend
 	if cfg.Openshell.GatewayURL != "" {
 		var err error
-		openshellBackends, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
+		openshellOpenClawBackend, openshellHermesBackend, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
 		}
 	}
 	var substrateAteClient *substrate.Client
+	var substrateOpenClawBackend sandboxbackend.AsyncBackend
+	var substrateNemoClawBackend sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var err error
-		substrateBackends, substrateAteClient, err = buildSubstrateSandboxBackends(ctx, &cfg)
+		substrateOpenClawBackend, substrateNemoClawBackend, substrateAteClient, err = buildSubstrateSandboxBackends(ctx, &cfg)
 		if err != nil {
 			setupLog.Error(err, "unable to build substrate sandbox backends")
 			os.Exit(1)
 		}
 	}
-	if len(openshellBackends) > 0 || len(substrateBackends) > 0 {
-		var substrateLifecycle *substrate.Lifecycle
-		if len(substrateBackends) > 0 {
-			substrateLifecycle = substrateLifecycleFromConfig(kubeClient, &cfg, substrateAteClient)
-		}
-		if err := (&controller.AgentHarnessController{
-			Client:             kubeClient,
-			Recorder:           mgr.GetEventRecorder("agentharness-controller"),
-			OpenshellBackends:  openshellBackends,
-			SubstrateBackends:  substrateBackends,
-			SubstrateLifecycle: substrateLifecycle,
+	if openshellOpenClawBackend != nil || openshellHermesBackend != nil {
+		if err := (&controller.OpenShellAgentHarnessController{
+			Client:          kubeClient,
+			Recorder:        mgr.GetEventRecorder("agentharness-openshell-controller"),
+			OpenClawBackend: openshellOpenClawBackend,
+			HermesBackend:   openshellHermesBackend,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
+			setupLog.Error(err, "unable to create controller", "controller", "OpenShellAgentHarness")
 			os.Exit(1)
 		}
-	} else {
+	}
+	if substrateOpenClawBackend != nil || substrateNemoClawBackend != nil {
+		if err := (&controller.SubstrateAgentHarnessController{
+			Client:             kubeClient,
+			Recorder:           mgr.GetEventRecorder("agentharness-substrate-controller"),
+			OpenClawBackend:    substrateOpenClawBackend,
+			NemoClawBackend:    substrateNemoClawBackend,
+			SubstrateLifecycle: substrateLifecycleFromConfig(kubeClient, &cfg, substrateAteClient),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
+			os.Exit(1)
+		}
+	}
+	if openshellOpenClawBackend == nil && openshellHermesBackend == nil && substrateOpenClawBackend == nil && substrateNemoClawBackend == nil {
 		setupLog.Info("AgentHarness controller disabled: set --openshell-gateway-url and/or --substrate-ate-api-endpoint")
 	}
 
@@ -778,7 +788,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 // nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
 // share that connection (see openshell.OpenShellClients). The connection is not explicitly
 // closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -789,44 +799,37 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	if cfg.Openshell.TokenFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.TokenFile)
 		if err != nil {
-			return nil, fmt.Errorf("read openshell token file: %w", err)
+			return nil, nil, fmt.Errorf("read openshell token file: %w", err)
 		}
 		oc.Token = strings.TrimSpace(string(data))
 	}
 	if cfg.Openshell.CAFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("read openshell CA file: %w", err)
+			return nil, nil, fmt.Errorf("read openshell CA file: %w", err)
 		}
 		oc.TLSCAPEM = data
 	}
 	clients, err := openshell.Dial(ctx, oc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
-	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
-		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
-		v1alpha2.AgentHarnessBackendHermes:   hermesBackend,
-	}, nil
+	return ocl, hermesBackend, nil
 }
 
-func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, *substrate.Client, error) {
+func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, *substrate.Client, error) {
 	sc := substrateAppConfig(cfg)
 	client, err := substrate.Dial(ctx, sc)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	ocl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendOpenClaw, nil)
 	ncl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendNemoClaw, nil)
-	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
-		v1alpha2.AgentHarnessBackendNemoClaw: ncl,
-	}, client, nil
+	return ocl, ncl, client, nil
 }
 
 func substrateAppConfig(cfg *Config) substrate.Config {

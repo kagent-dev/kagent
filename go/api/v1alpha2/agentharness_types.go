@@ -301,6 +301,7 @@ const (
 	AgentHarnessConditionTypeAccepted           = "Accepted"
 	AgentHarnessConditionTypeActorTemplateReady = "ActorTemplateReady"
 	AgentHarnessConditionTypeActorReady         = "ActorReady"
+	AgentHarnessConditionTypeBootstrapReady     = "BootstrapReady"
 )
 
 // +kubebuilder:object:root=true

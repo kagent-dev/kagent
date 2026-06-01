@@ -100,9 +100,7 @@ func TestAgentHarnessController_SubstrateWaitsForGeneratedTemplate(t *testing.T)
 	lifecycle := &fakeSubstrateLifecycle{state: substrate.LifecycleState{ActorTemplateReady: false}}
 	backend := &fakeAgentHarnessBackend{}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -124,9 +122,7 @@ func TestAgentHarnessController_SubstrateLifecycleErrorSetsStatus(t *testing.T) 
 	lifecycle := &fakeSubstrateLifecycle{ensureErr: errors.New("workerpool missing")}
 	backend := &fakeAgentHarnessBackend{}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	_, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.ErrorContains(t, err, "workerpool missing")
@@ -145,9 +141,7 @@ func TestAgentHarnessController_SubstrateReadyCreatesActorAndRunsBootstrap(t *te
 	lifecycle := &fakeSubstrateLifecycle{state: substrate.LifecycleState{ActorTemplateReady: true}}
 	backend := &fakeAgentHarnessBackend{ensureHandle: "actor-1", endpoint: "kagent gateway: /api/agentharnesses/kagent/claw/gateway/"}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -163,8 +157,13 @@ func TestAgentHarnessController_SubstrateReadyCreatesActorAndRunsBootstrap(t *te
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "AgentHarnessAccepted")
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionTrue, "Ready")
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue, "Running")
+	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeBootstrapReady, metav1.ConditionTrue, "BootstrapComplete")
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue, "Running")
-	require.Equal(t, "1", latest.Annotations[annotationAgentHarnessBootstrapGeneration])
+
+	result, err = controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
+	require.NoError(t, err)
+	require.Equal(t, ctrl.Result{}, result)
+	require.Equal(t, 1, backend.readyCalls, "bootstrap should not rerun for an already bootstrapped generation")
 }
 
 func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanup(t *testing.T) {
@@ -175,9 +174,7 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanu
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
 	backend := &fakeAgentHarnessBackend{deleteDone: false}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -199,9 +196,7 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForGeneratedTemplateCleanup(
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: false}
 	backend := &fakeAgentHarnessBackend{deleteDone: true}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -223,9 +218,7 @@ func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *t
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
 	backend := &fakeAgentHarnessBackend{deleteDone: true}
 	controller.SubstrateLifecycle = lifecycle
-	controller.SubstrateBackends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: backend,
-	}
+	controller.OpenClawBackend = backend
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -238,7 +231,7 @@ func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *t
 	require.True(t, apierrors.IsNotFound(err), "fake client should complete deletion after finalizer removal")
 }
 
-func newAgentHarnessTestController(t *testing.T, objects ...client.Object) *AgentHarnessController {
+func newAgentHarnessTestController(t *testing.T, objects ...client.Object) *SubstrateAgentHarnessController {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
@@ -247,7 +240,7 @@ func newAgentHarnessTestController(t *testing.T, objects ...client.Object) *Agen
 		WithObjects(objects...).
 		WithStatusSubresource(&v1alpha2.AgentHarness{}).
 		Build()
-	return &AgentHarnessController{Client: kube}
+	return &SubstrateAgentHarnessController{Client: kube}
 }
 
 func newSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {

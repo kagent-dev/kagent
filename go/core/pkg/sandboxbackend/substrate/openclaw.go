@@ -105,7 +105,7 @@ func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.H
 	if h.ID == "" {
 		return true, nil
 	}
-	done, err := b.client.AdvanceActorDelete(ctx, h.ID)
+	done, err := deleteActor(ctx, b.client, h.ID)
 	if err != nil {
 		return false, fmt.Errorf("substrate delete actor %q: %w", h.ID, err)
 	}
