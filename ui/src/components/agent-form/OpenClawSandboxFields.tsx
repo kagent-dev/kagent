@@ -165,7 +165,7 @@ export function OpenClawSandboxFields({
       <FormSection
         id="section-openclaw-runtime"
         title="Runtime"
-        description="OpenShell provisions a VM via the OpenShell gateway. Substrate auto-creates an ActorTemplate (and optionally a WorkerPool); you only configure snapshot storage and pool capacity."
+        description="OpenShell provisions a VM via the OpenShell gateway. Substrate generates an ActorTemplate and uses an existing WorkerPool."
       >
         <FieldRoot>
           <FieldLabel htmlFor="agent-field-harness-runtime">Control plane</FieldLabel>
@@ -184,63 +184,19 @@ export function OpenClawSandboxFields({
         </FieldRoot>
         {value.runtime === "substrate" ? (
           <div className="space-y-4">
-            <FieldError>{section === "substrate" ? validationError?.message : null}</FieldError>
             <FieldRoot>
-              <FieldLabel htmlFor="agent-field-substrate-gateway-token-source">Gateway token</FieldLabel>
-              <select
-                id="agent-field-substrate-gateway-token-source"
-                className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
+              <Input
+                id="agent-field-substrate-gateway-token"
                 disabled={disabled}
-                value={value.substrateGatewayTokenSource}
-                onChange={(e) =>
-                  set({
-                    substrateGatewayTokenSource: e.target.value === "secret" ? "secret" : "inline",
-                  })
-                }
-              >
-                <option value="inline">Inline (dev)</option>
-                <option value="secret">Kubernetes Secret (recommended)</option>
-              </select>
+                type="password"
+                value={value.substrateGatewayToken}
+                onChange={(e) => set({ substrateGatewayToken: e.target.value })}
+              />
               <p className="text-xs text-muted-foreground">
-                Bearer token for the OpenClaw gateway inside the actor. Required for Substrate harnesses.
+                Bearer token used by kagent when proxying the generated OpenClaw gateway.
               </p>
             </FieldRoot>
-            {value.substrateGatewayTokenSource === "inline" ? (
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token value</FieldLabel>
-                <Input
-                  id="agent-field-substrate-gateway-token"
-                  disabled={disabled}
-                  type="password"
-                  autoComplete="off"
-                  value={value.substrateGatewayToken}
-                  onChange={(e) => set({ substrateGatewayToken: e.target.value })}
-                />
-              </FieldRoot>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FieldRoot>
-                  <FieldLabel htmlFor="agent-field-substrate-gateway-secret-name">Secret name</FieldLabel>
-                  <Input
-                    id="agent-field-substrate-gateway-secret-name"
-                    disabled={disabled}
-                    placeholder="openclaw-gateway-token"
-                    value={value.substrateGatewaySecretName}
-                    onChange={(e) => set({ substrateGatewaySecretName: e.target.value })}
-                  />
-                </FieldRoot>
-                <FieldRoot>
-                  <FieldLabel htmlFor="agent-field-substrate-gateway-secret-key">Secret key</FieldLabel>
-                  <Input
-                    id="agent-field-substrate-gateway-secret-key"
-                    disabled={disabled}
-                    value={value.substrateGatewaySecretKey}
-                    onChange={(e) => set({ substrateGatewaySecretKey: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">Must exist in the harness namespace (default key: token).</p>
-                </FieldRoot>
-              </div>
-            )}
             <FieldRoot>
               <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
               <Input
@@ -255,57 +211,18 @@ export function OpenClawSandboxFields({
               </p>
             </FieldRoot>
             <FieldRoot>
-              <FieldLabel htmlFor="agent-field-substrate-wp-mode">Worker pool</FieldLabel>
-              <select
-                id="agent-field-substrate-wp-mode"
-                className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
+              <Input
+                id="agent-field-substrate-wp-name"
                 disabled={disabled}
-                value={value.substrateWorkerPoolMode}
-                onChange={(e) =>
-                  set({
-                    substrateWorkerPoolMode: e.target.value === "existing" ? "existing" : "create",
-                  })
-                }
-              >
-                <option value="create">Create a dedicated pool for this harness</option>
-                <option value="existing">Use an existing WorkerPool</option>
-              </select>
+                placeholder="controller default"
+                value={value.substrateWorkerPoolRefName}
+                onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to use the controller default WorkerPool.
+              </p>
             </FieldRoot>
-            {value.substrateWorkerPoolMode === "existing" ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FieldRoot>
-                  <FieldLabel htmlFor="agent-field-substrate-wp-ns">WorkerPool namespace</FieldLabel>
-                  <Input
-                    id="agent-field-substrate-wp-ns"
-                    disabled={disabled}
-                    placeholder="same as harness"
-                    value={value.substrateWorkerPoolRefNamespace}
-                    onChange={(e) => set({ substrateWorkerPoolRefNamespace: e.target.value })}
-                  />
-                </FieldRoot>
-                <FieldRoot>
-                  <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
-                  <Input
-                    id="agent-field-substrate-wp-name"
-                    disabled={disabled}
-                    value={value.substrateWorkerPoolRefName}
-                    onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
-                  />
-                </FieldRoot>
-              </div>
-            ) : (
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-wp-replicas">Worker replicas</FieldLabel>
-                <Input
-                  id="agent-field-substrate-wp-replicas"
-                  disabled={disabled}
-                  type="number"
-                  min={1}
-                  value={value.substrateWorkerPoolReplicas}
-                  onChange={(e) => set({ substrateWorkerPoolReplicas: e.target.value })}
-                />
-              </FieldRoot>
-            )}
           </div>
         ) : null}
       </FormSection>

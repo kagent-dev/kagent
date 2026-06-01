@@ -2,10 +2,9 @@ package substrate
 
 import "testing"
 
-func TestAdvanceActorDeleteEmptyID(t *testing.T) {
+func TestDeleteActorEmptyID(t *testing.T) {
 	t.Parallel()
-	c := &Client{}
-	done, err := c.AdvanceActorDelete(t.Context(), "")
+	done, err := deleteActor(t.Context(), nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

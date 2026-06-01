@@ -12,7 +12,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -22,14 +21,12 @@ import (
 const (
 	// OpenClaw 2026.3.28+ returns 403 without operator scopes on HTTP/WS when only Bearer token is sent.
 	openclawDefaultOperatorScopes = "operator.admin"
+	// Origin OpenClaw accepts by default for bind=lan port=80 (localhost/127.0.0.1 on gateway port).
+	openclawLoopbackOrigin = "http://127.0.0.1:80"
 )
 
-func openclawLoopbackOrigin(port int32) string {
-	return fmt.Sprintf("http://127.0.0.1:%d", port)
-}
-
 // AgentHarnessGatewayConfig configures Substrate harness HTTP/WebSocket proxy.
-// Traffic is proxied directly to the actor ateom pod IP on spec.substrate.gatewayPort (default 80).
+// Traffic is proxied directly to the actor ateom pod IP on port 80 (no atenet-router fallback).
 type AgentHarnessGatewayConfig struct {
 	AteAPIEndpoint string
 	AteAPIInsecure bool
@@ -50,16 +47,6 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 	name := strings.TrimSpace(vars["name"])
 	if namespace == "" || name == "" {
 		http.Error(w, "namespace and name are required", http.StatusBadRequest)
-		return
-	}
-
-	if h.Agents == nil {
-		http.Error(w, "agents handler is not configured", http.StatusInternalServerError)
-		return
-	}
-	agentRef := types.NamespacedName{Namespace: namespace, Name: name}.String()
-	if err := Check(h.Agents.Authorizer, r, auth.Resource{Type: "Agent", Name: agentRef}); err != nil {
-		w.RespondWithError(err)
 		return
 	}
 
@@ -101,7 +88,7 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	publicPrefix := substrate.AgentHarnessGatewayUIPath(namespace, name)
+	publicPrefix := agentHarnessGatewayPublicPrefix(namespace, name)
 
 	_, redirectTo, ok := resolveGatewayUpstreamPath(r.URL.Path, namespace, name, isWebSocketUpgrade(r))
 	if !ok {
@@ -118,8 +105,7 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	gwPort := substrate.GatewayPort(&ah)
-	proxy := newAgentHarnessGatewayProxy(target, upstreamHost, token, publicPrefix, namespace, name, gwPort, log)
+	proxy := newAgentHarnessGatewayProxy(target, upstreamHost, token, publicPrefix, namespace, name, log)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -152,8 +138,7 @@ func (h *Handlers) resolveSubstrateGatewayTarget(ctx context.Context, ah *v1alph
 	if podIP == "" {
 		return nil, "", fmt.Errorf("substrate actor %q has no pod IP (status %s; resume the actor and wait until running)", actorID, actor.GetStatus())
 	}
-	port := substrate.GatewayPort(ah)
-	target, host, err := substrateGatewayPodTarget(podIP, port)
+	target, host, err := substrateGatewayPodTarget(podIP)
 	if err != nil {
 		return nil, "", fmt.Errorf("substrate actor %q pod IP %q: %w", actorID, podIP, err)
 	}
@@ -165,15 +150,12 @@ func (h *Handlers) resolveSubstrateGatewayTarget(ctx context.Context, ah *v1alph
 	return target, host, nil
 }
 
-func substrateGatewayPodTarget(podIP string, port int32) (*url.URL, string, error) {
+func substrateGatewayPodTarget(podIP string) (*url.URL, string, error) {
 	ip := strings.TrimSpace(podIP)
 	if ip == "" || net.ParseIP(ip) == nil {
 		return nil, "", fmt.Errorf("invalid actor pod IP %q", podIP)
 	}
-	if port <= 0 {
-		port = 80
-	}
-	target, err := url.Parse("http://" + net.JoinHostPort(ip, fmt.Sprintf("%d", port)))
+	target, err := url.Parse("http://" + net.JoinHostPort(ip, "80"))
 	if err != nil {
 		return nil, "", fmt.Errorf("parse actor pod target: %w", err)
 	}
@@ -181,7 +163,11 @@ func substrateGatewayPodTarget(podIP string, port int32) (*url.URL, string, erro
 }
 
 func agentHarnessHarnessBase(namespace, name string) string {
-	return substrate.AgentHarnessAPIBase(namespace, name)
+	return "/api/agentharnesses/" + namespace + "/" + name
+}
+
+func agentHarnessGatewayPublicPrefix(namespace, name string) string {
+	return agentHarnessHarnessBase(namespace, name) + "/gateway/"
 }
 
 // resolveGatewayUpstreamPath maps the public URL to the upstream path on the actor.
@@ -195,12 +181,12 @@ func resolveGatewayUpstreamPath(requestPath, namespace, name string, wsUpgrade b
 	}
 	rel := strings.TrimPrefix(requestPath, base)
 	if rel == "" {
-		return "", substrate.AgentHarnessGatewayUIPath(namespace, name), true
+		return "", agentHarnessGatewayPublicPrefix(namespace, name), true
 	}
 
 	switch {
 	case rel == "/gateway":
-		upstream := substrate.AgentHarnessGatewayUIPath(namespace, name)
+		upstream := agentHarnessGatewayPublicPrefix(namespace, name)
 		if wsUpgrade {
 			return upstream, "", true
 		}
@@ -213,17 +199,16 @@ func resolveGatewayUpstreamPath(requestPath, namespace, name string, wsUpgrade b
 }
 
 // normalizeOpenClawBrowserOrigin rewrites Origin/Referer so OpenClaw accepts WS/API from kagent-ui
-// (e.g. http://localhost:8001) while the gateway listens on the actor pod.
-func normalizeOpenClawBrowserOrigin(req *http.Request, gwPort int32) {
+// (e.g. http://localhost:8001) while the gateway listens on the actor pod :80.
+func normalizeOpenClawBrowserOrigin(req *http.Request) {
 	if req == nil {
 		return
 	}
-	origin := openclawLoopbackOrigin(gwPort)
 	if req.Header.Get("Origin") != "" {
-		req.Header.Set("Origin", origin)
+		req.Header.Set("Origin", openclawLoopbackOrigin)
 	}
 	if req.Header.Get("Referer") != "" {
-		req.Header.Set("Referer", origin+"/")
+		req.Header.Set("Referer", openclawLoopbackOrigin+"/")
 	}
 }
 
@@ -235,7 +220,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
 
-func newAgentHarnessGatewayProxy(target *url.URL, upstreamHost, token, publicPrefix, namespace, name string, gwPort int32, log interface {
+func newAgentHarnessGatewayProxy(target *url.URL, upstreamHost, token, publicPrefix, namespace, name string, log interface {
 	Error(error, string, ...any)
 }) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
@@ -252,7 +237,7 @@ func newAgentHarnessGatewayProxy(target *url.URL, upstreamHost, token, publicPre
 				pr.Out.Header.Set("Authorization", "Bearer "+token)
 			}
 			pr.Out.Header.Set("x-openclaw-scopes", openclawDefaultOperatorScopes)
-			normalizeOpenClawBrowserOrigin(pr.Out, gwPort)
+			normalizeOpenClawBrowserOrigin(pr.Out)
 			subPath, _, pathOK := resolveGatewayUpstreamPath(pr.In.URL.Path, namespace, name, isWebSocketUpgrade(pr.In))
 			if !pathOK {
 				subPath = "/"

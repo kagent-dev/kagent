@@ -21,20 +21,10 @@ func ResolveGatewayToken(ctx context.Context, kube client.Client, ah *v1alpha2.A
 		return "", fmt.Errorf("spec.substrate is required")
 	}
 	sub := ah.Spec.Substrate
-	var token string
-	var err error
 	if sub.GatewayTokenSecretRef != nil && strings.TrimSpace(sub.GatewayTokenSecretRef.Name) != "" {
-		token, err = resolveGatewayTokenSecret(ctx, kube, ah.Namespace, sub.GatewayTokenSecretRef)
-	} else {
-		token = strings.TrimSpace(sub.GatewayToken)
+		return resolveGatewayTokenSecret(ctx, kube, ah.Namespace, sub.GatewayTokenSecretRef)
 	}
-	if err != nil {
-		return "", err
-	}
-	if token == "" {
-		return "", fmt.Errorf("gateway token must not be empty")
-	}
-	return token, nil
+	return strings.TrimSpace(sub.GatewayToken), nil
 }
 
 func resolveGatewayTokenSecret(ctx context.Context, kube client.Client, namespace string, ref *v1alpha2.TypedLocalReference) (string, error) {
@@ -54,7 +44,7 @@ func resolveGatewayTokenSecret(ctx context.Context, kube client.Client, namespac
 	}
 	token := strings.TrimSpace(string(val))
 	if token == "" {
-		return "", fmt.Errorf("gateway token secret %s/%s: key %q must not be empty", namespace, ref.Name, GatewayTokenSecretKey)
+		return "", fmt.Errorf("gateway token secret %s/%s key %q must not be empty", namespace, ref.Name, GatewayTokenSecretKey)
 	}
 	return token, nil
 }

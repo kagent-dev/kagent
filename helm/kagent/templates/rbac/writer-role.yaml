@@ -78,7 +78,6 @@
 - apiGroups:
   - ate.dev
   resources:
-  - workerpools
   - actortemplates
   verbs:
   - create

@@ -94,10 +94,10 @@ spec:
             - name: SUBSTRATE_ATE_API_INSECURE
               value: "true"
             {{- end }}
-            - name: SUBSTRATE_DEFAULT_ACTOR_TEMPLATE_NAMESPACE
-              value: {{ .Values.controller.substrate.defaultActorTemplateNamespace | quote }}
-            - name: SUBSTRATE_DEFAULT_ACTOR_TEMPLATE_NAME
-              value: {{ .Values.controller.substrate.defaultActorTemplateName | quote }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
+              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
+              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
             {{- with .Values.controller.substrate.pauseImage }}
             - name: SUBSTRATE_PAUSE_IMAGE
               value: {{ . | quote }}
@@ -116,10 +116,6 @@ spec:
             {{- end }}
             {{- with .Values.controller.substrate.runscARM64SHA256 }}
             - name: SUBSTRATE_RUNSC_ARM64_SHA256
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.ateomImage }}
-            - name: SUBSTRATE_ATEOM_IMAGE
               value: {{ . | quote }}
             {{- end }}
             {{- end }}

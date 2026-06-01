@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,14 +10,35 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// findSkillsInitConfig returns the parsed skills-init ConfigMap content from
+// the translator outputs. Fails the test if no matching ConfigMap exists.
+func findSkillsInitConfig(t *testing.T, manifest []client.Object, agentName string) skillsinit.Config {
+	t.Helper()
+	want := translator.SkillsInitConfigMapName(agentName)
+	for _, obj := range manifest {
+		cm, ok := obj.(*corev1.ConfigMap)
+		if !ok || cm.Name != want {
+			continue
+		}
+		var cfg skillsinit.Config
+		require.NoError(t, json.Unmarshal([]byte(cm.Data[skillsinit.ConfigMapKey]), &cfg),
+			"skills-init ConfigMap %q has invalid JSON", cm.Name)
+		return cfg
+	}
+	t.Fatalf("skills-init ConfigMap %q not found in manifest", want)
+	return skillsinit.Config{}
+}
 
 func Test_AdkApiTranslator_Skills(t *testing.T) {
 	scheme := schemev1.Scheme
@@ -338,33 +360,58 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 				// There should be exactly one init container
 				assert.Len(t, initContainers, 1, "should have exactly one init container")
 
-				// Verify the script is passed via /bin/sh -c
-				require.Len(t, skillsInitContainer.Command, 3)
-				assert.Equal(t, "/bin/sh", skillsInitContainer.Command[0])
-				assert.Equal(t, "-c", skillsInitContainer.Command[1])
-				script := skillsInitContainer.Command[2]
+				// Command is intentionally omitted so the image's
+				// ENTRYPOINT is the single source of truth for the binary path.
+				assert.Empty(t, skillsInitContainer.Command, "Command should be unset; ENTRYPOINT carries the binary path")
+
+				cfg := findSkillsInitConfig(t, outputs.Manifest, tt.agent.Name)
 
 				if tt.wantContainsBranch != "" {
-					assert.Contains(t, script, tt.wantContainsBranch)
-					assert.Contains(t, script, "--branch")
+					found := false
+					for _, g := range cfg.GitRefs {
+						if g.Ref == tt.wantContainsBranch && !g.Full {
+							found = true
+						}
+					}
+					assert.True(t, found, "expected git ref with branch %q", tt.wantContainsBranch)
 				}
 
 				if tt.wantContainsCommit != "" {
-					assert.Contains(t, script, tt.wantContainsCommit)
-					assert.Contains(t, script, "git checkout")
+					found := false
+					for _, g := range cfg.GitRefs {
+						if g.Ref == tt.wantContainsCommit && g.Full {
+							found = true
+						}
+					}
+					assert.True(t, found, "expected git ref with commit %q", tt.wantContainsCommit)
 				}
 
 				if tt.wantContainsPath != "" {
-					assert.Contains(t, script, tt.wantContainsPath)
-					assert.Contains(t, script, "mktemp")
+					found := false
+					for _, g := range cfg.GitRefs {
+						if g.SubPath == tt.wantContainsPath {
+							found = true
+						}
+					}
+					assert.True(t, found, "expected git ref with subpath %q", tt.wantContainsPath)
 				}
 
 				if tt.wantContainsKrane {
-					assert.Contains(t, script, "krane export")
+					assert.NotEmpty(t, cfg.OCIRefs, "expected OCI refs in config")
 				}
 
+				// wantScriptContains is reused as a list of substrings expected
+				// across the structured config (host names for ssh-keyscan, etc).
+				cfgBlob, _ := json.Marshal(cfg)
 				for _, want := range tt.wantScriptContains {
-					assert.Contains(t, script, want)
+					switch want {
+					case "ssh-keyscan":
+						assert.NotEmpty(t, cfg.SSHHosts, "expected SSHHosts to be set for ssh-keyscan")
+					case "credential.helper":
+						assert.NotEmpty(t, cfg.AuthMountPath, "expected AuthMountPath to be set for credential helper")
+					default:
+						assert.Contains(t, string(cfgBlob), want)
+					}
 				}
 
 				// Verify /skills volume mount exists
@@ -421,8 +468,8 @@ func Test_AdkApiTranslator_Skills(t *testing.T) {
 			// Verify insecure flag for OCI skills
 			if tt.agent.Spec.Skills != nil && tt.agent.Spec.Skills.InsecureSkipVerify {
 				require.NotNil(t, skillsInitContainer)
-				script := skillsInitContainer.Command[2]
-				assert.Contains(t, script, "--insecure")
+				cfg := findSkillsInitConfig(t, outputs.Manifest, tt.agent.Name)
+				assert.True(t, cfg.InsecureOCI, "InsecureOCI should be true")
 			}
 		})
 	}
@@ -545,8 +592,9 @@ func Test_AdkApiTranslator_SkillsImagePullSecrets(t *testing.T) {
 			require.Equal(t, "skills-init", initContainers[0].Name, "the single init container must be skills-init")
 
 			skillsInitContainer := &initContainers[0]
-			require.Len(t, skillsInitContainer.Command, 3)
-			script := skillsInitContainer.Command[2]
+			assert.Empty(t, skillsInitContainer.Command, "Command should be unset; ENTRYPOINT carries the binary path")
+
+			cfg := findSkillsInitConfig(t, outputs.Manifest, tt.agent.Name)
 
 			// No docker-auth-init container should ever exist.
 			for _, c := range initContainers {
@@ -558,13 +606,20 @@ func Test_AdkApiTranslator_SkillsImagePullSecrets(t *testing.T) {
 			}
 
 			if tt.wantImagePullSecret {
-				// Script must contain the credential merge logic.
-				assert.Contains(t, script, "jq")
-				assert.Contains(t, script, ".dockerconfigjson")
-				assert.Contains(t, script, "/tmp/kagent-docker-config/config.json")
-				assert.Contains(t, script, "export DOCKER_CONFIG=/tmp/kagent-docker-config")
-
 				require.NotNil(t, tt.agent.Spec.Skills)
+				// Config must list each imagePullSecret.
+				assert.ElementsMatch(t,
+					func() []string {
+						out := make([]string, 0, len(tt.agent.Spec.Skills.ImagePullSecrets))
+						for _, ps := range tt.agent.Spec.Skills.ImagePullSecrets {
+							out = append(out, ps.Name)
+						}
+						return out
+					}(),
+					cfg.ImagePullSecrets,
+					"config should reference all imagePullSecrets",
+				)
+
 				for _, ps := range tt.agent.Spec.Skills.ImagePullSecrets {
 					volName := "pull-secret-" + ps.Name
 
@@ -585,14 +640,10 @@ func Test_AdkApiTranslator_SkillsImagePullSecrets(t *testing.T) {
 						}
 					}
 					assert.True(t, hasPullSecretMount, "skills-init should mount pull-secret %q at /docker-secrets/%s", volName, ps.Name)
-
-					// Script references each secret by name.
-					assert.Contains(t, script, "/docker-secrets/"+ps.Name+"/.dockerconfigjson")
 				}
 			} else {
-				// No credential merge logic in the script.
-				assert.NotContains(t, script, "DOCKER_CONFIG")
-				assert.NotContains(t, script, "kagent-docker-config")
+				// No imagePullSecrets in config.
+				assert.Empty(t, cfg.ImagePullSecrets, "no imagePullSecrets expected in config")
 				// No pull-secret volumes.
 				for _, v := range deployment.Spec.Template.Spec.Volumes {
 					assert.False(t, len(v.Name) > len("pull-secret-") && v.Name[:len("pull-secret-")] == "pull-secret-",

@@ -33,18 +33,27 @@ describe("validateOpenClawSandboxForm sections", () => {
     expect(r?.message).toContain("not a valid hostname");
   });
 
-    it("tags channel credential failures as channels", () => {
-      const row = newOpenClawChannelRow();
-      row.name = "slack1";
-      row.channelType = "slack";
-      row.botToken = "";
-      const r = validateOpenClawSandboxForm({
-        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
-        modelRef: "ns/m1",
-      });
-      expect(r?.section).toBe("channels");
-      expect(r?.message).toContain("slack1");
+  it("tags missing substrate gateway token as general", () => {
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), runtime: "substrate" },
+      modelRef: "ns/m1",
     });
+    expect(r?.section).toBe("general");
+    expect(r?.message).toContain("gateway token");
+  });
+
+  it("tags channel credential failures as channels", () => {
+    const row = newOpenClawChannelRow();
+    row.name = "slack1";
+    row.channelType = "slack";
+    row.botToken = "";
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+      modelRef: "ns/m1",
+    });
+    expect(r?.section).toBe("channels");
+    expect(r?.message).toContain("slack1");
+  });
 
   it("rejects duplicate channel binding names", () => {
     const row = newOpenClawChannelRow();
@@ -183,63 +192,27 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.spec.backend).toBe("openclaw");
     });
 
-    it("requires substrate gateway token in validation", () => {
-      const openClaw = {
-        ...defaultOpenClawSandboxFormSlice(),
-        runtime: "substrate" as const,
-        substrateGatewayToken: "",
-      };
-      const result = validateOpenClawSandboxForm({
-        openClaw,
-        modelRef: "ns/m1",
-      });
-      expect(result?.section).toBe("substrate");
-      expect(result?.message).toContain("gateway token");
-    });
-
-    it("writes spec.substrate.gatewayToken for inline token", () => {
-      const openClaw = {
-        ...defaultOpenClawSandboxFormSlice(),
-        runtime: "substrate" as const,
-        substrateGatewayTokenSource: "inline" as const,
-        substrateGatewayToken: "gw-secret-token",
-      };
+    it("writes substrate config without creating a WorkerPool", () => {
       const draft = buildSandboxCRDraft({
         name: "h1",
-        namespace: "kagent",
+        namespace: "ns",
         description: "",
         modelRef: "m1",
-        openClaw,
+        openClaw: {
+          ...defaultOpenClawSandboxFormSlice(),
+          runtime: "substrate",
+          substrateGatewayToken: "tok",
+          substrateWorkerPoolRefName: "default-wp",
+        },
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
-      expect(draft.spec.runtime).toBe("substrate");
-      const substrate = draft.spec.substrate as Record<string, unknown>;
-      expect(substrate.gatewayToken).toBe("gw-secret-token");
-      expect(substrate).not.toHaveProperty("gatewayTokenSecretRef");
-      expect(substrate.snapshotsConfig).toEqual({ location: "gs://ate-snapshots/kagent/" });
-    });
-
-    it("writes spec.substrate.gatewayTokenSecretRef for secret token", () => {
-      const openClaw = {
-        ...defaultOpenClawSandboxFormSlice(),
-        runtime: "substrate" as const,
-        substrateGatewayTokenSource: "secret" as const,
-        substrateGatewaySecretName: "openclaw-token",
-        substrateGatewaySecretKey: "token",
-      };
-      const draft = buildSandboxCRDraft({
-        name: "h1",
-        namespace: "kagent",
-        description: "",
-        modelRef: "m1",
-        openClaw,
+      expect(draft.spec.substrate).toEqual({
+        gatewayToken: "tok",
+        snapshotsConfig: { location: "gs://ate-snapshots/kagent/" },
+        workerPoolRef: { name: "default-wp" },
       });
-      expect("error" in draft).toBe(false);
-      if ("error" in draft) return;
-      const substrate = draft.spec.substrate as Record<string, unknown>;
-      expect(substrate.gatewayTokenSecretRef).toEqual({ name: "openclaw-token" });
-      expect(substrate).not.toHaveProperty("gatewayToken");
+      expect(draft.spec.substrate).not.toHaveProperty("workerPool");
     });
 
     it("writes Hermes slack allowedUserIDs and home channel fields", () => {

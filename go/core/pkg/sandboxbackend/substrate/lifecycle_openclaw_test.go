@@ -17,30 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestBuildOpenClawActorStartup_CustomGatewayPort(t *testing.T) {
-	t.Parallel()
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
-
-	ns := "kagent"
-	ah := &v1alpha2.AgentHarness{
-		ObjectMeta: metav1.ObjectMeta{Name: "claw", Namespace: ns},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "some-token",
-				GatewayPort:  8080,
-			},
-		},
-	}
-
-	p := &Provisioner{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	script, _, err := p.buildOpenClawActorStartup(context.Background(), ah)
-	require.NoError(t, err)
-	require.Contains(t, script, "openclaw gateway run --port 8080")
-	require.Contains(t, script, "http://127.0.0.1:8080/")
-}
-
 func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -76,7 +52,7 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	p := &Provisioner{
+	p := &Lifecycle{
 		Client: kube,
 	}
 
@@ -164,7 +140,7 @@ func TestBuildOpenClawActorStartup_WithHarnessGatewayToken(t *testing.T) {
 			t.Parallel()
 
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret.DeepCopy()).Build()
-			p := &Provisioner{
+			p := &Lifecycle{
 				Client: kube,
 			}
 			ah := &v1alpha2.AgentHarness{
@@ -216,7 +192,7 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	p := &Provisioner{Client: kube, Defaults: ProvisionDefaults{}}
+	p := &Lifecycle{Client: kube, Defaults: LifecycleDefaults{}}
 	script, _, err := p.buildOpenClawActorStartup(context.Background(), ah)
 	require.NoError(t, err)
 

@@ -8,13 +8,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 func TestSubstrateGatewayPodTarget(t *testing.T) {
 	t.Parallel()
-	target, host, err := substrateGatewayPodTarget("10.244.0.29", 80)
+	target, host, err := substrateGatewayPodTarget("10.244.0.29")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,23 +24,9 @@ func TestSubstrateGatewayPodTarget(t *testing.T) {
 	}
 }
 
-func TestSubstrateGatewayPodTargetCustomPort(t *testing.T) {
-	t.Parallel()
-	target, host, err := substrateGatewayPodTarget("10.244.0.29", 8080)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if host != "10.244.0.29" {
-		t.Fatalf("host = %q", host)
-	}
-	if target.Scheme != "http" || target.Host != "10.244.0.29:8080" {
-		t.Fatalf("target = %s", target.String())
-	}
-}
-
 func TestSubstrateGatewayPodTargetRejectsInvalidIP(t *testing.T) {
 	t.Parallel()
-	_, _, err := substrateGatewayPodTarget("not-an-ip", 80)
+	_, _, err := substrateGatewayPodTarget("not-an-ip")
 	if err == nil {
 		t.Fatal("expected error for invalid pod IP")
 	}
@@ -53,7 +37,7 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 	const podIP = "10.244.0.29"
 	const token = "some-token"
 	ns, name := "kagent", "my-claw"
-	publicPrefix := substrate.AgentHarnessGatewayUIPath(ns, name)
+	publicPrefix := agentHarnessGatewayPublicPrefix(ns, name)
 
 	var gotHost, gotAuth, gotScopes, gotPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +55,7 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proxy := newAgentHarnessGatewayProxy(target, podIP, token, publicPrefix, ns, name, 80, testLog{t})
+	proxy := newAgentHarnessGatewayProxy(target, podIP, token, publicPrefix, ns, name, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, publicPrefix, nil)
 	rec := httptest.NewRecorder()
 	proxy.ServeHTTP(rec, req)
@@ -101,13 +85,13 @@ func TestGatewayProxyRewriteTargetsPodIPOnWebSocketPath(t *testing.T) {
 	t.Parallel()
 	const podIP = "10.244.0.29"
 	ns, name := "kagent", "my-claw"
-	publicPrefix := substrate.AgentHarnessGatewayUIPath(ns, name)
+	publicPrefix := agentHarnessGatewayPublicPrefix(ns, name)
 
 	target, err := url.Parse("http://" + podIP + ":80")
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := newAgentHarnessGatewayProxy(target, podIP, "tok", publicPrefix, ns, name, 80, testLog{t})
+	proxy := newAgentHarnessGatewayProxy(target, podIP, "tok", publicPrefix, ns, name, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, strings.TrimSuffix(publicPrefix, "/"), nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -132,10 +116,10 @@ func TestGatewayProxyRewriteTargetsPodIPOnWebSocketPath(t *testing.T) {
 	if outReq.Header.Get("x-openclaw-scopes") != openclawDefaultOperatorScopes {
 		t.Fatalf("missing scopes header")
 	}
-	if outReq.Header.Get("Origin") != openclawLoopbackOrigin(80) {
-		t.Fatalf("Origin = %q, want %q", outReq.Header.Get("Origin"), openclawLoopbackOrigin(80))
+	if outReq.Header.Get("Origin") != openclawLoopbackOrigin {
+		t.Fatalf("Origin = %q, want %q", outReq.Header.Get("Origin"), openclawLoopbackOrigin)
 	}
-	if outReq.Header.Get("Referer") != openclawLoopbackOrigin(80)+"/" {
+	if outReq.Header.Get("Referer") != openclawLoopbackOrigin+"/" {
 		t.Fatalf("Referer = %q", outReq.Header.Get("Referer"))
 	}
 }

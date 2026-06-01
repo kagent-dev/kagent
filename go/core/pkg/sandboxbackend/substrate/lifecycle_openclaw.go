@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+const defaultSubstrateOpenClawGatewayPort = 80
+
 //go:embed templates/openclaw_startup.sh.tmpl
 var openClawStartupScriptTmplContent string
 
@@ -27,19 +29,19 @@ type openClawStartupScriptData struct {
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
 // When spec.modelConfigRef is set, openclaw.json includes models/agents/channels like the OpenShell bootstrap path.
-func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []corev1.EnvVar, err error) {
+func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []corev1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
 	}
 	if p.Client == nil {
-		return "", nil, fmt.Errorf("substrate provisioner kubernetes client is required")
+		return "", nil, fmt.Errorf("substrate lifecycle kubernetes client is required")
 	}
 
 	token, err := ResolveGatewayToken(ctx, p.Client, ah)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
 	}
-	gw := openclaw.SubstrateGatewayBootstrap(token, int(GatewayPort(ah)), AgentHarnessGatewayControlUIBasePath(ah.Namespace, ah.Name))
+	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort, openClawControlUIBasePath(ah))
 
 	var jsonBytes []byte
 	var containerEnv []corev1.EnvVar
@@ -70,6 +72,13 @@ func (p *Provisioner) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha
 		return "", nil, err
 	}
 	return script, containerEnv, nil
+}
+
+func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
+	if ah == nil {
+		return ""
+	}
+	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
 }
 
 func openClawStartupScript(jsonBytes []byte, gwPort int) (string, error) {

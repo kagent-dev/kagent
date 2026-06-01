@@ -615,6 +615,23 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     raise ValueError(f"Invalid model type: {model_config.type}")
 
 
+_KAGENT_TOOL_NAME_WARNING = (
+    "\n\nIMPORTANT: When referencing any tools or agents that were used,"
+    " you MUST preserve their exact registered names including any"
+    " namespace prefixes (for example: 'kagent__default__agent_name')."
+    " Never shorten, abbreviate, or rephrase tool or agent names."
+)
+
+_KAGENT_COMPACTION_PROMPT = (
+    "The following is a conversation history between a user and an AI"
+    " agent. Please summarize the conversation, focusing on key"
+    " information and decisions made, as well as any unresolved"
+    " questions or tasks. The summary should be concise and capture the"
+    " essence of the interaction.\n\n"
+    "{conversation_history}"
+) + _KAGENT_TOOL_NAME_WARNING
+
+
 def build_adk_context_configs(
     context_config: ContextConfig,
 ) -> tuple:
@@ -636,7 +653,8 @@ def build_adk_context_configs(
 
             summarizer = LlmEventSummarizer(
                 llm=_create_llm_from_model_config(comp.summarizer_model),
-                prompt_template=comp.prompt_template,
+                prompt_template=(comp.prompt_template if comp.prompt_template else _KAGENT_COMPACTION_PROMPT)
+                + (str() if not comp.prompt_template else _KAGENT_TOOL_NAME_WARNING),
             )
 
         events_compaction_config = EventsCompactionConfig(

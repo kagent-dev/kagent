@@ -9,11 +9,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// AdvanceActorDelete performs at most one mutating ate-api step per call.
+// deleteActor performs at most one mutating ate-api step per call.
 // Returns true when the actor no longer exists. Callers should requeue until true.
-func (c *Client) AdvanceActorDelete(ctx context.Context, actorID string) (bool, error) {
+func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
 	if actorID == "" {
 		return true, nil
+	}
+	if c == nil {
+		return false, fmt.Errorf("substrate ate-api client is required")
 	}
 
 	actor, err := c.GetActor(ctx, actorID)

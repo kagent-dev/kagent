@@ -147,7 +147,9 @@ type GitRepo struct {
 	// +kubebuilder:default="main"
 	Ref string `json:"ref,omitempty"`
 
-	// Subdirectory within the repo to use as the skill root.
+	// Subdirectory within the repo to use as the skill root. The API validates
+	// this input path, but treats repository contents as trusted: symlinks under
+	// this path are dereferenced when materializing the skill.
 	// +optional
 	Path string `json:"path,omitempty"`
 

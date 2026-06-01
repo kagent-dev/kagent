@@ -436,6 +436,7 @@ export interface SubstrateAgentHarnessListEntry {
   gatewayUIPath?: string;
   modelConfigRef?: string;
   backendRefId?: string;
+  endpoint?: string;
 }
 
 export interface AgentResponse {

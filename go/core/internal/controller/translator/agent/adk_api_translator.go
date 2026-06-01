@@ -1,10 +1,8 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -14,14 +12,15 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -31,8 +30,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -1005,11 +1006,12 @@ func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (tar
 	return targetURL, updatedHeaders, nil
 }
 
-func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
+func computeConfigHash(agentCfg, agentCard, secretData, skillsInitCfg []byte) uint64 {
 	hasher := sha256.New()
 	hasher.Write(agentCfg)
 	hasher.Write(agentCard)
 	hasher.Write(secretData)
+	hasher.Write(skillsInitCfg)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
 }
@@ -1115,53 +1117,75 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 var (
 	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
 
-	// validHostPattern and validPortPattern are the security boundary that prevents
-	// shell injection when host/port values are interpolated into the ssh-keyscan
-	// commands in skills-init.sh.tmpl. Do NOT relax these patterns without auditing
-	// every template site that references .Host or .Port.
+	// validHostPattern and validPortPattern are input-hygiene patterns for SSH
+	// host/port values. They used to be a shell-injection boundary when these
+	// values were interpolated into the rendered shell script; the
+	// skills-init container is now driven by a structured JSON config so
+	// values reach ssh-keyscan as argv entries and shell metacharacters are
+	// inert. We keep the patterns to reject obvious garbage early.
 	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
 	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
 )
 
-func gitSSHHost(rawURL string) (sshHostData, bool) {
+func gitSSHHost(rawURL string) (skillsinit.SSHHost, bool) {
 	parsed, err := url.Parse(rawURL)
 	if err == nil {
 		switch parsed.Scheme {
 		case "ssh", "git+ssh":
 			host := parsed.Hostname()
 			if host == "" || !validHostPattern.MatchString(host) {
-				return sshHostData{}, false
+				return skillsinit.SSHHost{}, false
 			}
 			port := parsed.Port()
 			if port == "22" {
 				port = "" // 22 is the SSH default; omit to avoid redundant -p flag
 			}
 			if port != "" && !validPortPattern.MatchString(port) {
-				return sshHostData{}, false
+				return skillsinit.SSHHost{}, false
 			}
-			return sshHostData{
+			return skillsinit.SSHHost{
 				Host: host,
 				Port: port,
 			}, true
 		case "http", "https":
-			return sshHostData{}, false
+			return skillsinit.SSHHost{}, false
 		}
 	}
 
 	if strings.Contains(rawURL, "://") {
-		return sshHostData{}, false
+		return skillsinit.SSHHost{}, false
 	}
 
 	matches := scpLikeGitURLRegex.FindStringSubmatch(rawURL)
 	if len(matches) != 2 {
-		return sshHostData{}, false
+		return skillsinit.SSHHost{}, false
 	}
 	host := matches[1]
 	if !validHostPattern.MatchString(host) {
-		return sshHostData{}, false
+		return skillsinit.SSHHost{}, false
 	}
 
-	return sshHostData{Host: host}, true
+	return skillsinit.SSHHost{Host: host}, true
+}
+
+// validSkillNamePattern restricts skill directory names to a safe alphabet.
+// The name becomes the final path segment under /skills/, so anything beyond
+// [a-zA-Z0-9._-] (notably "/" and "..") could escape the skills volume.
+var validSkillNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validateSkillName rejects names that would escape /skills/ or look like
+// dotfiles that hide the skill.
+func validateSkillName(name string) error {
+	if name == "" {
+		return fmt.Errorf("skill name is empty")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("skill name %q is not a valid directory name", name)
+	}
+	if !validSkillNamePattern.MatchString(name) {
+		return fmt.Errorf("skill name %q must match %s", name, validSkillNamePattern)
+	}
+	return nil
 }
 
 // validateSubPath rejects subPath values that are absolute or contain ".." traversal segments.
@@ -1169,59 +1193,12 @@ func validateSubPath(p string) error {
 	if p == "" {
 		return nil
 	}
-	if path.IsAbs(p) {
-		return fmt.Errorf("skill subPath must be relative, got %q", p)
-	}
-	if slices.Contains(strings.Split(p, "/"), "..") {
-		return fmt.Errorf("skill subPath must not contain '..', got %q", p)
+	// filepath.IsLocal rejects absolute paths, ".." segments, and anything
+	// else that can't be a local relative path — exactly the threat model here.
+	if !filepath.IsLocal(p) {
+		return fmt.Errorf("skill subPath must be a relative path without '..' segments, got %q", p)
 	}
 	return nil
-}
-
-// skillsInitData holds the template data for the unified skills-init script.
-type skillsInitData struct {
-	AuthMountPath    string        // "/git-auth" or "" (for git auth)
-	GitRefs          []gitRefData  // git repos to clone
-	OCIRefs          []ociRefData  // OCI images to pull
-	InsecureOCI      bool          // --insecure flag for krane
-	SSHHosts         []sshHostData // extra hosts to add to known_hosts via ssh-keyscan
-	ImagePullSecrets []string      // secret names whose .dockerconfigjson are merged by the script
-}
-
-// sshHostData holds the host and optional port for an SSH known_hosts entry.
-type sshHostData struct {
-	Host string // hostname or IP
-	Port string // port number, empty means default (22)
-}
-
-// gitRefData holds pre-computed fields for each git skill ref, used by the script template.
-type gitRefData struct {
-	URL      string
-	Ref      string
-	Dest     string // e.g. /skills/my-skill
-	IsCommit bool   // true if Ref is a 40-char hex SHA
-	SubPath  string // Path with trailing slash stripped
-}
-
-// ociRefData holds pre-computed fields for each OCI skill ref, used by the script template.
-type ociRefData struct {
-	Image string // full image ref e.g. ghcr.io/org/skill:v1
-	Dest  string // /skills/<name>
-}
-
-//go:embed skills-init.sh.tmpl
-var skillsInitScriptTmpl string
-
-// skillsScriptTemplate is the shell script template for fetching skills from Git and OCI.
-var skillsScriptTemplate = template.Must(template.New("skills-init").Parse(skillsInitScriptTmpl))
-
-// buildSkillsScript renders the unified skills-init shell script.
-func buildSkillsScript(data skillsInitData) (string, error) {
-	var buf bytes.Buffer
-	if err := skillsScriptTemplate.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to render skills init script: %w", err)
-	}
-	return buf.String(), nil
 }
 
 // ociSkillName extracts a skill directory name from an OCI image reference.
@@ -1241,22 +1218,25 @@ func ociSkillName(imageRef string) string {
 	return path.Base(ref)
 }
 
-// prepareSkillsInitData converts CRD values to the template-ready data struct.
-// It validates subPaths and detects duplicate skill directory names.
-func prepareSkillsInitData(
+// prepareSkillsInitConfig converts CRD values into the JSON config consumed by
+// the skills-init binary. It validates subPaths and detects duplicate skill
+// directory names. User-controlled strings (URL, ref, name, OCI image) flow
+// through this struct as data only — the binary passes them to git/library
+// calls as argv vectors, never as shell input.
+func prepareSkillsInitConfig(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
 	imagePullSecrets []string,
-) (skillsInitData, error) {
-	data := skillsInitData{
+) (skillsinit.Config, error) {
+	cfg := skillsinit.Config{
 		InsecureOCI:      insecureOCI,
 		ImagePullSecrets: imagePullSecrets,
 	}
 
 	if authSecretRef != nil {
-		data.AuthMountPath = "/git-auth"
+		cfg.AuthMountPath = skillsinit.AuthMountPath
 	}
 
 	seen := make(map[string]bool)
@@ -1265,7 +1245,7 @@ func prepareSkillsInitData(
 	for _, ref := range gitRefs {
 		subPath := strings.TrimSuffix(ref.Path, "/")
 		if err := validateSubPath(subPath); err != nil {
-			return skillsInitData{}, err
+			return skillsinit.Config{}, err
 		}
 
 		gitRef := ref.Ref
@@ -1275,95 +1255,150 @@ func prepareSkillsInitData(
 		ref.Ref = gitRef
 
 		name := gitSkillName(ref)
+		if err := validateSkillName(name); err != nil {
+			return skillsinit.Config{}, fmt.Errorf("git skill %q: %w", ref.URL, err)
+		}
 		if seen[name] {
-			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+			return skillsinit.Config{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
 		seen[name] = true
 
-		// SSH host collection is separate from the AuthMountPath block above
-		// because it runs per-ref inside the loop, not once at the top level.
+		// SSH host collection runs per-ref inside the loop, not once at the
+		// top level, because the host comes from the per-ref URL.
 		if authSecretRef != nil {
 			if sshHost, ok := gitSSHHost(ref.URL); ok {
 				key := sshHost.Host + ":" + sshHost.Port
 				if !seenSSHHosts[key] {
 					seenSSHHosts[key] = true
-					data.SSHHosts = append(data.SSHHosts, sshHost)
+					cfg.SSHHosts = append(cfg.SSHHosts, sshHost)
 				}
 			}
 		}
 
-		data.GitRefs = append(data.GitRefs, gitRefData{
-			URL:      ref.URL,
-			Ref:      gitRef,
-			Dest:     "/skills/" + name,
-			IsCommit: isCommitSHA(gitRef),
-			SubPath:  subPath,
+		cfg.GitRefs = append(cfg.GitRefs, skillsinit.GitRef{
+			URL:     ref.URL,
+			Ref:     gitRef,
+			Dest:    skillsinit.SkillsDir + "/" + name,
+			Full:    isCommitSHA(gitRef),
+			SubPath: subPath,
 		})
 	}
 
 	for _, imageRef := range ociRefs {
 		name := ociSkillName(imageRef)
+		if err := validateSkillName(name); err != nil {
+			return skillsinit.Config{}, fmt.Errorf("oci skill %q: %w", imageRef, err)
+		}
 		if seen[name] {
-			return skillsInitData{}, fmt.Errorf("duplicate skill directory name %q", name)
+			return skillsinit.Config{}, fmt.Errorf("duplicate skill directory name %q", name)
 		}
 		seen[name] = true
 
-		data.OCIRefs = append(data.OCIRefs, ociRefData{
+		cfg.OCIRefs = append(cfg.OCIRefs, skillsinit.OCIRef{
 			Image: imageRef,
-			Dest:  "/skills/" + name,
+			Dest:  skillsinit.SkillsDir + "/" + name,
 		})
 	}
 
-	slices.SortFunc(data.SSHHosts, func(a, b sshHostData) int {
+	slices.SortFunc(cfg.SSHHosts, func(a, b skillsinit.SSHHost) int {
 		if cmp := strings.Compare(a.Host, b.Host); cmp != 0 {
 			return cmp
 		}
 		return strings.Compare(a.Port, b.Port)
 	})
 
-	return data, nil
+	return cfg, nil
 }
 
-// buildSkillsInitContainer creates the unified init container and associated volumes
-// for fetching skills from both Git repositories and OCI registries.
-// If authSecretRef is non-nil a single Secret volume is created and mounted at /git-auth.
-// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret is mounted
-// under /docker-secrets/<name> and the script merges them into a single config.json in /tmp;
-// krane reads the credentials via the DOCKER_CONFIG env var exported by the script.
+// SkillsInitConfigMapSuffix is appended to the Agent name to form the
+// ConfigMap that carries the skills-init container's JSON config.
+const SkillsInitConfigMapSuffix = "-skills-init"
+
+// SkillsInitConfigMapName returns the name of the skills-init ConfigMap for
+// the given Agent.
+func SkillsInitConfigMapName(agentName string) string {
+	return agentName + SkillsInitConfigMapSuffix
+}
+
+// validateSkillsInitConfigMapName enforces the K8s DNS-1123 subdomain rules
+// on the derived ConfigMap name. Agent names are already constrained by the
+// CRD, but the suffix can push borderline names over the 253-char limit, so
+// we fail fast here with a clear message rather than letting the apiserver
+// reject the eventual write.
+func validateSkillsInitConfigMapName(name string) error {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return fmt.Errorf("derived skills-init ConfigMap name %q is invalid: %s", name, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// buildSkillsInitContainer assembles the init container, its volumes, and the
+// ConfigMap holding its JSON configuration. The container runs a kagent-owned
+// Go binary that consumes the ConfigMap; no shell is involved, so
+// user-controlled CRD fields cannot inject commands.
+//
+// If authSecretRef is non-nil a Secret is mounted at AuthMountPath.
+// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret
+// is mounted under DockerSecretsDir/<name>; the binary merges them into a
+// single config.json and sets DOCKER_CONFIG for the OCI client library.
 func buildSkillsInitContainer(
+	agentName, agentNamespace string,
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
 	securityContext *corev1.SecurityContext,
-	env []corev1.EnvVar,
+	envVars []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
 	imagePullSecrets []corev1.LocalObjectReference,
-) (containers []corev1.Container, volumes []corev1.Volume, err error) {
-	// Collect secret names for the script template.
+) (containers []corev1.Container, volumes []corev1.Volume, configMap *corev1.ConfigMap, err error) {
 	pullSecretNames := make([]string, len(imagePullSecrets))
 	for i, s := range imagePullSecrets {
 		pullSecretNames[i] = s.Name
 	}
 
-	data, err := prepareSkillsInitData(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames)
+	cfg, err := prepareSkillsInitConfig(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	script, err := buildSkillsScript(data)
+	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("marshal skills-init config: %w", err)
 	}
+
+	cmName := SkillsInitConfigMapName(agentName)
+	if err := validateSkillsInitConfigMapName(cmName); err != nil {
+		return nil, nil, nil, err
+	}
+	configMap = &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cmName,
+			Namespace: agentNamespace,
+		},
+		Data: map[string]string{
+			skillsinit.ConfigMapKey: string(cfgJSON),
+		},
+	}
+
 	initSecCtx := securityContext
 	if initSecCtx != nil {
 		initSecCtx = initSecCtx.DeepCopy()
 	}
 
+	const configVolumeName = "skills-init-config"
+	volumes = append(volumes, corev1.Volume{
+		Name: configVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
+			},
+		},
+	})
 	volumeMounts := []corev1.VolumeMount{
-		{Name: "kagent-skills", MountPath: "/skills"},
+		{Name: "kagent-skills", MountPath: skillsinit.SkillsDir},
+		{Name: configVolumeName, MountPath: skillsinit.ConfigMountPath, ReadOnly: true},
 	}
 
-	// Mount single auth secret if provided.
 	if authSecretRef != nil {
 		volumes = append(volumes, corev1.Volume{
 			Name: "git-auth",
@@ -1375,13 +1410,11 @@ func buildSkillsInitContainer(
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      "git-auth",
-			MountPath: "/git-auth",
+			MountPath: skillsinit.AuthMountPath,
 			ReadOnly:  true,
 		})
 	}
 
-	// Mount each imagePullSecret directly into skills-init under /docker-secrets/<name>.
-	// The script merges them into /tmp/kagent-docker-config/config.json and exports DOCKER_CONFIG.
 	for _, secret := range imagePullSecrets {
 		volName := "pull-secret-" + secret.Name
 		volumes = append(volumes, corev1.Volume{
@@ -1394,23 +1427,24 @@ func buildSkillsInitContainer(
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      volName,
-			MountPath: "/docker-secrets/" + secret.Name,
+			MountPath: skillsinit.DockerSecretsDir + "/" + secret.Name,
 			ReadOnly:  true,
 		})
 	}
 
+	// Command is intentionally omitted: the skills-init image's ENTRYPOINT
+	// is the single source of truth for the binary path.
 	skillsInitContainer := corev1.Container{
 		Name:            "skills-init",
 		Image:           DefaultSkillsInitImageConfig.Image(),
-		Command:         []string{"/bin/sh", "-c", script},
 		VolumeMounts:    volumeMounts,
 		SecurityContext: initSecCtx,
-		Env:             env,
+		Env:             envVars,
 		Resources:       resources,
 	}
 
 	containers = append(containers, skillsInitContainer)
-	return containers, volumes, nil
+	return containers, volumes, configMap, nil
 }
 
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {

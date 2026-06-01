@@ -3,14 +3,12 @@ package handlers
 import (
 	"net/http"
 	"testing"
-
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 func TestResolveGatewayUpstreamPath(t *testing.T) {
 	t.Parallel()
 	ns, name := "kagent", "my-claw"
-	public := substrate.AgentHarnessGatewayUIPath(ns, name)
+	public := agentHarnessGatewayPublicPrefix(ns, name)
 
 	tests := []struct {
 		name      string

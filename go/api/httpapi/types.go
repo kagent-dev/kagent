@@ -152,6 +152,7 @@ type SubstrateAgentHarnessListEntry struct {
 	GatewayUIPath  string                           `json:"gatewayUIPath,omitempty"`
 	ModelConfigRef string                           `json:"modelConfigRef,omitempty"`
 	BackendRefID   string                           `json:"backendRefId,omitempty"`
+	Endpoint       string                           `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
