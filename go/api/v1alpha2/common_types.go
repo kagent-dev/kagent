@@ -31,7 +31,7 @@ import (
 
 // FromNamespaces specifies namespace from which references to this resource are allowed.
 // This follows the same pattern as Gateway API's cross-namespace route attachment.
-// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
 // +kubebuilder:validation:Enum=All;Same;Selector
 type FromNamespaces string
 
