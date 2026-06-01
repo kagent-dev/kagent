@@ -542,7 +542,7 @@ spec:
                   gatewayPort:
                     default: 80
                     description: GatewayPort is the port OpenClaw listens on inside
-                      the actor (Substrate routes to :80 today).
+                      the actor. Defaults to 80.
                     format: int32
                     type: integer
                   gatewayToken:
@@ -719,8 +719,9 @@ spec:
                 properties:
                   endpoint:
                     description: |-
-                      Endpoint is the backend-specific address (gRPC target, SSH host:port,
-                      ...) clients should use to reach the harness.
+                      Endpoint is the backend-specific address clients should use to reach the harness.
+                      OpenShell: gRPC gateway URL with sandbox id (gateway#sandbox). Substrate: kagent
+                      gateway proxy path (/api/agentharnesses/<ns>/<name>/gateway/).
                     type: string
                 type: object
               observedGeneration:

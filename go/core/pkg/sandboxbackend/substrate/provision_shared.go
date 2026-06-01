@@ -109,6 +109,21 @@ func actorTemplateName(ah *v1alpha2.AgentHarness) string {
 	return truncateDNS1123(ah.Name)
 }
 
+// pinImageRef ensures image refs satisfy Substrate ActorTemplate validation (must contain "@").
+func pinImageRef(image string) (string, error) {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return "", fmt.Errorf("image is required")
+	}
+	if strings.Contains(image, "@") {
+		return image, nil
+	}
+	return "", fmt.Errorf(
+		"image %q must be pinned with a digest (for example repo/name@sha256:...); tags are rejected because changing the image invalidates snapshots",
+		image,
+	)
+}
+
 func truncateDNS1123(s string) string {
 	s = strings.ToLower(strings.ReplaceAll(s, "_", "-"))
 	if len(s) > 63 {

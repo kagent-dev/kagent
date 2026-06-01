@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Client wraps ate-api Control gRPC.
@@ -32,11 +31,8 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
-	var opts []grpc.DialOption
-	if cfg.Insecure {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewTLS(ateAPITLSConfig(cfg.Insecure))),
 	}
 
 	conn, err := grpc.NewClient(cfg.AteAPIEndpoint, opts...)
@@ -55,6 +51,15 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		conn:          conn,
 		cfg:           cfg,
 	}, nil
+}
+
+func ateAPITLSConfig(insecure bool) *tls.Config {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if insecure {
+		// Kind/local ate-api uses pod-issued certs; skip verification (same as grpcurl -insecure).
+		tlsCfg.InsecureSkipVerify = true
+	}
+	return tlsCfg
 }
 
 func waitConnReady(ctx context.Context, conn *grpc.ClientConn) error {

@@ -24,6 +24,10 @@ func (p *Provisioner) ensureActorTemplate(ctx context.Context, ah *v1alpha2.Agen
 	if workloadImage == "" {
 		workloadImage = openclaw.NemoclawSandboxBaseImage
 	}
+	workloadImage, err := pinImageRef(workloadImage)
+	if err != nil {
+		return types.NamespacedName{}, err
+	}
 	startupScript, containerEnv, err := p.buildOpenClawActorStartup(ctx, ah)
 	if err != nil {
 		return types.NamespacedName{}, fmt.Errorf("build openclaw actor startup: %w", err)

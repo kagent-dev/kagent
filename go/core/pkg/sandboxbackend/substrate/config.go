@@ -6,7 +6,8 @@ import "time"
 type Config struct {
 	// AteAPIEndpoint is a gRPC target (e.g. dns:///api.ate-system.svc:443).
 	AteAPIEndpoint string
-	Insecure       bool
+	// Insecure skips TLS certificate verification (local Kind / private CA). ate-api still uses TLS on :443.
+	Insecure bool
 	// DialTimeout bounds the initial dial. Zero defaults to 10s in Dial.
 	DialTimeout time.Duration
 	CallTimeout time.Duration
