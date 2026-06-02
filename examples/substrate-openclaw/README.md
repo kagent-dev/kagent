@@ -2,7 +2,9 @@
 
 ## 1. Install Substrate on your Kind cluster
 
-Uses cluster `kind` (`KIND_CLUSTER_NAME=kind`; or set `KUBECONFIG` / context accordingly).
+You can clone the kagent fork of substrate [here](https://github.com/kagent-dev/substrate).
+
+These instructions use a Kind cluster called `kind` (`KIND_CLUSTER_NAME=kind`).
 
 ```bash
 cd substrate
@@ -21,18 +23,6 @@ export KO_DOCKER_REPO=localhost:5001
 export KO_DEFAULTPLATFORMS=linux/$(go env GOARCH)
 ./hack/run-tool.sh ko build -B ./cmd/ateom-gvisor
 ```
-
-## 2. Load nemoclaw image
-
-The image is a multi-arch manifest list. On Apple Silicon, `kind load docker-image` often fails with `content digest ... not found` because Docker only has the local arch locally while kind imports with `--all-platforms`. Use `docker save` + `ctr import` instead (match `--name` to your cluster, e.g. `agent` for context `kind-agent`):
-
-```bash
-docker pull --platform linux/arm64 ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4
-docker save ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4 | \
-  docker exec -i kind-control-plane ctr --namespace=k8s.io images import -
-```
-
-On amd64 hosts, use `--platform linux/amd64` in the pull step.
 
 ## kagent AgentHarness with substrate runtime
 
