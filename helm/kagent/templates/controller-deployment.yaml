@@ -90,6 +90,10 @@ spec:
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: SUBSTRATE_ATE_API_ENDPOINT
               value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
+            {{- with .Values.controller.substrate.atenetRouterURL }}
+            - name: SUBSTRATE_ATENET_ROUTER_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.controller.substrate.ateApiInsecure }}
             - name: SUBSTRATE_ATE_API_INSECURE
               value: "true"

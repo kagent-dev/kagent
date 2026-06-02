@@ -140,3 +140,5 @@ Navigate to the deployed agent harness. If the OpenClaw Control UI asks for a ga
 - Gateway token: `test-token`
 
 The gateway URL must include the trailing slash. The token is the value configured in `spec.substrate.gatewayToken`, or the Secret value referenced by `spec.substrate.gatewayTokenSecretRef`; enter it in the token/credentials field rather than relying on a `token` query parameter.
+
+kagent proxies UI traffic to the actor OpenClaw gateway through Substrate's **atenet-router** (Envoy) using the actor `Host` header (`<actor-id>.actors.resources.substrate.ate.dev`). The default router URL is `http://atenet-router.ate-system.svc:80`; override with `controller.substrate.atenetRouterURL` when needed.

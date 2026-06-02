@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -26,15 +25,12 @@ const (
 )
 
 // AgentHarnessGatewayConfig configures Substrate harness HTTP/WebSocket proxy.
-// Traffic is proxied directly to the actor ateom pod IP on port 80 (no atenet-router fallback).
+// Traffic is proxied through atenet-router (Envoy) using actor Host-based routing.
 type AgentHarnessGatewayConfig struct {
-	AteAPIEndpoint string
-	AteAPIInsecure bool
-	DialTimeout    time.Duration
-	CallTimeout    time.Duration
+	AtenetRouterURL string
 }
 
-// HandleAgentHarnessGateway proxies browser traffic to the actor OpenClaw gateway (pod IP when available).
+// HandleAgentHarnessGateway proxies browser traffic to the actor OpenClaw gateway via atenet-router.
 func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agentharness-gateway")
 	if h.AgentHarnessGateway == nil {
@@ -114,52 +110,19 @@ func (h *Handlers) resolveSubstrateGatewayTarget(ctx context.Context, ah *v1alph
 	if cfg == nil {
 		return nil, "", fmt.Errorf("substrate gateway is not configured")
 	}
-	if cfg.AteAPIEndpoint == "" {
-		return nil, "", fmt.Errorf("substrate ate-api is not configured on the controller")
-	}
 
-	ateClient, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: cfg.AteAPIEndpoint,
-		Insecure:       cfg.AteAPIInsecure,
-		DialTimeout:    cfg.DialTimeout,
-		CallTimeout:    cfg.CallTimeout,
-	})
+	actorID := strings.TrimSpace(ah.Status.BackendRef.ID)
+	target, host, err := substrate.GatewayRouterTarget(cfg.AtenetRouterURL, actorID)
 	if err != nil {
-		return nil, "", fmt.Errorf("dial ate-api: %w", err)
-	}
-	defer ateClient.Close()
-
-	actorID := ah.Status.BackendRef.ID
-	actor, err := ateClient.GetActor(ctx, actorID)
-	if err != nil {
-		return nil, "", fmt.Errorf("get substrate actor %q: %w", actorID, err)
-	}
-	podIP := strings.TrimSpace(actor.GetAteomPodIp())
-	if podIP == "" {
-		return nil, "", fmt.Errorf("substrate actor %q has no pod IP (status %s; resume the actor and wait until running)", actorID, actor.GetStatus())
-	}
-	target, host, err := substrateGatewayPodTarget(podIP)
-	if err != nil {
-		return nil, "", fmt.Errorf("substrate actor %q pod IP %q: %w", actorID, podIP, err)
+		return nil, "", fmt.Errorf("substrate actor %q: %w", actorID, err)
 	}
 	ctrllog.FromContext(ctx).WithName("agentharness-gateway").Info(
-		"proxying via actor pod IP",
+		"proxying via atenet-router",
 		"actor", actorID,
-		"podIP", host,
+		"router", target.String(),
+		"host", host,
 	)
 	return target, host, nil
-}
-
-func substrateGatewayPodTarget(podIP string) (*url.URL, string, error) {
-	ip := strings.TrimSpace(podIP)
-	if ip == "" || net.ParseIP(ip) == nil {
-		return nil, "", fmt.Errorf("invalid actor pod IP %q", podIP)
-	}
-	target, err := url.Parse("http://" + net.JoinHostPort(ip, "80"))
-	if err != nil {
-		return nil, "", fmt.Errorf("parse actor pod target: %w", err)
-	}
-	return target, ip, nil
 }
 
 func agentHarnessHarnessBase(namespace, name string) string {

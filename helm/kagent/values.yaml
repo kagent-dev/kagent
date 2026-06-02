@@ -236,6 +236,7 @@ controller:
   substrate:
     enabled: false
     ateApiEndpoint: ""
+    atenetRouterURL: ""
     ateApiInsecure: false
     # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
     ateApiServer:
@@ -252,6 +253,7 @@ controller:
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
+    #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
     #   defaultWorkerPool:
     #     name: "kagent-default"
 

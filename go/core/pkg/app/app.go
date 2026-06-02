@@ -155,6 +155,7 @@ type Config struct {
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
+		AtenetRouterURL            string
 		Insecure                   bool
 		DialTimeout                time.Duration
 		CallTimeout                time.Duration
@@ -226,6 +227,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
 	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
 	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
 	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
@@ -740,10 +742,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
-			AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
-			AteAPIInsecure: cfg.Substrate.Insecure,
-			DialTimeout:    cfg.Substrate.DialTimeout,
-			CallTimeout:    cfg.Substrate.CallTimeout,
+			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
 		}
 	}
 

@@ -8,33 +8,13 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
-func TestSubstrateGatewayPodTarget(t *testing.T) {
+func TestGatewayProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 	t.Parallel()
-	target, host, err := substrateGatewayPodTarget("10.244.0.29")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if host != "10.244.0.29" {
-		t.Fatalf("host = %q", host)
-	}
-	if target.Scheme != "http" || target.Host != "10.244.0.29:80" {
-		t.Fatalf("target = %s", target.String())
-	}
-}
-
-func TestSubstrateGatewayPodTargetRejectsInvalidIP(t *testing.T) {
-	t.Parallel()
-	_, _, err := substrateGatewayPodTarget("not-an-ip")
-	if err == nil {
-		t.Fatal("expected error for invalid pod IP")
-	}
-}
-
-func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
-	t.Parallel()
-	const podIP = "10.244.0.29"
+	const actorHost = "ahr-kagent-my-claw.actors.resources.substrate.ate.dev"
 	const token = "some-token"
 	ns, name := "kagent", "my-claw"
 	publicPrefix := agentHarnessGatewayPublicPrefix(ns, name)
@@ -55,7 +35,7 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proxy := newAgentHarnessGatewayProxy(target, podIP, token, publicPrefix, ns, name, testLog{t})
+	proxy := newAgentHarnessGatewayProxy(target, actorHost, token, publicPrefix, ns, name, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, publicPrefix, nil)
 	rec := httptest.NewRecorder()
 	proxy.ServeHTTP(rec, req)
@@ -63,8 +43,8 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if gotHost != podIP {
-		t.Fatalf("upstream Host = %q, want %q", gotHost, podIP)
+	if gotHost != actorHost {
+		t.Fatalf("upstream Host = %q, want %q", gotHost, actorHost)
 	}
 	if gotAuth != "Bearer "+token {
 		t.Fatalf("Authorization = %q", gotAuth)
@@ -81,17 +61,17 @@ func TestGatewayProxyForwardsToPodIPWithAuthHeaders(t *testing.T) {
 	}
 }
 
-func TestGatewayProxyRewriteTargetsPodIPOnWebSocketPath(t *testing.T) {
+func TestGatewayProxyRewriteTargetsAtenetRouterHostOnWebSocketPath(t *testing.T) {
 	t.Parallel()
-	const podIP = "10.244.0.29"
+	const actorHost = "ahr-kagent-my-claw.actors.resources.substrate.ate.dev"
 	ns, name := "kagent", "my-claw"
 	publicPrefix := agentHarnessGatewayPublicPrefix(ns, name)
 
-	target, err := url.Parse("http://" + podIP + ":80")
+	target, err := substrate.GatewayRouterTarget(substrate.DefaultAtenetRouterURL, "ahr-kagent-my-claw")
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := newAgentHarnessGatewayProxy(target, podIP, "tok", publicPrefix, ns, name, testLog{t})
+	proxy := newAgentHarnessGatewayProxy(target, actorHost, "tok", publicPrefix, ns, name, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, strings.TrimSuffix(publicPrefix, "/"), nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -101,11 +81,11 @@ func TestGatewayProxyRewriteTargetsPodIPOnWebSocketPath(t *testing.T) {
 
 	proxy.Rewrite(&httputil.ProxyRequest{In: req, Out: outReq})
 
-	if outReq.Host != podIP {
-		t.Fatalf("Host = %q, want pod IP", outReq.Host)
+	if outReq.Host != actorHost {
+		t.Fatalf("Host = %q, want actor host", outReq.Host)
 	}
-	if outReq.URL.Host != podIP+":80" {
-		t.Fatalf("URL.Host = %q", outReq.URL.Host)
+	if outReq.URL.Host != target.Host {
+		t.Fatalf("URL.Host = %q, want router %q", outReq.URL.Host, target.Host)
 	}
 	if outReq.URL.Path != publicPrefix {
 		t.Fatalf("URL.Path = %q, want %q", outReq.URL.Path, publicPrefix)
