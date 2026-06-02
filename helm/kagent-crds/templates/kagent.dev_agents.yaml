@@ -13284,8 +13284,10 @@ spec:
                             URL path segment, without .git).
                           type: string
                         path:
-                          description: Subdirectory within the repo to use as the
-                            skill root.
+                          description: |-
+                            Subdirectory within the repo to use as the skill root. The API validates
+                            this input path, but treats repository contents as trusted: symlinks under
+                            this path are dereferenced when materializing the skill.
                           type: string
                         ref:
                           default: main

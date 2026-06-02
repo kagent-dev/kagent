@@ -1218,11 +1218,22 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 	}
 	require.True(t, foundSecretMount, "skills-init should mount the pull secret volume")
 
-	require.Len(t, skillsInit.Command, 3)
-	script := skillsInit.Command[2]
-	require.Contains(t, script, "jq", "skills-init script should contain jq for credential merge")
-	require.Contains(t, script, ".dockerconfigjson", "skills-init script should reference .dockerconfigjson")
-	require.Contains(t, script, "/tmp/kagent-docker-config", "skills-init script should write merged config to /tmp")
+	// Command is intentionally unset; the skills-init image's ENTRYPOINT is
+	// the single source of truth for the binary path.
+	require.Empty(t, skillsInit.Command, "skills-init Command must be empty so ENTRYPOINT runs")
+
+	// The skills-init binary reads its config from a ConfigMap; verify it
+	// lists each imagePullSecret so the binary will merge their auths.
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{
+		Name:      agent.Name + "-skills-init",
+		Namespace: agent.Namespace,
+	}, cm))
+	var cfg struct {
+		ImagePullSecrets []string `json:"imagePullSecrets"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(cm.Data["config.json"]), &cfg))
+	require.NotEmpty(t, cfg.ImagePullSecrets, "skills-init config should list imagePullSecrets")
 
 	// Verify the agent works end-to-end with the skill
 	a2aClient := setupA2AClient(t, agent)
