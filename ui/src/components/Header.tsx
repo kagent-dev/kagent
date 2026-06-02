@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SubstrateFeatureGate } from "@/components/SubstrateFeatureGate";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -131,12 +132,14 @@ export function Header() {
                     Prompt Library
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/substrate" className="gap-2 cursor-pointer w-full">
-                    <Layers className="h-4 w-4" />
-                    Substrate
-                  </Link>
-                </DropdownMenuItem>
+                <SubstrateFeatureGate>
+                  <DropdownMenuItem asChild>
+                    <Link href="/substrate" className="gap-2 cursor-pointer w-full">
+                      <Layers className="h-4 w-4" />
+                      Substrate
+                    </Link>
+                  </DropdownMenuItem>
+                </SubstrateFeatureGate>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -200,12 +203,14 @@ export function Header() {
                       Prompt Library
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
-                    <Link href="/substrate" className="gap-2 cursor-pointer w-full">
-                      <Layers className="h-4 w-4" />
-                      Substrate
-                    </Link>
-                  </DropdownMenuItem>
+                  <SubstrateFeatureGate>
+                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                      <Link href="/substrate" className="gap-2 cursor-pointer w-full">
+                        <Layers className="h-4 w-4" />
+                        Substrate
+                      </Link>
+                    </DropdownMenuItem>
+                  </SubstrateFeatureGate>
                 </DropdownMenuContent>
               </DropdownMenu>
 
