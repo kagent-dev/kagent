@@ -8,6 +8,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 // Handlers holds all the HTTP handler components
@@ -32,6 +33,7 @@ type Handlers struct {
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
 	CurrentUser         *CurrentUserHandler
+	Substrate           *SubstrateHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -56,6 +58,7 @@ func NewHandlers(
 	rcnclr reconciler.KagentReconciler,
 	sandboxBackend sandboxbackend.Backend,
 	agentHarnessGateway *AgentHarnessGatewayConfig,
+	substrateAteClient *substrate.Client,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -87,5 +90,6 @@ func NewHandlers(
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),
 		CurrentUser:         NewCurrentUserHandler(),
+		Substrate:           NewSubstrateHandler(base, substrateAteClient),
 	}
 }

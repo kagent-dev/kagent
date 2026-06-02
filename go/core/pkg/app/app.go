@@ -760,6 +760,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		Reconciler:          rcnclr,
 		SandboxBackend:      extensionCfg.SandboxBackend,
 		AgentHarnessGateway: agentHarnessGateway,
+		SubstrateAteClient:  substrateAteClient,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

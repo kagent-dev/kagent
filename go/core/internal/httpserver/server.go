@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,6 +52,7 @@ const (
 	APIPathCrewAI               = "/api/crewai"
 	APIPathSandboxSSH           = "/api/sandbox/ssh"
 	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
+	APIPathSubstrateStatus      = "/api/substrate/status"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -73,6 +75,7 @@ type ServerConfig struct {
 	Reconciler          reconciler.KagentReconciler
 	SandboxBackend      sandboxbackend.Backend
 	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
+	SubstrateAteClient  *substrate.Client
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -101,6 +104,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.Reconciler,
 			config.SandboxBackend,
 			config.AgentHarnessGateway,
+			config.SubstrateAteClient,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -287,6 +291,9 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
+	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)
 
 	// Prompt template libraries (ConfigMaps)
 	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)

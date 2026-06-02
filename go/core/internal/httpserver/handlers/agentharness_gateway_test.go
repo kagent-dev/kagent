@@ -67,11 +67,14 @@ func TestGatewayProxyRewriteTargetsAtenetRouterHostOnWebSocketPath(t *testing.T)
 	ns, name := "kagent", "my-claw"
 	publicPrefix := agentHarnessGatewayPublicPrefix(ns, name)
 
-	target, err := substrate.GatewayRouterTarget(substrate.DefaultAtenetRouterURL, "ahr-kagent-my-claw")
+	target, host, err := substrate.GatewayRouterTarget(substrate.DefaultAtenetRouterURL, "ahr-kagent-my-claw")
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := newAgentHarnessGatewayProxy(target, actorHost, "tok", publicPrefix, ns, name, testLog{t})
+	if host != actorHost {
+		t.Fatalf("host = %q, want %q", host, actorHost)
+	}
+	proxy := newAgentHarnessGatewayProxy(target, host, "tok", publicPrefix, ns, name, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, strings.TrimSuffix(publicPrefix, "/"), nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
