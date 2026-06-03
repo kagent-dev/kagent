@@ -198,6 +198,12 @@ controller:
   #  - watch-ns-1
   #  - watch-ns-2
 
+  # -- Rewrite RemoteMCPServer tool URLs and the controller's tool-discovery
+  # dial from `https://host[:port]` to `http://host:<port-or-443>` so MCP
+  # traffic egresses in plaintext to a proxy that originates TLS upstream
+  # off by default.
+  mcpEgressPlaintext: false
+
   podAnnotations: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).

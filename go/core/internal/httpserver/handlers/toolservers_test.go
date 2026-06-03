@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -27,8 +28,21 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
+
+// denyAuthorizer satisfies pkgauth.Authorizer by refusing every Check.
+// Used to pin the authorization gate on the create endpoints: a request
+// from an unauthorized caller must surface a 403 BEFORE the handler
+// reaches KubeClient.Create or createOrUpdateCompanionSecrets.
+type denyAuthorizer struct{}
+
+func (denyAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ pkgauth.Resource) error {
+	return assert.AnError
+}
+
+var _ pkgauth.Authorizer = denyAuthorizer{}
 
 func TestToolServersHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
@@ -375,6 +389,324 @@ func TestToolServersHandler(t *testing.T) {
 
 			require.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			require.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		// SecretMaterials companion-Secret support mirrors the ModelConfig
+		// inline-Secret pattern so operators can create an RMS/MCPServer
+		// and its referenced Secrets in a single POST without
+		// pre-creating Secret objects out of band.
+		t.Run("Success_RemoteMCPServer_WithSecretMaterials_CreatesCASecret", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "corp-mcp", Namespace: "default"},
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "Corp-CA MCP",
+						URL:         "https://mcp.corp.internal/mcp",
+						TLS: &v1alpha2.TLSConfig{
+							CACertSecretRef: "corp-ca",
+							CACertSecretKey: "ca.crt",
+						},
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "corp-ca", Key: "ca.crt", Value: "FAKE PEM"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			require.Equal(t, http.StatusCreated, responseRecorder.Code)
+
+			// Companion Secret created in the same namespace.
+			secret := &corev1.Secret{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "corp-ca"}, secret)
+			require.NoError(t, err)
+			assert.Equal(t, corev1.SecretTypeOpaque, secret.Type)
+			assert.Equal(t, []byte("FAKE PEM"), secret.Data["ca.crt"])
+
+			// OwnerReference points back at the RMS so K8s GC cleans it up.
+			require.Len(t, secret.OwnerReferences, 1)
+			or := secret.OwnerReferences[0]
+			assert.Equal(t, "RemoteMCPServer", or.Kind)
+			assert.Equal(t, "corp-mcp", or.Name)
+			assert.Equal(t, v1alpha2.GroupVersion.Identifier(), or.APIVersion)
+		})
+
+		t.Run("Success_MCPServer_WithSecretMaterials_CreatesEnvSecret", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				MCPServer: &v1alpha1.MCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "kmcp-with-creds", Namespace: "default"},
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
+							Image: "example/kmcp:latest",
+							Port:  8080,
+							Cmd:   "/bin/serve",
+							SecretRefs: []corev1.LocalObjectReference{
+								{Name: "kmcp-creds"},
+							},
+						},
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "kmcp-creds", Key: "API_TOKEN", Value: "shhh"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			require.Equal(t, http.StatusCreated, responseRecorder.Code)
+
+			secret := &corev1.Secret{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "kmcp-creds"}, secret)
+			require.NoError(t, err)
+			assert.Equal(t, []byte("shhh"), secret.Data["API_TOKEN"])
+			require.Len(t, secret.OwnerReferences, 1)
+			or := secret.OwnerReferences[0]
+			assert.Equal(t, "MCPServer", or.Kind)
+			assert.Equal(t, "kmcp-with-creds", or.Name)
+		})
+
+		t.Run("SecretMaterial_GroupsMultipleKeysIntoSingleSecret", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "multi-secret-mcp", Namespace: "default"},
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "RMS with multi-key Secret",
+						URL:         "https://mcp.corp.internal/mcp",
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "shared", Key: "ca.crt", Value: "PEM"},
+					{Name: "shared", Key: "token", Value: "abc"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			require.Equal(t, http.StatusCreated, responseRecorder.Code)
+
+			secret := &corev1.Secret{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "shared"}, secret)
+			require.NoError(t, err)
+			assert.Equal(t, []byte("PEM"), secret.Data["ca.crt"])
+			assert.Equal(t, []byte("abc"), secret.Data["token"])
+		})
+
+		t.Run("SecretMaterial_InvalidName_Rejected", func(t *testing.T) {
+			handler, _, _, responseRecorder := setupHandler(t)
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-invalid-secret", Namespace: "default"},
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "x", URL: "https://x/y",
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "INVALID NAME WITH SPACES", Key: "ca.crt", Value: "x"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+		})
+
+		t.Run("SecretMaterial_ExistingSecretNotOwned_Rejected", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+
+			// Pre-create a Secret that isn't owned by any RMS.
+			preexisting := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "stranger", Namespace: "default"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"ca.crt": []byte("OLD")},
+			}
+			require.NoError(t, kubeClient.Create(context.Background(), preexisting))
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "stranger-rms", Namespace: "default"},
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "x", URL: "https://x/y",
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "stranger", Key: "ca.crt", Value: "NEW"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			// The 400 surfaces from companionSecretAPIError when the
+			// existing Secret isn't already owned by this RMS.
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+
+			// Confirm the unrelated Secret wasn't mutated.
+			fresh := &corev1.Secret{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "stranger"}, fresh)
+			require.NoError(t, err)
+			assert.Equal(t, []byte("OLD"), fresh.Data["ca.crt"])
+
+			// Companion-secret failure must roll back the RMS so the
+			// operator's retry doesn't hit AlreadyExists. Pins the
+			// partial-failure fix; without rollback the orphan would
+			// be readable here.
+			orphan := &v1alpha2.RemoteMCPServer{}
+			err = kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "stranger-rms"}, orphan)
+			assert.True(t, apierrors.IsNotFound(err),
+				"RMS must be rolled back when companion-secret creation fails; got err=%v", err)
+		})
+
+		// CompanionSecretFailure_RollsBackMCPServer pins the symmetric
+		// rollback behavior on the kmcp MCPServer create path so a
+		// regression on either branch surfaces in CI.
+		t.Run("CompanionSecretFailure_RollsBackMCPServer", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+
+			preexisting := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "stranger-kmcp", Namespace: "default"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"x": []byte("OLD")},
+			}
+			require.NoError(t, kubeClient.Create(context.Background(), preexisting))
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				MCPServer: &v1alpha1.MCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "stranger-mcp", Namespace: "default"},
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
+							Image: "example/kmcp:latest",
+							Port:  8080,
+							Cmd:   "/bin/serve",
+						},
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "stranger-kmcp", Key: "x", Value: "NEW"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+
+			orphan := &v1alpha1.MCPServer{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "stranger-mcp"}, orphan)
+			assert.True(t, apierrors.IsNotFound(err),
+				"MCPServer must be rolled back when companion-secret creation fails; got err=%v", err)
+		})
+
+		// AuthorizationRequired_RemoteMCPServer pins the authz gate on the
+		// RMS create path. A caller the authorizer rejects must get a 403
+		// AND no RMS, no companion Secret should land in the cluster.
+		t.Run("AuthorizationRequired_RemoteMCPServer", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+			// Swap the Noop authorizer for one that denies every Check.
+			handler.Authorizer = denyAuthorizer{}
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "RemoteMCPServer",
+				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "denied-rms", Namespace: "default"},
+					Spec: v1alpha2.RemoteMCPServerSpec{
+						Description: "should not be created",
+						URL:         "https://x/y",
+					},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "denied-rms-ca", Key: "ca.crt", Value: "PEM"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "unauthorized-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+
+			assert.Equal(t, http.StatusForbidden, responseRecorder.Code,
+				"unauthorized RMS create must surface 403")
+			// Neither the RMS nor the companion Secret should have been
+			// created — the authz gate fires before any KubeClient.Create.
+			rms := &v1alpha2.RemoteMCPServer{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "denied-rms"}, rms)
+			assert.Error(t, err, "denied request must not create the RemoteMCPServer")
+			secret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "denied-rms-ca"}, secret)
+			assert.Error(t, err, "denied request must not create the companion Secret")
+		})
+
+		// AuthorizationRequired_MCPServer pins the symmetric authz gate
+		// on the kmcp MCPServer create path, so a regression on either
+		// branch surfaces in the test suite.
+		t.Run("AuthorizationRequired_MCPServer", func(t *testing.T) {
+			handler, kubeClient, _, responseRecorder := setupHandler(t)
+			handler.Authorizer = denyAuthorizer{}
+
+			reqBody := &handlers.ToolServerCreateRequest{
+				Type: "MCPServer",
+				MCPServer: &v1alpha1.MCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "denied-mcp", Namespace: "default"},
+					Spec: v1alpha1.MCPServerSpec{
+						Deployment: v1alpha1.MCPServerDeployment{
+							Image: "example/kmcp:latest",
+							Port:  8080,
+							Cmd:   "/bin/serve",
+						},
+					},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("POST", "/api/toolservers/", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "unauthorized-user")
+
+			handler.HandleCreateToolServer(responseRecorder, req)
+
+			assert.Equal(t, http.StatusForbidden, responseRecorder.Code,
+				"unauthorized MCPServer create must surface 403")
+			mcp := &v1alpha1.MCPServer{}
+			err := kubeClient.Get(context.Background(),
+				ctrl_client.ObjectKey{Namespace: "default", Name: "denied-mcp"}, mcp)
+			assert.Error(t, err, "denied request must not create the MCPServer")
 		})
 
 		t.Run("ToolServerAlreadyExists", func(t *testing.T) {

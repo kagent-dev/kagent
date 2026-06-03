@@ -110,6 +110,23 @@ tests:
       - notExists:
           path: data.PROXY_URL
 
+  - it: should default MCP_EGRESS_PLAINTEXT to false
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.MCP_EGRESS_PLAINTEXT
+          value: "false"
+
+  - it: should set MCP_EGRESS_PLAINTEXT to true when enabled
+    template: controller-configmap.yaml
+    set:
+      controller:
+        mcpEgressPlaintext: true
+    asserts:
+      - equal:
+          path: data.MCP_EGRESS_PLAINTEXT
+          value: "true"
+
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
     set:

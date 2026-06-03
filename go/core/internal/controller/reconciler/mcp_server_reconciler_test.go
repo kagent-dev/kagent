@@ -116,6 +116,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				types.NamespacedName{Namespace: "test", Name: "default-model"},
 				[]string{}, // No namespace restrictions for tests
 				nil,
+				false,
 			)
 
 			// Call ReconcileKagentMCPServer

@@ -512,6 +512,8 @@ github.com/kagent-dev/kmcp v0.3.0 h1:CuF8LN6JbPoy75saRzwI5OIcSVZUgiwB0BeWtq+rAO4
 github.com/kagent-dev/kmcp v0.3.0/go.mod h1:g7wS/3m2wonRo/1DMwVoHxnilr/urPgV2hwV1DwkwrQ=
 github.com/kagent-dev/mockllm v0.0.5 h1:mm9Ml3NH6/E/YKVMgMwWYMNsNGkDze6I6TC0ppHZAo8=
 github.com/kagent-dev/mockllm v0.0.5/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
+github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085 h1:5bYxRc6K6+JiFMYGSJpQ7y18PzTGXUmUtVXY7Fqh0Ew=
+github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085/go.mod h1:vTMste7c+XiDOQyhe6iGPKLbMy3chY/h2fL3Dox5fAE=
 github.com/karamaru-alpha/copyloopvar v1.2.2 h1:yfNQvP9YaGQR7VaWLYcfZUlRP2eo2vhExWKxD/fP6q0=
 github.com/karamaru-alpha/copyloopvar v1.2.2/go.mod h1:oY4rGZqZ879JkJMtX3RRkcXRkmUvH0x35ykgaKgsgJY=
 github.com/kisielk/errcheck v1.10.0 h1:Lvs/YAHP24YKg08LA8oDw2z9fJVme090RAXd90S+rrw=

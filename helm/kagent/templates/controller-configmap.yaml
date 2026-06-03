@@ -56,6 +56,7 @@ data:
   STREAMING_MAX_BUF_SIZE: {{ .Values.controller.streaming.maxBufSize | quote }}
   STREAMING_TIMEOUT: {{ .Values.controller.streaming.timeout | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
+  MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
   {{- $agentHost := "" }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}

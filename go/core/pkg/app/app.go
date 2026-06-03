@@ -139,6 +139,13 @@ type Config struct {
 	HttpServerAddr     string
 	WatchNamespaces    string
 	A2ABaseUrl         string
+
+	// MCPEgressPlaintext, when set, gates the egress URL rewrite: agent tool
+	// URLs and the controller's tool-discovery dial that point at a
+	// RemoteMCPServer are rewritten from https://host[:port] to
+	// http://host:<port-or-443> so traffic egresses in plaintext to a proxy
+	// that originates TLS upstream. Off by default;
+	MCPEgressPlaintext bool
 	Database           struct {
 		Url           string
 		UrlFile       string
@@ -207,6 +214,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+
+	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
+		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -334,8 +344,7 @@ type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error
 // Returning a non-nil error causes the app to exit.
 //
 // Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// Provide a custom runner to take over the migration process entirely — for example,
-// to run additional enterprise migrations alongside or instead of the built-in ones.
+// Provide a custom runner to take over the migration process entirely.
 // Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
 type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
 
@@ -550,6 +559,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
 		extensionCfg.SandboxBackend,
+		cfg.MCPEgressPlaintext,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -559,6 +569,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		cfg.DefaultModelConfig,
 		watchNamespacesList,
 		extensionCfg.SandboxBackend,
+		cfg.MCPEgressPlaintext,
 	)
 
 	if err := (&controller.ServiceController{
@@ -763,6 +774,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		SandboxBackend:      extensionCfg.SandboxBackend,
 		AgentHarnessGateway: agentHarnessGateway,
 		SubstrateAteClient:  substrateAteClient,
+		MCPEgressPlaintext:  cfg.MCPEgressPlaintext,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

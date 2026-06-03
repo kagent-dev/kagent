@@ -11,10 +11,11 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
+from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
@@ -141,14 +142,119 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     return converted
 
 
-class HttpMcpServerConfig(BaseModel):
+def _build_tls_httpx_client_factory(
+    *,
+    disable_verify: bool,
+    ca_cert_path: str | None,
+    disable_system_cas: bool,
+) -> Callable[..., httpx.AsyncClient]:
+    """Returns an httpx_client_factory suitable for google-adk MCP transport
+    connection params. The factory applies the kagent TLS configuration
+    (disableVerify / caCert / disableSystemCAs) to every httpx.AsyncClient
+    the MCP session manager constructs.
+    """
+    ssl_ctx = create_ssl_context(
+        disable_verify=disable_verify,
+        ca_cert_path=ca_cert_path,
+        disable_system_cas=disable_system_cas,
+    )
+
+    def _factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "follow_redirects": True,
+            "verify": ssl_ctx,
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        else:
+            # Mirror google-adk's create_mcp_http_client defaults.
+            kwargs["timeout"] = httpx.Timeout(30, read=300)
+        if headers is not None:
+            kwargs["headers"] = headers
+        if auth is not None:
+            kwargs["auth"] = auth
+        return httpx.AsyncClient(**kwargs)
+
+    return _factory
+
+
+class _McpTlsMixin(BaseModel):
+    """Shared TLS plumbing for HttpMcpServerConfig / SseMcpServerConfig.
+
+    The kagent controller emits TLS keys nested under `params` on the
+    wire (so the same JSON schema works for both Go and Python
+    runtimes); we lift them up at load time and install a TLS-aware
+    httpx_client_factory on the params instance at toolset construction
+    time. Lift-into-wire-config + install-into-params keeps google-adk's
+    upstream types unchanged and avoids exporting our own params
+    subclasses that would shadow the upstream names.
+    """
+
+    tls_insecure_skip_verify: bool | None = None
+    tls_ca_cert_path: str | None = None
+    tls_disable_system_cas: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_tls_from_params(cls, values: Any) -> Any:
+        # The kagent controller emits TLS keys nested under `params` so
+        # the same JSON wire schema works for both Go and Python runtimes;
+        # lift them to the top level. google-adk's params types use
+        # pydantic's default extra="ignore", so the duplicate copies that
+        # remain on `params` are silently dropped at construction.
+        if isinstance(values, dict) and isinstance(values.get("params"), dict):
+            params = values["params"]
+            for key in ("tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas"):
+                if key in params and key not in values:
+                    values[key] = params[key]
+        return values
+
+    def _apply_tls_to_params(self, params: Any) -> None:
+        """Install a TLS-aware httpx_client_factory on the params instance
+        if any TLS field is set. No-op when no TLS config was supplied so
+        the upstream google-adk default factory remains in place.
+
+        Reachability: when called from the Go controller's emitted config,
+        ``deriveTLSFields`` writes all three pointer fields whenever a
+        non-empty TLS config exists, so the all-None short-circuit below
+        only triggers for Python callers constructing this config directly
+        without TLS."""
+        if (
+            self.tls_insecure_skip_verify is None
+            and self.tls_ca_cert_path is None
+            and self.tls_disable_system_cas is None
+        ):
+            return
+        factory = _build_tls_httpx_client_factory(
+            disable_verify=self.tls_insecure_skip_verify or False,
+            ca_cert_path=self.tls_ca_cert_path,
+            disable_system_cas=self.tls_disable_system_cas or False,
+        )
+        if hasattr(params, "httpx_client_factory"):
+            params.httpx_client_factory = factory
+        else:
+            # Older google-adk (< 1.28) lacked httpx_client_factory on
+            # SseConnectionParams. The pyproject floor forbids this in
+            # production; warn loudly for stale dev environments.
+            logger.warning(
+                "TLS configuration ignored on %s: google-adk does not expose "
+                "httpx_client_factory on this params type — upgrade to ≥ 1.28.1.",
+                type(params).__name__,
+            )
+
+
+class HttpMcpServerConfig(_McpTlsMixin):
     params: StreamableHTTPConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
     require_approval: list[str] | None = None  # Tools requiring human approval before execution
 
 
-class SseMcpServerConfig(BaseModel):
+class SseMcpServerConfig(_McpTlsMixin):
     params: SseConnectionParams
     tools: list[str] = Field(default_factory=list)
     allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
@@ -310,6 +416,10 @@ class AgentConfig(BaseModel):
             sts_header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
+                # Install a TLS-aware httpx_client_factory on the params
+                # before constructing the toolset, so every MCP session
+                # the session manager opens trusts the configured CA.
+                http_tool._apply_tls_to_params(http_tool.params)
                 # Create header provider combining STS and allowed headers for this tool
                 tool_header_provider = create_header_provider(
                     allowed_headers=http_tool.allowed_headers,
@@ -326,6 +436,7 @@ class AgentConfig(BaseModel):
                     tools_requiring_approval.update(http_tool.require_approval)
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
+                sse_tool._apply_tls_to_params(sse_tool.params)
                 # Create header provider combining STS and allowed headers for this tool
                 tool_header_provider = create_header_provider(
                     allowed_headers=sse_tool.allowed_headers,

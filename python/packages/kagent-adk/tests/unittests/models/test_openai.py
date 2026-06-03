@@ -597,7 +597,7 @@ def test_openai_client_with_custom_ca_certificate():
                     model="gpt-3.5-turbo",
                     type="openai",
                     api_key="fake",
-                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                     tls_disable_system_cas=False,
                 )
 
@@ -607,7 +607,7 @@ def test_openai_client_with_custom_ca_certificate():
                 # Verify create_ssl_context was called with correct parameters
                 mock_create_ssl.assert_called_once_with(
                     disable_verify=False,
-                    ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                     disable_system_cas=False,
                 )
 
@@ -633,7 +633,7 @@ def test_openai_client_with_custom_ca_only():
                     model="gpt-3.5-turbo",
                     type="openai",
                     api_key="fake",
-                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                     tls_disable_system_cas=True,
                 )
 
@@ -643,7 +643,7 @@ def test_openai_client_with_custom_ca_only():
                 # Verify create_ssl_context was called with disable_system_cas=True
                 mock_create_ssl.assert_called_once_with(
                     disable_verify=False,
-                    ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                     disable_system_cas=True,
                 )
 
@@ -691,7 +691,7 @@ def test_azure_openai_client_with_tls():
                     api_key="fake",
                     azure_endpoint="https://test.openai.azure.com",
                     api_version="2024-02-15-preview",
-                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                 )
 
                 # Access _client to trigger client creation
@@ -700,7 +700,7 @@ def test_azure_openai_client_with_tls():
                 # Verify SSL context was created
                 mock_create_ssl.assert_called_once_with(
                     disable_verify=False,
-                    ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                     disable_system_cas=False,
                 )
 
@@ -732,7 +732,7 @@ def test_openai_client_with_base_url_and_tls():
                     type="openai",
                     api_key="fake",
                     base_url="https://litellm.internal.corp:8080",
-                    tls_ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+                    tls_ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
                 )
 
                 # Access _client to trigger client creation

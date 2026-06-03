@@ -22,6 +22,12 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
+// configHashAnnotation is set on the agent pod template so a change to
+// the serialized config Secret (config-phase mutations like the egress
+// URL rewrite, ModelConfig/RMS Secret rotations folded in via Status
+// hashes) rolls the pod.
+const configHashAnnotation = "kagent.dev/config-hash"
+
 type manifestContext struct {
 	agent          v1alpha2.AgentObject
 	deployment     *resolvedDeployment
@@ -72,6 +78,15 @@ func (a *adkApiTranslator) BuildManifest(
 
 	outputs := &AgentOutputs{}
 	manifestCtx := newManifestContext(agent, inputs.Deployment)
+
+	// Config-phase work runs before the AgentConfig is serialized into the
+	// config Secret, so any mutation is captured by the config-hash computed
+	// in buildConfigSecret (and therefore rolls the pod) without any
+	// post-build re-hashing. Manifest-phase plugins (runPlugins) run last,
+	// after the hash is baked into the pod template.
+	if err := a.applyEgressRewriteIfEnabled(ctx, agent, inputs.Config); err != nil {
+		return nil, err
+	}
 
 	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
@@ -478,7 +493,7 @@ func buildPodTemplate(
 	if podTemplateAnnotations == nil {
 		podTemplateAnnotations = map[string]string{}
 	}
-	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	podTemplateAnnotations[configHashAnnotation] = fmt.Sprintf("%d", configHash)
 
 	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent.GetAgentSpec()))
 

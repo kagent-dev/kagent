@@ -179,6 +179,70 @@ spec:
               timeout:
                 default: 30s
                 type: string
+              tls:
+                description: |-
+                  TLS configuration for the upstream MCP server connection.
+                  Use this for HTTPS upstreams that present a certificate the agent's
+                  system trust store does not include (corporate CA, self-signed cert
+                  on a test fixture, internal MCP gateway). Reuses the same TLSConfig
+                  type as ModelConfig.spec.tls — disableVerify turns off certificate
+                  validation entirely, caCertSecretRef + caCertSecretKey point at a
+                  PEM bundle Secret in the same namespace, and disableSystemCAs
+                  trusts only the named bundle.
+
+                  Note one asymmetry with ModelConfig: a spec-level XValidation rule
+                  on RemoteMCPServer rejects spec.tls when spec.url has the http://
+                  scheme (a TLS opinion contradicts a plaintext URL). ModelConfig has
+                  no equivalent rule, so a TLS block can sit alongside any baseUrl.
+                properties:
+                  caCertSecretKey:
+                    description: |-
+                      CACertSecretKey is the key within the Secret that contains the
+                      CA certificate data (PEM-encoded). Required when CACertSecretRef
+                      is set — admission rejects ref-without-key regardless of
+                      DisableVerify (see the TLSConfig-level XValidation rules).
+                    type: string
+                  caCertSecretRef:
+                    description: |-
+                      CACertSecretRef is a reference to a Kubernetes Secret containing
+                      CA certificate(s) in PEM format. The Secret must be in the same
+                      namespace as the resource referencing it (ModelConfig,
+                      RemoteMCPServer, or any future consumer of TLSConfig).
+                      When set, the certificate will be used to verify the upstream's
+                      SSL certificate.
+                    type: string
+                  disableSystemCAs:
+                    default: false
+                    description: |-
+                      DisableSystemCAs disables the use of system CA certificates.
+                      When false (default), system CA certificates are used for verification (safe behavior).
+                      When true, only the custom CA from CACertSecretRef is trusted.
+                      This allows strict security policies where only corporate CAs should be trusted.
+                    type: boolean
+                  disableVerify:
+                    default: false
+                    description: |-
+                      DisableVerify disables SSL certificate verification entirely.
+                      When false (default), SSL certificates are verified.
+                      When true, SSL certificate verification is disabled.
+                      WARNING: This should ONLY be used in development/testing environments.
+                      Production deployments MUST use proper certificates.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: caCertSecretKey requires caCertSecretRef
+                  rule: '!(has(self.caCertSecretKey) && size(self.caCertSecretKey)
+                    > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef)
+                    == 0))'
+                - message: caCertSecretRef requires caCertSecretKey
+                  rule: '!(has(self.caCertSecretRef) && size(self.caCertSecretRef)
+                    > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey)
+                    == 0))'
+                - message: disableSystemCAs requires caCertSecretRef or disableVerify
+                    (trust-nothing config rejects every upstream)
+                  rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
+                    (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
+                    || size(self.caCertSecretRef) == 0))'
               url:
                 minLength: 1
                 type: string
@@ -186,6 +250,11 @@ spec:
             - description
             - url
             type: object
+            x-kubernetes-validations:
+            - message: 'spec.tls must be unset when spec.url has http:// scheme: a
+                TLS opinion contradicts a plaintext URL. Either drop spec.tls, or
+                use https:// / a scheme-less URL.'
+              rule: '!self.url.startsWith(''http://'') || !has(self.tls)'
           status:
             description: RemoteMCPServerStatus defines the observed state of RemoteMCPServer.
             properties:
@@ -263,6 +332,12 @@ spec:
                   Important: Run "make" to regenerate code after modifying this file
                 format: int64
                 type: integer
+              secretHash:
+                description: |-
+                  SecretHash stores a hash of the TLS Secret referenced by spec.tls so
+                  agents that consume this RemoteMCPServer can detect cert rotation and
+                  roll on the next reconcile. Empty when spec.tls.caCertSecretRef is unset.
+                type: string
             type: object
         type: object
     served: true

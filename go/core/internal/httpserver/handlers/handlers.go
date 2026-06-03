@@ -45,6 +45,7 @@ type Base struct {
 	ProxyURL           string
 	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
+	MCPEgressPlaintext bool
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
@@ -59,6 +60,7 @@ func NewHandlers(
 	sandboxBackend sandboxbackend.Backend,
 	agentHarnessGateway *AgentHarnessGatewayConfig,
 	substrateAteClient *substrate.Client,
+	mcpEgressPlaintext bool,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -68,6 +70,7 @@ func NewHandlers(
 		ProxyURL:           proxyURL,
 		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
+		MCPEgressPlaintext: mcpEgressPlaintext,
 	}
 
 	return &Handlers{

@@ -76,6 +76,7 @@ type ServerConfig struct {
 	SandboxBackend      sandboxbackend.Backend
 	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
 	SubstrateAteClient  *substrate.Client
+	MCPEgressPlaintext  bool
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -105,6 +106,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.SandboxBackend,
 			config.AgentHarnessGateway,
 			config.SubstrateAteClient,
+			config.MCPEgressPlaintext,
 		),
 		authenticator: config.Authenticator,
 	}, nil

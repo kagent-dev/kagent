@@ -67,6 +67,7 @@ require (
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
 	github.com/ollama/ollama v0.24.0
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
