@@ -66,6 +66,10 @@ export interface AgentFormData {
   env?: EnvVar[];
   imagePullPolicy?: string;
   serviceAccountName?: string;
+  /** Sandbox workload platform when type is Sandbox. */
+  sandboxPlatform?: "agent-sandbox" | "substrate";
+  substrateWorkerPoolRefName?: string;
+  substrateSnapshotsLocation?: string;
 }
 
 export interface AgentsContextType {

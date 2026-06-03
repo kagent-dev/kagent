@@ -25,7 +25,7 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether the sandbox workload is ready."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether configuration was accepted."
-// SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox Sandbox CR).
+// SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox or Agent Substrate).
 type SandboxAgent struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

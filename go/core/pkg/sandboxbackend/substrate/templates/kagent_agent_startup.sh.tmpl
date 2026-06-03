@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+mkdir -p /config /var/run/secrets/tokens
+if [ -n "${KAGENT_CONFIG_JSON:-}" ]; then
+  printf '%s' "$KAGENT_CONFIG_JSON" > /config/config.json
+fi
+if [ -n "${KAGENT_AGENT_CARD_JSON:-}" ]; then
+  printf '%s' "$KAGENT_AGENT_CARD_JSON" > /config/agent-card.json
+fi
+if [ -n "${KAGENT_SRT_SETTINGS_JSON:-}" ]; then
+  printf '%s' "$KAGENT_SRT_SETTINGS_JSON" > /config/srt-settings.json
+fi
+if [ -n "${KAGENT_TOKEN:-}" ]; then
+  printf '%s' "$KAGENT_TOKEN" > /var/run/secrets/tokens/kagent-token
+fi
+exec {{.Exec}}

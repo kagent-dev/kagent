@@ -50,6 +50,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
 // +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
+// +kubebuilder:validation:XValidation:rule="!has(self.skills) || !has(self.sandbox) || self.sandbox.platform != 'substrate'",message="spec.skills is not supported when spec.sandbox.platform is substrate"
 type AgentSpec struct {
 	// +kubebuilder:default=Declarative
 	// +optional
@@ -230,12 +231,53 @@ type DeclarativeAgentSpec struct {
 	Context *ContextConfig `json:"context,omitempty"`
 }
 
+// SandboxPlatform selects the control plane for sandboxed agents.
+// +kubebuilder:validation:Enum=agent-sandbox;substrate
+type SandboxPlatform string
+
+const (
+	SandboxPlatformAgentSandbox SandboxPlatform = "agent-sandbox"
+	SandboxPlatformSubstrate    SandboxPlatform = "substrate"
+)
+
+// SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
+// WorkerPool capacity is referenced from workerPoolRef or the controller default.
+// +optional
+type SandboxSubstrateSpec struct {
+	// WorkerPoolRef references an existing ate.dev WorkerPool.
+	// +optional
+	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
+
+	// SnapshotsConfig configures actor memory snapshots.
+	// Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
+}
+
 // SandboxConfig configures sandboxed execution behavior.
+// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.platform == 'substrate'",message="spec.sandbox.substrate may only be set when platform is substrate"
 type SandboxConfig struct {
+	// Platform selects the sandbox control plane. Defaults to agent-sandbox.
+	// +optional
+	// +kubebuilder:default=agent-sandbox
+	Platform SandboxPlatform `json:"platform,omitempty"`
+
+	// Substrate is optional substrate-specific settings when platform is substrate.
+	// +optional
+	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
+
 	// Network configures outbound network access for sandboxed execution paths.
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
+}
+
+// AgentSandboxPlatform returns the effective sandbox platform for an agent spec.
+func AgentSandboxPlatform(spec *AgentSpec) SandboxPlatform {
+	if spec == nil || spec.Sandbox == nil || spec.Sandbox.Platform == "" {
+		return SandboxPlatformAgentSandbox
+	}
+	return spec.Sandbox.Platform
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.
@@ -589,12 +631,23 @@ const (
 	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
+// AgentSubstrateStatus records Agent Substrate runtime state for a SandboxAgent.
+type AgentSubstrateStatus struct {
+	// ActorID is the ate-api actor id when platform is substrate.
+	// +optional
+	ActorID string `json:"actorId,omitempty"`
+}
+
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Substrate is populated for SandboxAgent resources using sandbox.platform=substrate.
+	// +optional
+	Substrate *AgentSubstrateStatus `json:"substrate,omitempty"`
 }
 
 // +kubebuilder:object:root=true

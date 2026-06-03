@@ -19,6 +19,7 @@ import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
 import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
+import { buildSandboxConfigFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
   return agentFormData.declarativeRuntime === "go" ? "go" : "python";
@@ -246,6 +247,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
       spec: {
         type: "BYO",
         description: agentFormData.description,
+        sandbox: buildSandboxConfigFromForm(agentFormData),
         byo: {
           deployment: {
             image: agentFormData.byoImage || "",
@@ -385,6 +387,11 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
   const skills = buildSkillsForAgentSpec(agentFormData);
   if (skills) {
     spec.skills = skills;
+  }
+
+  const sandbox = buildSandboxConfigFromForm(agentFormData);
+  if (sandbox) {
+    spec.sandbox = sandbox;
   }
 
   return {

@@ -66,3 +66,19 @@ func HarnessNameFromLabels(labels map[string]string) string {
 	}
 	return strings.TrimSpace(labels[HarnessLabelKey])
 }
+
+// CleanupSandboxAgentTemplate removes external Substrate actors tied to a generated SandboxAgent ActorTemplate.
+func (p *Lifecycle) CleanupSandboxAgentTemplate(ctx context.Context, sa *v1alpha2.SandboxAgent) (bool, error) {
+	if sa == nil || p == nil || p.Client == nil {
+		return true, nil
+	}
+	tmplKey := types.NamespacedName{Namespace: sa.Namespace, Name: SandboxAgentActorTemplateName(sa)}
+	goldenID, err := p.goldenActorID(ctx, tmplKey)
+	if err != nil {
+		return false, err
+	}
+	if goldenID == "" {
+		return true, nil
+	}
+	return deleteGoldenActor(ctx, p.AteClient, goldenID)
+}

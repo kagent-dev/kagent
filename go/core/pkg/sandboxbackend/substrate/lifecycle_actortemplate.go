@@ -106,6 +106,11 @@ func mergeLabels(existing, desired map[string]string) map[string]string {
 	return merged
 }
 
+// ActorTemplateReady reports whether the ActorTemplate golden snapshot is ready.
+func (p *Lifecycle) ActorTemplateReady(ctx context.Context, key types.NamespacedName) (bool, error) {
+	return p.actorTemplateReady(ctx, key)
+}
+
 func (p *Lifecycle) actorTemplateReady(ctx context.Context, key types.NamespacedName) (bool, error) {
 	var tmpl atev1alpha1.ActorTemplate
 	if err := p.Client.Get(ctx, key, &tmpl); err != nil {

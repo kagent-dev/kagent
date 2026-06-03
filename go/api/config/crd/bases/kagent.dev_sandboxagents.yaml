@@ -27,7 +27,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: SandboxAgent declares an agent that runs in an isolated sandbox
-          (agent-sandbox Sandbox CR).
+          (agent-sandbox or Agent Substrate).
         properties:
           apiVersion:
             description: |-
@@ -10971,7 +10971,51 @@ spec:
                           type: string
                         type: array
                     type: object
+                  platform:
+                    default: agent-sandbox
+                    description: Platform selects the sandbox control plane. Defaults
+                      to agent-sandbox.
+                    enum:
+                    - agent-sandbox
+                    - substrate
+                    type: string
+                  substrate:
+                    description: Substrate is optional substrate-specific settings
+                      when platform is substrate.
+                    properties:
+                      snapshotsConfig:
+                        description: |-
+                          SnapshotsConfig configures actor memory snapshots.
+                          Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+                        properties:
+                          location:
+                            description: |-
+                              Location is the GCS URI prefix for golden and incremental snapshots.
+                              Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                            pattern: ^gs://
+                            type: string
+                        required:
+                        - location
+                        type: object
+                      workerPoolRef:
+                        description: WorkerPoolRef references an existing ate.dev
+                          WorkerPool.
+                        properties:
+                          apiGroup:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
                 type: object
+                x-kubernetes-validations:
+                - message: spec.sandbox.substrate may only be set when platform is
+                    substrate
+                  rule: '!has(self.substrate) || self.platform == ''substrate'''
               skills:
                 description: |-
                   Skills to load into the agent. They will be pulled from the specified container images.
@@ -11305,6 +11349,10 @@ spec:
                 must be specified if type is BYO
               rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
                 == 'BYO' && has(self.byo))
+            - message: spec.skills is not supported when spec.sandbox.platform is
+                substrate
+              rule: '!has(self.skills) || !has(self.sandbox) || self.sandbox.platform
+                != ''substrate'''
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:
@@ -11367,6 +11415,15 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              substrate:
+                description: Substrate is populated for SandboxAgent resources using
+                  sandbox.platform=substrate.
+                properties:
+                  actorId:
+                    description: ActorID is the ate-api actor id when platform is
+                      substrate.
+                    type: string
+                type: object
             type: object
         type: object
     served: true

@@ -75,8 +75,9 @@ type ServerConfig struct {
 	Reconciler          reconciler.KagentReconciler
 	SandboxBackend      sandboxbackend.Backend
 	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
-	SubstrateAteClient  *substrate.Client
-	MCPEgressPlaintext  bool
+	SubstrateAteClient           *substrate.Client
+	MCPEgressPlaintext           bool
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -107,6 +108,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.AgentHarnessGateway,
 			config.SubstrateAteClient,
 			config.MCPEgressPlaintext,
+			config.SubstrateSandboxActorBackend,
 		),
 		authenticator: config.Authenticator,
 	}, nil

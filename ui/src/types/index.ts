@@ -283,12 +283,26 @@ export interface SandboxAgent {
   spec: AgentSpec;
 }
 
+export type SandboxPlatform = "agent-sandbox" | "substrate";
+
+export interface SandboxSubstrateSpec {
+  workerPoolRef?: { name: string; namespace?: string };
+  snapshotsConfig?: { location: string };
+}
+
+export interface SandboxConfig {
+  platform?: SandboxPlatform;
+  substrate?: SandboxSubstrateSpec;
+  network?: { allowedDomains?: string[] };
+}
+
 export interface AgentSpec {
   type: AgentType;
   declarative?: DeclarativeAgentSpec;
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  sandbox?: SandboxConfig;
 }
 
 export interface DeclarativeDeploymentSpec {

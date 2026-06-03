@@ -226,7 +226,11 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 }
 
 func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) error {
-	if a.sandboxBackend != nil {
+	if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(&sa.Spec); err != nil {
+		return err
+	}
+
+	if a.sandboxBackend != nil && v1alpha2.AgentSandboxPlatform(&sa.Spec) != v1alpha2.SandboxPlatformSubstrate {
 		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, a.kube); err != nil {
 			return err
 		}

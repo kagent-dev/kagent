@@ -141,6 +141,8 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 		}
 		if harness := strings.TrimSpace(tmpl.Labels[substrate.HarnessLabelKey]); harness != "" {
 			entry.HarnessName = harness
+		} else if agentName := substrate.SandboxAgentNameFromLabels(tmpl.Labels); agentName != "" {
+			entry.HarnessName = agentName
 		}
 		if ref := tmpl.Spec.WorkerPoolRef; ref.Name != "" {
 			wpNS := ref.Namespace

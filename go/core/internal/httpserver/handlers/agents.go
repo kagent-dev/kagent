@@ -325,7 +325,13 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 }
 
 func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil {
+	spec := agent.GetAgentSpec()
+	if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(spec); err != nil {
+		return errors.NewBadRequestError(err.Error(), err)
+	}
+
+	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil &&
+		v1alpha2.AgentSandboxPlatform(spec) != v1alpha2.SandboxPlatformSubstrate {
 		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, h.KubeClient); err != nil {
 			return errors.NewBadRequestError(err.Error(), err)
 		}

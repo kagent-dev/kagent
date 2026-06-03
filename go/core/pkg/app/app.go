@@ -165,8 +165,8 @@ type Config struct {
 		PauseImage                 string
 		RunscAMD64URL              string
 		RunscAMD64SHA256           string
-		RunscARM64URL              string
-		RunscARM64SHA256           string
+		RunscARM64URL        string
+		RunscARM64SHA256     string
 	}
 }
 
@@ -238,7 +238,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.RunscAMD64SHA256, "substrate-runsc-amd64-sha256", "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63", "gVisor runsc sha256 for amd64.")
 	commandLine.StringVar(&cfg.Substrate.RunscARM64URL, "substrate-runsc-arm64-url", "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc", "gVisor runsc URL for arm64.")
 	commandLine.StringVar(&cfg.Substrate.RunscARM64SHA256, "substrate-runsc-arm64-sha256", "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9", "gVisor runsc sha256 for arm64.")
-
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
@@ -356,7 +355,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "failed to load configuration from environment variables")
 		os.Exit(1)
 	}
-
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	ctrl.SetLogger(logger)
 
@@ -542,6 +540,22 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	var substrateAteClient *substrate.Client
+	var substrateLifecycle *substrate.Lifecycle
+	var substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		var dialErr error
+		substrateAteClient, dialErr = substrate.Dial(ctx, substrateAppConfig(&cfg))
+		if dialErr != nil {
+			setupLog.Error(dialErr, "unable to dial substrate ate-api for sandbox agents")
+			os.Exit(1)
+		}
+		substrateLifecycle = substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
+		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient)
+		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
+		extensionCfg.SandboxBackend = sandboxbackend.NewRoutingBackend(extensionCfg.SandboxBackend, agentsSubstrate)
+	}
+
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
 		watchNamespacesList,
@@ -607,14 +621,23 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 	}
-	var substrateAteClient *substrate.Client
 	var substrateOpenClawBackend sandboxbackend.AsyncBackend
 	var substrateNemoClawBackend sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var err error
-		substrateOpenClawBackend, substrateNemoClawBackend, substrateAteClient, err = buildSubstrateSandboxBackends(ctx, &cfg)
+		substrateOpenClawBackend, substrateNemoClawBackend, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
 		if err != nil {
-			setupLog.Error(err, "unable to build substrate sandbox backends")
+			setupLog.Error(err, "unable to build substrate harness backends")
+			os.Exit(1)
+		}
+	}
+	if substrateAteClient != nil && substrateLifecycle != nil {
+		if err := (&controller.SubstrateSandboxAgentController{
+			Client:       kubeClient,
+			ActorBackend: substrateSandboxActorBackend,
+			Lifecycle:    substrateLifecycle,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SubstrateSandboxAgent")
 			os.Exit(1)
 		}
 	}
@@ -690,14 +713,20 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	// Register A2A handlers on all replicas
 	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
+	ateneRouterURL := cfg.Substrate.AtenetRouterURL
+	if ateneRouterURL == "" {
+		ateneRouterURL = substrate.DefaultAtenetRouterURL
+	}
 	a2aRegistrar, err := a2a.NewA2ARegistrar(
 		mgr.GetCache(),
 		a2aHandler,
 		clientRegistry,
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
+		ateneRouterURL,
 		extensionCfg.Authenticator,
 		mcpHandler,
+		substrateSandboxActorBackend,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create a2a registrar")
@@ -760,8 +789,9 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		Reconciler:          rcnclr,
 		SandboxBackend:      extensionCfg.SandboxBackend,
 		AgentHarnessGateway: agentHarnessGateway,
-		SubstrateAteClient:  substrateAteClient,
-		MCPEgressPlaintext:  cfg.MCPEgressPlaintext,
+		SubstrateAteClient:           substrateAteClient,
+		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
+		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -821,16 +851,15 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	return ocl, hermesBackend, nil
 }
 
-func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, *substrate.Client, error) {
-	sc := substrateAppConfig(cfg)
-	client, err := substrate.Dial(ctx, sc)
-	if err != nil {
-		return nil, nil, nil, err
+func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
+	if client == nil {
+		return nil, nil, fmt.Errorf("substrate ate-api client is required")
 	}
-
+	_ = ctx
+	_ = cfg
 	ocl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendOpenClaw, nil)
 	ncl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendNemoClaw, nil)
-	return ocl, ncl, client, nil
+	return ocl, ncl, nil
 }
 
 func substrateAppConfig(cfg *Config) substrate.Config {

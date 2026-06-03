@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
+import { defaultSandboxPlatform, sandboxFieldsFromApiSpec } from "@/lib/sandboxAgentForm";
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
@@ -18,6 +19,8 @@ import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { AgentFormData } from "@/components/AgentsProvider";
+import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
+import { Label } from "@/components/ui/label";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
@@ -27,9 +30,9 @@ import {
   gitRepoToFormRow,
   newEmptyGitSkillRow,
   validateDeclarativeAgentSkills,
+  validateSubstrateSandboxSkillsConflict,
   type GitSkillFormRow,
 } from "@/lib/agentSkillsForm";
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
@@ -96,6 +99,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     isSubmitting: boolean;
     isLoading: boolean;
     errors: AgentFormValidationErrors;
+    sandboxPlatform: "agent-sandbox" | "substrate";
+    substrateWorkerPoolRefName: string;
+    substrateSnapshotsLocation: string;
   }
 
   const [formDirty, setFormDirty] = useState(false);
@@ -128,7 +134,25 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
+    sandboxPlatform: "agent-sandbox",
+    substrateWorkerPoolRefName: "",
+    substrateSnapshotsLocation: "",
   });
+
+  const substrateEnabled = useSubstrateEnabled();
+
+  // When substrate becomes available, prefer it for sandbox agents still on the default platform.
+  useEffect(() => {
+    if (isEditMode || !substrateEnabled) {
+      return;
+    }
+    setState((prev) => {
+      if (prev.agentType !== "Sandbox" || prev.sandboxPlatform === "substrate") {
+        return prev;
+      }
+      return { ...prev, sandboxPlatform: defaultSandboxPlatform(true) };
+    });
+  }, [isEditMode, substrateEnabled]);
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
   const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
@@ -199,6 +223,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 description: agent.spec?.description || "",
                 agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.workloadMode),
               };
+              const sandboxFields =
+                agentResponse.workloadMode === "sandbox"
+                  ? sandboxFieldsFromApiSpec(agent.spec?.sandbox)
+                  : {};
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
@@ -216,6 +244,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 setState((prev) => ({
                   ...prev,
                   ...baseUpdates,
+                  ...sandboxFields,
                   systemPrompt: decl?.systemMessage || "",
                   promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
                   selectedTools: decl?.tools && agentResponse.tools ? agentResponse.tools : [],
@@ -244,6 +273,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 setState((prev) => ({
                   ...prev,
                   ...baseUpdates,
+                  ...sandboxFields,
                   systemPrompt: "",
                   selectedModel: null,
                   selectedTools: [],
@@ -315,18 +345,34 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         context: state.contextConfig,
         serviceAccountName: state.serviceAccountName,
         ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
+        ...(state.agentType === "Sandbox"
+          ? {
+              sandboxPlatform: state.sandboxPlatform,
+              substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
+              substrateSnapshotsLocation: state.substrateSnapshotsLocation,
+            }
+          : {}),
       };
 
       const newErrors = validateAgentData(formData);
 
     if (useDeclarativeAgentFields) {
-      const skillsError = validateDeclarativeAgentSkills({
+      const skillsInput = {
         skillRefs: state.skillRefs || [],
         skillGitRepos: state.skillGitRepos || [],
         skillsGitAuthSecretName: state.skillsGitAuthSecretName || "",
-      });
-      if (skillsError) {
-        newErrors.skills = skillsError;
+      };
+      const substrateSkillsError =
+        state.agentType === "Sandbox"
+          ? validateSubstrateSandboxSkillsConflict(skillsInput, state.sandboxPlatform)
+          : undefined;
+      if (substrateSkillsError) {
+        newErrors.skills = substrateSkillsError;
+      } else {
+        const skillsError = validateDeclarativeAgentSkills(skillsInput);
+        if (skillsError) {
+          newErrors.skills = skillsError;
+        }
       }
     }
 
@@ -473,6 +519,13 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           })
           .filter((e): e is EnvVar => e !== null),
         serviceAccountName: state.serviceAccountName.trim() || undefined,
+        ...(state.agentType === "Sandbox"
+          ? {
+              sandboxPlatform: state.sandboxPlatform,
+              substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
+              substrateSnapshotsLocation: state.substrateSnapshotsLocation,
+            }
+          : {}),
       };
 
       let result;
@@ -602,6 +655,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
+                      ...(next === "Sandbox"
+                        ? { sandboxPlatform: defaultSandboxPlatform(substrateEnabled) }
+                        : {}),
                       errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
@@ -618,6 +674,68 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </SelectContent>
                 </Select>
               </FieldRoot>
+
+              {state.agentType === "Sandbox" && substrateEnabled && (
+                <FieldRoot>
+                  <FieldLabel>Sandbox platform</FieldLabel>
+                  <FieldHint>
+                    Agent Substrate runs declarative and BYO agents as ate.dev actors. Skills are not supported on
+                    substrate yet. A new substrate actor is started for each chat session.
+                  </FieldHint>
+                  <Select
+                    value={state.sandboxPlatform}
+                    onValueChange={(val) =>
+                      setState((prev) => ({
+                        ...prev,
+                        sandboxPlatform: val === "substrate" ? "substrate" : "agent-sandbox",
+                      }))
+                    }
+                    disabled={disabled}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="agent-sandbox">agent-sandbox (default)</SelectItem>
+                      <SelectItem value="substrate">Agent Substrate</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {state.sandboxPlatform === "substrate" && (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <Label htmlFor="substrate-wp" className="text-xs text-muted-foreground">
+                          Worker pool (optional)
+                        </Label>
+                        <Input
+                          id="substrate-wp"
+                          value={state.substrateWorkerPoolRefName}
+                          onChange={(e) =>
+                            setState((prev) => ({ ...prev, substrateWorkerPoolRefName: e.target.value }))
+                          }
+                          placeholder="default pool name in agent namespace"
+                          disabled={disabled}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="substrate-snapshots" className="text-xs text-muted-foreground">
+                          Snapshots location (optional)
+                        </Label>
+                        <Input
+                          id="substrate-snapshots"
+                          value={state.substrateSnapshotsLocation}
+                          onChange={(e) =>
+                            setState((prev) => ({ ...prev, substrateSnapshotsLocation: e.target.value }))
+                          }
+                          placeholder="gs://ate-snapshots/…"
+                          disabled={disabled}
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </FieldRoot>
+              )}
 
               {useDeclarativeAgentFields && (
                 <DeclarativeRuntimeField
@@ -802,6 +920,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   />
                 </FormSection>
 
+                {!(state.agentType === "Sandbox" && state.sandboxPlatform === "substrate") ? (
                 <AgentSkillsFormSection
                   skillRefs={state.skillRefs}
                   skillGitRepos={state.skillGitRepos}
@@ -844,6 +963,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   onGitAuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsGitAuthSecretName: value }))}
                   onClearSkillsError={clearSkillsError}
                 />
+                ) : null}
               </>
             )}
 
