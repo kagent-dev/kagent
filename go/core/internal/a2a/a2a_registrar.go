@@ -31,6 +31,11 @@ type A2ARegistrar struct {
 	sandboxA2AURL  string
 	authenticator  auth.AuthProvider
 	a2aBaseOptions []a2aclient.Option
+	agentObserver  AgentObserver
+}
+
+type AgentObserver interface {
+	NotifyAgentsChanged(ctx context.Context)
 }
 
 var _ manager.Runnable = (*A2ARegistrar)(nil)
@@ -45,6 +50,7 @@ func NewA2ARegistrar(
 	streamingMaxBuf int,
 	streamingInitialBuf int,
 	streamingTimeout time.Duration,
+	agentObserver AgentObserver,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
 		return nil, fmt.Errorf("clientRegistry must not be nil")
@@ -61,6 +67,7 @@ func NewA2ARegistrar(
 			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
 			debugOpt(),
 		},
+		agentObserver: agentObserver,
 	}
 
 	return reg, nil
@@ -102,7 +109,9 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
 				log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
+				return
 			}
+			a.notifyAgentChange(ctx)
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			oldAgent, ok1 := informerAgentObject(oldObj)
@@ -110,10 +119,18 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			if !ok1 || !ok2 {
 				return
 			}
-			if oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent) {
+			specChanged := oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent)
+			if specChanged {
 				if err := a.upsertAgentHandler(ctx, newAgent, log); err != nil {
 					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(newAgent))
+					return
 				}
+			}
+			// Also notify when readiness conditions change so subscribers don't
+			// hold stale agent lists (the resource filter uses Accepted +
+			// DeploymentReady, which are status conditions, not spec fields).
+			if specChanged || agentReadinessChanged(oldAgent, newAgent) {
+				a.notifyAgentChange(ctx)
 			}
 		},
 		DeleteFunc: func(obj any) {
@@ -125,12 +142,40 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			a.handlerMux.RemoveAgentHandler(ref)
 			a.clientRegistry.delete(ref)
 			log.V(1).Info("removed A2A handler", "agent", ref)
+			a.notifyAgentChange(ctx)
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to add informer event handler for %T: %w", prototype, err)
 	}
 
 	return nil
+}
+
+func (a *A2ARegistrar) notifyAgentChange(ctx context.Context) {
+	if a.agentObserver != nil {
+		a.agentObserver.NotifyAgentsChanged(ctx)
+	}
+}
+
+func agentReadinessChanged(oldAgent, newAgent v1alpha2.AgentObject) bool {
+	return isAgentReady(oldAgent) != isAgentReady(newAgent)
+}
+
+func isAgentReady(agent v1alpha2.AgentObject) bool {
+	status := agent.GetAgentStatus()
+	if status == nil {
+		return false
+	}
+	deploymentReady, accepted := false, false
+	for _, c := range status.Conditions {
+		if c.Type == "Ready" && c.Reason == "DeploymentReady" && string(c.Status) == "True" {
+			deploymentReady = true
+		}
+		if c.Type == "Accepted" && string(c.Status) == "True" {
+			accepted = true
+		}
+	}
+	return deploymentReady && accepted
 }
 
 func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {

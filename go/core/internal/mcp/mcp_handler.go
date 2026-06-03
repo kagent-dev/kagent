@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -40,7 +41,7 @@ type AgentSummary struct {
 }
 
 type InvokeAgentInput struct {
-	Agent     string `json:"agent" jsonschema:"Agent reference in format namespace/name"`
+	Agent     string `json:"agent" jsonschema:"Agent reference in format namespace/name. To find a list of available sources, use the 'agents' resource."`
 	Task      string `json:"task" jsonschema:"Task to run"`
 	ContextID string `json:"context_id,omitempty" jsonschema:"Optional A2A context ID to continue a conversation"`
 }
@@ -65,7 +66,12 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		Name:    "kagent-agents",
 		Version: version.Version,
 	}
-	server := mcpsdk.NewServer(impl, nil)
+	server := mcpsdk.NewServer(impl, &mcpsdk.ServerOptions{
+		// No-op handlers enable subscription tracking in the SDK; actual
+		// notifications are sent via NotifyAgentsChanged.
+		SubscribeHandler:   func(context.Context, *mcpsdk.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(context.Context, *mcpsdk.UnsubscribeRequest) error { return nil },
+	})
 	handler.server = server
 
 	// Add list_agents tool.
@@ -97,6 +103,17 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		handler.handleInvokeAgent,
 	)
 
+	// Add agents resource for clients that pre-populate context
+	server.AddResource(
+		&mcpsdk.Resource{
+			URI:         "kagent://agents",
+			Name:        "agents",
+			Description: "List of invokable kagent agents (accepted + deploymentReady)",
+			MIMEType:    "application/json",
+		},
+		handler.readAgentsResource,
+	)
+
 	// Create HTTP handler
 	var httpOpts *mcpsdk.StreamableHTTPOptions
 	if env.KagentMCPStateless.Get() {
@@ -112,23 +129,14 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	return handler, nil
 }
 
-// handleListAgents handles the list_agents MCP tool
-func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
-	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "list_agents")
-
+// listReadyAgents returns agents that are accepted and deployment-ready.
+func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
-		return &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{
-				&mcpsdk.TextContent{Text: fmt.Sprintf("Failed to list agents: %v", err)},
-			},
-			IsError: true,
-		}, ListAgentsOutput{}, nil
+		return nil, err
 	}
-
-	agents := make([]AgentSummary, 0)
+	agents := make([]AgentSummary, 0, len(agentList.Items))
 	for _, agent := range agentList.Items {
-		// Check if agent is accepted and deployment ready
 		deploymentReady := false
 		accepted := false
 		for _, condition := range agent.Status.Conditions {
@@ -139,17 +147,29 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 				accepted = true
 			}
 		}
-
 		if !accepted || !deploymentReady {
 			continue
 		}
-
-		ref := agent.Namespace + "/" + agent.Name
-		description := agent.Spec.Description
 		agents = append(agents, AgentSummary{
-			Ref:         ref,
-			Description: description,
+			Ref:         agent.Namespace + "/" + agent.Name,
+			Description: agent.Spec.Description,
 		})
+	}
+	return agents, nil
+}
+
+// handleListAgents handles the list_agents MCP tool
+func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolRequest, input ListAgentsInput) (*mcpsdk.CallToolResult, ListAgentsOutput, error) {
+	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "list_agents")
+
+	agents, err := h.listReadyAgents(ctx)
+	if err != nil {
+		return &mcpsdk.CallToolResult{
+			Content: []mcpsdk.Content{
+				&mcpsdk.TextContent{Text: fmt.Sprintf("Failed to list agents: %v", err)},
+			},
+			IsError: true,
+		}, ListAgentsOutput{}, nil
 	}
 
 	log.Info("Listed agents", "count", len(agents))
@@ -177,6 +197,36 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 			&mcpsdk.TextContent{Text: fallbackText.String()},
 		},
 	}, output, nil
+}
+
+// readAgentsResource handles reads of the kagent://agents resource.
+func (h *MCPHandler) readAgentsResource(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
+	agents, err := h.listReadyAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing agents: %w", err)
+	}
+	data, err := json.Marshal(agents)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling agents: %w", err)
+	}
+	return &mcpsdk.ReadResourceResult{
+		Contents: []*mcpsdk.ResourceContents{{
+			URI:      "kagent://agents",
+			MIMEType: "application/json",
+			Text:     string(data),
+		}},
+	}, nil
+}
+
+// NotifyAgentsChanged sends a resources/updated notification for kagent://agents
+// to all subscribed clients. Called by A2ARegistrar when agents are added, updated,
+// or removed.
+func (h *MCPHandler) NotifyAgentsChanged(ctx context.Context) {
+	if err := h.server.ResourceUpdated(ctx, &mcpsdk.ResourceUpdatedNotificationParams{
+		URI: "kagent://agents",
+	}); err != nil {
+		ctrllog.FromContext(ctx).WithName("mcp-handler").Error(err, "failed to send resource updated notification")
+	}
 }
 
 // handleInvokeAgent handles the invoke_agent MCP tool
