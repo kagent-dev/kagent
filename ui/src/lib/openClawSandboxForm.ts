@@ -65,7 +65,15 @@ export function isClawHarnessBackend(backend: AgentHarnessSandboxBackend | undef
   return backend === "openclaw" || backend === "nemoclaw";
 }
 
+export type HarnessRuntimeForm = "openshell" | "substrate";
+
 export interface OpenClawSandboxFormSlice {
+  /** Harness control plane: OpenShell (default) or Agent Substrate. */
+  runtime: HarnessRuntimeForm;
+  substrateWorkerPoolRefName: string;
+  substrateGatewayToken: string;
+  /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
+  substrateSnapshotsLocation: string;
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
   channels: OpenClawChannelRow[];
@@ -80,6 +88,10 @@ export interface OpenClawSandboxFormSlice {
 
 export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
   return {
+    runtime: "openshell",
+    substrateWorkerPoolRefName: "",
+    substrateGatewayToken: "",
+    substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
     image: "",
     channels: [],
     allowedDomains: "",
@@ -180,6 +192,9 @@ export function validateOpenClawSandboxForm(args: {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
+  }
+  if (args.openClaw.runtime === "substrate" && !args.openClaw.substrateGatewayToken.trim()) {
+    return openClawValidationFail("general", "Substrate gateway token is required.");
   }
 
   for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
@@ -361,10 +376,35 @@ export function buildSandboxCRDraft(args: {
   }
 
   const backend = resolveSandboxBackend(args.backend);
+  const runtime = args.openClaw.runtime?.trim() || "openshell";
+
   const spec: Record<string, unknown> = {
     backend,
+    runtime,
     modelConfigRef,
   };
+
+  if (runtime === "substrate") {
+    const snapshots = args.openClaw.substrateSnapshotsLocation?.trim();
+    if (!snapshots) {
+      return { error: "Substrate snapshots location (gs://…) is required." };
+    }
+    const gatewayToken = args.openClaw.substrateGatewayToken?.trim();
+    if (!gatewayToken) {
+      return { error: "Substrate gateway token is required." };
+    }
+    const substrate: Record<string, unknown> = {
+      gatewayToken,
+      snapshotsConfig: { location: snapshots },
+    };
+    const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();
+    if (wpName) {
+      substrate.workerPoolRef = {
+        name: wpName,
+      };
+    }
+    spec.substrate = substrate;
+  }
 
   const desc = args.description.trim();
   if (desc) {

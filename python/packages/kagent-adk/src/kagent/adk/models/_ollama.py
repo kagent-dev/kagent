@@ -133,6 +133,13 @@ def _convert_tools_to_ollama(tools: list[types.Tool]) -> list[ollama_sdk.Tool]:
     return ollama_tools
 
 
+def _convert_tool_call_to_part(tc: OllamaMessage.ToolCall) -> types.Part:
+    part = types.Part.from_function_call(name=tc.function.name, args=dict(tc.function.arguments))
+    if part.function_call:
+        part.function_call.id = str(uuid.uuid4())
+    return part
+
+
 class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
     """Ollama model via the native Ollama SDK.
 
@@ -190,6 +197,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
         try:
             if stream:
                 aggregated_text = ""
+                tool_calls = []
                 response: AsyncIterator[ollama_sdk.ChatResponse] = await self._client.chat(
                     model=llm_request.model or self.model,
                     messages=messages,
@@ -198,6 +206,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
                     stream=True,
                 )
                 async for chunk in response:
+                    tool_calls.extend(chunk.message.tool_calls or [])
                     if chunk.message.content:
                         aggregated_text += chunk.message.content
                         yield LlmResponse(
@@ -211,13 +220,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
                         final_parts = []
                         if aggregated_text:
                             final_parts.append(types.Part.from_text(text=aggregated_text))
-                        for tc in chunk.message.tool_calls or []:
-                            part = types.Part.from_function_call(
-                                name=tc.function.name, args=dict(tc.function.arguments)
-                            )
-                            if part.function_call:
-                                part.function_call.id = str(uuid.uuid4())
-                            final_parts.append(part)
+                        final_parts.extend(_convert_tool_call_to_part(tc) for tc in tool_calls)
                         finish_reason = _done_reason_to_finish_reason(chunk.done_reason) if chunk.done_reason else None
                         usage_metadata = None
                         if chunk.prompt_eval_count is not None or chunk.eval_count is not None:
@@ -245,10 +248,7 @@ class KAgentOllamaLlm(KAgentTLSMixin, BaseLlm):
                 if response.message.content:
                     parts.append(types.Part.from_text(text=response.message.content))
                 for tc in response.message.tool_calls or []:
-                    part = types.Part.from_function_call(name=tc.function.name, args=dict(tc.function.arguments))
-                    if part.function_call:
-                        part.function_call.id = str(uuid.uuid4())
-                    parts.append(part)
+                    parts.append(_convert_tool_call_to_part(tc))
                 finish_reason = _done_reason_to_finish_reason(response.done_reason) if response.done_reason else None
                 usage_metadata = None
                 if response.prompt_eval_count is not None or response.eval_count is not None:

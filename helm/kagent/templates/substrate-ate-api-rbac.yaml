@@ -1,0 +1,39 @@
+{{- if .Values.controller.substrate.enabled }}
+{{- $namespaces := splitList "," (include "kagent.substrate.envSourceNamespaces" .) }}
+{{- $ateNs := .Values.controller.substrate.ateApiServer.namespace | default "ate-system" }}
+{{- $ateSA := .Values.controller.substrate.ateApiServer.serviceAccount | default "ate-api-server" }}
+{{- range $namespace := $namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagent.fullname" $ }}-ate-api-env-sources
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - configmaps
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kagent.fullname" $ }}-ate-api-env-sources
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $ateSA | quote }}
+  namespace: {{ $ateNs | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kagent.fullname" $ }}-ate-api-env-sources
+{{- end }}
+{{- end }}

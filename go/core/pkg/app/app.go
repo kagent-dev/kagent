@@ -53,11 +53,15 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -99,6 +103,7 @@ func init() {
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
 	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -147,6 +152,20 @@ type Config struct {
 		Insecure    bool
 		DialTimeout time.Duration
 		CallTimeout time.Duration
+	}
+	Substrate struct {
+		AteAPIEndpoint             string
+		AtenetRouterURL            string
+		Insecure                   bool
+		DialTimeout                time.Duration
+		CallTimeout                time.Duration
+		DefaultWorkerPoolNamespace string
+		DefaultWorkerPoolName      string
+		PauseImage                 string
+		RunscAMD64URL              string
+		RunscAMD64SHA256           string
+		RunscARM64URL              string
+		RunscARM64SHA256           string
 	}
 }
 
@@ -206,6 +225,19 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
 	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
 	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
+
+	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
+	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
+	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
+	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
+	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
+	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
+	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
+	commandLine.StringVar(&cfg.Substrate.RunscAMD64URL, "substrate-runsc-amd64-url", "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc", "gVisor runsc URL for amd64.")
+	commandLine.StringVar(&cfg.Substrate.RunscAMD64SHA256, "substrate-runsc-amd64-sha256", "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63", "gVisor runsc sha256 for amd64.")
+	commandLine.StringVar(&cfg.Substrate.RunscARM64URL, "substrate-runsc-arm64-url", "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc", "gVisor runsc URL for arm64.")
+	commandLine.StringVar(&cfg.Substrate.RunscARM64SHA256, "substrate-runsc-arm64-sha256", "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9", "gVisor runsc sha256 for arm64.")
 
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
@@ -430,7 +462,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	clientOpts := client.Options{}
 	if len(watchNamespacesList) > 0 {
 		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
-		// resources, so prevent the cached client from starting a cluster-scoped
+		// lifecycle, so prevent the cached client from starting a cluster-scoped
 		// Namespace informer whose list/watch would keep crashing.
 		clientOpts.Cache = &client.CacheOptions{
 			DisableFor: []client.Object{&corev1.Namespace{}},
@@ -563,23 +595,53 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	kubeClient := mgr.GetClient()
+	var openshellOpenClawBackend sandboxbackend.AsyncBackend
+	var openshellHermesBackend sandboxbackend.AsyncBackend
 	if cfg.Openshell.GatewayURL != "" {
-		kubeClient := mgr.GetClient()
-		openshellBackends, err := buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
+		var err error
+		openshellOpenClawBackend, openshellHermesBackend, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build openshell sandbox backends")
 			os.Exit(1)
 		}
-		if err := (&controller.AgentHarnessController{
-			Client:   kubeClient,
-			Recorder: mgr.GetEventRecorder("agentharness-controller"),
-			Backends: openshellBackends,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
+	}
+	var substrateAteClient *substrate.Client
+	var substrateOpenClawBackend sandboxbackend.AsyncBackend
+	var substrateNemoClawBackend sandboxbackend.AsyncBackend
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		var err error
+		substrateOpenClawBackend, substrateNemoClawBackend, substrateAteClient, err = buildSubstrateSandboxBackends(ctx, &cfg)
+		if err != nil {
+			setupLog.Error(err, "unable to build substrate sandbox backends")
 			os.Exit(1)
 		}
-	} else {
-		setupLog.Info("AgentHarness controller disabled: --openshell-gateway-url not set")
+	}
+	if openshellOpenClawBackend != nil || openshellHermesBackend != nil {
+		if err := (&controller.OpenShellAgentHarnessController{
+			Client:          kubeClient,
+			Recorder:        mgr.GetEventRecorder("agentharness-openshell-controller"),
+			OpenClawBackend: openshellOpenClawBackend,
+			HermesBackend:   openshellHermesBackend,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "OpenShellAgentHarness")
+			os.Exit(1)
+		}
+	}
+	if substrateOpenClawBackend != nil || substrateNemoClawBackend != nil {
+		if err := (&controller.SubstrateAgentHarnessController{
+			Client:             kubeClient,
+			Recorder:           mgr.GetEventRecorder("agentharness-substrate-controller"),
+			OpenClawBackend:    substrateOpenClawBackend,
+			NemoClawBackend:    substrateNemoClawBackend,
+			SubstrateLifecycle: substrateLifecycleFromConfig(kubeClient, &cfg, substrateAteClient),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
+			os.Exit(1)
+		}
+	}
+	if openshellOpenClawBackend == nil && openshellHermesBackend == nil && substrateOpenClawBackend == nil && substrateNemoClawBackend == nil {
+		setupLog.Info("AgentHarness controller disabled: set --openshell-gateway-url and/or --substrate-ate-api-endpoint")
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -607,7 +669,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
-		setupLog.Error(err, "failed to setup indexes for owned resources")
+		setupLog.Error(err, "failed to setup indexes for owned lifecycle")
 		os.Exit(1)
 	}
 
@@ -677,19 +739,28 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
+			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
+		}
+	}
+
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:            router,
-		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        mgr.GetClient(),
-		A2AHandler:        a2aHandler,
-		MCPHandler:        mcpHandler,
-		WatchedNamespaces: watchNamespacesList,
-		DbClient:          dbClient,
-		Authorizer:        extensionCfg.Authorizer,
-		Authenticator:     extensionCfg.Authenticator,
-		ProxyURL:          cfg.Proxy.URL,
-		Reconciler:        rcnclr,
-		SandboxBackend:    extensionCfg.SandboxBackend,
+		Router:              router,
+		BindAddr:            cfg.HttpServerAddr,
+		KubeClient:          mgr.GetClient(),
+		A2AHandler:          a2aHandler,
+		MCPHandler:          mcpHandler,
+		WatchedNamespaces:   watchNamespacesList,
+		DbClient:            dbClient,
+		Authorizer:          extensionCfg.Authorizer,
+		Authenticator:       extensionCfg.Authenticator,
+		ProxyURL:            cfg.Proxy.URL,
+		Reconciler:          rcnclr,
+		SandboxBackend:      extensionCfg.SandboxBackend,
+		AgentHarnessGateway: agentHarnessGateway,
+		SubstrateAteClient:  substrateAteClient,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -717,7 +788,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 // nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
 // share that connection (see openshell.OpenShellClients). The connection is not explicitly
 // closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
 	oc := openshell.Config{
 		GatewayURL:  cfg.Openshell.GatewayURL,
 		Token:       cfg.Openshell.Token,
@@ -728,29 +799,62 @@ func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient 
 	if cfg.Openshell.TokenFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.TokenFile)
 		if err != nil {
-			return nil, fmt.Errorf("read openshell token file: %w", err)
+			return nil, nil, fmt.Errorf("read openshell token file: %w", err)
 		}
 		oc.Token = strings.TrimSpace(string(data))
 	}
 	if cfg.Openshell.CAFile != "" {
 		data, err := os.ReadFile(cfg.Openshell.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("read openshell CA file: %w", err)
+			return nil, nil, fmt.Errorf("read openshell CA file: %w", err)
 		}
 		oc.TLSCAPEM = data
 	}
 	clients, err := openshell.Dial(ctx, oc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
 	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
-	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
-		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
-		v1alpha2.AgentHarnessBackendHermes:   hermesBackend,
-	}, nil
+	return ocl, hermesBackend, nil
+}
+
+func buildSubstrateSandboxBackends(ctx context.Context, cfg *Config) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, *substrate.Client, error) {
+	sc := substrateAppConfig(cfg)
+	client, err := substrate.Dial(ctx, sc)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	ocl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendOpenClaw, nil)
+	ncl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendNemoClaw, nil)
+	return ocl, ncl, client, nil
+}
+
+func substrateAppConfig(cfg *Config) substrate.Config {
+	sc := substrate.Config{
+		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
+		Insecure:       cfg.Substrate.Insecure,
+		DialTimeout:    cfg.Substrate.DialTimeout,
+		CallTimeout:    cfg.Substrate.CallTimeout,
+	}
+	return sc
+}
+
+func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
+	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
+		PauseImage:           cfg.Substrate.PauseImage,
+		RunscAMD64URL:        cfg.Substrate.RunscAMD64URL,
+		RunscAMD64SHA256:     cfg.Substrate.RunscAMD64SHA256,
+		RunscARM64URL:        cfg.Substrate.RunscARM64URL,
+		RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
+		DefaultWorkloadImage: openclaw.NemoclawSandboxBaseImage,
+		DefaultWorkerPool: types.NamespacedName{
+			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,
+			Name:      cfg.Substrate.DefaultWorkerPoolName,
+		},
+	}, ate)
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

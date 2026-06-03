@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,7 +39,7 @@ func TestBuildBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testing.T) {
 	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
+	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.OpenshellGatewayBootstrap(18800), openclaw.DefaultInferenceBaseURL)
 	require.NoError(t, err)
 
 	var root map[string]any
@@ -54,6 +54,42 @@ func TestBuildBootstrapJSON_OpenAIDefaultBaseURLInferenceLocal(t *testing.T) {
 	kagent := secProvs["kagent"].(map[string]any)
 	require.Equal(t, "env", kagent["source"])
 	require.Contains(t, kagent["allowlist"], "OPENAI_API_KEY")
+}
+
+func TestBuildBootstrapJSON_SubstrateOmitsModelsWhenNoExplicitBaseURL(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+
+	ns := "default"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "openai-key", Namespace: ns},
+		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-test")},
+	}
+	mc := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mc1", Namespace: ns},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gpt-4o",
+			Provider:        v1alpha2.ModelProviderOpenAI,
+			APIKeySecret:    "openai-key",
+			APIKeySecretKey: "OPENAI_API_KEY",
+			OpenAI:          &v1alpha2.OpenAIConfig{},
+		},
+	}
+	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
+
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
+	raw, _, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap("tok", 80, "/api/agentharnesses/default/s1/gateway"), openclaw.SubstrateBootstrapDefaultBaseURL)
+	require.NoError(t, err)
+
+	var root map[string]any
+	require.NoError(t, json.Unmarshal(raw, &root))
+	_, hasModels := root["models"]
+	require.False(t, hasModels)
+	agents := root["agents"].(map[string]any)
+	defaults := agents["defaults"].(map[string]any)
+	model := defaults["model"].(map[string]any)
+	require.Equal(t, "openai/gpt-4o", model["primary"])
 }
 
 func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
@@ -92,7 +128,7 @@ func TestBuildBootstrapJSON_OpenAIAndTelegram(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret, mc).Build()
-	raw, env, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, 18800)
+	raw, env, err := openclaw.BuildBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.OpenshellGatewayBootstrap(18800), openclaw.DefaultInferenceBaseURL)
 	require.NoError(t, err)
 	require.Equal(t, "sk-test", env["OPENAI_API_KEY"])
 	require.Equal(t, "telegram-bot-token", env["TELEGRAM_BOT_TOKEN_TG1"])

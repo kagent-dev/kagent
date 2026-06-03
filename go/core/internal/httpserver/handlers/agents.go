@@ -160,19 +160,13 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 		}
 	}
 
+	runtime := sb.Spec.Runtime
+	if runtime == "" {
+		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+	}
+
 	gatewayName := fmt.Sprintf("%s-%s", sb.Namespace, sb.Name)
 	desc := strings.TrimSpace(sb.Spec.Description)
-	entry := &api.OpenshellAgentHarnessListEntry{
-		Backend:            sb.Spec.Backend,
-		GatewaySandboxName: gatewayName,
-		ModelConfigRef:     sb.Spec.ModelConfigRef,
-	}
-	if sb.Status.BackendRef != nil {
-		entry.BackendRefID = sb.Status.BackendRef.ID
-	}
-	if sb.Status.Connection != nil {
-		entry.Endpoint = sb.Status.Connection.Endpoint
-	}
 
 	resp := api.AgentResponse{
 		ID: id,
@@ -184,9 +178,39 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 				Description: desc,
 			},
 		},
-		DeploymentReady:       ready,
-		Accepted:              accepted,
-		OpenshellAgentHarness: entry,
+		DeploymentReady: ready,
+		Accepted:        accepted,
+	}
+
+	switch runtime {
+	case v1alpha2.AgentHarnessRuntimeSubstrate:
+		subEntry := &api.SubstrateAgentHarnessListEntry{
+			Backend:        sb.Spec.Backend,
+			Runtime:        runtime,
+			ModelConfigRef: sb.Spec.ModelConfigRef,
+			GatewayUIPath:  fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
+		}
+		if sb.Status.BackendRef != nil {
+			subEntry.BackendRefID = sb.Status.BackendRef.ID
+			subEntry.ActorID = sb.Status.BackendRef.ID
+		}
+		if sb.Status.Connection != nil {
+			subEntry.Endpoint = sb.Status.Connection.Endpoint
+		}
+		resp.SubstrateAgentHarness = subEntry
+	default:
+		entry := &api.OpenshellAgentHarnessListEntry{
+			Backend:            sb.Spec.Backend,
+			GatewaySandboxName: gatewayName,
+			ModelConfigRef:     sb.Spec.ModelConfigRef,
+		}
+		if sb.Status.BackendRef != nil {
+			entry.BackendRefID = sb.Status.BackendRef.ID
+		}
+		if sb.Status.Connection != nil {
+			entry.Endpoint = sb.Status.Connection.Endpoint
+		}
+		resp.OpenshellAgentHarness = entry
 	}
 
 	mcRef := strings.TrimSpace(sb.Spec.ModelConfigRef)

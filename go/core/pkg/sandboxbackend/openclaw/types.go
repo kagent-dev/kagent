@@ -5,21 +5,29 @@ package openclaw
 
 type bootstrapDocument struct {
 	Gateway  gatewaySection  `json:"gateway"`
-	Models   modelsSection   `json:"models"`
+	Models   *modelsSection  `json:"models,omitempty"`
 	Agents   agentsSection   `json:"agents"`
 	Channels *channelsConfig `json:"channels,omitempty"`
 	Secrets  secretsSection  `json:"secrets"`
 }
 
 type gatewaySection struct {
-	Mode string      `json:"mode"`
-	Bind string      `json:"bind"`
-	Auth gatewayAuth `json:"auth"`
-	Port int         `json:"port"`
+	Mode      string            `json:"mode"`
+	Bind      string            `json:"bind"`
+	Auth      gatewayAuth       `json:"auth"`
+	Port      int               `json:"port"`
+	ControlUi *controlUiSection `json:"controlUi,omitempty"`
 }
 
 type gatewayAuth struct {
-	Mode string `json:"mode"`
+	Mode  string `json:"mode"`
+	Token string `json:"token,omitempty"`
+}
+
+type controlUiSection struct {
+	BasePath                     string   `json:"basePath,omitempty"`
+	AllowedOrigins               []string `json:"allowedOrigins,omitempty"`
+	DangerouslyDisableDeviceAuth bool     `json:"dangerouslyDisableDeviceAuth,omitempty"`
 }
 
 type modelsSection struct {
@@ -28,11 +36,11 @@ type modelsSection struct {
 }
 
 type providerSettings struct {
-	BaseURL string      `json:"baseUrl"`
-	APIKey  string      `json:"apiKey"`
-	Auth    string      `json:"auth"`
-	API     string      `json:"api"`
-	Models  []modelSlot `json:"models"`
+	BaseURL string          `json:"baseUrl,omitempty"`
+	APIKey  credentialValue `json:"apiKey"`
+	Auth    string          `json:"auth"`
+	API     string          `json:"api"`
+	Models  []modelSlot     `json:"models"`
 }
 
 type modelSlot struct {
@@ -64,11 +72,11 @@ type telegramBundle struct {
 }
 
 type telegramAccount struct {
-	Name      string   `json:"name"`
-	Enabled   bool     `json:"enabled"`
-	BotToken  string   `json:"botToken"`
-	DMPolicy  string   `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom,omitempty"`
+	Name      string          `json:"name"`
+	Enabled   bool            `json:"enabled"`
+	BotToken  credentialValue `json:"botToken"`
+	DMPolicy  string          `json:"dmPolicy"`
+	AllowFrom []string        `json:"allowFrom,omitempty"`
 }
 
 type slackBundle struct {
@@ -82,15 +90,15 @@ type slackBundle struct {
 }
 
 type slackAccount struct {
-	Name              string    `json:"name"`
-	Enabled           bool      `json:"enabled"`
-	Mode              string    `json:"mode"`
-	BotToken          string    `json:"botToken"`
-	AppToken          string    `json:"appToken"`
-	UserTokenReadOnly bool      `json:"userTokenReadOnly"`
-	GroupPolicy       string    `json:"groupPolicy"`
-	Capabilities      slackCaps `json:"capabilities"`
-	DM                *groupDM  `json:"dm,omitempty"`
+	Name              string          `json:"name"`
+	Enabled           bool            `json:"enabled"`
+	Mode              string          `json:"mode"`
+	BotToken          credentialValue `json:"botToken"`
+	AppToken          credentialValue `json:"appToken"`
+	UserTokenReadOnly bool            `json:"userTokenReadOnly"`
+	GroupPolicy       string          `json:"groupPolicy"`
+	Capabilities      slackCaps       `json:"capabilities"`
+	DM                *groupDM        `json:"dm,omitempty"`
 }
 
 type slackCaps struct {
@@ -104,9 +112,14 @@ type groupDM struct {
 
 type secretsSection struct {
 	Providers map[string]secretProvider `json:"providers"`
+	Defaults  *secretsDefaults          `json:"defaults,omitempty"`
 }
 
 type secretProvider struct {
 	Source    string   `json:"source"`
-	Allowlist []string `json:"allowlist"`
+	Allowlist []string `json:"allowlist,omitempty"`
+}
+
+type secretsDefaults struct {
+	Env string `json:"env"`
 }

@@ -427,6 +427,70 @@ export interface OpenshellAgentHarnessListEntry {
   endpoint?: string;
 }
 
+/** Merged into GET /api/agents when AgentHarness.spec.runtime is substrate. */
+export interface SubstrateAgentHarnessListEntry {
+  backend: string;
+  runtime: "substrate";
+  actorId?: string;
+  /** Same-origin path for OpenClaw UI (HTTP + WebSocket via kagent proxy to actor pod IP). */
+  gatewayUIPath?: string;
+  modelConfigRef?: string;
+  backendRefId?: string;
+  endpoint?: string;
+}
+
+/** GET /api/substrate/status — WorkerPools, ActorTemplates, and ate-api actors/workers. */
+export interface SubstrateStatusResponse {
+  enabled: boolean;
+  ateApiError?: string;
+  workerPools: SubstrateWorkerPoolEntry[];
+  actorTemplates: SubstrateActorTemplateEntry[];
+  actors: SubstrateActorEntry[];
+  workers: SubstrateWorkerEntry[];
+}
+
+export interface SubstrateWorkerPoolEntry {
+  namespace: string;
+  name: string;
+  replicas: number;
+  ateomImage: string;
+}
+
+export interface SubstrateActorTemplateEntry {
+  namespace: string;
+  name: string;
+  phase?: string;
+  goldenActorId?: string;
+  goldenSnapshot?: string;
+  workerPoolRef?: string;
+  harnessName?: string;
+  managedByKagent: boolean;
+}
+
+export interface SubstrateActorEntry {
+  actorId: string;
+  status: string;
+  actorTemplateNamespace?: string;
+  actorTemplateName?: string;
+  ateomPodNamespace?: string;
+  ateomPodName?: string;
+  ateomPodIp?: string;
+  lastSnapshot?: string;
+  inProgressSnapshot?: string;
+  version?: number;
+}
+
+export interface SubstrateWorkerEntry {
+  workerNamespace: string;
+  workerPool: string;
+  workerPod: string;
+  actorNamespace?: string;
+  actorTemplate?: string;
+  actorId?: string;
+  ip?: string;
+  version?: number;
+}
+
 export interface AgentResponse {
   id: number | string;
   agent: Agent;
@@ -438,6 +502,7 @@ export interface AgentResponse {
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
   openshellAgentHarness?: OpenshellAgentHarnessListEntry;
+  substrateAgentHarness?: SubstrateAgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {

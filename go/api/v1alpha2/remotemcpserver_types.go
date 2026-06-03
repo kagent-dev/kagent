@@ -60,7 +60,7 @@ type RemoteMCPServerSpec struct {
 	// AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
-	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }

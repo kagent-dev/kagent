@@ -33,18 +33,27 @@ describe("validateOpenClawSandboxForm sections", () => {
     expect(r?.message).toContain("not a valid hostname");
   });
 
-    it("tags channel credential failures as channels", () => {
-      const row = newOpenClawChannelRow();
-      row.name = "slack1";
-      row.channelType = "slack";
-      row.botToken = "";
-      const r = validateOpenClawSandboxForm({
-        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
-        modelRef: "ns/m1",
-      });
-      expect(r?.section).toBe("channels");
-      expect(r?.message).toContain("slack1");
+  it("tags missing substrate gateway token as general", () => {
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), runtime: "substrate" },
+      modelRef: "ns/m1",
     });
+    expect(r?.section).toBe("general");
+    expect(r?.message).toContain("gateway token");
+  });
+
+  it("tags channel credential failures as channels", () => {
+    const row = newOpenClawChannelRow();
+    row.name = "slack1";
+    row.channelType = "slack";
+    row.botToken = "";
+    const r = validateOpenClawSandboxForm({
+      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+      modelRef: "ns/m1",
+    });
+    expect(r?.section).toBe("channels");
+    expect(r?.message).toContain("slack1");
+  });
 
   it("rejects duplicate channel binding names", () => {
     const row = newOpenClawChannelRow();
@@ -181,6 +190,29 @@ describe("openClawSandboxForm allowedDomains", () => {
       expect(draft.apiVersion).toBe("kagent.dev/v1alpha2");
       expect(draft.kind).toBe("AgentHarness");
       expect(draft.spec.backend).toBe("openclaw");
+    });
+
+    it("writes substrate config without creating a WorkerPool", () => {
+      const draft = buildSandboxCRDraft({
+        name: "h1",
+        namespace: "ns",
+        description: "",
+        modelRef: "m1",
+        openClaw: {
+          ...defaultOpenClawSandboxFormSlice(),
+          runtime: "substrate",
+          substrateGatewayToken: "tok",
+          substrateWorkerPoolRefName: "default-wp",
+        },
+      });
+      expect("error" in draft).toBe(false);
+      if ("error" in draft) return;
+      expect(draft.spec.substrate).toEqual({
+        gatewayToken: "tok",
+        snapshotsConfig: { location: "gs://ate-snapshots/kagent/" },
+        workerPoolRef: { name: "default-wp" },
+      });
+      expect(draft.spec.substrate).not.toHaveProperty("workerPool");
     });
 
     it("writes Hermes slack allowedUserIDs and home channel fields", () => {

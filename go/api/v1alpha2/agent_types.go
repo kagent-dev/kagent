@@ -80,7 +80,7 @@ type AgentSpec struct {
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
 	// This field only applies when this Agent is used as a tool by another Agent.
-	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 }
@@ -201,7 +201,7 @@ type DeclarativeAgentSpec struct {
 	// controller (default 8083).
 	// The A2A server URL will be served at
 	// <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
-	// Read more about the A2A protocol here: https://github.com/google/A2A
+	// Read more about the A2A protocol here: https://github.com/a2aproject/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
 
@@ -212,7 +212,7 @@ type DeclarativeAgentSpec struct {
 	// If true, the agent will automatically execute python code blocks in the LLM responses.
 	// Code will be executed in a sandboxed environment.
 	// +optional
-	// due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
+	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 
 	// Memory configuration for the agent.

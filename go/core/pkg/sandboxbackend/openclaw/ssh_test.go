@@ -3,7 +3,7 @@ package openclaw_test
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/stretchr/testify/require"
 )
 

@@ -24,7 +24,11 @@ import {
   getAgentHarnessBackend,
   isAgentHarness,
 } from "@/lib/agentHarness";
-import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
+import {
+  isOpenshellSandboxRow,
+  isSubstrateHarnessRow,
+  openshellTerminalHref,
+} from "@/lib/openshellSandboxAgents";
 
 interface AgentListViewProps {
   agentResponse: AgentResponse[];
@@ -222,6 +226,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(item);
+  const substrateHarness = isSubstrateHarnessRow(item);
   const agentHarness = isAgentHarness(item);
   const harnessBackend = getAgentHarnessBackend(item);
 
@@ -233,26 +238,38 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
 
+  const substrateGatewayPath = item.substrateAgentHarness?.gatewayUIPath;
   const gatewaySandboxName = item.openshellAgentHarness?.gatewaySandboxName;
   const chatPath = useMemo(
     () =>
-      sshSandbox && gatewaySandboxName
-        ? openshellTerminalHref({
-            gatewaySandboxName,
-            namespace,
-            crName: name,
-            modelConfigRef: item.modelConfigRef,
-            harnessBackend,
-          })
-        : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
-    [sshSandbox, gatewaySandboxName, namespace, name, item.modelConfigRef, harnessBackend],
+      substrateHarness && substrateGatewayPath
+        ? substrateGatewayPath
+        : sshSandbox && gatewaySandboxName
+          ? openshellTerminalHref({
+              gatewaySandboxName,
+              namespace,
+              crName: name,
+              modelConfigRef: item.modelConfigRef,
+              harnessBackend,
+            })
+          : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
+    [
+      substrateHarness,
+      substrateGatewayPath,
+      sshSandbox,
+      gatewaySandboxName,
+      namespace,
+      name,
+      item.modelConfigRef,
+      harnessBackend,
+    ],
   );
 
-  const goChat = () => {
+  const goChat = useCallback(() => {
     if (isReady) {
       router.push(chatPath);
     }
-  };
+  }, [isReady, router, chatPath]);
 
   const handleEdit = (e: React.MouseEvent) => {
     e.preventDefault();

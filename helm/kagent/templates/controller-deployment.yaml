@@ -87,6 +87,42 @@ spec:
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+            - name: SUBSTRATE_ATE_API_ENDPOINT
+              value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
+            {{- with .Values.controller.substrate.atenetRouterURL }}
+            - name: SUBSTRATE_ATENET_ROUTER_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controller.substrate.ateApiInsecure }}
+            - name: SUBSTRATE_ATE_API_INSECURE
+              value: "true"
+            {{- end }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
+              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
+              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
+            {{- with .Values.controller.substrate.pauseImage }}
+            - name: SUBSTRATE_PAUSE_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.runscAMD64URL }}
+            - name: SUBSTRATE_RUNSC_AMD64_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.runscAMD64SHA256 }}
+            - name: SUBSTRATE_RUNSC_AMD64_SHA256
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.runscARM64URL }}
+            - name: SUBSTRATE_RUNSC_ARM64_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.runscARM64SHA256 }}
+            - name: SUBSTRATE_RUNSC_ARM64_SHA256
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "kagent.fullname" . }}-controller

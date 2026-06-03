@@ -223,12 +223,40 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
-  # Extra controller env. Examples — OpenShell:
-  # env:
-  #   - name: OPENSHELL_GRPC_ADDR
-  #     value: "openshell.my-namespace.svc.cluster.local:8080"
-  env: []
+  # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
+  # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
+  env:
+    # - name: OPENSHELL_GATEWAY_URL
+    #   value: openshell.openshell.svc.cluster.local:8080
+    # - name: OPENSHELL_INSECURE
+    #   value: "true"
+
+  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
+  # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  substrate:
+    enabled: false
+    ateApiEndpoint: ""
+    atenetRouterURL: ""
+    ateApiInsecure: false
+    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
+    ateApiServer:
+      namespace: ate-system
+      serviceAccount: ate-api-server
+    defaultWorkerPool:
+      namespace: ""
+      name: ""
+    # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
+    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc"
+    # runscAMD64SHA256: "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63"
+    # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
+    # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
+    # Example when enabled:
+    #   enabled: true
+    #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
+    #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
+    #   defaultWorkerPool:
+    #     name: "kagent-default"
+
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
@@ -255,6 +283,14 @@ controller:
   # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
+
+# -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
+# capacity and is not owned by individual AgentHarness resources.
+substrateWorkerPool:
+  create: false
+  name: kagent-default
+  replicas: 1
+  ateomImage: ""
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -657,7 +693,7 @@ oauth2-proxy:
     # Skip authentication for kagent's branded login page, health checks, and static assets
     # This allows unauthenticated users to see the landing page and k8s probes to work
     skip-auth-route: "^/(health|login)$"
-    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico).*$"
+    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 
