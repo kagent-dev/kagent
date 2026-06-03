@@ -319,11 +319,12 @@ type BootstrapConfig struct {
 type CtrlManagerConfigFunc func(manager.Manager) error
 
 type ExtensionConfig struct {
-	Authenticator    auth.AuthProvider
-	Authorizer       auth.Authorizer
-	AgentPlugins     []agent_translator.TranslatorPlugin
-	MCPServerPlugins []translator.MCPTranslatorPlugin
-	SandboxBackend   sandboxbackend.Backend
+	Authenticator          auth.AuthProvider
+	Authorizer             auth.Authorizer
+	AgentPlugins           []agent_translator.TranslatorPlugin
+	MCPServerPlugins       []translator.MCPTranslatorPlugin
+	RemoteMCPServerPlugins []translator.RemoteMCPServerPlugin
+	SandboxBackend         sandboxbackend.Backend
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -560,6 +561,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		watchNamespacesList,
 		extensionCfg.SandboxBackend,
 		cfg.MCPEgressPlaintext,
+		extensionCfg.RemoteMCPServerPlugins,
 	)
 
 	if err := (&controller.ServiceController{

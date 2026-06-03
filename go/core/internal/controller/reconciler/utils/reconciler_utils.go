@@ -139,9 +139,33 @@ func DeepEqual(val1, val2 any) bool {
 	return reflect.DeepEqual(val1, val2)
 }
 
+// distinctByType returns objs with duplicate Go types removed, preserving first
+// occurrence order. Objects with a nil reflect type are dropped.
+func distinctByType(objs []client.Object) []client.Object {
+	seen := make(map[reflect.Type]struct{}, len(objs))
+	out := make([]client.Object, 0, len(objs))
+	for _, obj := range objs {
+		t := reflect.TypeOf(obj)
+		if t == nil {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, obj)
+	}
+	return out
+}
+
 // SetupOwnerIndexes sets up caching and indexing of owned resources.
+//
+// ownedTypes may contain the same Go type more than once (e.g. a type owned by
+// both the agent translator and a RemoteMCPServer plugin); duplicates are
+// skipped because IndexField errors if the same field key is registered twice
+// on one type. Callers therefore need not pre-deduplicate.
 func SetupOwnerIndexes(mgr ctrl.Manager, ownedTypes []client.Object) error {
-	for _, resource := range ownedTypes {
+	for _, resource := range distinctByType(ownedTypes) {
 		gvk, err := apiutil.GVKForObject(resource, mgr.GetScheme())
 		if err != nil {
 			return err

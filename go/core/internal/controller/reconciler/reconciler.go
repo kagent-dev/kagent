@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	pkgtranslator "github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -101,6 +102,11 @@ type kagentReconciler struct {
 	// uses s.Spec.URL verbatim. Mirrors the agent translator's config-phase
 	// egress rewrite.
 	mcpEgressPlaintext bool
+
+	// remoteMCPServerPlugins are reconcile-phase extensions invoked on each
+	// RemoteMCPServer reconcile. Their returned objects are owned by the RMS
+	// and reconciled (apply + prune).
+	remoteMCPServerPlugins []pkgtranslator.RemoteMCPServerPlugin
 }
 
 func NewKagentReconciler(
@@ -111,15 +117,17 @@ func NewKagentReconciler(
 	watchedNamespaces []string,
 	sandboxBackend sandboxbackend.Backend,
 	mcpEgressPlaintext bool,
+	remoteMCPServerPlugins []pkgtranslator.RemoteMCPServerPlugin,
 ) KagentReconciler {
 	return &kagentReconciler{
-		adkTranslator:      adkTranslator,
-		kube:               kube,
-		dbClient:           dbClient,
-		defaultModelConfig: defaultModelConfig,
-		watchedNamespaces:  watchedNamespaces,
-		sandboxBackend:     sandboxBackend,
-		mcpEgressPlaintext: mcpEgressPlaintext,
+		adkTranslator:          adkTranslator,
+		kube:                   kube,
+		dbClient:               dbClient,
+		defaultModelConfig:     defaultModelConfig,
+		watchedNamespaces:      watchedNamespaces,
+		sandboxBackend:         sandboxBackend,
+		mcpEgressPlaintext:     mcpEgressPlaintext,
+		remoteMCPServerPlugins: remoteMCPServerPlugins,
 	}
 }
 
@@ -613,6 +621,15 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		return fmt.Errorf("failed to get remote mcp server %s: %w", serverRef, err)
 	}
 
+	// Author any extension-owned resources for this RMS before tool discovery,
+	// so the discovery dial can traverse them.
+	// A plugin failure is retried (returned at the end) but does not block
+	// discovery or the status update below.
+	pluginErr := a.reconcileRemoteMCPServerPlugins(ctx, server)
+	if pluginErr != nil {
+		l.Error(pluginErr, "failed to reconcile remote mcp server plugins")
+	}
+
 	dbServer := &database.ToolServer{
 		Name:        serverRef,
 		Description: server.Spec.Description,
@@ -662,7 +679,9 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
 	}
 
-	return nil
+	// Surface a plugin failure so the controller requeues; status was still
+	// updated above from the discovery result.
+	return pluginErr
 }
 
 // computeRemoteMCPServerSecretHash returns a hash over the TLS Secret
@@ -909,14 +928,60 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) s
 		strings.Join(unsupported, ", "))
 }
 
-// GetOwnedResourceTypes returns all the resource types that may be owned by
-// controllers that are reconciled herein. At present only the agents controller
-// owns resources so this simply wraps a call to the ADK translator as that is
-// responsible for creating the manifests for an agent. If in future other
-// controllers start owning resources then this method should be updated to
-// return the distinct union of all owned resource types.
+// GetOwnedResourceTypes returns the resource types that may be owned by
+// controllers reconciled herein: the agent manifests (from the ADK translator)
+// plus any types authored by registered RemoteMCPServer plugins. The result is
+// what app.Start passes to SetupOwnerIndexes, so the owner index FindOwnedObjects
+// relies on (for pruning) is registered for every owned type, including
+// extension-authored ones. The same type may appear more than once when several
+// sources own it; SetupOwnerIndexes skips the duplicates.
 func (r *kagentReconciler) GetOwnedResourceTypes() []client.Object {
-	return r.adkTranslator.GetOwnedResourceTypes()
+	owned := r.adkTranslator.GetOwnedResourceTypes()
+	for _, plugin := range r.remoteMCPServerPlugins {
+		owned = append(owned, plugin.GetOwnedResourceTypes()...)
+	}
+	return owned
+}
+
+// reconcileRemoteMCPServerPlugins runs the registered RemoteMCPServer plugins
+// and reconciles the objects they return: each is owned by the RMS — so K8s GC
+// removes it on RMS delete and the owner index finds it — applied, and any
+// previously-owned objects the plugins no longer return are pruned. A no-op
+// when no plugins are registered.
+func (a *kagentReconciler) reconcileRemoteMCPServerPlugins(ctx context.Context, server *v1alpha2.RemoteMCPServer) error {
+	if len(a.remoteMCPServerPlugins) == 0 {
+		return nil
+	}
+
+	outputs := &pkgtranslator.RemoteMCPServerOutputs{}
+	var ownedTypes []client.Object
+	for _, plugin := range a.remoteMCPServerPlugins {
+		if err := plugin.ProcessRemoteMCPServer(ctx, server, outputs); err != nil {
+			return fmt.Errorf("remote mcp server plugin: %w", err)
+		}
+		ownedTypes = append(ownedTypes, plugin.GetOwnedResourceTypes()...)
+	}
+
+	// Own every returned object to the RMS so it is garbage-collected on RMS
+	// delete and found by the owner index for pruning. This also rejects
+	// cross-namespace objects (SetControllerReference requires same namespace).
+	for _, obj := range outputs.Manifest {
+		if err := controllerutil.SetControllerReference(server, obj, a.kube.Scheme()); err != nil {
+			return fmt.Errorf("set controller reference on %s %s/%s: %w",
+				obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), err)
+		}
+	}
+
+	ownedObjects, err := reconcilerutils.FindOwnedObjects(ctx, a.kube, server.GetUID(), server.GetNamespace(), ownedTypes)
+	if err != nil {
+		return fmt.Errorf("find owned objects: %w", err)
+	}
+
+	if err := a.reconcileDesiredObjects(ctx, server, outputs.Manifest, ownedObjects); err != nil {
+		return fmt.Errorf("reconcile plugin objects: %w", err)
+	}
+
+	return nil
 }
 
 // Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192

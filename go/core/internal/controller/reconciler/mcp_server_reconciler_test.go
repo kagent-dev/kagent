@@ -117,6 +117,7 @@ func TestReconcileKagentMCPServer_ErrorPropagation(t *testing.T) {
 				[]string{}, // No namespace restrictions for tests
 				nil,
 				false,
+				nil,
 			)
 
 			// Call ReconcileKagentMCPServer
