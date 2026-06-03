@@ -50,7 +50,7 @@ func newAgentWithRMSTools(namespace string, rmsNames ...string) *v1alpha2.Agent 
 }
 
 func TestRewriteHTTPSForEgress(t *testing.T) {
-	// rmsHosts mirrors the map CollectRMSHosts would build: each entry's key is
+	// rmsHosts mirrors the map collectRMSHosts would build: each entry's key is
 	// an RMS's spec.url string (verbatim — same string the translator emits as
 	// the tool URL), and the value is the RMS's effective tls-aware host:port.
 	// For the last entry the spec.url is scheme-less and port-less but spec.tls
@@ -85,7 +85,7 @@ func TestRewriteHTTPSForEgress(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, RewriteHTTPSForEgress(c.in, c.rmsHosts))
+			assert.Equal(t, c.want, rewriteHTTPSForEgress(c.in, c.rmsHosts))
 		})
 	}
 }

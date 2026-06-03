@@ -21,7 +21,6 @@ package egress
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -35,11 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ErrTLSConflictsWithHTTPScheme matches the CRD's spec-level XValidation
-// rejecting spec.tls on an http:// URL. Declared so any future Validate
-// entry point can return the same sentinel the admission rule would surface.
-var ErrTLSConflictsWithHTTPScheme = errors.New("spec.tls must be unset when spec.url has http:// scheme")
-
 // RewriteConfigForAgent rewrites every RemoteMCPServer-backed tool URL in cfg
 // to its plaintext form. Called inline by the agent translator's
 // config-phase (before the config Secret is serialized and the config-hash is
@@ -50,7 +44,7 @@ func RewriteConfigForAgent(ctx context.Context, c client.Client, agent v1alpha2.
 	if cfg == nil {
 		return nil
 	}
-	rmsHosts, err := CollectRMSHosts(ctx, c, agent)
+	rmsHosts, err := collectRMSHosts(ctx, c, agent)
 	if err != nil {
 		return fmt.Errorf("collect RemoteMCPServer hosts for agent %s/%s: %w",
 			agent.GetNamespace(), agent.GetName(), err)
@@ -58,11 +52,11 @@ func RewriteConfigForAgent(ctx context.Context, c client.Client, agent v1alpha2.
 	if len(rmsHosts) == 0 {
 		return nil
 	}
-	RewriteConfig(cfg, rmsHosts)
+	rewriteConfig(cfg, rmsHosts)
 	return nil
 }
 
-// RewriteConfig rewrites RMS-matched tool URLs to their plaintext form in place
+// rewriteConfig rewrites RMS-matched tool URLs to their plaintext form in place
 // on cfg.HttpTools/SseTools. URLs that don't appear in rmsHosts are left
 // untouched.
 //
@@ -73,19 +67,19 @@ func RewriteConfigForAgent(ctx context.Context, c client.Client, agent v1alpha2.
 // and they are intentionally left alone: proxy routing takes precedence for
 // internal-k8s URLs. External https upstreams — the egress target — are never
 // proxied, so they still match and get rewritten.
-func RewriteConfig(cfg *adk.AgentConfig, rmsHosts map[string]string) {
+func rewriteConfig(cfg *adk.AgentConfig, rmsHosts map[string]string) {
 	if cfg == nil {
 		return
 	}
 	for i := range cfg.HttpTools {
-		cfg.HttpTools[i].Params.Url = RewriteHTTPSForEgress(cfg.HttpTools[i].Params.Url, rmsHosts)
+		cfg.HttpTools[i].Params.Url = rewriteHTTPSForEgress(cfg.HttpTools[i].Params.Url, rmsHosts)
 	}
 	for i := range cfg.SseTools {
-		cfg.SseTools[i].Params.Url = RewriteHTTPSForEgress(cfg.SseTools[i].Params.Url, rmsHosts)
+		cfg.SseTools[i].Params.Url = rewriteHTTPSForEgress(cfg.SseTools[i].Params.Url, rmsHosts)
 	}
 }
 
-// CollectRMSHosts maps every RemoteMCPServer referenced by the agent's MCP tool
+// collectRMSHosts maps every RemoteMCPServer referenced by the agent's MCP tool
 // refs to its plaintext-rewrite target. The map key is the RMS's spec.url
 // string verbatim — which equals the tool URL the translator emits into the
 // agent config (see translateStreamableHttpTool / translateSseHttpTool), so the
@@ -102,7 +96,7 @@ func RewriteConfig(cfg *adk.AgentConfig, rmsHosts map[string]string) {
 // upstream, so reaching this code with a missing RMS means a transient mismatch
 // that reconverges on the next reconcile. Other client errors propagate so the
 // caller re-tries.
-func CollectRMSHosts(ctx context.Context, c client.Client, agent v1alpha2.AgentObject) (map[string]string, error) {
+func collectRMSHosts(ctx context.Context, c client.Client, agent v1alpha2.AgentObject) (map[string]string, error) {
 	out := map[string]string{}
 	spec := agent.GetAgentSpec()
 	if spec == nil || spec.Declarative == nil {
@@ -243,7 +237,7 @@ func rewriteTo(raw, hostPort string) string {
 	return out.String()
 }
 
-// RewriteHTTPSForEgress rewrites an agent tool URL to its plaintext form when
+// rewriteHTTPSForEgress rewrites an agent tool URL to its plaintext form when
 // it matches an RMS-backed entry in rmsHosts.
 //
 // rmsHosts is keyed on the RMS's spec.url string (which equals the tool URL
@@ -255,7 +249,7 @@ func rewriteTo(raw, hostPort string) string {
 // URLs that don't appear in rmsHosts are returned unchanged. This is also how
 // proxy-rewritten tool URLs (see applyProxyURL) end up unchanged — their host
 // is the global proxy host, not any RMS spec.url, so the lookup misses.
-func RewriteHTTPSForEgress(raw string, rmsHosts map[string]string) string {
+func rewriteHTTPSForEgress(raw string, rmsHosts map[string]string) string {
 	effective, matched := rmsHosts[raw]
 	if !matched {
 		return raw
@@ -264,12 +258,12 @@ func RewriteHTTPSForEgress(raw string, rmsHosts map[string]string) string {
 }
 
 // RewriteDialURL rewrites an RMS's spec.url to its plaintext form for the
-// controller's tool-discovery dial. Unlike RewriteHTTPSForEgress it is not
+// controller's tool-discovery dial. Unlike rewriteHTTPSForEgress it is not
 // allowlist-gated — the caller already holds the RemoteMCPServer, so spec.url is
 // the RMS's own URL by construction.
 //
 // The rewrite targets the RMS's effective, tls-aware host:port (see
-// normalizedHostPort) — the same value CollectRMSHosts maps the agent's tool URL
+// normalizedHostPort) — the same value collectRMSHosts maps the agent's tool URL
 // to — so the controller dials exactly the URL the agent config uses. spec.urls
 // that can't be parsed or carry a non-http(s) scheme pass through unchanged.
 func RewriteDialURL(rms *v1alpha2.RemoteMCPServer) string {

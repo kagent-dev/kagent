@@ -643,6 +643,10 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	} else {
 		l.Info("successfully registered remote MCP server", "url", server.Spec.URL, "toolCount", len(tools), "duration", time.Since(start))
 	}
+	// secretErr is folded in here, not where it occurs, so a bad Secret ref
+	// doesn't skip tool discovery (and its previously-discovered-tools
+	// fallback). This is the single point where both error streams converge
+	// before the status update below.
 	if secretErr != nil {
 		err = multierror.Append(err, secretErr)
 	}
