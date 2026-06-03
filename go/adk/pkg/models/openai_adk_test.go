@@ -247,6 +247,16 @@ func TestApplyOpenAIConfig(t *testing.T) {
 			t.Errorf("MaxTokens: Valid=%v, Value=%v, want (true, 100)", params.MaxTokens.Valid(), params.MaxTokens.Value)
 		}
 	})
+
+	t.Run("config with reasoning_effort", func(t *testing.T) {
+		effort := "medium"
+		cfg := &OpenAIConfig{ReasoningEffort: &effort}
+		var params openai.ChatCompletionNewParams
+		applyOpenAIConfig(&params, cfg)
+		if params.ReasoningEffort != "medium" {
+			t.Errorf("ReasoningEffort: got %q, want %q", params.ReasoningEffort, "medium")
+		}
+	})
 }
 
 func TestGenaiContentsToOpenAIMessages_PreservesThoughtSignatureOnToolCallAndToolResult(t *testing.T) {
