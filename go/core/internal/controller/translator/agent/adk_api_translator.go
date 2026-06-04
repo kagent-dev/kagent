@@ -434,7 +434,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
-			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
+			spec := model.Spec.Anthropic
+			anthropic.BaseUrl = spec.BaseURL
+			anthropic.Temperature = utils.ParseStringToFloat64(spec.Temperature)
+			anthropic.TopP = utils.ParseStringToFloat64(spec.TopP)
+			if spec.MaxTokens > 0 {
+				anthropic.MaxTokens = &spec.MaxTokens
+			}
+			if spec.TopK > 0 {
+				anthropic.TopK = &spec.TopK
+			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
