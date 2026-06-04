@@ -249,6 +249,11 @@ controller:
     service:
       type: ClusterIP
       port: 8443
+    serviceMonitor:
+      enabled: false
+      interval: 30s
+      scrapeTimeout: 10s
+      labels: {}
 
   # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
   # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).

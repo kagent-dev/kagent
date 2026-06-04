@@ -1,0 +1,27 @@
+{{- if and .Values.controller.metrics.enabled .Values.controller.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    {{- with .Values.controller.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller-metrics
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.controller.metrics.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.controller.metrics.serviceMonitor.scrapeTimeout }}
+    {{- if .Values.controller.metrics.secureServing }}
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    {{- end }}
+{{- end }}
