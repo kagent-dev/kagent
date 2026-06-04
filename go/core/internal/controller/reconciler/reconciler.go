@@ -1101,14 +1101,15 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 
 	// Resolve the dial-time URL. Default is s.Spec.URL; when the egress gate
 	// is on, rewrite it to http://host:<effective-port> so the probe egresses
-	// in plaintext to a TLS-originating proxy. RewriteDialURL uses the RMS's
-	// effective (tls-aware) port, so this dial matches the agent's rewritten
-	// tool URL exactly. The rewrite touches the URL only — tlsConfig below is
-	// built from s.Spec.TLS regardless, so the operator's spec.tls must already
-	// describe the upstream the proxy originates to.
+	// in plaintext to a TLS-originating proxy. RewriteURL uses the RMS's
+	// effective (tls-aware) port, and the agent translator calls the same
+	// RewriteURL on the same RMS, so this dial matches the agent's tool URL
+	// exactly. The rewrite touches the URL only — tlsConfig below is built from
+	// s.Spec.TLS regardless, so the operator's spec.tls must already describe
+	// the upstream the proxy originates to.
 	endpoint := s.Spec.URL
 	if a.mcpEgressPlaintext {
-		endpoint = egress.RewriteDialURL(s)
+		endpoint = egress.RewriteURL(s)
 	}
 
 	tlsConfig, err := a.buildRemoteMCPServerTLSConfig(ctx, s)

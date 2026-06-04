@@ -1,96 +1,13 @@
 package egress
 
 import (
-	"context"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func newFakeClient(existing ...client.Object) client.Client {
-	s := runtime.NewScheme()
-	_ = scheme.AddToScheme(s)
-	_ = v1alpha2.AddToScheme(s)
-	return fake.NewClientBuilder().WithScheme(s).WithObjects(existing...).Build()
-}
-
-func newRMS(name, namespace, url string) *v1alpha2.RemoteMCPServer {
-	return &v1alpha2.RemoteMCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       v1alpha2.RemoteMCPServerSpec{URL: url},
-	}
-}
-
-func newAgentWithRMSTools(namespace string, rmsNames ...string) *v1alpha2.Agent {
-	tools := make([]*v1alpha2.Tool, 0, len(rmsNames))
-	for _, n := range rmsNames {
-		tools = append(tools, &v1alpha2.Tool{
-			McpServer: &v1alpha2.McpServerTool{
-				TypedReference: v1alpha2.TypedReference{
-					ApiGroup: "kagent.dev",
-					Kind:     "RemoteMCPServer",
-					Name:     n,
-				},
-			},
-		})
-	}
-	return &v1alpha2.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "demo-agent", Namespace: namespace},
-		Spec: v1alpha2.AgentSpec{
-			Declarative: &v1alpha2.DeclarativeAgentSpec{Tools: tools},
-		},
-	}
-}
-
-func TestRewriteHTTPSForEgress(t *testing.T) {
-	// rmsHosts mirrors the map collectRMSHosts would build: each entry's key is
-	// an RMS's spec.url string (verbatim — same string the translator emits as
-	// the tool URL), and the value is the RMS's effective tls-aware host:port.
-	// For the last entry the spec.url is scheme-less and port-less but spec.tls
-	// is set, so the effective is :443.
-	allRMSHosts := map[string]string{
-		"https://api.githubcopilot.com/mcp/":     "api.githubcopilot.com:443",
-		"https://host.docker.internal:13443/mcp": "host.docker.internal:13443",
-		"https://api.example.com/v1?token=x":     "api.example.com:443",
-		"https://[2001:db8::1]:8443/v1":          "[2001:db8::1]:8443",
-		"https://[2001:db8::1]/v1":               "[2001:db8::1]:443",
-		"http://kagent-tools.kagent:8084/mcp":    "kagent-tools.kagent:8084",
-		"host.docker.internal:13443/mcp":         "host.docker.internal:13443",
-		"tls-svc.example.com/mcp":                "tls-svc.example.com:443",
-	}
-	cases := []struct {
-		name     string
-		in       string
-		rmsHosts map[string]string
-		want     string
-	}{
-		{"https matched and rewritten to effective 443", "https://api.githubcopilot.com/mcp/", allRMSHosts, "http://api.githubcopilot.com:443/mcp/"},
-		{"https with explicit port preserved", "https://host.docker.internal:13443/mcp", allRMSHosts, "http://host.docker.internal:13443/mcp"},
-		{"http matched stays plaintext on its port", "http://kagent-tools.kagent:8084/mcp", allRMSHosts, "http://kagent-tools.kagent:8084/mcp"},
-		{"query string preserved", "https://api.example.com/v1?token=x", allRMSHosts, "http://api.example.com:443/v1?token=x"},
-		{"unrecognized url left alone", "not-a-url", allRMSHosts, "not-a-url"},
-		{"ipv6 literal preserves brackets", "https://[2001:db8::1]:8443/v1", allRMSHosts, "http://[2001:db8::1]:8443/v1"},
-		{"ipv6 literal default port", "https://[2001:db8::1]/v1", allRMSHosts, "http://[2001:db8::1]:443/v1"},
-		{"url not in rms map left alone", "https://stray.example.com/mcp", allRMSHosts, "https://stray.example.com/mcp"},
-		{"empty rms set leaves https untouched", "https://api.example.com/v1", map[string]string{}, "https://api.example.com/v1"},
-		{"scheme-less matched with explicit port", "host.docker.internal:13443/mcp", allRMSHosts, "http://host.docker.internal:13443/mcp"},
-		{"scheme-less port-less rewrites to effective tls port", "tls-svc.example.com/mcp", allRMSHosts, "http://tls-svc.example.com:443/mcp"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, rewriteHTTPSForEgress(c.in, c.rmsHosts))
-		})
-	}
-}
-
-func TestRewriteDialURL(t *testing.T) {
+func TestRewriteURL(t *testing.T) {
 	rmsWith := func(url string, tls *v1alpha2.TLSConfig) *v1alpha2.RemoteMCPServer {
 		return &v1alpha2.RemoteMCPServer{Spec: v1alpha2.RemoteMCPServerSpec{URL: url, TLS: tls}}
 	}
@@ -122,7 +39,7 @@ func TestRewriteDialURL(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, RewriteDialURL(c.rms))
+			assert.Equal(t, c.want, RewriteURL(c.rms))
 		})
 	}
 }
@@ -158,113 +75,6 @@ func TestNormalizedHostPort(t *testing.T) {
 			assert.Equal(t, c.want, normalizedHostPort(c.rms))
 		})
 	}
-}
-
-// httpToolURLs/sseToolURLs read back the tool URLs the rewrite mutated in place.
-func httpToolURL(cfg *adk.AgentConfig) string { return cfg.HttpTools[0].Params.Url }
-func sseToolURL(cfg *adk.AgentConfig) string  { return cfg.SseTools[0].Params.Url }
-
-func newConfig(httpURL, sseURL string) *adk.AgentConfig {
-	return &adk.AgentConfig{
-		Model: &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
-		HttpTools: []adk.HttpMcpServerConfig{
-			{Params: adk.StreamableHTTPConnectionParams{Url: httpURL}},
-		},
-		SseTools: []adk.SseMcpServerConfig{
-			{Params: adk.SseConnectionParams{Url: sseURL}},
-		},
-	}
-}
-
-func TestRewriteConfigForAgent(t *testing.T) {
-	const ns = "egress-test"
-	ctx := context.Background()
-
-	t.Run("rewrites RMS-backed http and SSE tool URLs", func(t *testing.T) {
-		httpRMS := newRMS("github-copilot", ns, "https://api.githubcopilot.com/mcp/")
-		sseRMS := newRMS("sse-svc", ns, "https://sse.example.com:8443/events")
-		agent := newAgentWithRMSTools(ns, "github-copilot", "sse-svc")
-
-		cfg := newConfig("https://api.githubcopilot.com/mcp/", "https://sse.example.com:8443/events")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(httpRMS, sseRMS), agent, cfg))
-
-		assert.Equal(t, "http://api.githubcopilot.com:443/mcp/", httpToolURL(cfg))
-		assert.Equal(t, "http://sse.example.com:8443/events", sseToolURL(cfg))
-	})
-
-	t.Run("https URL with no matching RMS ref is left untouched", func(t *testing.T) {
-		// Models the globalProxyURL=https edge case: the URL is https but no
-		// RMS spec.URL matches its host:port, so it must NOT be rewritten.
-		rms := newRMS("github-copilot", ns, "https://api.githubcopilot.com/mcp/")
-		agent := newAgentWithRMSTools(ns, "github-copilot")
-
-		cfg := newConfig("https://internal-proxy.example.com/v1/foo", "https://api.githubcopilot.com/mcp/")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(rms), agent, cfg))
-
-		assert.Equal(t, "https://internal-proxy.example.com/v1/foo", httpToolURL(cfg), "non-RMS URL must not be rewritten")
-		assert.Equal(t, "http://api.githubcopilot.com:443/mcp/", sseToolURL(cfg), "RMS-matched URL must be rewritten")
-	})
-
-	t.Run("http URLs left alone (plaintext in-cluster RMSs)", func(t *testing.T) {
-		rms1 := newRMS("kagent-tools", ns, "http://kagent-tools.kagent:8084/mcp")
-		rms2 := newRMS("kagent-grafana-mcp", ns, "http://kagent-grafana-mcp.kagent:8000/mcp")
-		agent := newAgentWithRMSTools(ns, "kagent-tools", "kagent-grafana-mcp")
-
-		cfg := newConfig("http://kagent-tools.kagent:8084/mcp", "http://kagent-grafana-mcp.kagent:8000/mcp")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(rms1, rms2), agent, cfg))
-
-		assert.Equal(t, "http://kagent-tools.kagent:8084/mcp", httpToolURL(cfg))
-		assert.Equal(t, "http://kagent-grafana-mcp.kagent:8000/mcp", sseToolURL(cfg))
-	})
-
-	t.Run("agent with no RMS tool refs is a no-op (skill-only / MCPServer-only)", func(t *testing.T) {
-		agent := &v1alpha2.Agent{
-			ObjectMeta: metav1.ObjectMeta{Name: "demo-agent", Namespace: ns},
-			Spec:       v1alpha2.AgentSpec{Declarative: &v1alpha2.DeclarativeAgentSpec{}},
-		}
-		cfg := newConfig("https://api.githubcopilot.com/mcp/", "https://sse.example.com:8443/events")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(), agent, cfg))
-
-		assert.Equal(t, "https://api.githubcopilot.com/mcp/", httpToolURL(cfg))
-		assert.Equal(t, "https://sse.example.com:8443/events", sseToolURL(cfg))
-	})
-
-	t.Run("missing RMS (NotFound) is silently skipped, others still rewrite", func(t *testing.T) {
-		rms := newRMS("github-copilot", ns, "https://api.githubcopilot.com/mcp/")
-		agent := newAgentWithRMSTools(ns, "github-copilot", "missing-rms")
-
-		cfg := newConfig("https://api.githubcopilot.com/mcp/", "https://api.githubcopilot.com/mcp/")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(rms), agent, cfg))
-
-		assert.Equal(t, "http://api.githubcopilot.com:443/mcp/", httpToolURL(cfg))
-		assert.Equal(t, "http://api.githubcopilot.com:443/mcp/", sseToolURL(cfg))
-	})
-
-	t.Run("scheme-less + TLS RMS rewrites tool URLs to the effective 443", func(t *testing.T) {
-		// spec.url is scheme-less and port-less but spec.tls is set (any
-		// non-nil pointer, including the empty struct, is the TLS opt-in
-		// signal per the CRD-validated contract), so the effective upstream
-		// port is 443. The agent's tool URLs and the controller's dial must
-		// both resolve to http://host:443.
-		rms := &v1alpha2.RemoteMCPServer{
-			ObjectMeta: metav1.ObjectMeta{Name: "tls-svc", Namespace: ns},
-			Spec:       v1alpha2.RemoteMCPServerSpec{URL: "tls-svc.example.com/mcp", TLS: &v1alpha2.TLSConfig{}},
-		}
-		agent := newAgentWithRMSTools(ns, "tls-svc")
-
-		cfg := newConfig("tls-svc.example.com/mcp", "tls-svc.example.com/mcp")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(rms), agent, cfg))
-
-		assert.Equal(t, "http://tls-svc.example.com:443/mcp", httpToolURL(cfg))
-		assert.Equal(t, "http://tls-svc.example.com:443/mcp", sseToolURL(cfg))
-		// The dial path resolves the same RMS to the identical endpoint.
-		assert.Equal(t, "http://tls-svc.example.com:443/mcp", RewriteDialURL(rms))
-	})
-
-	t.Run("nil config is a no-op", func(t *testing.T) {
-		agent := newAgentWithRMSTools(ns, "github-copilot")
-		assert.NoError(t, RewriteConfigForAgent(ctx, newFakeClient(), agent, nil))
-	})
 }
 
 func TestParseRemoteMCPServerURL(t *testing.T) {

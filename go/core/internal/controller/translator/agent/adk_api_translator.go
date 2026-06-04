@@ -191,11 +191,11 @@ type adkApiTranslator struct {
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
 	sandboxBackend     sandboxbackend.Backend
-	// mcpEgressPlaintext, when true, rewrites RMS-backed tool URLs in the
-	// AgentConfig to their plaintext form during the config-phase
-	// (before the config-hash is computed). Mirrors the controller's tool-
-	// discovery dial rewrite at reconciler.go so the agent and the
-	// controller probe the same endpoint when the egress feature is on.
+	// mcpEgressPlaintext, when true, makes the tool translation emit an
+	// external RemoteMCPServer's URL in plaintext form (egress.RewriteURL)
+	// instead of verbatim. The controller's tool-discovery dial calls the same
+	// egress.RewriteURL on the same RMS, so the agent and the controller probe
+	// the same endpoint when the egress feature is on.
 	mcpEgressPlaintext bool
 }
 
@@ -832,7 +832,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -840,13 +840,17 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	// Agent headers override tool headers
 	maps.Copy(headers, agentHeaders)
 
-	// If proxy is configured, use proxy URL and set header for Gateway API routing
+	// Proxy and egress are mutually exclusive (decided by the caller): a proxy
+	// URL routes through the Gateway API; an egress rewrite downgrades the URL
+	// to plaintext so traffic egresses to a TLS-originating proxy.
 	targetURL := server.Spec.URL
 	if proxyURL != "" {
 		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
+	} else if egressRewrite {
+		targetURL = egress.RewriteURL(server)
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -867,7 +871,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.SseConnectionParams, error) {
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -875,13 +879,17 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	// Agent headers override tool headers
 	maps.Copy(headers, agentHeaders)
 
-	// If proxy is configured, use proxy URL and set header for Gateway API routing
+	// Proxy and egress are mutually exclusive (decided by the caller): a proxy
+	// URL routes through the Gateway API; an egress rewrite downgrades the URL
+	// to plaintext so traffic egresses to a TLS-originating proxy.
 	targetURL := server.Spec.URL
 	if proxyURL != "" {
 		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
+	} else if egressRewrite {
+		targetURL = egress.RewriteURL(server)
 	}
 
 	params := &adk.SseConnectionParams{
@@ -929,7 +937,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return nil, err
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, false)
 
 	case schema.GroupKind{
 		Group: "",
@@ -948,14 +956,20 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return nil, err
 		}
 
-		// RemoteMCPServer uses user-supplied URLs, but if the URL points to an internal k8s service,
-		// apply proxy to route through the gateway
+		// RemoteMCPServer uses user-supplied URLs. An internal k8s URL routes
+		// through the gateway proxy; otherwise, when the egress gate is on, the
+		// external upstream is rewritten to its plaintext form so traffic
+		// egresses to a TLS-originating proxy. The two are mutually exclusive:
+		// proxy wins for internal URLs.
 		proxyURL := ""
+		egressRewrite := false
 		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
 			proxyURL = a.globalProxyURL
+		} else if a.mcpEgressPlaintext {
+			egressRewrite = true
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, egressRewrite)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -978,16 +992,16 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 			return nil, err
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, false)
 	default:
 		return nil, fmt.Errorf("unknown tool server type: %s", gvk)
 	}
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
 	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
+		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
 			return nil, err
 		}
@@ -998,7 +1012,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	default:
-		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
+		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
 			return nil, err
 		}
@@ -1558,18 +1572,6 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentO
 		}
 	}
 	return errs
-}
-
-// applyEgressRewriteIfEnabled runs the in-line config-phase egress URL
-// rewrite when the egress feature flag is on. Called before the config
-// Secret is serialized so the rewrite is captured by the config-hash and
-// rolls the pod when the flag is toggled. cfg is nil for agents with no
-// config (e.g. BYO), in which case there is nothing to rewrite.
-func (a *adkApiTranslator) applyEgressRewriteIfEnabled(ctx context.Context, agent v1alpha2.AgentObject, cfg *adk.AgentConfig) error {
-	if !a.mcpEgressPlaintext || cfg == nil {
-		return nil
-	}
-	return egress.RewriteConfigForAgent(ctx, a.kube, agent, cfg)
 }
 
 // allowPrivilegeEscalationExplicitlyFalse reports whether the security context
