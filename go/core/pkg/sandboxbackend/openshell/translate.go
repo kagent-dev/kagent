@@ -78,6 +78,14 @@ func phaseToCondition(sb *openshellv1.Sandbox) (metav1.ConditionStatus, string, 
 	case openshellv1.SandboxPhase_SANDBOX_PHASE_DELETING:
 		return metav1.ConditionFalse, "SandboxDeleting", msg
 	case openshellv1.SandboxPhase_SANDBOX_PHASE_UNKNOWN, openshellv1.SandboxPhase_SANDBOX_PHASE_UNSPECIFIED:
+		// Gateway may omit the phase field (NVIDIA/OpenShell#1710).
+		// Fall back to status.conditions so an older gateway does not
+		// permanently block AgentHarness readiness.
+		for _, c := range sb.GetStatus().GetConditions() {
+			if c.GetType() == "Ready" && c.GetStatus() == "True" {
+				return metav1.ConditionTrue, "SandboxReady", msg
+			}
+		}
 		return metav1.ConditionUnknown, "SandboxPhaseUnknown", msg
 	default:
 		return metav1.ConditionUnknown, "SandboxPhaseUnrecognized", fmt.Sprintf("unrecognized phase %s", sb.GetPhase())
