@@ -124,7 +124,7 @@ func validateExtraContainers(containers []corev1.Container) error {
 
 func resolvePythonRuntimeImage(registry string) (string, error) {
 	repo := DefaultImageConfig.Repository
-	if d := normalizeImageDigest(DefaultAppImageDigest); d != "" {
+	if d := normalizeImageDigest(PythonADKImageDigest); d != "" {
 		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
 	}
 	return "", fmt.Errorf(
@@ -134,10 +134,10 @@ func resolvePythonRuntimeImage(registry string) (string, error) {
 
 func resolveGoRuntimeImage(registry string, full bool) (string, error) {
 	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
-	digest := DefaultGoImageDigest
+	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
 	if full {
-		digest = DefaultGoFullImageDigest
+		digest = GoADKFullImageDigest
 		imageLabel = "golang-adk-full"
 	}
 	if d := normalizeImageDigest(digest); d != "" {

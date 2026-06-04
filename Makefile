@@ -245,7 +245,6 @@ build-controller: ## Build and push the controller image (embeds agent runtime d
 build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
-		TRANSLATOR_PKG=github.com/$(DOCKER_REPO)/go/core/internal/controller/translator/agent \
 		APP_IMG=$(APP_IMG) \
 		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
 		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
@@ -565,5 +564,4 @@ prune-images: ## Remove old kagent images and dangling images from the local dae
 	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
 	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
 	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-
 

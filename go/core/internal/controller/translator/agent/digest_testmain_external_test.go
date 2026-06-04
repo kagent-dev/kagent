@@ -8,8 +8,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	translator.DefaultAppImageDigest = "sha256:test-app"
-	translator.DefaultGoImageDigest = "sha256:test-go-base"
-	translator.DefaultGoFullImageDigest = "sha256:test-go-full"
+	translator.PythonADKImageDigest = "sha256:test-app"
+	translator.GoADKImageDigest = "sha256:test-go-base"
+	translator.GoADKFullImageDigest = "sha256:test-go-full"
 	os.Exit(m.Run())
 }

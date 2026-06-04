@@ -2,7 +2,6 @@
 # Emit -X ldflags for agent runtime image digests baked into the controller binary.
 #
 # Required environment variables:
-#   TRANSLATOR_PKG  Go import path for the translator agent package
 #   APP_IMG         Python agent runtime image ref (repo:tag)
 #   GOLANG_ADK_IMG  Go agent runtime image ref (repo:tag)
 #   GOLANG_ADK_FULL_IMG  Go agent full runtime image ref (repo:tag)
@@ -14,8 +13,8 @@ set -o errexit
 set -o pipefail
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+TRANSLATOR_PKG="github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 
-: "${TRANSLATOR_PKG:?TRANSLATOR_PKG is required}"
 : "${APP_IMG:?APP_IMG is required}"
 : "${GOLANG_ADK_IMG:?GOLANG_ADK_IMG is required}"
 : "${GOLANG_ADK_FULL_IMG:?GOLANG_ADK_FULL_IMG is required}"
@@ -36,6 +35,6 @@ append_digest_ldflag() {
 	printf ' -X %s.%s=%s' "${TRANSLATOR_PKG}" "${go_var}" "${digest}"
 }
 
-append_digest_ldflag "DefaultAppImageDigest" "${APP_IMG}"
-append_digest_ldflag "DefaultGoImageDigest" "${GOLANG_ADK_IMG}"
-append_digest_ldflag "DefaultGoFullImageDigest" "${GOLANG_ADK_FULL_IMG}"
+append_digest_ldflag "PythonADKImageDigest" "${APP_IMG}"
+append_digest_ldflag "GoADKImageDigest" "${GOLANG_ADK_IMG}"
+append_digest_ldflag "GoADKFullImageDigest" "${GOLANG_ADK_FULL_IMG}"

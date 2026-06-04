@@ -6,35 +6,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImageConfigPinnedImage(t *testing.T) {
-	cfg := ImageConfig{
-		Registry:   "localhost:5001",
-		Repository: "kagent-dev/kagent/app",
-		Tag:        "v1.0.0",
-		Digest:     "sha256:abc123",
-	}
-	require.Equal(t, "localhost:5001/kagent-dev/kagent/app@sha256:abc123", cfg.PinnedImage())
-	require.Equal(t, "localhost:5001/kagent-dev/kagent/app:v1.0.0", cfg.Image())
-}
-
-func TestImageConfigPinnedImageWithoutDigest(t *testing.T) {
+func TestImageConfigImage(t *testing.T) {
 	cfg := ImageConfig{
 		Registry:   "cr.kagent.dev",
 		Repository: "kagent-dev/kagent/app",
 		Tag:        "v1.0.0",
 	}
-	require.Equal(t, cfg.Image(), cfg.PinnedImage())
+	require.Equal(t, "cr.kagent.dev/kagent-dev/kagent/app:v1.0.0", cfg.Image())
 }
 
 func TestResolveGoRuntimeImageWithDigest(t *testing.T) {
-	originalBase := DefaultGoImageDigest
-	originalFull := DefaultGoFullImageDigest
+	originalBase := GoADKImageDigest
+	originalFull := GoADKFullImageDigest
 	t.Cleanup(func() {
-		DefaultGoImageDigest = originalBase
-		DefaultGoFullImageDigest = originalFull
+		GoADKImageDigest = originalBase
+		GoADKFullImageDigest = originalFull
 	})
-	DefaultGoImageDigest = "sha256:go-base"
-	DefaultGoFullImageDigest = "sha256:go-full"
+	GoADKImageDigest = "sha256:go-base"
+	GoADKFullImageDigest = "sha256:go-full"
 
 	got, err := resolveGoRuntimeImage("localhost:5001", false)
 	require.NoError(t, err)
@@ -46,14 +35,14 @@ func TestResolveGoRuntimeImageWithDigest(t *testing.T) {
 }
 
 func TestResolveGoRuntimeImageWithoutDigest(t *testing.T) {
-	originalBase := DefaultGoImageDigest
-	originalFull := DefaultGoFullImageDigest
+	originalBase := GoADKImageDigest
+	originalFull := GoADKFullImageDigest
 	t.Cleanup(func() {
-		DefaultGoImageDigest = originalBase
-		DefaultGoFullImageDigest = originalFull
+		GoADKImageDigest = originalBase
+		GoADKFullImageDigest = originalFull
 	})
-	DefaultGoImageDigest = ""
-	DefaultGoFullImageDigest = ""
+	GoADKImageDigest = ""
+	GoADKFullImageDigest = ""
 
 	_, err := resolveGoRuntimeImage("localhost:5001", false)
 	require.Error(t, err)
@@ -65,34 +54,34 @@ func TestResolveGoRuntimeImageWithoutDigest(t *testing.T) {
 }
 
 func TestResolvePythonRuntimeImageWithDigest(t *testing.T) {
-	original := DefaultAppImageDigest
+	original := PythonADKImageDigest
 	t.Cleanup(func() {
-		DefaultAppImageDigest = original
+		PythonADKImageDigest = original
 	})
-	DefaultAppImageDigest = "sha256:app-digest"
+	PythonADKImageDigest = "sha256:app-digest"
 
 	got, err := resolvePythonRuntimeImage("cr.kagent.dev")
 	require.NoError(t, err)
 	require.Equal(t, "cr.kagent.dev/kagent-dev/kagent/app@sha256:app-digest", got)
 }
 
-func TestDefaultAppImageDigestSupportsLinkerFlag(t *testing.T) {
-	// DefaultAppImageDigest must be a package-level string var (not a struct field) so
-	// scripts/controller-digest-ldflags.sh can inject it via -ldflags -X at controller build time.
-	original := DefaultAppImageDigest
+func TestPythonADKImageDigestSupportsLinkerFlag(t *testing.T) {
+	// PythonADKImageDigest must be a package-level string var so
+	// scripts/controller-digest-ldflags.sh can inject it via -ldflags -X.
+	original := PythonADKImageDigest
 	t.Cleanup(func() {
-		DefaultAppImageDigest = original
+		PythonADKImageDigest = original
 	})
-	DefaultAppImageDigest = "sha256:link-time-check"
-	require.Equal(t, "sha256:link-time-check", DefaultAppImageDigest)
+	PythonADKImageDigest = "sha256:link-time-check"
+	require.Equal(t, "sha256:link-time-check", PythonADKImageDigest)
 }
 
 func TestResolvePythonRuntimeImageWithoutDigest(t *testing.T) {
-	original := DefaultAppImageDigest
+	original := PythonADKImageDigest
 	t.Cleanup(func() {
-		DefaultAppImageDigest = original
+		PythonADKImageDigest = original
 	})
-	DefaultAppImageDigest = ""
+	PythonADKImageDigest = ""
 
 	_, err := resolvePythonRuntimeImage("cr.kagent.dev")
 	require.Error(t, err)

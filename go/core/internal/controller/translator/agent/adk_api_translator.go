@@ -77,7 +77,6 @@ func NewValidationError(format string, args ...any) error {
 type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
-	Digest     string `json:"digest,omitempty"` // OCI manifest digest (sha256:...), set at link time
 	PullPolicy string `json:"pullPolicy,omitempty"`
 	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
@@ -86,14 +85,6 @@ type ImageConfig struct {
 // Image returns the fully qualified image reference (registry/repository:tag).
 func (c ImageConfig) Image() string {
 	return fmt.Sprintf("%s/%s:%s", c.Registry, c.Repository, c.Tag)
-}
-
-// PinnedImage returns registry/repository@sha256:... when Digest is set, otherwise Image().
-func (c ImageConfig) PinnedImage() string {
-	if digest := normalizeImageDigest(c.Digest); digest != "" {
-		return fmt.Sprintf("%s/%s@%s", c.Registry, c.Repository, digest)
-	}
-	return c.Image()
 }
 
 func normalizeImageDigest(digest string) string {
@@ -115,14 +106,11 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-// DefaultAppImageDigest is set at controller link time from the pushed app (Python runtime) manifest digest.
-// Use a package-level string (not DefaultImageConfig.Digest) so -ldflags -X can inject it at link time.
-var DefaultAppImageDigest string
-
-// DefaultGoImageDigest and DefaultGoFullImageDigest are set at controller link time
-// from the pushed golang-adk / golang-adk-full manifest digests.
-var DefaultGoImageDigest string
-var DefaultGoFullImageDigest string
+// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
+// controller link time from the pushed runtime image manifest digests.
+var PythonADKImageDigest string
+var GoADKImageDigest string
+var GoADKFullImageDigest string
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.

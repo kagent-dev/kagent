@@ -18,22 +18,22 @@ import (
 
 func withGoRuntimeDigests(t *testing.T) {
 	t.Helper()
-	originalBase := translator.DefaultGoImageDigest
-	originalFull := translator.DefaultGoFullImageDigest
-	translator.DefaultGoImageDigest = "sha256:test-go-base"
-	translator.DefaultGoFullImageDigest = "sha256:test-go-full"
+	originalBase := translator.GoADKImageDigest
+	originalFull := translator.GoADKFullImageDigest
+	translator.GoADKImageDigest = "sha256:test-go-base"
+	translator.GoADKFullImageDigest = "sha256:test-go-full"
 	t.Cleanup(func() {
-		translator.DefaultGoImageDigest = originalBase
-		translator.DefaultGoFullImageDigest = originalFull
+		translator.GoADKImageDigest = originalBase
+		translator.GoADKFullImageDigest = originalFull
 	})
 }
 
 func withPythonRuntimeDigest(t *testing.T) {
 	t.Helper()
-	original := translator.DefaultAppImageDigest
-	translator.DefaultAppImageDigest = "sha256:test-app"
+	original := translator.PythonADKImageDigest
+	translator.PythonADKImageDigest = "sha256:test-app"
 	t.Cleanup(func() {
-		translator.DefaultAppImageDigest = original
+		translator.PythonADKImageDigest = original
 	})
 }
 
