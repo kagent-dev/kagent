@@ -16,6 +16,12 @@ func GatewayProviderRecordName(provider v1alpha2.ModelProvider) string {
 	return strings.ToLower(string(provider))
 }
 
+// InferenceProviderName returns the OpenShell provider name used to attach LLM credentials to a sandbox.
+// This name is stable and unique per (sandbox, provider) pair.
+func InferenceProviderName(sandboxName string, provider v1alpha2.ModelProvider) string {
+	return fmt.Sprintf("%s-inference-%s", sandboxName, GatewayProviderRecordName(provider))
+}
+
 // ResolveModelConfigAPIKey reads the API key from the Secret referenced by ModelConfig.
 func ResolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha2.ModelConfig) (string, error) {
 	if mc.Spec.APIKeyPassthrough {

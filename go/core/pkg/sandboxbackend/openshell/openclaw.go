@@ -50,7 +50,46 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	if res, found, err := b.findExistingSandbox(ctx, ah); err != nil || found {
 		return res, err
 	}
-	return b.ensureAgentHarnessSandbox(ctx, ah, buildClawCreateRequest)
+
+	// Upsert the inference provider so the OpenShell proxy can resolve
+	// openshell:resolve:env:<VAR> placeholders in LLM Authorization headers.
+	// The real API key lives only in the OpenShell provider record; the sandbox
+	// process env never receives it directly.
+	inferenceProviderName, err := b.upsertInferenceProviderForHarness(ctx, ah)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to upsert inference provider; LLM credential resolution may fail",
+			"agentHarness", ah.Namespace+"/"+ah.Name)
+		// non-fatal: proceed so harness creation is not blocked by a transient key-lookup failure
+		inferenceProviderName = ""
+	}
+
+	builder := func(ah *v1alpha2.AgentHarness, msgProviders []string) (*openshellv1.CreateSandboxRequest, []string) {
+		req, unsupported := buildClawCreateRequest(ah, msgProviders)
+		if inferenceProviderName != "" {
+			attachMessagingProviders(req, []string{inferenceProviderName})
+		}
+		return req, unsupported
+	}
+
+	return b.ensureAgentHarnessSandbox(ctx, ah, builder)
+}
+
+// upsertInferenceProviderForHarness fetches the ModelConfig referenced by the harness and upserts
+// an OpenShell provider carrying the LLM credentials. Returns "" when no modelConfigRef is set.
+func (b *ClawBackend) upsertInferenceProviderForHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (string, error) {
+	ref := strings.TrimSpace(ah.Spec.ModelConfigRef)
+	if ref == "" {
+		return "", nil
+	}
+	modelConfigRef, err := utils.ParseRefString(ref, ah.Namespace)
+	if err != nil {
+		return "", fmt.Errorf("parse modelConfigRef: %w", err)
+	}
+	mc := &v1alpha2.ModelConfig{}
+	if err := b.kubeClient.Get(ctx, modelConfigRef, mc); err != nil {
+		return "", fmt.Errorf("get ModelConfig: %w", err)
+	}
+	return UpsertInferenceProvider(ctx, b.clients, b.kubeClient, ah, mc)
 }
 
 const defaultOpenclawGatewayPort = 18800

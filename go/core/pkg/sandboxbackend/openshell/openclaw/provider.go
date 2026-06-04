@@ -7,6 +7,12 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
+// BootstrapProviderBaseURL returns the LLM base URL from the ModelConfig, falling back to DefaultInferenceBaseURL.
+// Exported so the openshell package can include it in the OpenShell provider credentials.
+func BootstrapProviderBaseURL(mc *v1alpha2.ModelConfig) string {
+	return bootstrapProviderBaseURL(mc)
+}
+
 func bootstrapProviderBaseURL(mc *v1alpha2.ModelConfig) string {
 	switch mc.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:

@@ -7,9 +7,12 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/openshell/gen/datamodelv1"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/channels"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const genericProviderType = "generic"
@@ -85,4 +88,45 @@ func messagingDefsToGateway(defs []channels.MessagingProviderDef) []GatewayProvi
 		})
 	}
 	return out
+}
+
+// UpsertInferenceProvider registers an OpenShell provider carrying the LLM credentials
+// (API key, base URL) for the given AgentHarness + ModelConfig pair. Attaching this
+// provider to the sandbox allows the OpenShell proxy to resolve
+// openshell:resolve:env:<VAR> placeholders in Authorization headers at request time,
+// so the real API key is never stored in the sandbox process environment.
+// Returns the provider name to include in CreateSandboxRequest.spec.providers.
+func UpsertInferenceProvider(
+	ctx context.Context,
+	oc *OpenShellClients,
+	kube client.Client,
+	ah *v1alpha2.AgentHarness,
+	mc *v1alpha2.ModelConfig,
+) (string, error) {
+	if oc == nil || oc.OpenShell == nil {
+		return "", fmt.Errorf("openshell: OpenShell client is required for inference provider")
+	}
+	apiKey, err := openclaw.ResolveModelConfigAPIKey(ctx, kube, mc)
+	if err != nil {
+		return "", fmt.Errorf("resolve model API key: %w", err)
+	}
+	apiKeyEnv := openclaw.DefaultAPIKeyEnvVar(mc.Spec.Provider)
+	sandboxName := agentHarnessGatewayName(ah)
+	providerName := openclaw.InferenceProviderName(sandboxName, mc.Spec.Provider)
+
+	creds := map[string]string{
+		apiKeyEnv: apiKey,
+	}
+	if baseURL := openclaw.BootstrapProviderBaseURL(mc); baseURL != "" {
+		creds["OPENAI_BASE_URL"] = baseURL
+	}
+
+	if err := UpsertGatewayProvider(ctx, oc.OpenShell, GatewayProviderDef{
+		Name:        providerName,
+		Type:        genericProviderType,
+		Credentials: creds,
+	}); err != nil {
+		return "", fmt.Errorf("upsert inference provider %s: %w", providerName, err)
+	}
+	return providerName, nil
 }
