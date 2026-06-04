@@ -20,7 +20,7 @@ TRANSLATOR_PKG="github.com/kagent-dev/kagent/go/core/internal/controller/transla
 : "${GOLANG_ADK_FULL_IMG:?GOLANG_ADK_FULL_IMG is required}"
 
 image_digest() {
-	"${CONTAINER_RUNTIME}" buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}' 2>/dev/null || true
+	"${CONTAINER_RUNTIME}" buildx imagetools inspect "$1" 2>/dev/null | awk '/^Digest:[[:space:]]+sha256:/ { print $2; exit }'
 }
 
 append_digest_ldflag() {
