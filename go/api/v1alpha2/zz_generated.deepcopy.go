@@ -727,6 +727,11 @@ func (in *ByoDeploymentSpec) DeepCopyInto(out *ByoDeploymentSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.WorkingDir != nil {
+		in, out := &in.WorkingDir, &out.WorkingDir
+		*out = new(string)
+		**out = **in
+	}
 	in.SharedDeploymentSpec.DeepCopyInto(&out.SharedDeploymentSpec)
 }
 

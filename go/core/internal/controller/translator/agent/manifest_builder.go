@@ -492,6 +492,11 @@ func buildPodTemplate(
 		cmd = []string{dep.Cmd}
 	}
 
+	var workingDir string
+	if dep.WorkingDir != nil {
+		workingDir = *dep.WorkingDir
+	}
+
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      manifestCtx.podLabels(),
@@ -508,6 +513,7 @@ func buildPodTemplate(
 				ImagePullPolicy: dep.ImagePullPolicy,
 				Command:         cmd,
 				Args:            dep.Args,
+				WorkingDir:      workingDir,
 				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 				Resources:       dep.Resources,
 				Env:             runtimeInputs.envVars,

@@ -358,6 +358,9 @@ type ByoDeploymentSpec struct {
 	// Args are the arguments passed to the container entrypoint.
 	// +optional
 	Args []string `json:"args,omitempty"`
+	// workingDir sets the container working directory. Defaults to the image WORKDIR when omitted.
+	// +optional
+	WorkingDir *string `json:"workingDir,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
 }
