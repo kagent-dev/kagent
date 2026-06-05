@@ -2465,9 +2465,15 @@ spec:
                 - message: selector must be specified when from is Selector
                   rule: '!(self.from == ''Selector'' && !has(self.selector))'
               byo:
+                description: |-
+                  BYO configures a "bring your own" agent backed by a user-provided
+                  container image. Kagent deploys the image and expects it to serve the
+                  agent over the A2A protocol on port 8080.
+                  Required if type is BYO.
                 properties:
                   deployment:
-                    description: Trust relationship to the agent.
+                    description: Deployment configures the Kubernetes Deployment created
+                      for the BYO agent container.
                     properties:
                       affinity:
                         description: Affinity is a group of affinity scheduling rules.
@@ -3396,14 +3402,22 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
+                        description: Annotations are additional annotations added
+                          to the agent pods.
                         type: object
                       args:
+                        description: Args are the arguments passed to the container
+                          entrypoint.
                         items:
                           type: string
                         type: array
                       cmd:
+                        description: Cmd overrides the container entrypoint (the container's
+                          command).
                         type: string
                       env:
+                        description: Env are additional environment variables set
+                          on the agent container.
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -5100,6 +5114,9 @@ spec:
                           type: object
                         type: array
                       image:
+                        description: |-
+                          Image is the container image of the BYO agent.
+                          The image is expected to serve the agent over the A2A protocol on port 8080.
                         minLength: 1
                         type: string
                       imagePullPolicy:
@@ -5107,6 +5124,9 @@ spec:
                           pull a container image
                         type: string
                       imagePullSecrets:
+                        description: |-
+                          ImagePullSecrets are references to secrets in the agent's namespace
+                          used for pulling the agent container image.
                         items:
                           description: |-
                             LocalObjectReference contains enough information to let you locate the
@@ -5127,10 +5147,14 @@ spec:
                       labels:
                         additionalProperties:
                           type: string
+                        description: Labels are additional labels added to the agent
+                          pods.
                         type: object
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: NodeSelector restricts the nodes the agent pods
+                          can be scheduled on.
                         type: object
                       podSecurityContext:
                         description: |-
@@ -5369,6 +5393,8 @@ spec:
                             type: object
                         type: object
                       replicas:
+                        description: Replicas is the number of desired agent pods.
+                          Defaults to 1.
                         format: int32
                         type: integer
                       resources:
@@ -5635,10 +5661,14 @@ spec:
                           annotations:
                             additionalProperties:
                               type: string
+                            description: Annotations are additional annotations added
+                              to the created ServiceAccount.
                             type: object
                           labels:
                             additionalProperties:
                               type: string
+                            description: Labels are additional labels added to the
+                              created ServiceAccount.
                             type: object
                         type: object
                       serviceAccountName:
@@ -5648,6 +5678,7 @@ spec:
                           This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
+                        description: Tolerations applied to the agent pods.
                         items:
                           description: |-
                             The pod this Toleration is attached to tolerates any taint that matches
@@ -5687,6 +5718,8 @@ spec:
                           type: object
                         type: array
                       volumeMounts:
+                        description: VolumeMounts are additional volume mounts added
+                          to the agent container.
                         items:
                           description: VolumeMount describes a mounting of a Volume
                             within a container.
@@ -5750,6 +5783,8 @@ spec:
                           type: object
                         type: array
                       volumes:
+                        description: Volumes are additional volumes added to the agent
+                          pod.
                         items:
                           description: Volume represents a named volume in a pod that
                             may be accessed by any container in the pod.
@@ -7673,6 +7708,10 @@ spec:
                       rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                 type: object
               declarative:
+                description: |-
+                  Declarative configures an agent that is fully described by this resource
+                  (model, instructions, tools) and runs on one of kagent's built-in runtimes.
+                  Required if type is Declarative.
                 properties:
                   a2aConfig:
                     description: |-
@@ -8713,8 +8752,12 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
+                        description: Annotations are additional annotations added
+                          to the agent pods.
                         type: object
                       env:
+                        description: Env are additional environment variables set
+                          on the agent container.
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -10415,6 +10458,9 @@ spec:
                           pull a container image
                         type: string
                       imagePullSecrets:
+                        description: |-
+                          ImagePullSecrets are references to secrets in the agent's namespace
+                          used for pulling the agent container image.
                         items:
                           description: |-
                             LocalObjectReference contains enough information to let you locate the
@@ -10437,10 +10483,14 @@ spec:
                       labels:
                         additionalProperties:
                           type: string
+                        description: Labels are additional labels added to the agent
+                          pods.
                         type: object
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: NodeSelector restricts the nodes the agent pods
+                          can be scheduled on.
                         type: object
                       podSecurityContext:
                         description: |-
@@ -10679,6 +10729,8 @@ spec:
                             type: object
                         type: object
                       replicas:
+                        description: Replicas is the number of desired agent pods.
+                          Defaults to 1.
                         format: int32
                         type: integer
                       resources:
@@ -10945,10 +10997,14 @@ spec:
                           annotations:
                             additionalProperties:
                               type: string
+                            description: Annotations are additional annotations added
+                              to the created ServiceAccount.
                             type: object
                           labels:
                             additionalProperties:
                               type: string
+                            description: Labels are additional labels added to the
+                              created ServiceAccount.
                             type: object
                         type: object
                       serviceAccountName:
@@ -10958,6 +11014,7 @@ spec:
                           This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
+                        description: Tolerations applied to the agent pods.
                         items:
                           description: |-
                             The pod this Toleration is attached to tolerates any taint that matches
@@ -10997,6 +11054,8 @@ spec:
                           type: object
                         type: array
                       volumeMounts:
+                        description: VolumeMounts are additional volume mounts added
+                          to the agent container.
                         items:
                           description: VolumeMount describes a mounting of a Volume
                             within a container.
@@ -11060,6 +11119,8 @@ spec:
                           type: object
                         type: array
                       volumes:
+                        description: Volumes are additional volumes added to the agent
+                          pod.
                         items:
                           description: Volume represents a named volume in a pod that
                             may be accessed by any container in the pod.

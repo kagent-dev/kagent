@@ -57,8 +57,15 @@ type AgentSpec struct {
 	// +optional
 	Type AgentType `json:"type,omitempty"`
 
+	// BYO configures a "bring your own" agent backed by a user-provided
+	// container image. Kagent deploys the image and expects it to serve the
+	// agent over the A2A protocol on port 8080.
+	// Required if type is BYO.
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
+	// Declarative configures an agent that is fully described by this resource
+	// (model, instructions, tools) and runs on one of kagent's built-in runtimes.
+	// Required if type is Declarative.
 	// +optional
 	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
 
@@ -334,17 +341,21 @@ type DeclarativeDeploymentSpec struct {
 }
 
 type BYOAgentSpec struct {
-	// Trust relationship to the agent.
+	// Deployment configures the Kubernetes Deployment created for the BYO agent container.
 	// +optional
 	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
 }
 
 type ByoDeploymentSpec struct {
+	// Image is the container image of the BYO agent.
+	// The image is expected to serve the agent over the A2A protocol on port 8080.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	Image string `json:"image,omitempty"`
+	// Cmd overrides the container entrypoint (the container's command).
 	// +optional
 	Cmd *string `json:"cmd,omitempty"`
+	// Args are the arguments passed to the container entrypoint.
 	// +optional
 	Args []string `json:"args,omitempty"`
 
@@ -353,28 +364,38 @@ type ByoDeploymentSpec struct {
 
 // +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
+	// Replicas is the number of desired agent pods. Defaults to 1.
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
+	// ImagePullSecrets are references to secrets in the agent's namespace
+	// used for pulling the agent container image.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// Volumes are additional volumes added to the agent pod.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
+	// VolumeMounts are additional volume mounts added to the agent container.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// Labels are additional labels added to the agent pods.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the agent pods.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+	// Env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Tolerations applied to the agent pods.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// NodeSelector restricts the nodes the agent pods can be scheduled on.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// +optional
@@ -399,8 +420,10 @@ type SharedDeploymentSpec struct {
 }
 
 type ServiceAccountConfig struct {
+	// Labels are additional labels added to the created ServiceAccount.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the created ServiceAccount.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
