@@ -551,7 +551,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 		substrateLifecycle = substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
-		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient)
+		atenetRouterURL := cfg.Substrate.AtenetRouterURL
+		if atenetRouterURL == "" {
+			atenetRouterURL = substrate.DefaultAtenetRouterURL
+		}
+		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, atenetRouterURL)
 		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
 		extensionCfg.SandboxBackend = sandboxbackend.NewRoutingBackend(extensionCfg.SandboxBackend, agentsSubstrate)
 	}
@@ -601,15 +605,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	if err = (&controller.SandboxAgentController{
-		Scheme:        mgr.GetScheme(),
-		Reconciler:    rcnclr,
-		AdkTranslator: apiTranslator,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
-		os.Exit(1)
-	}
-
 	kubeClient := mgr.GetClient()
 	var openshellOpenClawBackend sandboxbackend.AsyncBackend
 	var openshellHermesBackend sandboxbackend.AsyncBackend
@@ -631,15 +626,17 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			os.Exit(1)
 		}
 	}
-	if substrateAteClient != nil && substrateLifecycle != nil {
-		if err := (&controller.SubstrateSandboxAgentController{
-			Client:       kubeClient,
-			ActorBackend: substrateSandboxActorBackend,
-			Lifecycle:    substrateLifecycle,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "SubstrateSandboxAgent")
-			os.Exit(1)
-		}
+
+	if err = (&controller.SandboxAgentController{
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		Reconciler:            rcnclr,
+		AdkTranslator:         apiTranslator,
+		SubstrateLifecycle:    substrateLifecycle,
+		SubstrateActorBackend: substrateSandboxActorBackend,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
+		os.Exit(1)
 	}
 	if openshellOpenClawBackend != nil || openshellHermesBackend != nil {
 		if err := (&controller.OpenShellAgentHarnessController{
@@ -658,7 +655,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			Recorder:           mgr.GetEventRecorder("agentharness-substrate-controller"),
 			OpenClawBackend:    substrateOpenClawBackend,
 			NemoClawBackend:    substrateNemoClawBackend,
-			SubstrateLifecycle: substrateLifecycleFromConfig(kubeClient, &cfg, substrateAteClient),
+			SubstrateLifecycle: substrateLifecycle,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
 			os.Exit(1)

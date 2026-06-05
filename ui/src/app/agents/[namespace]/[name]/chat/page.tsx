@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import { getAgent } from "@/app/actions/agents";
 import { getSessionsForAgent, createSession } from "@/app/actions/sessions";
+import { isSingleSessionSandboxAgent, isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { Loader2 } from "lucide-react";
 import type { Session } from "@/types";
 
@@ -33,6 +34,26 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           return;
         }
         if (agentRes.data.workloadMode !== "sandbox") {
+          setGate("ready");
+          return;
+        }
+        // Substrate sandbox agents: provision a session up front (same as "New Chat") so the
+        // first message uses /chat/:id and does not inline-create + block on readiness polling.
+        if (isSubstrateSandboxAgent(agentRes.data)) {
+          const created = await createSession({
+            agent_ref: `${namespace}/${name}`,
+            name: "Chat",
+          });
+          if (cancelled) return;
+          if (!created.error && created.data) {
+            notifySidebarSession(`${namespace}/${name}`, created.data);
+            router.replace(`/agents/${namespace}/${name}/chat/${created.data.id}`);
+            return;
+          }
+          setGate("ready");
+          return;
+        }
+        if (!isSingleSessionSandboxAgent(agentRes.data)) {
           setGate("ready");
           return;
         }

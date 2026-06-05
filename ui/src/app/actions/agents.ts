@@ -22,6 +22,9 @@ import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
 import { buildSandboxConfigFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
+  if (agentFormData.sandboxPlatform === "substrate") {
+    return "go";
+  }
   return agentFormData.declarativeRuntime === "go" ? "go" : "python";
 }
 
@@ -409,13 +412,27 @@ export async function getAgent(agentName: string, namespace: string): Promise<Ba
   try {
     const agentData = await fetchApi<BaseResponse<AgentResponse>>(`/agents/${namespace}/${agentName}`);
     return { message: "Successfully fetched agent", data: agentData.data };
-  } catch (error) {
-    return createErrorResponse<AgentResponse>(error, "Error getting agent");
+  } catch (agentError) {
+    try {
+      const sandboxData = await fetchApi<BaseResponse<AgentResponse>>(`/sandboxagents/${namespace}/${agentName}`);
+      return { message: "Successfully fetched sandbox agent", data: sandboxData.data };
+    } catch {
+      return createErrorResponse<AgentResponse>(agentError, "Error getting agent");
+    }
+  }
+}
+
+async function getSandboxAgent(agentName: string, namespace: string): Promise<BaseResponse<AgentResponse>> {
+  try {
+    const sandboxData = await fetchApi<BaseResponse<AgentResponse>>(`/sandboxagents/${namespace}/${agentName}`);
+    return { message: "Successfully fetched sandbox agent", data: sandboxData.data };
+  } catch (sandboxError) {
+    return createErrorResponse<AgentResponse>(sandboxError, "Error getting sandbox agent");
   }
 }
 
 /**
- * Polls GET /api/agents/{namespace}/{name} until deploymentReady is true (Sandbox: workload ready; same Ready condition as reconciler).
+ * Polls GET /api/sandboxagents/{namespace}/{name} until deploymentReady is true (Sandbox: workload ready; same Ready condition as reconciler).
  */
 export async function waitForSandboxAgentReady(
   agentName: string,
@@ -427,7 +444,7 @@ export async function waitForSandboxAgentReady(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const res = await getAgent(agentName, namespace);
+    const res = await getSandboxAgent(agentName, namespace);
     if (!res.data) {
       return { ok: false, error: res.message || "Agent not found" };
     }
@@ -459,8 +476,20 @@ export async function deleteAgent(agentName: string, namespace: string): Promise
 
     revalidatePath("/");
     return { message: "Successfully deleted agent" };
-  } catch (error) {
-    return createErrorResponse<void>(error, "Error deleting agent");
+  } catch (agentError) {
+    try {
+      await fetchApi(`/sandboxagents/${namespace}/${agentName}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      revalidatePath("/");
+      return { message: "Successfully deleted sandbox agent" };
+    } catch {
+      return createErrorResponse<void>(agentError, "Error deleting agent");
+    }
   }
 }
 

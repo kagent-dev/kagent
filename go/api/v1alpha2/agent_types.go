@@ -280,6 +280,31 @@ func AgentSandboxPlatform(spec *AgentSpec) SandboxPlatform {
 	return spec.Sandbox.Platform
 }
 
+// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
+	if spec == nil {
+		return DeclarativeRuntime_Python
+	}
+	runtime := DeclarativeRuntime_Python
+	if spec.Declarative != nil && spec.Declarative.Runtime != "" {
+		runtime = spec.Declarative.Runtime
+	}
+	return runtime
+}
+
+// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
+// Substrate SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
+func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
+	spec := agent.GetAgentSpec()
+	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
+		AgentSandboxPlatform(spec) == SandboxPlatformSubstrate &&
+		spec != nil &&
+		spec.Type == AgentType_Declarative {
+		return DeclarativeRuntime_Go
+	}
+	return EffectiveDeclarativeRuntime(spec)
+}
+
 // NetworkConfig configures outbound network access for sandboxed execution paths.
 type NetworkConfig struct {
 	// AllowedDomains lists the domains that sandboxed execution may contact.
@@ -631,23 +656,12 @@ const (
 	AgentConditionTypeUnsupportedFeatures = "UnsupportedFeatures"
 )
 
-// AgentSubstrateStatus records Agent Substrate runtime state for a SandboxAgent.
-type AgentSubstrateStatus struct {
-	// ActorID is the ate-api actor id when platform is substrate.
-	// +optional
-	ActorID string `json:"actorId,omitempty"`
-}
-
 // AgentStatus defines the observed state of Agent.
 type AgentStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Substrate is populated for SandboxAgent resources using sandbox.platform=substrate.
-	// +optional
-	Substrate *AgentSubstrateStatus `json:"substrate,omitempty"`
 }
 
 // +kubebuilder:object:root=true

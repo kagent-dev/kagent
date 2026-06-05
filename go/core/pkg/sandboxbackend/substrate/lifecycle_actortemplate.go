@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -114,6 +115,9 @@ func (p *Lifecycle) ActorTemplateReady(ctx context.Context, key types.Namespaced
 func (p *Lifecycle) actorTemplateReady(ctx context.Context, key types.NamespacedName) (bool, error) {
 	var tmpl atev1alpha1.ActorTemplate
 	if err := p.Client.Get(ctx, key, &tmpl); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
 		return false, fmt.Errorf("get ActorTemplate %s: %w", key, err)
 	}
 	return tmpl.Status.Phase == atev1alpha1.PhaseReady, nil

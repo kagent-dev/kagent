@@ -250,32 +250,20 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady)
 	})
 
-	t.Run("returns 404 when only sandbox agent exists with that name", func(t *testing.T) {
+	t.Run("returns 404 for sandbox agent on agents endpoint", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
-		conditions := []metav1.Condition{
-			{
-				Type:   "Accepted",
-				Status: "True",
-				Reason: "AgentReconciled",
-			},
-			{
-				Type:   "Ready",
-				Status: "True",
-				Reason: "WorkloadReady",
-			},
-		}
-		sa := createTestSandboxAgentCRD("sandbox-accepted", modelConfig, conditions)
+		sa := createTestSandboxAgentCRD("sandbox-only", modelConfig, nil)
 
 		handler, _ := setupTestHandler(t, sa, modelConfig)
 
-		req := httptest.NewRequest("GET", "/api/agents/default/sandbox-accepted", nil)
-		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-accepted"})
+		req := httptest.NewRequest("GET", "/api/agents/default/sandbox-only", nil)
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-only"})
 		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
 		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
 
-		require.Equal(t, http.StatusNotFound, w.Code)
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
@@ -469,7 +457,12 @@ func TestHandleListAgents(t *testing.T) {
 		var response api.StandardResponse[[]api.AgentResponse]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
-		require.Empty(t, response.Data)
+		require.Len(t, response.Data, 1)
+		require.Equal(t, "mysandbox", response.Data[0].Agent.Metadata.Name)
+		require.Equal(t, "SandboxAgent", response.Data[0].Agent.Kind)
+		require.True(t, response.Data[0].Accepted)
+		require.True(t, response.Data[0].DeploymentReady)
+		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data[0].WorkloadMode)
 	})
 
 	t.Run("includes openclaw AgentHarness CR in agent list", func(t *testing.T) {
@@ -553,7 +546,10 @@ func TestHandleListAgents(t *testing.T) {
 				ModelConfigRef: "test-model-config",
 			},
 		}
-		handler, _ := setupTestHandler(t, agentDefault, agentOther, harnessDefault, harnessOther, unsupportedHarnessDefault, modelConfig)
+		sandboxDefault := createTestSandboxAgentCRD("sandbox-in-default", modelConfig, nil)
+		sandboxOther := createTestSandboxAgentCRD("sandbox-in-other", modelConfig, nil)
+		sandboxOther.Namespace = "other"
+		handler, _ := setupTestHandler(t, agentDefault, agentOther, harnessDefault, harnessOther, unsupportedHarnessDefault, sandboxDefault, sandboxOther, modelConfig)
 
 		req := httptest.NewRequest("GET", "/api/agents?namespace=default", nil)
 		req = setUser(req, "test-user")
@@ -564,7 +560,7 @@ func TestHandleListAgents(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		var response api.StandardResponse[[]api.AgentResponse]
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-		require.Len(t, response.Data, 2)
+		require.Len(t, response.Data, 3)
 
 		byName := make(map[string]api.AgentResponse, len(response.Data))
 		for _, row := range response.Data {
@@ -573,8 +569,10 @@ func TestHandleListAgents(t *testing.T) {
 		}
 		require.Contains(t, byName, "agent-in-default")
 		require.Contains(t, byName, "harness-default")
+		require.Contains(t, byName, "sandbox-in-default")
 		require.NotContains(t, byName, "agent-in-other")
 		require.NotContains(t, byName, "harness-other")
+		require.NotContains(t, byName, "sandbox-in-other")
 		require.NotContains(t, byName, "unsupported-harness")
 	})
 
@@ -636,7 +634,7 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data[0].WorkloadMode)
 	})
 
-	t.Run("same names across kinds are both preserved by separate list endpoints", func(t *testing.T) {
+	t.Run("same names across kinds are both preserved in unified agent list", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
@@ -659,9 +657,16 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		var sandboxResp api.StandardResponse[[]api.AgentResponse]
 		require.NoError(t, json.Unmarshal(agentW.Body.Bytes(), &agentResp))
 		require.NoError(t, json.Unmarshal(sandboxW.Body.Bytes(), &sandboxResp))
-		require.Len(t, agentResp.Data, 1)
+		require.Len(t, agentResp.Data, 2)
 		require.Len(t, sandboxResp.Data, 1)
-		require.Equal(t, v1alpha2.WorkloadModeDeployment, agentResp.Data[0].WorkloadMode)
+
+		workloadModes := map[v1alpha2.WorkloadMode]bool{}
+		for _, row := range agentResp.Data {
+			require.Equal(t, "shared-name", row.Agent.Metadata.Name)
+			workloadModes[row.WorkloadMode] = true
+		}
+		require.True(t, workloadModes[v1alpha2.WorkloadModeDeployment])
+		require.True(t, workloadModes[v1alpha2.WorkloadModeSandbox])
 		require.Equal(t, v1alpha2.WorkloadModeSandbox, sandboxResp.Data[0].WorkloadMode)
 	})
 }

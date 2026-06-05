@@ -12,13 +12,11 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -143,11 +141,10 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	var substrateSA *v1alpha2.SandboxAgent
 	isSubstrateSandbox := false
 	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
 		var lookupErr error
-		substrateSA, isSubstrateSandbox, lookupErr = h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
+		_, isSubstrateSandbox, lookupErr = h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
 		if lookupErr != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
 			return
@@ -180,13 +177,6 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
 		return
-	}
-
-	if isSubstrateSandbox && h.SubstrateSandboxActorBackend != nil {
-		if err := a2a.EnsureSessionActorOnCreate(r.Context(), h.SubstrateSandboxActorBackend, substrateSA, session.ID); err != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to start substrate session actor", err))
-			return
-		}
 	}
 
 	log.Info("Successfully created session", "sessionID", session.ID)
@@ -518,12 +508,18 @@ func getUserIDOrAgentUser(r *http.Request) (string, error) {
 }
 
 func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha2.SandboxAgent, bool, error) {
-	parts := strings.SplitN(strings.TrimSpace(agentRef), "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	ref := strings.TrimSpace(agentRef)
+	if ref == "" {
+		return nil, false, nil
+	}
+	// Agent refs from the DB / Go ADK use ConvertToPythonIdentifier (e.g. kagent__NS__my-agent).
+	k8sRef := utils.ConvertToKubernetesIdentifier(ref)
+	nn, err := utils.ParseRefString(k8sRef, "")
+	if err != nil {
 		return nil, false, nil
 	}
 	sa := &v1alpha2.SandboxAgent{}
-	if err := h.KubeClient.Get(ctx, types.NamespacedName{Namespace: parts[0], Name: parts[1]}, sa); err != nil {
+	if err := h.KubeClient.Get(ctx, nn, sa); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, false, nil
 		}

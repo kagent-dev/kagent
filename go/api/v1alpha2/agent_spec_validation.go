@@ -2,7 +2,10 @@ package v1alpha2
 
 import "fmt"
 
-const substrateSandboxSkillsUnsupportedMsg = "spec.skills is not supported when spec.sandbox.platform is substrate"
+const (
+	substrateSandboxSkillsUnsupportedMsg         = "spec.skills is not supported when spec.sandbox.platform is substrate"
+	substrateSandboxPythonRuntimeUnsupportedMsg  = "spec.declarative.runtime must be \"go\" when spec.sandbox.platform is substrate"
+)
 
 // AgentSpecHasSkills reports whether the spec configures any skill sources.
 func AgentSpecHasSkills(spec *AgentSpec) bool {
@@ -21,6 +24,12 @@ func ValidateSubstrateSandboxAgentSpec(spec *AgentSpec) error {
 	}
 	if AgentSpecHasSkills(spec) {
 		return fmt.Errorf("%s", substrateSandboxSkillsUnsupportedMsg)
+	}
+	if spec.Type == AgentType_Declarative &&
+		spec.Declarative != nil &&
+		spec.Declarative.Runtime != "" &&
+		spec.Declarative.Runtime != DeclarativeRuntime_Go {
+		return fmt.Errorf("%s", substrateSandboxPythonRuntimeUnsupportedMsg)
 	}
 	return nil
 }

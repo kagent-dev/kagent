@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import { defaultSandboxPlatform, sandboxFieldsFromApiSpec } from "@/lib/sandboxAgentForm";
+import { defaultDeclarativeRuntimeForSandboxPlatform, defaultSandboxPlatform, sandboxFieldsFromApiSpec, skillsSupportedForSandboxPlatform } from "@/lib/sandboxAgentForm";
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
@@ -30,7 +30,6 @@ import {
   gitRepoToFormRow,
   newEmptyGitSkillRow,
   validateDeclarativeAgentSkills,
-  validateSubstrateSandboxSkillsConflict,
   type GitSkillFormRow,
 } from "@/lib/agentSkillsForm";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -150,13 +149,22 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       if (prev.agentType !== "Sandbox" || prev.sandboxPlatform === "substrate") {
         return prev;
       }
-      return { ...prev, sandboxPlatform: defaultSandboxPlatform(true) };
+      return {
+        ...prev,
+        sandboxPlatform: defaultSandboxPlatform(true),
+        declarativeRuntime: defaultDeclarativeRuntimeForSandboxPlatform("substrate"),
+      };
     });
   }, [isEditMode, substrateEnabled]);
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
+  const substrateSandboxAgent = state.agentType === "Sandbox" && state.sandboxPlatform === "substrate";
+  const showDeclarativeRuntimeField = useDeclarativeAgentFields && !substrateSandboxAgent;
   const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
+  const skillsEnabled =
+    useDeclarativeAgentFields &&
+    skillsSupportedForSandboxPlatform(state.agentType, state.sandboxPlatform);
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -227,6 +235,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 agentResponse.workloadMode === "sandbox"
                   ? sandboxFieldsFromApiSpec(agent.spec?.sandbox)
                   : {};
+              const isSubstrateSandbox =
+                agentResponse.workloadMode === "sandbox" &&
+                agent.spec?.sandbox?.platform === "substrate";
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
@@ -258,7 +269,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       : [newEmptyGitSkillRow()],
                   skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
-                  declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
+                  declarativeRuntime: isSubstrateSandbox
+                    ? "go"
+                    : decl?.runtime === "go"
+                      ? "go"
+                      : "python",
                   selectedMemoryModel: memoryModelConfig
                     ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } }
                     : null,
@@ -356,23 +371,15 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
       const newErrors = validateAgentData(formData);
 
-    if (useDeclarativeAgentFields) {
+    if (useDeclarativeAgentFields && skillsEnabled) {
       const skillsInput = {
         skillRefs: state.skillRefs || [],
         skillGitRepos: state.skillGitRepos || [],
         skillsGitAuthSecretName: state.skillsGitAuthSecretName || "",
       };
-      const substrateSkillsError =
-        state.agentType === "Sandbox"
-          ? validateSubstrateSandboxSkillsConflict(skillsInput, state.sandboxPlatform)
-          : undefined;
-      if (substrateSkillsError) {
-        newErrors.skills = substrateSkillsError;
-      } else {
-        const skillsError = validateDeclarativeAgentSkills(skillsInput);
-        if (skillsError) {
-          newErrors.skills = skillsError;
-        }
+      const skillsError = validateDeclarativeAgentSkills(skillsInput);
+      if (skillsError) {
+        newErrors.skills = skillsError;
       }
     }
 
@@ -469,10 +476,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
         tools: state.selectedTools,
-        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
-        skillGitRepos: useDeclarativeAgentFields ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
+        skillRefs: skillsEnabled ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
+        skillGitRepos: skillsEnabled ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
         skillsGitAuthSecretName:
-          useDeclarativeAgentFields && (state.skillsGitAuthSecretName || "").trim()
+          skillsEnabled && (state.skillsGitAuthSecretName || "").trim()
             ? (state.skillsGitAuthSecretName || "").trim()
             : undefined,
         memory:
@@ -679,16 +686,30 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <FieldRoot>
                   <FieldLabel>Sandbox platform</FieldLabel>
                   <FieldHint>
-                    Agent Substrate runs declarative and BYO agents as ate.dev actors. Skills are not supported on
-                    substrate yet. A new substrate actor is started for each chat session.
+                    Agent Substrate runs declarative and BYO agents as ate.dev actors using the Go ADK
+                    runtime. Skills are not supported on substrate yet. A new substrate actor is started
+                    for each chat session.
                   </FieldHint>
                   <Select
                     value={state.sandboxPlatform}
                     onValueChange={(val) =>
-                      setState((prev) => ({
-                        ...prev,
-                        sandboxPlatform: val === "substrate" ? "substrate" : "agent-sandbox",
-                      }))
+                      setState((prev) => {
+                        const sandboxPlatform = val === "substrate" ? "substrate" : "agent-sandbox";
+                        const switchingToSubstrate = sandboxPlatform === "substrate";
+                        return {
+                          ...prev,
+                          sandboxPlatform,
+                          ...(switchingToSubstrate
+                            ? {
+                                declarativeRuntime: "go",
+                                skillRefs: [""],
+                                skillGitRepos: [newEmptyGitSkillRow()],
+                                skillsGitAuthSecretName: "",
+                                errors: { ...prev.errors, skills: undefined },
+                              }
+                            : {}),
+                        };
+                      })
                     }
                     disabled={disabled}
                   >
@@ -737,7 +758,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 </FieldRoot>
               )}
 
-              {useDeclarativeAgentFields && (
+              {showDeclarativeRuntimeField && (
                 <DeclarativeRuntimeField
                   value={state.declarativeRuntime}
                   onChange={(declarativeRuntime) => setState((prev) => ({ ...prev, declarativeRuntime }))}
@@ -920,7 +941,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   />
                 </FormSection>
 
-                {!(state.agentType === "Sandbox" && state.sandboxPlatform === "substrate") ? (
+                {skillsEnabled ? (
                 <AgentSkillsFormSection
                   skillRefs={state.skillRefs}
                   skillGitRepos={state.skillGitRepos}

@@ -32,10 +32,26 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
-	t.Run("allows empty skills struct on substrate", func(t *testing.T) {
+	t.Run("rejects python runtime on substrate platform", func(t *testing.T) {
 		spec := &AgentSpec{
+			Type: AgentType_Declarative,
 			Sandbox: &SandboxConfig{Platform: SandboxPlatformSubstrate},
-			Skills:  &SkillForAgent{},
+			Declarative: &DeclarativeAgentSpec{
+				Runtime: DeclarativeRuntime_Python,
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(spec)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxPythonRuntimeUnsupportedMsg)
+	})
+
+	t.Run("allows go runtime on substrate platform", func(t *testing.T) {
+		spec := &AgentSpec{
+			Type: AgentType_Declarative,
+			Sandbox: &SandboxConfig{Platform: SandboxPlatformSubstrate},
+			Declarative: &DeclarativeAgentSpec{
+				Runtime: DeclarativeRuntime_Go,
+			},
 		}
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(spec))
 	})

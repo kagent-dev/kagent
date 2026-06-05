@@ -70,6 +70,12 @@ function rowTypeLabel(item: AgentResponse): string {
   if (isOpenshellSandboxRow(item)) {
     return "Agent harness";
   }
+  if (item.workloadMode === "sandbox") {
+    if (item.agent.spec?.sandbox?.platform === "substrate") {
+      return "Substrate sandbox";
+    }
+    return "Sandbox";
+  }
   return typeLabel(item.agent.spec?.type);
 }
 

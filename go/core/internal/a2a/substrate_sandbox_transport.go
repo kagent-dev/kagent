@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
@@ -16,7 +17,7 @@ import (
 
 // substrateSandboxSessionRoundTripper routes each A2A request to the session actor identified by contextId.
 type substrateSandboxSessionRoundTripper struct {
-	routerURL    *url.URL
+	routerURL    string
 	sandboxAgent *v1alpha2.SandboxAgent
 	actorBackend *substrate.SandboxAgentActorBackend
 	base         http.RoundTripper
@@ -32,10 +33,6 @@ func newSubstrateSandboxSessionRoundTripper(
 	if routerURL == "" {
 		routerURL = substrate.DefaultAtenetRouterURL
 	}
-	u, err := url.Parse(routerURL)
-	if err != nil {
-		return nil, err
-	}
 	if base == nil {
 		base = http.DefaultTransport
 	}
@@ -43,7 +40,7 @@ func newSubstrateSandboxSessionRoundTripper(
 		return nil, fmt.Errorf("substrate sandbox session transport requires SandboxAgent and actor backend")
 	}
 	return &substrateSandboxSessionRoundTripper{
-		routerURL:    u,
+		routerURL:    routerURL,
 		sandboxAgent: sa,
 		actorBackend: actorBackend,
 		base:         base,
@@ -51,7 +48,7 @@ func newSubstrateSandboxSessionRoundTripper(
 }
 
 func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t == nil || t.routerURL == nil {
+	if t == nil {
 		return nil, http.ErrSkipAltProtocol
 	}
 	body, err := io.ReadAll(req.Body)
@@ -73,11 +70,51 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 		return nil, err
 	}
 
-	req = req.Clone(req.Context())
-	req.URL.Scheme = t.routerURL.Scheme
-	req.URL.Host = t.routerURL.Host
-	req.Host = substrate.ActorHost(res.Handle.ID, "")
-	return t.base.RoundTrip(req)
+	// Proxy the A2A request through atenet-router to the session actor. The router
+	// selects the actor by HTTP Host; actor ID comes from EnsureSessionActor above.
+	actorRT, err := newSubstrateAgentRoundTripper(t.routerURL, res.Handle.ID, t.base)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := actorRT.RoundTrip(req)
+	if err != nil {
+		t.scheduleSuspendSession(sessionID)
+		return nil, err
+	}
+
+	// Suspend the actor after the client finishes reading the (streaming) response
+	// so the worker can serve other sessions until this chat is resumed.
+	resp.Body = &suspendSessionActorOnClose{
+		ReadCloser: resp.Body,
+		suspend: func() {
+			t.scheduleSuspendSession(sessionID)
+		},
+	}
+	return resp, nil
+}
+
+func (t *substrateSandboxSessionRoundTripper) scheduleSuspendSession(sessionID string) {
+	if t == nil || t.actorBackend == nil || t.sandboxAgent == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = t.actorBackend.SuspendSessionActor(ctx, t.sandboxAgent, sessionID)
+	}()
+}
+
+type suspendSessionActorOnClose struct {
+	io.ReadCloser
+	once    sync.Once
+	suspend func()
+}
+
+func (b *suspendSessionActorOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.suspend)
+	return err
 }
 
 func extractA2AContextID(body []byte) (string, error) {
@@ -99,18 +136,4 @@ func extractA2AContextID(body []byte) (string, error) {
 		return strings.TrimSpace(*payload.Params.ContextID), nil
 	}
 	return "", nil
-}
-
-// EnsureSessionActorOnCreate provisions the substrate actor when a chat session starts.
-func EnsureSessionActorOnCreate(
-	ctx context.Context,
-	backend *substrate.SandboxAgentActorBackend,
-	sa *v1alpha2.SandboxAgent,
-	sessionID string,
-) error {
-	if backend == nil || sa == nil {
-		return nil
-	}
-	_, err := backend.EnsureSessionActor(ctx, sa, sessionID)
-	return err
 }

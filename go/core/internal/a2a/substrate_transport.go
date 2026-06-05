@@ -3,29 +3,26 @@ package a2a
 import (
 	"net/http"
 	"net/url"
-	"strings"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 // substrateAgentRoundTripper proxies A2A HTTP to an agent actor via atenet-router using Host routing.
 type substrateAgentRoundTripper struct {
-	router   *url.URL
+	router    *url.URL
 	actorHost string
-	base     http.RoundTripper
+	base      http.RoundTripper
 }
 
-func newSubstrateAgentRoundTripper(routerURL, actorHost string, base http.RoundTripper) (http.RoundTripper, error) {
-	routerURL = strings.TrimSpace(routerURL)
-	if routerURL == "" {
-		routerURL = "http://atenet-router.ate-system.svc:80"
-	}
-	u, err := url.Parse(routerURL)
+func newSubstrateAgentRoundTripper(routerURL, actorID string, base http.RoundTripper) (http.RoundTripper, error) {
+	target, host, err := substrate.GatewayRouterTarget(routerURL, actorID)
 	if err != nil {
 		return nil, err
 	}
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &substrateAgentRoundTripper{router: u, actorHost: strings.TrimSpace(actorHost), base: base}, nil
+	return &substrateAgentRoundTripper{router: target, actorHost: host, base: base}, nil
 }
 
 func (t *substrateAgentRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {

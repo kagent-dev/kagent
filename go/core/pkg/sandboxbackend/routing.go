@@ -58,6 +58,15 @@ func (r *RoutingBackend) GetOwnedResourceTypes() []client.Object {
 	return out
 }
 
+// OwnedResourceTypesFor returns owned-resource types for the agent's sandbox platform.
+func (r *RoutingBackend) OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error) {
+	b, err := r.backendFor(agent)
+	if err != nil {
+		return nil, err
+	}
+	return b.GetOwnedResourceTypes(), nil
+}
+
 func (r *RoutingBackend) ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (metav1.ConditionStatus, string, string) {
 	sa := &v1alpha2.SandboxAgent{}
 	if err := cl.Get(ctx, nn, sa); err != nil {
@@ -68,4 +77,21 @@ func (r *RoutingBackend) ComputeReady(ctx context.Context, cl client.Client, nn 
 		return metav1.ConditionUnknown, "SandboxBackendNotConfigured", err.Error()
 	}
 	return b.ComputeReady(ctx, cl, nn)
+}
+
+// ValidatePlatform reports whether this routing backend can reconcile the agent's sandbox platform.
+func (r *RoutingBackend) ValidatePlatform(agent v1alpha2.AgentObject) error {
+	_, err := r.backendFor(agent)
+	return err
+}
+
+// ValidateSandboxPlatform reports whether backend supports the agent's sandbox platform.
+func ValidateSandboxPlatform(backend Backend, agent v1alpha2.AgentObject) error {
+	if backend == nil {
+		return fmt.Errorf("sandbox backend is not configured")
+	}
+	if rb, ok := backend.(*RoutingBackend); ok {
+		return rb.ValidatePlatform(agent)
+	}
+	return nil
 }

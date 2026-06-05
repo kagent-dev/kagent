@@ -12,11 +12,13 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -164,16 +166,19 @@ func isAgentReady(agent v1alpha2.AgentObject) bool {
 	if status == nil {
 		return false
 	}
-	deploymentReady, accepted := false, false
+	workloadReady, accepted := false, false
 	for _, c := range status.Conditions {
-		if c.Type == "Ready" && c.Reason == "DeploymentReady" && string(c.Status) == "True" {
-			deploymentReady = true
+		if c.Type == v1alpha2.AgentConditionTypeReady && c.Status == metav1.ConditionTrue {
+			switch c.Reason {
+			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+				workloadReady = true
+			}
 		}
-		if c.Type == "Accepted" && string(c.Status) == "True" {
+		if c.Type == v1alpha2.AgentConditionTypeAccepted && c.Status == metav1.ConditionTrue {
 			accepted = true
 		}
 	}
-	return deploymentReady && accepted
+	return workloadReady && accepted
 }
 
 func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {

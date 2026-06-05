@@ -1,9 +1,15 @@
 import {
   buildSandboxConfigFromForm,
+  defaultDeclarativeRuntimeForSandboxPlatform,
   defaultSandboxPlatform,
+  isSingleSessionSandboxAgent,
+  isSubstrateSandboxAgent,
+  sandboxChatMode,
   sandboxFieldsFromApiSpec,
+  skillsSupportedForSandboxPlatform,
 } from "@/lib/sandboxAgentForm";
 import type { AgentFormData } from "@/components/AgentsProvider";
+import type { AgentResponse } from "@/types";
 
 describe("sandboxFieldsFromApiSpec", () => {
   it("maps substrate sandbox spec to form fields", () => {
@@ -75,5 +81,55 @@ describe("defaultSandboxPlatform", () => {
 
   it("falls back to agent-sandbox when substrate is unavailable", () => {
     expect(defaultSandboxPlatform(false)).toBe("agent-sandbox");
+  });
+});
+
+describe("substrate sandbox chat helpers", () => {
+  const substrateSandbox = {
+    workloadMode: "sandbox",
+    agent: { spec: { sandbox: { platform: "substrate" } } },
+  } as AgentResponse;
+
+  const agentSandbox = {
+    workloadMode: "sandbox",
+    agent: { spec: { sandbox: { platform: "agent-sandbox" } } },
+  } as AgentResponse;
+
+  const deployment = {
+    workloadMode: "deployment",
+    agent: { spec: {} },
+  } as AgentResponse;
+
+  it("detects substrate sandbox agents", () => {
+    expect(isSubstrateSandboxAgent(substrateSandbox)).toBe(true);
+    expect(isSubstrateSandboxAgent(agentSandbox)).toBe(false);
+    expect(isSubstrateSandboxAgent(deployment)).toBe(false);
+  });
+
+  it("treats only classic sandbox agents as single-session", () => {
+    expect(isSingleSessionSandboxAgent(substrateSandbox)).toBe(false);
+    expect(isSingleSessionSandboxAgent(agentSandbox)).toBe(true);
+    expect(isSingleSessionSandboxAgent(deployment)).toBe(false);
+  });
+
+  it("maps sandbox chat mode", () => {
+    expect(sandboxChatMode(substrateSandbox)).toBe("multi-session");
+    expect(sandboxChatMode(agentSandbox)).toBe("single-session");
+    expect(sandboxChatMode(deployment)).toBe("default");
+  });
+});
+
+describe("defaultDeclarativeRuntimeForSandboxPlatform", () => {
+  it("defaults substrate sandbox agents to Go runtime", () => {
+    expect(defaultDeclarativeRuntimeForSandboxPlatform("substrate")).toBe("go");
+    expect(defaultDeclarativeRuntimeForSandboxPlatform("agent-sandbox")).toBe("python");
+  });
+});
+
+describe("skillsSupportedForSandboxPlatform", () => {
+  it("disables skills for substrate sandbox agents", () => {
+    expect(skillsSupportedForSandboxPlatform("Sandbox", "substrate")).toBe(false);
+    expect(skillsSupportedForSandboxPlatform("Sandbox", "agent-sandbox")).toBe(true);
+    expect(skillsSupportedForSandboxPlatform("Declarative", "substrate")).toBe(true);
   });
 });

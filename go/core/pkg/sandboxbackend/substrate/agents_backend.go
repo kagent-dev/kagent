@@ -30,6 +30,10 @@ func (b *AgentsBackend) GetOwnedResourceTypes() []client.Object {
 	return []client.Object{&atev1alpha1.ActorTemplate{}}
 }
 
+func (b *AgentsBackend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
+	return b.GetOwnedResourceTypes(), nil
+}
+
 func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.BuildInput) ([]client.Object, error) {
 	sa, ok := in.Agent.(*v1alpha2.SandboxAgent)
 	if !ok || sa == nil {
@@ -41,7 +45,11 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 	if b.Lifecycle == nil {
 		return nil, fmt.Errorf("substrate lifecycle is not configured")
 	}
-	wpKey, err := b.Lifecycle.resolveSandboxAgentWorkerPoolRef(ctx, sa)
+	var workerPoolRef *v1alpha2.TypedLocalReference
+	if sub := sa.Spec.Sandbox; sub != nil && sub.Substrate != nil {
+		workerPoolRef = sub.Substrate.WorkerPoolRef
+	}
+	wpKey, err := b.Lifecycle.resolveWorkerPoolRefFor(ctx, sa.Namespace, workerPoolRef)
 	if err != nil {
 		return nil, err
 	}
@@ -60,16 +68,16 @@ func (b *AgentsBackend) ComputeReady(ctx context.Context, cl client.Client, nn t
 		}
 		return metav1.ConditionUnknown, "SandboxAgentGetFailed", err.Error()
 	}
-	tmplKey := types.NamespacedName{Namespace: nn.Namespace, Name: sandboxAgentActorTemplateName(sa)}
-	var tmpl atev1alpha1.ActorTemplate
-	if err := cl.Get(ctx, tmplKey, &tmpl); err != nil {
-		if apierrors.IsNotFound(err) {
-			return metav1.ConditionUnknown, "ActorTemplateNotFound", err.Error()
-		}
+	if b.Lifecycle == nil {
+		return metav1.ConditionUnknown, "SubstrateLifecycleNotConfigured", "substrate lifecycle is not configured"
+	}
+	tmplKey := types.NamespacedName{Namespace: nn.Namespace, Name: SandboxAgentActorTemplateName(sa)}
+	ready, err := b.Lifecycle.actorTemplateReady(ctx, tmplKey)
+	if err != nil {
 		return metav1.ConditionUnknown, "ActorTemplateGetFailed", err.Error()
 	}
-	if tmpl.Status.Phase != atev1alpha1.PhaseReady {
-		return metav1.ConditionFalse, "ActorTemplateNotReady", fmt.Sprintf("ActorTemplate phase is %q", tmpl.Status.Phase)
+	if !ready {
+		return metav1.ConditionFalse, "ActorTemplateNotReady", "ActorTemplate golden snapshot is not ready"
 	}
 	return metav1.ConditionTrue, "ActorTemplateReady", "ActorTemplate golden snapshot is ready"
 }

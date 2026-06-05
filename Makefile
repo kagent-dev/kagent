@@ -564,4 +564,3 @@ prune-images: ## Remove old kagent images and dangling images from the local dae
 	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
 	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
 	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-

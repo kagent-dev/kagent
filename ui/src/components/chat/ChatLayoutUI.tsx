@@ -8,6 +8,7 @@ import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
+import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 
 interface ChatLayoutUIProps {
   agentName: string;
@@ -109,6 +110,7 @@ export default function ChatLayoutUI({
         <ChatAgentProvider
           agentType={currentAgent.agent.spec.type}
           runInSandbox={currentAgent.workloadMode === "sandbox"}
+          substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
         >
           {children}
         </ChatAgentProvider>

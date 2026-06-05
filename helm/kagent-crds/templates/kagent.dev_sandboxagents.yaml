@@ -11415,15 +11415,6 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
-              substrate:
-                description: Substrate is populated for SandboxAgent resources using
-                  sandbox.platform=substrate.
-                properties:
-                  actorId:
-                    description: ActorID is the ate-api actor id when platform is
-                      substrate.
-                    type: string
-                type: object
             type: object
         type: object
     served: true

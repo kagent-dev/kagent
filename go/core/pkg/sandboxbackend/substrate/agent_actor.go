@@ -15,12 +15,20 @@ import (
 
 // SandboxAgentActorBackend manages ate-api actors for SandboxAgent workloads.
 type SandboxAgentActorBackend struct {
-	client *Client
+	client          *Client
+	atenetRouterURL string
 }
 
 // NewSandboxAgentActorBackend returns a backend that ensures SandboxAgent actors on ate-api.
-func NewSandboxAgentActorBackend(client *Client) *SandboxAgentActorBackend {
-	return &SandboxAgentActorBackend{client: client}
+func NewSandboxAgentActorBackend(client *Client, atenetRouterURL string) *SandboxAgentActorBackend {
+	atenetRouterURL = strings.TrimSpace(atenetRouterURL)
+	if atenetRouterURL == "" {
+		atenetRouterURL = DefaultAtenetRouterURL
+	}
+	return &SandboxAgentActorBackend{
+		client:          client,
+		atenetRouterURL: atenetRouterURL,
+	}
 }
 
 // EnsureSessionActor creates and resumes the per-session actor for a SandboxAgent chat.
@@ -40,7 +48,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	}
 
 	actorID := SandboxAgentSessionActorID(sa, sessionID)
-	tmplNS, tmplName := sa.Namespace, sandboxAgentActorTemplateName(sa)
+	tmplNS, tmplName := sa.Namespace, SandboxAgentActorTemplateName(sa)
 
 	actor, err := b.client.GetActor(ctx, actorID)
 	if err != nil {
@@ -58,8 +66,12 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
 		actor, err = b.client.ResumeActor(ctx, actorID)
 		if err != nil {
-			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ResumeActor %q: %w", actorID, err)
+			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
 		}
+	}
+
+	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, actorID); err != nil {
+		return sandboxbackend.EnsureResult{}, err
 	}
 
 	host := ActorHost(actorID, "")
@@ -67,6 +79,28 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		Handle:   sandboxbackend.Handle{ID: actorID},
 		Endpoint: fmt.Sprintf("atenet-router Host %s", host),
 	}, nil
+}
+
+// SuspendSessionActor checkpoints and frees the worker for a chat session actor.
+func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) error {
+	if b == nil || b.client == nil || sa == nil {
+		return nil
+	}
+	actorID := SandboxAgentSessionActorID(sa, sessionID)
+	actor, err := b.client.GetActor(ctx, actorID)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
+		return fmt.Errorf("substrate GetActor %q: %w", actorID, err)
+	}
+	switch actor.GetStatus() {
+	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
+		if err := b.client.SuspendActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
+		}
+	}
+	return nil
 }
 
 // DeleteSandboxAgentActor deletes a substrate actor by id.

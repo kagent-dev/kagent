@@ -6,6 +6,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedChats from "./GroupedChats";
 import type { AgentResponse, Session } from "@/types";
 import { Loader2 } from "lucide-react";
+import { sandboxChatMode } from "@/lib/sandboxAgentForm";
 
 interface SessionsSidebarProps {
   agentName: string;
@@ -41,8 +42,7 @@ export default function SessionsSidebar({
               agentName={agentName}
               agentNamespace={agentNamespace}
               sessions={agentSessions}
-              hideNewChat={currentAgent.workloadMode === "sandbox"}
-              hideSessionDelete={currentAgent.workloadMode === "sandbox"}
+              chatMode={sandboxChatMode(currentAgent)}
             />
           )}
         </ScrollArea>
