@@ -12,6 +12,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/compaction"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
@@ -37,6 +38,7 @@ type KAgentExecutorConfig struct {
 	AppName            string
 	SkillsDirectory    string
 	Logger             logr.Logger
+	CompactionConfig   *compaction.Config
 }
 
 // KAgentExecutor implements a2asrv.AgentExecutor
@@ -48,6 +50,7 @@ type KAgentExecutor struct {
 	appName            string
 	skillsDirectory    string
 	logger             logr.Logger
+	compactor          *compaction.Compactor
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -69,6 +72,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		appName:            cfg.AppName,
 		skillsDirectory:    skillsDir,
 		logger:             cfg.Logger.WithName("kagent-executor"),
+		compactor:          compaction.New(cfg.CompactionConfig, cfg.Logger),
 	}
 }
 
@@ -352,6 +356,17 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		// Break on confirmation events that have long-running tool IDs.
 		if isHITLEvent {
 			break
+		}
+	}
+
+	// 10b. Post-invocation compaction (no-op when not configured).
+	// TODO: avoid the extra GetSession call by threading the session object through Execute.
+	if e.compactor != nil && e.sessionService != nil {
+		liveSess, sessErr := e.sessionService.GetSession(ctx, e.appName, userID, sessionID)
+		if sessErr == nil && liveSess != nil {
+			if compactErr := e.compactor.MaybeCompact(ctx, liveSess, e.sessionService, 0); compactErr != nil {
+				e.logger.Error(compactErr, "Post-invocation compaction failed (non-fatal)")
+			}
 		}
 	}
 

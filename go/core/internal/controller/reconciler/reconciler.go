@@ -895,10 +895,7 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) s
 	}
 
 	// Memory: ✅ Supported in Go as of PR #1444
-	// Context compression: Not yet implemented in Go runtime
-	if decl.Context != nil && decl.Context.Compaction != nil {
-		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
-	}
+	// Context compression: supported in Go runtime via the compaction package.
 
 	if len(unsupported) == 0 {
 		return ""

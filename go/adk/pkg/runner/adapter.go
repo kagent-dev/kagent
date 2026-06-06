@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
+	"github.com/kagent-dev/kagent/go/adk/pkg/compaction"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
@@ -34,26 +35,26 @@ func CreateRunnerConfig(
 	sessionService *session.KAgentSessionService,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
-) (runner.Config, map[string]string, error) {
+) (runner.Config, map[string]string, *compaction.Config, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
 		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+			return runner.Config{}, nil, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
 		}
 		extraTools = append(extraTools, saveTool)
 	}
 
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
-		return runner.Config{}, nil, err
+		return runner.Config{}, nil, nil, err
 	}
 
 	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+		return runner.Config{}, nil, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	var adkSessionService adksession.Service
@@ -76,7 +77,7 @@ func CreateRunnerConfig(
 	if stsPlugin != nil {
 		p, err := stsPlugin.ADKPlugin()
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create STS ADK plugin: %w", err)
+			return runner.Config{}, nil, nil, fmt.Errorf("failed to create STS ADK plugin: %w", err)
 		}
 		if p != nil {
 			adkPlugins = append(adkPlugins, p)
@@ -93,7 +94,12 @@ func CreateRunnerConfig(
 		},
 	}
 
-	return cfg, subagentSessionIDs, nil
+	compactionCfg, err := compaction.FromAgentConfig(agentConfig)
+	if err != nil {
+		return runner.Config{}, nil, nil, fmt.Errorf("failed to build compaction config: %w", err)
+	}
+
+	return cfg, subagentSessionIDs, compactionCfg, nil
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
