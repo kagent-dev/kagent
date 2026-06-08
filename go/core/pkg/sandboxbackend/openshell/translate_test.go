@@ -3,12 +3,91 @@ package openshell
 import (
 	"testing"
 
+	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func TestPhaseToCondition(t *testing.T) {
+	ready := []*openshellv1.SandboxCondition{{Type: "Ready", Status: "True"}}
+	notReady := []*openshellv1.SandboxCondition{{Type: "Ready", Status: "False"}}
+
+	tests := []struct {
+		name       string
+		sb         *openshellv1.Sandbox
+		wantStatus metav1.ConditionStatus
+		wantReason string
+	}{
+		{
+			name:       "nil sandbox",
+			sb:         nil,
+			wantStatus: metav1.ConditionUnknown,
+			wantReason: "SandboxNotFound",
+		},
+		{
+			name:       "ready phase",
+			sb:         &openshellv1.Sandbox{Phase: openshellv1.SandboxPhase_SANDBOX_PHASE_READY},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: "SandboxReady",
+		},
+		{
+			name:       "provisioning phase",
+			sb:         &openshellv1.Sandbox{Phase: openshellv1.SandboxPhase_SANDBOX_PHASE_PROVISIONING},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: "SandboxProvisioning",
+		},
+		{
+			name:       "error phase",
+			sb:         &openshellv1.Sandbox{Phase: openshellv1.SandboxPhase_SANDBOX_PHASE_ERROR},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: "SandboxError",
+		},
+		{
+			name:       "unspecified phase no conditions",
+			sb:         &openshellv1.Sandbox{Phase: openshellv1.SandboxPhase_SANDBOX_PHASE_UNSPECIFIED},
+			wantStatus: metav1.ConditionUnknown,
+			wantReason: "SandboxPhaseUnknown",
+		},
+		{
+			name: "unspecified phase with Ready=True falls back to ready",
+			sb: &openshellv1.Sandbox{
+				Phase:  openshellv1.SandboxPhase_SANDBOX_PHASE_UNSPECIFIED,
+				Status: &openshellv1.SandboxStatus{Conditions: ready},
+			},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: "SandboxReady",
+		},
+		{
+			name: "unknown phase with Ready=True falls back to ready",
+			sb: &openshellv1.Sandbox{
+				Phase:  openshellv1.SandboxPhase_SANDBOX_PHASE_UNKNOWN,
+				Status: &openshellv1.SandboxStatus{Conditions: ready},
+			},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: "SandboxReady",
+		},
+		{
+			name: "unspecified phase with Ready=False stays unknown",
+			sb: &openshellv1.Sandbox{
+				Phase:  openshellv1.SandboxPhase_SANDBOX_PHASE_UNSPECIFIED,
+				Status: &openshellv1.SandboxStatus{Conditions: notReady},
+			},
+			wantStatus: metav1.ConditionUnknown,
+			wantReason: "SandboxPhaseUnknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, reason, _ := phaseToCondition(tt.sb)
+			require.Equal(t, tt.wantStatus, status)
+			require.Equal(t, tt.wantReason, reason)
+		})
+	}
+}
 
 func TestBuildOpenshellCreateRequest_AllowedDomainsPolicy(t *testing.T) {
 	sbx := &v1alpha2.AgentHarness{
