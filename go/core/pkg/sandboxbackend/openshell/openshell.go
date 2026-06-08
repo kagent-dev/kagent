@@ -82,6 +82,6 @@ func (b *agentHarnessOpenShellBackend) GetStatus(ctx context.Context, h sandboxb
 }
 
 // DeleteAgentHarness implements AsyncBackend.
-func (b *agentHarnessOpenShellBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.Handle) error {
+func (b *agentHarnessOpenShellBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.Handle) (bool, error) {
 	return b.DeleteAgentHarnessSandbox(ctx, h)
 }

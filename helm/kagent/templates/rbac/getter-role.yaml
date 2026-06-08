@@ -54,6 +54,21 @@
   - list
   - watch
 - apiGroups:
+  - ate.dev
+  resources:
+  - workerpools
+  - actortemplates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ate.dev
+  resources:
+  - actortemplates/status
+  verbs:
+  - get
+- apiGroups:
   - "apps"
   resources:
   - "*"

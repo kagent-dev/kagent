@@ -20,11 +20,17 @@ import { Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import {
   agentHarnessIcon,
+  agentHarnessRuntimeLabel,
   agentHarnessTypeLabel,
   getAgentHarnessBackend,
+  getAgentHarnessRuntime,
   isAgentHarness,
 } from "@/lib/agentHarness";
-import { isOpenshellSandboxRow, openshellTerminalHref } from "@/lib/openshellSandboxAgents";
+import {
+  isOpenshellSandboxRow,
+  isSubstrateHarnessRow,
+  openshellTerminalHref,
+} from "@/lib/openshellSandboxAgents";
 import { cn } from "@/lib/utils";
 
 interface AgentCardProps {
@@ -39,8 +45,10 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sshSandbox = isOpenshellSandboxRow(agentResponse);
+  const substrateHarness = isSubstrateHarnessRow(agentResponse);
   const agentHarness = isAgentHarness(agentResponse);
   const harnessBackend = getAgentHarnessBackend(agentResponse);
+  const harnessRuntime = getAgentHarnessRuntime(agentResponse);
 
   const agentRef = k8sRefUtils.toRef(
     agent.metadata.namespace || '',
@@ -89,7 +97,11 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
               <span
                 className="h-5 w-5 flex-shrink-0 text-muted-foreground"
                 aria-hidden
-                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : agentResponse.openshellAgentHarness?.backend}
+                title={
+                  harnessBackend
+                    ? `${agentHarnessTypeLabel(harnessBackend)} (${harnessRuntime ? agentHarnessRuntimeLabel(harnessRuntime) : ""})`
+                    : agentResponse.openshellAgentHarness?.backend
+                }
               >
                 {harnessBackend ? agentHarnessIcon(harnessBackend) : "🦞"}
               </span>
@@ -173,16 +185,19 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
     </Card>
   );
 
+  const substrateGatewayPath = agentResponse.substrateAgentHarness?.gatewayUIPath;
   const chatHref =
-    sshSandbox && agentResponse.openshellAgentHarness
-      ? openshellTerminalHref({
-          gatewaySandboxName: agentResponse.openshellAgentHarness.gatewaySandboxName,
-          namespace: agent.metadata.namespace,
-          crName: agent.metadata.name,
-          modelConfigRef: agentResponse.modelConfigRef,
-          harnessBackend: harnessBackend,
-        })
-      : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
+    substrateHarness && substrateGatewayPath
+      ? substrateGatewayPath
+      : sshSandbox && agentResponse.openshellAgentHarness
+        ? openshellTerminalHref({
+            gatewaySandboxName: agentResponse.openshellAgentHarness.gatewaySandboxName,
+            namespace: agent.metadata.namespace,
+            crName: agent.metadata.name,
+            modelConfigRef: agentResponse.modelConfigRef,
+            harnessBackend,
+          })
+        : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
 
   return (
     <>

@@ -1,0 +1,129 @@
+suite: test controller metrics service
+templates:
+  - controller-metrics-service.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when metrics are enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-controller-metrics
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - hasDocuments:
+          count: 1
+
+  - it: should expose https port from values
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: https
+      - equal:
+          path: spec.ports[0].port
+          value: 8443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8443
+      - equal:
+          path: spec.ports[0].protocol
+          value: TCP
+
+  - it: should derive targetPort from bindAddress
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ":9443"
+      controller.metrics.service.port: 9443
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
+  - it: should derive targetPort from a host-qualified bindAddress
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "127.0.0.1:9443"
+      controller.metrics.service.port: 9443
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
+  - it: should derive targetPort from a bracketed IPv6 bindAddress
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "[::1]:9443"
+      controller.metrics.service.port: 9443
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 9443
+
+  - it: should not render when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when bindAddress is empty
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should rename port when secure serving disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: http-metrics
+
+  - it: should select controller pods
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: spec.selector["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: controller
+
+  - it: should be in correct namespace
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+
+  - it: should use custom namespace when overridden
+    set:
+      controller.metrics.enabled: true
+      namespaceOverride: "custom-namespace"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace

@@ -18,6 +18,7 @@ import type {
   OpenClawSandboxFormValidationError,
 } from "@/lib/openClawSandboxForm";
 import { isClawHarnessBackend, newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
+import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
 
 const OPENCLAW_DOCS_ROOT = "https://docs.openclaw.ai";
 
@@ -151,16 +152,90 @@ export function OpenClawSandboxFields({
   harnessBackend,
   validationError,
 }: OpenClawSandboxFieldsProps) {
+  const substrateEnabled = useSubstrateEnabled();
   const clawBackend = isClawHarnessBackend(harnessBackend);
   const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const section = validationError?.section ?? null;
+
+  React.useEffect(() => {
+    if (!substrateEnabled && value.runtime === "substrate") {
+      set({ runtime: "openshell" });
+    }
+  }, [substrateEnabled, value.runtime]);
 
   return (
     <div id="section-openclaw-sandbox" className="space-y-8">
       <FieldError>
         {section === "general" ? validationError?.message : null}
       </FieldError>
+
+      {substrateEnabled ? (
+        <FormSection
+          id="section-openclaw-runtime"
+          title="Runtime"
+          description="OpenShell provisions a VM via the OpenShell gateway. Substrate generates an ActorTemplate and uses an existing WorkerPool."
+        >
+          <FieldRoot>
+            <FieldLabel htmlFor="agent-field-harness-runtime">Control plane</FieldLabel>
+            <select
+              id="agent-field-harness-runtime"
+              className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              disabled={disabled}
+              value={value.runtime}
+              onChange={(e) =>
+                set({ runtime: e.target.value === "substrate" ? "substrate" : "openshell" })
+              }
+            >
+              <option value="openshell">OpenShell</option>
+              <option value="substrate">Agent Substrate</option>
+            </select>
+          </FieldRoot>
+          {value.runtime === "substrate" ? (
+            <div className="space-y-4">
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
+                <Input
+                  id="agent-field-substrate-gateway-token"
+                  disabled={disabled}
+                  type="password"
+                  value={value.substrateGatewayToken}
+                  onChange={(e) => set({ substrateGatewayToken: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Bearer token used by kagent when proxying the generated OpenClaw gateway.
+                </p>
+              </FieldRoot>
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
+                <Input
+                  id="agent-field-substrate-snapshots"
+                  disabled={disabled}
+                  placeholder="gs://ate-snapshots/kagent/my-harness/"
+                  value={value.substrateSnapshotsLocation}
+                  onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
+                </p>
+              </FieldRoot>
+              <FieldRoot>
+                <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
+                <Input
+                  id="agent-field-substrate-wp-name"
+                  disabled={disabled}
+                  placeholder="controller default"
+                  value={value.substrateWorkerPoolRefName}
+                  onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to use the controller default WorkerPool.
+                </p>
+              </FieldRoot>
+            </div>
+          ) : null}
+        </FormSection>
+      ) : null}
 
       <FormSection
         id="section-openclaw-channels"

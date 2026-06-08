@@ -160,6 +160,101 @@ func TestE2EMCPEndpointInvokeAgent(t *testing.T) {
 	require.True(t, foundText, "Should have text content containing 'kebab' in response")
 }
 
+// TestE2EMCPAgentsResourceList verifies the kagent://agents resource is advertised by the server.
+func TestE2EMCPAgentsResourceList(t *testing.T) {
+	ctx := context.Background()
+	session := setupMCPClient(t)
+
+	result, err := session.ListResources(ctx, &mcp.ListResourcesParams{})
+	require.NoError(t, err, "Should list resources")
+
+	found := false
+	for _, r := range result.Resources {
+		if r.URI == "kagent://agents" {
+			found = true
+			require.Equal(t, "application/json", r.MIMEType, "kagent://agents should have JSON MIME type")
+			break
+		}
+	}
+	require.True(t, found, "kagent://agents resource not found in resources/list response")
+}
+
+// TestE2EMCPAgentsResourceRead verifies reading kagent://agents returns a JSON array containing the deployed kebab-agent.
+func TestE2EMCPAgentsResourceRead(t *testing.T) {
+	ctx := context.Background()
+	session := setupMCPClient(t)
+
+	result, err := session.ReadResource(ctx, &mcp.ReadResourceParams{
+		URI: "kagent://agents",
+	})
+	require.NoError(t, err, "Should read kagent://agents resource")
+	require.NotEmpty(t, result.Contents, "Resource contents should not be empty")
+	require.Equal(t, "application/json", result.Contents[0].MIMEType, "Content should be JSON")
+
+	var agents []struct {
+		Ref         string `json:"ref"`
+		Description string `json:"description,omitempty"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(result.Contents[0].Text), &agents), "Contents should be a valid JSON array")
+
+	found := false
+	for _, a := range agents {
+		if a.Ref == "kagent/kebab-agent" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "kagent/kebab-agent should appear in kagent://agents resource")
+}
+
+// TestE2EMCPAgentsResourceNotification verifies that creating an agent triggers a resources/updated
+// notification for kagent://agents on subscribed MCP clients.
+func TestE2EMCPAgentsResourceNotification(t *testing.T) {
+	notified := make(chan string, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	transport := &mcp.StreamableClientTransport{Endpoint: mcpEndpointURL()}
+	impl := &mcp.Implementation{Name: "e2e-test-notifications", Version: "0.0.0"}
+	mcpClient := mcp.NewClient(impl, &mcp.ClientOptions{
+		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
+			select {
+			case notified <- req.Params.URI:
+			default:
+			}
+		},
+	})
+
+	session, err := mcpClient.Connect(ctx, transport, nil)
+	require.NoError(t, err, "Should connect MCP client with notification handler")
+	t.Cleanup(func() { session.Close() })
+
+	// Subscribe before triggering the change so we don't miss the notification.
+	err = session.Subscribe(ctx, &mcp.SubscribeParams{URI: "kagent://agents"})
+	require.NoError(t, err, "Should subscribe to kagent://agents")
+
+	// Create a new agent — the A2ARegistrar informer fires immediately on object
+	// creation and calls NotifyAgentsChanged, which pushes the notification.
+	k8sClient := setupK8sClient(t, false)
+	mockURL, stopMock := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopMock()
+
+	modelCfg := setupModelConfig(t, k8sClient, mockURL)
+	agent := generateAgent(modelCfg.Name, nil, AgentOptions{Name: "mcp-notify-test"})
+	require.NoError(t, k8sClient.Create(t.Context(), agent), "Should create agent")
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(context.Background(), agent)
+	})
+
+	select {
+	case uri := <-notified:
+		require.Equal(t, "kagent://agents", uri, "Notification URI should match subscribed resource")
+	case <-time.After(30 * time.Second):
+		t.Fatal("Did not receive resources/updated notification for kagent://agents within 30s")
+	}
+}
+
 // TestE2EMCPEndpointErrorHandling tests error handling in the MCP endpoint
 func TestE2EMCPEndpointErrorHandling(t *testing.T) {
 	ctx := context.Background()

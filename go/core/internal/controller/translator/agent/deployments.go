@@ -27,6 +27,7 @@ type resolvedDeployment struct {
 	Image           string
 	Cmd             string // empty → no explicit command
 	Args            []string
+	WorkingDir      *string
 	Port            int32 // container port and Service port
 	ImagePullPolicy corev1.PullPolicy
 
@@ -268,6 +269,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		Image:                image,
 		Cmd:                  cmd,
 		Args:                 args,
+		WorkingDir:           spec.WorkingDir,
 		Port:                 port,
 		ImagePullPolicy:      imagePullPolicy,
 		Replicas:             replicas,

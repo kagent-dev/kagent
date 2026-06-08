@@ -30,7 +30,11 @@
     "description": "",
     "instruction": "You are Claude, an AI assistant created by Anthropic.",
     "model": {
+      "max_tokens": 4096,
       "model": "claude-3-sonnet-20240229",
+      "temperature": 0.3,
+      "top_k": 40,
+      "top_p": 0.9,
       "type": "anthropic"
     },
     "stream": false
@@ -62,7 +66,7 @@
       },
       "stringData": {
         "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"anthropic_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://anthropic-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
-        "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\"},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
+        "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\",\"max_tokens\":4096,\"temperature\":0.3,\"top_p\":0.9,\"top_k\":40},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
       }
     },
     {
@@ -131,7 +135,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "1266575541990203530"
+              "kagent.dev/config-hash": "6027702998463548134"
             },
             "labels": {
               "app": "kagent",
