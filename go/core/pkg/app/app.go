@@ -675,22 +675,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	clientRegistry := a2a.NewAgentClientRegistry()
-	a2aRegistrar, err := a2a.NewA2ARegistrar(
-		mgr.GetCache(),
-		a2aHandler,
-		clientRegistry,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
-		extensionCfg.Authenticator,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create a2a registrar")
-		os.Exit(1)
-	}
-	if err := mgr.Add(a2aRegistrar); err != nil {
-		setupLog.Error(err, "unable to set up a2a registrar")
-		os.Exit(1)
-	}
 
 	// Create MCP handler that invokes agents directly via their A2A clients,
 	// bypassing the controller's own HTTP A2A listener.
@@ -713,9 +697,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
 		extensionCfg.Authenticator,
-		int(cfg.Streaming.MaxBufSize.Value()),
-		int(cfg.Streaming.InitialBufSize.Value()),
-		cfg.Streaming.Timeout,
 		mcpHandler,
 	)
 	if err != nil {
