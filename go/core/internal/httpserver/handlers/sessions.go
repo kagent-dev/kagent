@@ -179,8 +179,14 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	log.Info("Successfully created session", "sessionID", session.ID)
-	data := api.NewResponse(session, "Successfully created session", false)
+	stored, err := h.DatabaseService.GetSession(r.Context(), id, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to load created session", err))
+		return
+	}
+
+	log.Info("Successfully created session", "sessionID", stored.ID)
+	data := api.NewResponse(stored, "Successfully created session", false)
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 

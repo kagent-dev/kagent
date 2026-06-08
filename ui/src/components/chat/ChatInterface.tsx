@@ -19,6 +19,8 @@ import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
+import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
+import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import { getAgent, waitForSandboxAgentReady } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -282,7 +284,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+            name: deriveSessionTitle(userMessageText),
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -294,7 +296,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
 
           currentSessionId = newSessionResponse.data.id;
-          setSession(newSessionResponse.data);
+          setSession(normalizeSessionTimestamps(newSessionResponse.data));
 
           // Update URL without triggering navigation or component reload
           const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
@@ -305,7 +307,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
               agentRef: `${selectedNamespace}/${selectedAgentName}`,
-              session: newSessionResponse.data
+              session: normalizeSessionTimestamps(newSessionResponse.data),
             }
           });
           window.dispatchEvent(newSessionEvent);
@@ -316,6 +318,37 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setCurrentInputMessage(userMessageText);
           isCreatingSessionRef.current = false;
           return;
+        }
+      }
+
+      if (
+        currentSessionId &&
+        storedMessages.length === 0 &&
+        isPlaceholderSessionTitle(session?.name)
+      ) {
+        const title = deriveSessionTitle(userMessageText);
+        if (title) {
+          try {
+            const renameResponse = await createSession({
+              id: currentSessionId,
+              agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+              name: title,
+            });
+            if (!renameResponse.error && renameResponse.data) {
+              const updatedSession = normalizeSessionTimestamps(renameResponse.data, new Date());
+              setSession(updatedSession);
+              window.dispatchEvent(
+                new CustomEvent("new-session-created", {
+                  detail: {
+                    agentRef: `${selectedNamespace}/${selectedAgentName}`,
+                    session: updatedSession,
+                  },
+                }),
+              );
+            }
+          } catch (error) {
+            console.error("Error updating session title:", error);
+          }
         }
       }
 

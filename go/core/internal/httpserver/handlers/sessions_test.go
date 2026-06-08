@@ -159,6 +159,8 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, "test-session", *response.Data.Name)
 			assert.Equal(t, userID, response.Data.UserID)
 			assert.NotEmpty(t, response.Data.ID)
+			assert.False(t, response.Data.CreatedAt.IsZero())
+			assert.False(t, response.Data.UpdatedAt.IsZero())
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {

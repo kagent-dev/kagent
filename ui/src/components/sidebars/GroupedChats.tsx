@@ -120,7 +120,6 @@ export default function GroupedChats({
       try {
         const created = await createSession({
           agent_ref: `${agentNamespace}/${agentName}`,
-          name: "Chat",
         });
         if (created.error || !created.data) {
           toast.error(formatA2AClientError(created.error ?? "Failed to create session"));

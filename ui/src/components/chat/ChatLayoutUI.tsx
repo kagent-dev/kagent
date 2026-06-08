@@ -9,6 +9,7 @@ import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
+import { mergeSessionUpdate, normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 
 interface ChatLayoutUIProps {
   agentName: string;
@@ -80,12 +81,13 @@ export default function ChatLayoutUI({
       // Only update if this is for our current agent (agentRef format: "namespace/agentName")
       const currentAgentRef = `${namespace}/${agentName}`;
       if (agentRef === currentAgentRef && session) {
+        const normalized = normalizeSessionTimestamps(session);
         setSessions(prevSessions => {
-          const exists = prevSessions.some(s => s.id === session.id);
+          const exists = prevSessions.some(s => s.id === normalized.id);
           if (exists) {
-            return prevSessions;
+            return prevSessions.map(s => (s.id === normalized.id ? mergeSessionUpdate(s, normalized) : s));
           }
-          return [session, ...prevSessions];
+          return [normalized, ...prevSessions];
         });
       }
     };
