@@ -393,8 +393,8 @@ Examples:
   kagent mcp secrets sync production --dry-run
 `,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return SyncSecretsMcp(cfg, args[0])
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return SyncSecretsMcp(cmd.Context(), cfg, args[0])
 		},
 	}
 

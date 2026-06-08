@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -32,35 +33,46 @@ func NewAgentsHandler(base *Base) *AgentsHandler {
 	return &AgentsHandler{Base: base}
 }
 
-// HandleListAgents handles GET /api/agents requests using database
+// HandleListAgents handles GET /api/agents requests using database.
+// Optional query param: namespace=<ns>.
 func (h *AgentsHandler) HandleListAgents(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-db")
 
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		h.handleListAgents(w, r, log)
+		return
+	}
+
+	if strings.TrimSpace(namespace) != namespace {
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("invalid namespace %q: must not contain leading or trailing whitespace", namespace),
+			nil,
+		))
+		return
+	}
+
+	if errs := utilvalidation.IsDNS1123Label(namespace); len(errs) > 0 {
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("invalid namespace %q: %s", namespace, strings.Join(errs, "; ")),
+			nil,
+		))
+		return
+	}
+
+	h.handleListAgents(w, r, log.WithValues("namespace", namespace), client.InNamespace(namespace))
+}
+
+func (h *AgentsHandler) handleListAgents(w ErrorResponseWriter, r *http.Request, log logr.Logger, opts ...client.ListOption) {
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
 		w.RespondWithError(err)
 		return
 	}
 
-	agentList := &v1alpha2.AgentList{}
-	if err := h.KubeClient.List(r.Context(), agentList); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list Agents from Kubernetes", err))
+	agentsWithID, err := h.listAgentResponses(r.Context(), log, opts...)
+	if err != nil {
+		w.RespondWithError(err)
 		return
-	}
-
-	agentsWithID := make([]api.AgentResponse, 0)
-	h.appendAgentResponses(r.Context(), log, agentObjects(agentList.Items), &agentsWithID)
-
-	harnessList := &v1alpha2.AgentHarnessList{}
-	if err := h.KubeClient.List(r.Context(), harnessList); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err))
-		return
-	}
-	for i := range harnessList.Items {
-		sb := &harnessList.Items[i]
-		if sb.Spec.Backend != v1alpha2.AgentHarnessBackendOpenClaw && sb.Spec.Backend != v1alpha2.AgentHarnessBackendNemoClaw {
-			continue
-		}
-		agentsWithID = append(agentsWithID, h.openshellAgentHarnessAgentResponse(r.Context(), log, sb))
 	}
 
 	log.Info("Successfully listed agents", "count", len(agentsWithID))
@@ -89,6 +101,33 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 	log.Info("Successfully listed sandbox agents", "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed sandbox agents", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// listAgentResponses fetches Agent and AgentHarness resources, applies the
+// provided list options (e.g. client.InNamespace), and returns the merged
+// slice of AgentResponse values.
+func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, opts ...client.ListOption) ([]api.AgentResponse, error) {
+	agentList := &v1alpha2.AgentList{}
+	if err := h.KubeClient.List(ctx, agentList, opts...); err != nil {
+		return nil, errors.NewInternalServerError("Failed to list Agents from Kubernetes", err)
+	}
+
+	harnessList := &v1alpha2.AgentHarnessList{}
+	if err := h.KubeClient.List(ctx, harnessList, opts...); err != nil {
+		return nil, errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err)
+	}
+
+	result := make([]api.AgentResponse, 0, len(agentList.Items)+len(harnessList.Items))
+	h.appendAgentResponses(ctx, log, agentObjects(agentList.Items), &result)
+	for i := range harnessList.Items {
+		sb := &harnessList.Items[i]
+		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+			continue
+		}
+		result = append(result, h.openshellAgentHarnessAgentResponse(ctx, log, sb))
+	}
+
+	return result, nil
 }
 
 func (h *AgentsHandler) appendAgentResponses(
@@ -121,19 +160,13 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 		}
 	}
 
+	runtime := sb.Spec.Runtime
+	if runtime == "" {
+		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+	}
+
 	gatewayName := fmt.Sprintf("%s-%s", sb.Namespace, sb.Name)
 	desc := strings.TrimSpace(sb.Spec.Description)
-	entry := &api.OpenshellAgentHarnessListEntry{
-		Backend:            sb.Spec.Backend,
-		GatewaySandboxName: gatewayName,
-		ModelConfigRef:     sb.Spec.ModelConfigRef,
-	}
-	if sb.Status.BackendRef != nil {
-		entry.BackendRefID = sb.Status.BackendRef.ID
-	}
-	if sb.Status.Connection != nil {
-		entry.Endpoint = sb.Status.Connection.Endpoint
-	}
 
 	resp := api.AgentResponse{
 		ID: id,
@@ -145,9 +178,39 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 				Description: desc,
 			},
 		},
-		DeploymentReady:       ready,
-		Accepted:              accepted,
-		OpenshellAgentHarness: entry,
+		DeploymentReady: ready,
+		Accepted:        accepted,
+	}
+
+	switch runtime {
+	case v1alpha2.AgentHarnessRuntimeSubstrate:
+		subEntry := &api.SubstrateAgentHarnessListEntry{
+			Backend:        sb.Spec.Backend,
+			Runtime:        runtime,
+			ModelConfigRef: sb.Spec.ModelConfigRef,
+			GatewayUIPath:  fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
+		}
+		if sb.Status.BackendRef != nil {
+			subEntry.BackendRefID = sb.Status.BackendRef.ID
+			subEntry.ActorID = sb.Status.BackendRef.ID
+		}
+		if sb.Status.Connection != nil {
+			subEntry.Endpoint = sb.Status.Connection.Endpoint
+		}
+		resp.SubstrateAgentHarness = subEntry
+	default:
+		entry := &api.OpenshellAgentHarnessListEntry{
+			Backend:            sb.Spec.Backend,
+			GatewaySandboxName: gatewayName,
+			ModelConfigRef:     sb.Spec.ModelConfigRef,
+		}
+		if sb.Status.BackendRef != nil {
+			entry.BackendRefID = sb.Status.BackendRef.ID
+		}
+		if sb.Status.Connection != nil {
+			entry.Endpoint = sb.Status.Connection.Endpoint
+		}
+		resp.OpenshellAgentHarness = entry
 	}
 
 	mcRef := strings.TrimSpace(sb.Spec.ModelConfigRef)
@@ -257,6 +320,7 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 		nil,
 		h.ProxyURL,
 		h.SandboxBackend,
+		h.MCPEgressPlaintext,
 	)
 }
 
@@ -645,7 +709,7 @@ func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request
 		return
 	}
 	b := sb.Spec.Backend
-	if b != v1alpha2.AgentHarnessBackendOpenClaw && b != v1alpha2.AgentHarnessBackendNemoClaw {
+	if !v1alpha2.IsKnownAgentHarnessBackend(b) {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
 		return
 	}

@@ -1,0 +1,97 @@
+suite: test substrate ate-api rbac
+templates:
+  - substrate-ate-api-rbac.yaml
+tests:
+  - it: should not render when substrate is disabled
+    set:
+      controller.substrate.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render Role and RoleBinding in the release namespace when substrate is enabled
+    set:
+      controller.substrate.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ate-api-env-sources
+        documentIndex: 0
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets", "configmaps"]
+            verbs: ["get"]
+        documentIndex: 0
+      - equal:
+          path: subjects[0].name
+          value: ate-api-server
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: ate-system
+        documentIndex: 1
+
+  - it: should render RBAC in each rbac.namespaces entry plus the release namespace
+    set:
+      controller.substrate.enabled: true
+      rbac:
+        namespaces:
+          - team-a
+          - team-b
+    asserts:
+      - hasDocuments:
+          count: 6
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: team-a
+        documentIndex: 2
+      - equal:
+          path: metadata.namespace
+          value: team-a
+        documentIndex: 3
+      - equal:
+          path: metadata.namespace
+          value: team-b
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: team-b
+        documentIndex: 5
+
+  - it: should allow overriding ate-api-server service account identity
+    set:
+      controller.substrate.enabled: true
+      controller.substrate.ateApiServer:
+        namespace: custom-ate
+        serviceAccount: custom-api
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: custom-api
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: custom-ate
+        documentIndex: 1

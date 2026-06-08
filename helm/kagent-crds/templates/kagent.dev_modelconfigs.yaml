@@ -652,17 +652,19 @@ spec:
                 properties:
                   caCertSecretKey:
                     description: |-
-                      CACertSecretKey is the key within the Secret that contains the CA certificate data.
-                      This field follows the same pattern as APIKeySecretKey.
-                      Required when CACertSecretRef is set (unless DisableVerify is true).
+                      CACertSecretKey is the key within the Secret that contains the
+                      CA certificate data (PEM-encoded). Required when CACertSecretRef
+                      is set — admission rejects ref-without-key regardless of
+                      DisableVerify (see the TLSConfig-level XValidation rules).
                     type: string
                   caCertSecretRef:
                     description: |-
                       CACertSecretRef is a reference to a Kubernetes Secret containing
                       CA certificate(s) in PEM format. The Secret must be in the same
-                      namespace as the ModelConfig.
-                      When set, the certificate will be used to verify the provider's SSL certificate.
-                      This field follows the same pattern as APIKeySecret.
+                      namespace as the resource referencing it (ModelConfig,
+                      RemoteMCPServer, or any future consumer of TLSConfig).
+                      When set, the certificate will be used to verify the upstream's
+                      SSL certificate.
                     type: string
                   disableSystemCAs:
                     default: false
@@ -682,6 +684,20 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
+                x-kubernetes-validations:
+                - message: caCertSecretKey requires caCertSecretRef
+                  rule: '!(has(self.caCertSecretKey) && size(self.caCertSecretKey)
+                    > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef)
+                    == 0))'
+                - message: caCertSecretRef requires caCertSecretKey
+                  rule: '!(has(self.caCertSecretRef) && size(self.caCertSecretRef)
+                    > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey)
+                    == 0))'
+                - message: disableSystemCAs requires caCertSecretRef or disableVerify
+                    (trust-nothing config rejects every upstream)
+                  rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
+                    (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
+                    || size(self.caCertSecretRef) == 0))'
             required:
             - model
             type: object
@@ -719,22 +735,6 @@ spec:
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
                 == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
                 == ''AnthropicVertexAI''))'
-            - message: caCertSecretKey requires caCertSecretRef
-              rule: '!(has(self.tls) && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
-                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
-                == 0))'
-            - message: caCertSecretKey requires caCertSecretRef (unless disableVerify
-                is true)
-              rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
-                && has(self.tls.caCertSecretKey) && size(self.tls.caCertSecretKey)
-                > 0 && (!has(self.tls.caCertSecretRef) || size(self.tls.caCertSecretRef)
-                == 0))'
-            - message: caCertSecretRef requires caCertSecretKey (unless disableVerify
-                is true)
-              rule: '!(has(self.tls) && (!has(self.tls.disableVerify) || !self.tls.disableVerify)
-                && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef)
-                > 0 && (!has(self.tls.caCertSecretKey) || size(self.tls.caCertSecretKey)
-                == 0))'
             - message: openAI.tokenExchange requires apiKeySecret (the service account
                 secret)
               rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)

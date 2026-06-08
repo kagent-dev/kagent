@@ -78,6 +78,51 @@ export class KagentA2AClient {
   }
 
   /**
+   * Resubscribe to an existing in-progress task's event stream.
+   * Use this on page load when a task is still running to reconnect without
+   * sending a new message. Fails if the task is already in a terminal state.
+   */
+  async resubscribeStream(
+    namespace: string,
+    agentName: string,
+    taskId: string,
+    signal?: AbortSignal,
+    runInSandbox = false
+  ): Promise<AsyncIterable<any>> {
+    const request = {
+      jsonrpc: "2.0" as const,
+      method: "tasks/resubscribe",
+      params: { id: taskId },
+      id: uuidv4(),
+    };
+
+    const proxyUrl = runInSandbox
+      ? `/a2a-sandboxes/${namespace}/${agentName}`
+      : `/a2a/${namespace}/${agentName}`;
+
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify(request),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Resubscribe failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+
+    return this.processSSEStream(response.body);
+  }
+
+  /**
    * Process Server-Sent Events stream with proper event boundary detection
    */
   private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<any> {

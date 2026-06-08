@@ -8,6 +8,7 @@ import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections 
 import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
+import { generateId } from "@/lib/utils";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
 import { MemorySection } from "@/components/create/MemorySection";
@@ -62,6 +63,7 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
+  const initialNamespace = !isEditMode && agentNamespace?.trim() ? agentNamespace.trim() : "default";
 
   type SelectedModelType = ModelConfig;
 
@@ -100,7 +102,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   const [state, setState] = useState<FormState>({
     name: "",
-    namespace: "default",
+    namespace: initialNamespace,
     description: "",
     agentType: "Declarative",
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
@@ -162,7 +164,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       return {
         ...prev,
         errors: { ...prev.errors, promptSources: undefined },
-        promptSourceRows: [...nonEmpty, { id: crypto.randomUUID(), name: t, alias: "" }],
+        promptSourceRows: [...nonEmpty, { id: generateId(), name: t, alias: "" }],
       };
     });
   }, []);
@@ -200,14 +202,14 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
-                const memorySpec = decl?.memory ?? (agent.spec as { memory?: { modelConfig: string; ttlDays?: number } })?.memory;
+                const memorySpec = decl?.memory;
                 const memoryModelConfig = memorySpec?.modelConfig
                   ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
                   : "";
                 const pt = decl?.promptTemplate;
                 const srcRows: PromptSourceRow[] =
                   pt?.dataSources?.map((ds) => ({
-                    id: crypto.randomUUID(),
+                    id: generateId(),
                     name: ds.name || "",
                     alias: ds.alias || "",
                   })) ?? [newPromptSourceRow()];
@@ -486,7 +488,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       }
 
       setFormDirty(false);
-      router.push(`/agents`);
+      const returnPath =
+        !isEditMode && agentNamespace
+          ? `/agents?namespace=${encodeURIComponent(state.namespace)}`
+          : "/agents";
+      router.push(returnPath);
     } catch (e) {
       console.error(`Error ${isEditMode ? "updating" : "creating"} agent:`, e);
       const errorMessage =
@@ -881,7 +887,7 @@ export default function AgentPage() {
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");
-  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : "create";
+  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : `create-${agentNamespace || "default"}`;
 
   return (
     <Suspense fallback={<LoadingState />}>

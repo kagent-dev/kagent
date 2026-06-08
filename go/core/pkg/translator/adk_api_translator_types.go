@@ -16,6 +16,10 @@ type AgentOutputs struct {
 	AgentCard server.AgentCard `json:"agentCard"`
 }
 
+// TranslatorPlugin is the manifest-phase plugin: it runs after the workload
+// objects are built (the config Secret has already been serialized and its
+// hash baked into the pod template), so it may mutate or append to
+// outputs.Manifest but must not expect config edits to affect the config-hash.
 type TranslatorPlugin interface {
 	ProcessAgent(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error
 	GetOwnedResourceTypes() []client.Object

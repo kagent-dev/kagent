@@ -26,8 +26,13 @@ import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessage
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
-import { getStatusPlaceholder } from "@/lib/statusUtils";
-import { Message, DataPart } from "@a2a-js/sdk";
+import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
+import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+
+// Task states where the agent is actively processing — resubscribe to live stream.
+const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
+// Task states that mean the session is busy (used by the cross-tab send guard).
+const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -122,6 +127,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setIsLoading(true);
       setSessionNotFound(false);
 
+      let activeTask: Task | undefined;
+
       try {
         const sessionExistsResponse = await checkSessionExists(sessionId);
         if (sessionExistsResponse.error || !sessionExistsResponse.data) {
@@ -156,17 +163,32 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           if (hasPendingApproval) {
             setChatStatus("input_required");
+          } else {
+            // Check for a task still actively running (not input-required, not terminal).
+            // input-required is excluded: it needs the approval UI, not a stream.
+            activeTask = messagesResponse.data.findLast(
+              task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+            );
           }
         }
       } catch (error) {
         console.error("Error loading messages:", error);
         toast.error("Error loading messages");
         setSessionNotFound(true);
+        setIsLoading(false);
+        return;
       }
+
       setIsLoading(false);
+
+      if (activeTask) {
+        setChatStatus(mapA2AStateToStatus(activeTask.status?.state as TaskState));
+        await streamResubscribedTask(activeTask.id);
+      }
     }
 
     initializeChat();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
 
   useEffect(() => {
@@ -192,6 +214,30 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     const userMessageText = currentInputMessage;
+
+    // Cross-tab guard: fetch the latest session state before mutating anything.
+    // Two cases: (1) another tab is still streaming — reconnect instead of sending;
+    // (2) another tab completed a turn we haven't loaded — reload so the user sees
+    // the full context before their next message goes out.
+    const guardSessionId = session?.id || sessionId;
+    if (guardSessionId) {
+      // Compare only non-approval messages to avoid false negatives when
+      // storedMessages includes appended ToolApprovalRequest / AskUserRequest entries.
+      const localMessageCount = storedMessages.filter(m => {
+        const meta = m.metadata as ADKMetadata | undefined;
+        return meta?.originalType !== "ToolApprovalRequest" && meta?.originalType !== "AskUserRequest";
+      }).length;
+      const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
+        localMessageCount,
+        messages: {
+          inFlight: "This session is already being processed — reconnecting to live updates",
+          inputRequired: "Session is awaiting your input — please review before sending",
+          staleOrChanged: "New messages loaded — please review before sending",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
     setCurrentInputMessage("");
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
@@ -289,6 +335,67 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setCurrentInputMessage(userMessageText);
     }
   };
+  
+  const consumeStream = async (stream: AsyncIterable<unknown>) => {
+    let timeoutTimer: NodeJS.Timeout | null = null;
+    let streamActive = true;
+    const STREAM_TIMEOUT_MS = 600000; // 10 minutes
+
+    const startTimeout = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      timeoutTimer = setTimeout(() => {
+        if (streamActive) {
+          console.error("⏰ Stream timeout - no events received for 10 minutes");
+          toast.error("⏰ Stream timed out - no events received for 10 minutes");
+          streamActive = false;
+          abortControllerRef.current?.abort();
+        }
+      }, STREAM_TIMEOUT_MS);
+    };
+    startTimeout();
+
+    try {
+      for await (const event of stream) {
+        startTimeout();
+        try {
+          handleMessageEvent(event as Message);
+        } catch (err) {
+          console.error("Error handling stream event:", err);
+        }
+        if (abortControllerRef.current?.signal.aborted) {
+          streamActive = false;
+          break;
+        }
+      }
+    } finally {
+      streamActive = false;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    }
+  };
+
+  const reloadSessionFromDB = async () => {
+    try {
+      const currentSessionId = session?.id || sessionId;
+      if (!currentSessionId) return;
+      const latest = await getSessionTasks(currentSessionId);
+      if (latest.data && latest.data.length > 0) {
+        const extractedMessages = extractMessagesFromTasks(latest.data);
+        const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(latest.data);
+        setStoredMessages(
+          hasPendingApproval
+            ? [...extractedMessages, ...pendingApprovalMessages]
+            : extractedMessages
+        );
+        setSessionStats(extractTokenStatsFromTasks(latest.data));
+        setStreamingMessages([]);
+        if (hasPendingApproval) {
+          setChatStatus("input_required");
+        }
+      }
+    } catch {
+      // Best-effort reload.
+    }
+  };
 
   /**
    * Shared streaming helper used by both handleSendMessage and
@@ -341,42 +448,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         runInSandbox
       );
 
-      let timeoutTimer: NodeJS.Timeout | null = null;
-      let streamActive = true;
-      const streamTimeout = 600000; // 10 minutes
-
-      const handleTimeout = () => {
-        if (streamActive) {
-          console.error("⏰ Stream timeout - no events received for 10 minutes");
-          toast.error("⏰ Stream timed out - no events received for 10 minutes");
-          streamActive = false;
-          if (abortControllerRef.current) abortControllerRef.current.abort();
-        }
-      };
-
-      const startTimeout = () => {
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        timeoutTimer = setTimeout(handleTimeout, streamTimeout);
-      };
-      startTimeout();
-
-      try {
-        for await (const event of stream) {
-          startTimeout();
-          try {
-            handleMessageEvent(event);
-          } catch (error) {
-            console.error(`❌ Error handling event: ${error}`);
-          }
-          if (abortControllerRef.current?.signal.aborted) {
-            streamActive = false;
-            break;
-          }
-        }
-      } finally {
-        streamActive = false;
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-      }
+      await consumeStream(stream);
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
@@ -391,6 +463,124 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       abortControllerRef.current = null;
       opts?.onFinally?.();
     }
+  };
+
+  const streamResubscribedTask = async (taskId: string) => {
+    const isTerminalError = (err: unknown) => {
+      if (!(err instanceof Error)) return false;
+      const msg = err.message.toLowerCase();
+      return msg.includes("terminal state") || msg.includes("task not found") || msg.includes("404");
+    };
+
+    abortControllerRef.current = new AbortController();
+    isFirstAssistantChunkRef.current = true;
+
+    try {
+      const stream = await kagentA2AClient.resubscribeStream(
+        selectedNamespace,
+        selectedAgentName,
+        taskId,
+        abortControllerRef.current.signal,
+        runInSandbox,
+      );
+
+      await consumeStream(stream);
+
+      // Stream ended cleanly — reload final state from DB and settle.
+      await reloadSessionFromDB();
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name !== "AbortError" && !isTerminalError(error)) {
+        console.error("Resubscribe failed:", error);
+      }
+      // Terminal, AbortError, or unexpected error — reload whatever state we have.
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        await reloadSessionFromDB();
+      }
+    } finally {
+      abortControllerRef.current = null;
+      // Don't override input_required that reloadSessionFromDB() may have set.
+      setChatStatus(prev => prev === "input_required" ? prev : "ready");
+      setIsStreaming(false);
+      setStreamingContent("");
+    }
+  };
+
+  /**
+   * Cross-tab guard: fetch the latest session state and sync before any action
+   * that would mutate the session. Returns "proceed" if safe, "blocked" if the
+   * action was superseded and the handler should return early.
+   *
+   * HITL mode (expectedTaskId provided): verifies the specific task is still
+   * input-required; resubscribes or reloads if another tab already responded.
+   *
+   * Send-guard mode (no expectedTaskId): checks for any active task and for
+   * stale local messages; blocks and syncs if either is detected.
+   */
+  const checkAndSyncSessionBeforeAction = async (
+    guardSessionId: string,
+    opts: {
+      expectedTaskId?: string;
+      localMessageCount?: number;
+      messages: {
+        inFlight: string;
+        inputRequired?: string;
+        staleOrChanged: string;
+      };
+    }
+  ): Promise<"proceed" | "blocked"> => {
+    let tasksCheck: Awaited<ReturnType<typeof getSessionTasks>>;
+    try {
+      tasksCheck = await getSessionTasks(guardSessionId);
+    } catch {
+      // Guard is best-effort: if the check fails, let the action proceed.
+      return "proceed";
+    }
+    if (!tasksCheck.data) return "proceed";
+
+    if (opts.expectedTaskId) {
+      const expectedTask = tasksCheck.data.findLast(task => task.id === opts.expectedTaskId);
+      if ((expectedTask?.status?.state as TaskState | undefined) !== "input-required") {
+        const inFlightTask = tasksCheck.data.findLast(
+          task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+        );
+        if (inFlightTask) {
+          toast.info(opts.messages.inFlight);
+          setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+          await streamResubscribedTask(inFlightTask.id);
+        } else {
+          await reloadSessionFromDB();
+          toast.info(opts.messages.staleOrChanged);
+        }
+        return "blocked";
+      }
+      return "proceed";
+    }
+
+    const inFlightTask = tasksCheck.data.findLast(
+      task => ACTIVE_TASK_STATES.includes(task.status?.state as TaskState)
+    );
+    if (inFlightTask) {
+      if ((inFlightTask.status?.state as TaskState) === "input-required") {
+        await reloadSessionFromDB();
+        toast.info(opts.messages.inputRequired ?? opts.messages.staleOrChanged);
+      } else {
+        toast.info(opts.messages.inFlight);
+        setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+        await streamResubscribedTask(inFlightTask.id);
+      }
+      return "blocked";
+    }
+
+    if (opts.localMessageCount !== undefined) {
+      const dbMessages = extractMessagesFromTasks(tasksCheck.data);
+      if (dbMessages.length > opts.localMessageCount) {
+        await reloadSessionFromDB();
+        toast.info(opts.messages.staleOrChanged);
+        return "blocked";
+      }
+    }
+
+    return "proceed";
   };
 
   const handleCancel = (e: React.FormEvent) => {
@@ -432,12 +622,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     displayText: string,
   ) => {
     const currentSessionId = session?.id || sessionId;
+
+    // Find the taskId first so the guard can verify the task is still input-required.
+    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
+
+    // Cross-tab guard: another tab may have already submitted this approval.
+    if (currentSessionId && approvalTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: approvalTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
     setChatStatus("thinking");
     setStreamingContent("");
-
-    // Find the taskId from the pending approval message so the A2A framework
-    // reuses the existing task instead of creating a new one.
-    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
@@ -571,10 +773,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
    * Handle ask_user answers submitted by the user. Sends an "approve" decision
    * with the answers payload attached, routed to the pending ask_user task.
    */
-  const handleAskUserSubmit = (answers: Array<{ answer: string[] }>) => {
+  const handleAskUserSubmit = async (answers: Array<{ answer: string[] }>) => {
     const currentSessionId = session?.id || sessionId;
-    setChatStatus("thinking");
-    setStreamingContent("");
 
     // Find the taskId from the pending AskUserRequest message
     let askUserTaskId: string | undefined;
@@ -586,6 +786,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         break;
       }
     }
+
+    // Cross-tab guard: another tab may have already answered this question.
+    if (currentSessionId && askUserTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: askUserTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
+    setChatStatus("thinking");
+    setStreamingContent("");
 
     // Stamp the ask-user message as resolved so we don't show the form again
     const stampAskUser = (msgs: Message[]) => msgs.map(m => {
@@ -616,7 +831,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       metadata: { timestamp: Date.now() },
     };
 
-    streamA2AMessage(a2aMessage, {
+    await streamA2AMessage(a2aMessage, {
       errorLabel: "Ask user response failed",
       sessionIdForWait: currentSessionId,
       onFinally: () => {

@@ -6,6 +6,11 @@ import { Label } from "@/components/ui/label";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import {
+  defaultHarnessSSHLaunchCommand,
+  isAgentHarnessBackend,
+  type AgentHarnessBackend,
+} from "@/lib/agentHarness";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -39,10 +44,15 @@ export function OpenshellTerminalPage() {
   const searchParams = useSearchParams();
 
   const gatewaySandboxName = searchParams.get("sandbox")?.trim() ?? "";
+  const harnessBackendParam = searchParams.get("harnessBackend")?.trim() ?? "";
+  const harnessBackend: AgentHarnessBackend | undefined = isAgentHarnessBackend(harnessBackendParam)
+    ? harnessBackendParam
+    : undefined;
   const clawHarnessSession = searchParams.get("clawHarness") === "1";
-  const autoConnect = Boolean(gatewaySandboxName);
+  const harnessTerminalSession = clawHarnessSession || harnessBackend === "hermes";
   const namespace = searchParams.get("ns")?.trim() ?? "";
   const crName = searchParams.get("name")?.trim() ?? "";
+  const autoConnect = Boolean(gatewaySandboxName);
   const modelConfigRef = searchParams.get("modelConfigRef")?.trim() ?? "";
   const [plainShellOnly, setPlainShellOnly] = useState(() => searchParams.get("plainShell") === "1");
   /** Plain-shell mode the active SSH session was opened with (null when disconnected). */
@@ -53,7 +63,7 @@ export function OpenshellTerminalPage() {
 
   const [termError, setTermError] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
-  const [connecting, setConnecting] = useState(() => Boolean(autoConnect && gatewaySandboxName));
+  const [connecting, setConnecting] = useState(() => Boolean(autoConnect));
 
   const termHostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -108,16 +118,10 @@ export function OpenshellTerminalPage() {
     wsRef.current?.close();
   }, []);
 
-  const connectTerminal = useCallback(
-    (gatewayName: string) => {
+  const connectTerminal = useCallback(() => {
       const term = termRef.current;
       if (!term) {
         setConnecting(false);
-        return;
-      }
-      const name = gatewayName.trim();
-      if (!name) {
-        setTermError("Missing gateway sandbox name.");
         return;
       }
 
@@ -126,7 +130,16 @@ export function OpenshellTerminalPage() {
       setSessionActive(false);
       wsRef.current?.close();
 
-      const url = sandboxSshWebSocketURL(terminalApiBase());
+      const name = gatewaySandboxName.trim();
+      if (!name) {
+        setConnecting(false);
+        setTermError("Missing gateway sandbox name.");
+        return;
+      }
+
+      const apiBase = terminalApiBase();
+      const url = sandboxSshWebSocketURL(apiBase);
+
       let ws: WebSocket;
       try {
         ws = new WebSocket(url);
@@ -140,15 +153,20 @@ export function OpenshellTerminalPage() {
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
-        setConnecting(false);
-        setSessionActive(true);
         setTermError(null);
-        setAppliedPlainShell(plainShellOnly);
+        const usePlainShell = plainShellOnly;
+        const launchCommand =
+          !usePlainShell && harnessBackend
+            ? defaultHarnessSSHLaunchCommand(harnessBackend)
+            : undefined;
+        setAppliedPlainShell(usePlainShell);
         term.reset();
         ws.send(
           JSON.stringify({
             sandbox_name: name,
-            plain_shell: plainShellOnly,
+            plain_shell: usePlainShell,
+            ...(launchCommand ? { launch_command: launchCommand } : {}),
+            ...(harnessBackend ? { harness_backend: harnessBackend } : {}),
             cols: term.cols,
             rows: term.rows,
           }),
@@ -165,6 +183,8 @@ export function OpenshellTerminalPage() {
               return;
             }
             if (msg.type === "ready") {
+              setConnecting(false);
+              setSessionActive(true);
               return;
             }
           } catch {
@@ -177,6 +197,7 @@ export function OpenshellTerminalPage() {
 
       ws.onerror = () => {
         if (wsRef.current !== ws) return;
+        setConnecting(false);
         setTermError("WebSocket error — check Network → WS and that /api reaches the controller.");
       };
 
@@ -192,28 +213,26 @@ export function OpenshellTerminalPage() {
         }
       };
     },
-    [plainShellOnly],
+    [plainShellOnly, harnessBackend, gatewaySandboxName],
   );
 
   const restartSession = useCallback(() => {
-    const name = gatewaySandboxName.trim();
-    if (!name) return;
     wsRef.current?.close();
-    window.setTimeout(() => connectTerminal(name), 120);
-  }, [gatewaySandboxName, connectTerminal]);
+    window.setTimeout(() => connectTerminal(), 120);
+  }, [connectTerminal]);
 
   useEffect(() => {
-    if (!autoConnect || !gatewaySandboxName) return;
+    if (!autoConnect) return;
     const t = window.setTimeout(() => {
       if (!termRef.current) return;
-      connectTerminal(gatewaySandboxName);
+      connectTerminal();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [autoConnect, gatewaySandboxName, connectTerminal]);
+  }, [autoConnect, connectTerminal]);
 
   const showReconnect = Boolean(gatewaySandboxName) && !sessionActive && !connecting;
   const plainShellPendingRestart =
-    clawHarnessSession &&
+    harnessTerminalSession &&
     sessionActive &&
     appliedPlainShell !== null &&
     plainShellOnly !== appliedPlainShell;
@@ -246,7 +265,7 @@ export function OpenshellTerminalPage() {
           </dl>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-start">
-          {clawHarnessSession && gatewaySandboxName ? (
+          {harnessTerminalSession && gatewaySandboxName ? (
             <div className="flex max-w-[min(100%,260px)] flex-col gap-1 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
               <div className="flex items-start gap-2">
                 <Checkbox
@@ -266,7 +285,7 @@ export function OpenshellTerminalPage() {
           ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             {showReconnect ? (
-              <Button type="button" size="sm" variant="secondary" onClick={() => connectTerminal(gatewaySandboxName)}>
+              <Button type="button" size="sm" variant="secondary" onClick={() => connectTerminal()}>
                 Reconnect
               </Button>
             ) : null}
@@ -286,8 +305,7 @@ export function OpenshellTerminalPage() {
 
       {!gatewaySandboxName ? (
         <p className="text-sm text-muted-foreground">
-          Open an OpenShell sandbox from the <span className="text-foreground">Agents</span> list to start a terminal
-          session.
+          Open a harness from the <span className="text-foreground">Agents</span> list to start a terminal session.
         </p>
       ) : null}
 

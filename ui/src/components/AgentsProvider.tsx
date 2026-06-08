@@ -19,7 +19,7 @@ import type {
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
-import type { OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessSandboxBackend, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
 import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -49,8 +49,9 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** OpenClaw AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; backend openclaw). */
+  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw, nemoclaw, or hermes backend). */
   openClawSandbox?: OpenClawSandboxFormSlice;
+  harnessBackend?: AgentHarnessSandboxBackend;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -124,11 +125,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchModels = useCallback(async () => {
     try {
       const response = await getModelConfigs();
-      if (!response.data || response.error) {
-        throw new Error(response.error || "Failed to fetch models");
+      if (response.error) {
+        throw new Error(response.error);
       }
 
-      setModels(response.data);
+      // An empty list is a valid result (e.g. no ModelConfigs deployed). The
+      // backend omits `data` for empty collections (json omitempty), so treat
+      // missing data as an empty list rather than a fetch failure.
+      setModels(response.data ?? []);
       setError("");
     } catch (err) {
       console.error("Error fetching models:", err);
@@ -188,6 +192,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         const oc = validateOpenClawSandboxForm({
           openClaw: data.openClawSandbox,
           modelRef: data.modelName,
+          backend: data.harnessBackend,
         });
         if (oc) {
           errors.openClawSandbox = oc;
@@ -278,11 +283,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       const result = await createAgent(agentData);
 
-      if (!result.error) {
-        // Refresh agents to get the newly created one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error creating agent:", error);
@@ -291,7 +291,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Update existing agent
   const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
@@ -306,11 +306,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       // Use the same createAgent endpoint for updates
       const result = await createAgent(agentData, true);
 
-      if (!result.error) {
-        // Refresh agents to get the updated one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error updating agent:", error);
@@ -319,14 +314,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Initial fetches
   useEffect(() => {
-    fetchAgents();
     fetchTools();
     fetchModels();
-  }, [fetchAgents, fetchTools, fetchModels]);
+  }, [fetchTools, fetchModels]);
 
   const value = {
     agents,

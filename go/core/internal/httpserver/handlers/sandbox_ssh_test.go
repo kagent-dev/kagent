@@ -1,10 +1,7 @@
 package handlers
 
 import (
-	"bufio"
 	"bytes"
-	"context"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,21 +27,6 @@ func TestIsLoopbackHost(t *testing.T) {
 		if got := isLoopbackHost(tt.host); got != tt.want {
 			t.Errorf("isLoopbackHost(%q) = %v, want %v", tt.host, got, tt.want)
 		}
-	}
-}
-
-func TestResolveSandboxSSHRemoteCommand(t *testing.T) {
-	plain, cmd := resolveSandboxSSHRemoteCommand(false, "")
-	if plain || cmd != defaultSandboxSSHLaunchCmd {
-		t.Fatalf("default launch: plain=%v cmd=%q", plain, cmd)
-	}
-	plain, cmd = resolveSandboxSSHRemoteCommand(true, "")
-	if !plain || cmd != "" {
-		t.Fatalf("plain shell: plain=%v cmd=%q", plain, cmd)
-	}
-	plain, cmd = resolveSandboxSSHRemoteCommand(false, "  custom  ")
-	if plain || cmd != "custom" {
-		t.Fatalf("override: plain=%v cmd=%q", plain, cmd)
 	}
 }
 
@@ -256,70 +238,6 @@ func TestReadSandboxSSHStart(t *testing.T) {
 		gotErr, ok := (<-out).(error)
 		if !ok || gotErr == nil {
 			t.Fatalf("got %v ok=%v", gotErr, ok)
-		}
-	})
-}
-
-func TestCompleteHTTPConnect(t *testing.T) {
-	t.Run("ok and reads tunneled bytes", func(t *testing.T) {
-		client, server := net.Pipe()
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			defer server.Close()
-			br := bufio.NewReader(server)
-			for {
-				line, err := br.ReadString('\n')
-				if err != nil {
-					return
-				}
-				if line == "\r\n" || line == "\n" {
-					break
-				}
-			}
-			if _, err := server.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\npayload")); err != nil {
-				return
-			}
-		}()
-
-		ctx := context.Background()
-		tunnel, err := completeHTTPConnect(ctx, client, "gw.example", "/connect-path", "sid", "tok")
-		if err != nil {
-			t.Fatal(err)
-		}
-		buf := make([]byte, 32)
-		n, err := tunnel.Read(buf)
-		if err != nil || string(buf[:n]) != "payload" {
-			t.Fatalf("read %q err %v", buf[:n], err)
-		}
-		_ = client.Close()
-		<-done
-	})
-
-	t.Run("non-200", func(t *testing.T) {
-		client, server := net.Pipe()
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			defer server.Close()
-			br := bufio.NewReader(server)
-			for {
-				line, err := br.ReadString('\n')
-				if err != nil {
-					return
-				}
-				if line == "\r\n" || line == "\n" {
-					break
-				}
-			}
-			_, _ = server.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
-		}()
-
-		_, err := completeHTTPConnect(context.Background(), client, "gw.example", "/p", "sid", "tok")
-		_ = client.Close()
-		<-done
-		if err == nil || !strings.Contains(err.Error(), "CONNECT failed") {
-			t.Fatalf("got %v", err)
 		}
 	})
 }

@@ -92,6 +92,25 @@
       }
     },
     {
+      "data": {
+        "config.json": "{\"ociRefs\":[{\"image\":\"foo:latest\",\"dest\":\"/skills/foo\"}]}"
+      },
+      "metadata": {
+        "name": "skills-agent-skills-init",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "skills-agent",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
       "apiVersion": "apps/v1",
       "kind": "Deployment",
       "metadata": {
@@ -132,7 +151,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "4496754913718271849"
+              "kagent.dev/config-hash": "16877497333853346886"
             },
             "labels": {
               "app": "kagent",
@@ -238,11 +257,6 @@
             ],
             "initContainers": [
               {
-                "command": [
-                  "/bin/sh",
-                  "-c",
-                  "set -e\n_image=\"$(cat \u003c\u003c'ENDVAL'\nfoo:latest\nENDVAL\n)\"\n_dest=\"$(cat \u003c\u003c'ENDVAL'\n/skills/foo\nENDVAL\n)\"\necho \"Exporting OCI image ${_image} into ${_dest}\"\n_uname=\"$(uname -m)\"\ncase \"$_uname\" in\n  x86_64|amd64)\n    _arch=\"amd64\"\n    ;;\n  aarch64|arm64)\n    _arch=\"arm64\"\n    ;;\n  *)\n    echo \"Unsupported architecture for OCI export: ${_uname}\" \u003e\u00262\n    exit 1\n    ;;\nesac\nkrane export --platform \"linux/${_arch}\" \"$_image\" '/tmp/oci-skill.tar'\nmkdir -p \"$_dest\"\ntar xf '/tmp/oci-skill.tar' -C \"$_dest\"\nrm -f '/tmp/oci-skill.tar'\n"
-                ],
                 "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
                 "resources": {
@@ -259,6 +273,11 @@
                   {
                     "mountPath": "/skills",
                     "name": "kagent-skills"
+                  },
+                  {
+                    "mountPath": "/etc/kagent/skills-init",
+                    "name": "skills-init-config",
+                    "readOnly": true
                   }
                 ]
               }
@@ -274,6 +293,12 @@
               {
                 "emptyDir": {},
                 "name": "kagent-skills"
+              },
+              {
+                "configMap": {
+                  "name": "skills-agent-skills-init"
+                },
+                "name": "skills-init-config"
               },
               {
                 "name": "kagent-token",

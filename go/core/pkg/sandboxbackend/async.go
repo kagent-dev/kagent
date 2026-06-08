@@ -14,7 +14,8 @@ type Handle struct {
 }
 
 // EnsureResult is returned by EnsureAgentHarness. Endpoint (if set) is surfaced
-// to users via AgentHarness.Status.Connection.
+// to users via AgentHarness.Status.Connection (OpenShell: gateway URL#sandbox id;
+// Substrate: kagent gateway proxy path).
 type EnsureResult struct {
 	Handle   Handle
 	Endpoint string
@@ -39,9 +40,11 @@ type AsyncBackend interface {
 	// each reconcile.
 	GetStatus(ctx context.Context, h Handle) (metav1.ConditionStatus, string, string)
 
-	// DeleteAgentHarness releases the sandbox. NotFound must be treated as
-	// success so the finalizer can be removed idempotently.
-	DeleteAgentHarness(ctx context.Context, h Handle) error
+	// DeleteAgentHarness releases the sandbox. It performs at most one
+	// reconcile-safe delete step and returns done=true once the sandbox is gone.
+	// NotFound must be treated as success so the finalizer can be removed
+	// idempotently.
+	DeleteAgentHarness(ctx context.Context, h Handle) (done bool, err error)
 
 	// OnAgentHarnessReady runs one-time work after the AgentHarness reports
 	// Ready (for example ExecSandbox bootstrap inside the VM). Backends that

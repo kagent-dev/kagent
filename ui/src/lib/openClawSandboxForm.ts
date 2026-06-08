@@ -1,8 +1,15 @@
 import type { ValueSource } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { generateId } from "@/lib/utils";
 
-/** Sandbox CR backend; UI always uses openclaw for now. */
+/** Default Sandbox CR backend when the harness form does not specify one. */
 const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
+
+function resolveSandboxBackend(backend?: AgentHarnessSandboxBackend): AgentHarnessSandboxBackend {
+  return backend ?? SANDBOX_BACKEND_OPENCLAW;
+}
+
+export type AgentHarnessSandboxBackend = "openclaw" | "nemoclaw" | "hermes";
 
 export type SandboxChannelFormType = "telegram" | "slack";
 
@@ -20,13 +27,20 @@ export interface OpenClawChannelRow {
   appSecretKey: string;
   channelAccess: "allowlist" | "open" | "disabled";
   allowlistChannels: string;
+  /** Telegram: maps to spec.channels[].telegram.allowedUserIDs */
   allowedUserIDs: string;
+  /** Hermes Slack: maps to spec.channels[].slack.allowedUserIDs → SLACK_ALLOWED_USERS */
+  allowedSlackUserIDs: string;
+  /** Hermes Slack: maps to spec.channels[].slack.homeChannel → SLACK_HOME_CHANNEL */
+  slackHomeChannel: string;
+  /** Hermes Slack: maps to spec.channels[].slack.homeChannelName → SLACK_HOME_CHANNEL_NAME */
+  slackHomeChannelName: string;
   interactiveReplies: boolean;
 }
 
 export function newOpenClawChannelRow(): OpenClawChannelRow {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name: "",
     channelType: "telegram",
     botTokenSource: "inline",
@@ -40,11 +54,26 @@ export function newOpenClawChannelRow(): OpenClawChannelRow {
     channelAccess: "open",
     allowlistChannels: "",
     allowedUserIDs: "",
+    allowedSlackUserIDs: "",
+    slackHomeChannel: "",
+    slackHomeChannelName: "",
     interactiveReplies: true,
   };
 }
 
+export function isClawHarnessBackend(backend: AgentHarnessSandboxBackend | undefined): boolean {
+  return backend === "openclaw" || backend === "nemoclaw";
+}
+
+export type HarnessRuntimeForm = "openshell" | "substrate";
+
 export interface OpenClawSandboxFormSlice {
+  /** Harness control plane: OpenShell (default) or Agent Substrate. */
+  runtime: HarnessRuntimeForm;
+  substrateWorkerPoolRefName: string;
+  substrateGatewayToken: string;
+  /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
+  substrateSnapshotsLocation: string;
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
   channels: OpenClawChannelRow[];
@@ -59,6 +88,10 @@ export interface OpenClawSandboxFormSlice {
 
 export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
   return {
+    runtime: "openshell",
+    substrateWorkerPoolRefName: "",
+    substrateGatewayToken: "",
+    substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
     image: "",
     channels: [],
     allowedDomains: "",
@@ -153,10 +186,15 @@ function credentialFromRow(
 export function validateOpenClawSandboxForm(args: {
   openClaw: OpenClawSandboxFormSlice;
   modelRef: string | undefined;
+  backend?: AgentHarnessSandboxBackend;
 }): OpenClawSandboxFormValidationError | undefined {
+  const clawBackend = isClawHarnessBackend(resolveSandboxBackend(args.backend));
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return openClawValidationFail("general", "Please select a model config for this sandbox.");
+  }
+  if (args.openClaw.runtime === "substrate" && !args.openClaw.substrateGatewayToken.trim()) {
+    return openClawValidationFail("general", "Substrate gateway token is required.");
   }
 
   for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
@@ -168,6 +206,7 @@ export function validateOpenClawSandboxForm(args: {
     }
   }
 
+  const seenChannelNames = new Set<string>();
   for (const ch of args.openClaw.channels) {
     const cn = ch.name.trim();
     if (!cn) {
@@ -181,6 +220,13 @@ export function validateOpenClawSandboxForm(args: {
       }
       continue;
     }
+    if (seenChannelNames.has(cn)) {
+      return openClawValidationFail(
+        "channels",
+        `Duplicate channel binding name "${cn}". Each channel needs a unique name.`,
+      );
+    }
+    seenChannelNames.add(cn);
 
     const bot = credentialFromRow(
       ch.botTokenSource,
@@ -206,7 +252,7 @@ export function validateOpenClawSandboxForm(args: {
       }
     }
 
-    if (ch.channelType === "slack") {
+    if (ch.channelType === "slack" && clawBackend) {
       if (ch.channelAccess === "allowlist") {
         const list = trimSplitList(ch.allowlistChannels);
         if (list.length === 0) {
@@ -250,6 +296,7 @@ export function buildSandboxCRDraft(args: {
   description: string;
   modelRef: string;
   openClaw: OpenClawSandboxFormSlice;
+  backend?: AgentHarnessSandboxBackend;
 }): SandboxCRDraft | { error: string } {
   const modelConfigRef = modelConfigRefForSandbox(args.namespace.trim(), args.modelRef);
 
@@ -297,13 +344,30 @@ export function buildSandboxCRDraft(args: {
       const slack: Record<string, unknown> = {
         botToken: bot,
         appToken: app,
-        channelAccess: ch.channelAccess,
-        ...(ch.channelAccess === "allowlist"
-          ? { allowlistChannels: trimSplitList(ch.allowlistChannels) }
-          : {}),
       };
-      if (!ch.interactiveReplies) {
-        slack.interactiveReplies = false;
+      if (isClawHarnessBackend(resolveSandboxBackend(args.backend))) {
+        if (ch.channelAccess !== "open") {
+          slack.channelAccess = ch.channelAccess;
+        }
+        if (ch.channelAccess === "allowlist") {
+          slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
+        }
+        if (!ch.interactiveReplies) {
+          slack.interactiveReplies = false;
+        }
+      } else {
+        const allowedSlack = trimSplitList(ch.allowedSlackUserIDs);
+        if (allowedSlack.length > 0) {
+          slack.allowedUserIDs = allowedSlack;
+        }
+        const homeChannel = ch.slackHomeChannel.trim();
+        if (homeChannel) {
+          slack.homeChannel = homeChannel;
+          const homeName = ch.slackHomeChannelName.trim();
+          if (homeName) {
+            slack.homeChannelName = homeName;
+          }
+        }
       }
       base.slack = slack;
     }
@@ -311,10 +375,36 @@ export function buildSandboxCRDraft(args: {
     channels.push(base);
   }
 
+  const backend = resolveSandboxBackend(args.backend);
+  const runtime = args.openClaw.runtime?.trim() || "openshell";
+
   const spec: Record<string, unknown> = {
-    backend: SANDBOX_BACKEND_OPENCLAW,
+    backend,
+    runtime,
     modelConfigRef,
   };
+
+  if (runtime === "substrate") {
+    const snapshots = args.openClaw.substrateSnapshotsLocation?.trim();
+    if (!snapshots) {
+      return { error: "Substrate snapshots location (gs://…) is required." };
+    }
+    const gatewayToken = args.openClaw.substrateGatewayToken?.trim();
+    if (!gatewayToken) {
+      return { error: "Substrate gateway token is required." };
+    }
+    const substrate: Record<string, unknown> = {
+      gatewayToken,
+      snapshotsConfig: { location: snapshots },
+    };
+    const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();
+    if (wpName) {
+      substrate.workerPoolRef = {
+        name: wpName,
+      };
+    }
+    spec.substrate = substrate;
+  }
 
   const desc = args.description.trim();
   if (desc) {

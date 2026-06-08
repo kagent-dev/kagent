@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"bufio"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,13 +9,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -28,29 +26,28 @@ const (
 	// Default when OPENSHELL_GRPC_ADDR is unset and the WebSocket start frame omits grpc_address.
 	// Short name "openshell:8080" only resolves if a Service "openshell" exists in the controller's
 	// namespace; OpenShell is often installed in its own namespace (e.g. openshell).
-	defaultOpenshellGRPCAddr   = "openshell.openshell.svc.cluster.local:8080"
-	openshellGRPCEnv           = "OPENSHELL_GRPC_ADDR"
-	defaultSandboxSSHLaunchCmd = "openclaw tui"
+	defaultOpenshellGRPCAddr = "openshell.openshell.svc.cluster.local:8080"
+	openshellGRPCEnv         = "OPENSHELL_GRPC_ADDR"
 
-	sandboxSSHWSReadBufSize      = 4096
-	sandboxSSHHandshakeTimeout   = 90 * time.Second
-	sandboxSSHWSWriteDeadline    = 15 * time.Second
-	sandboxSSHDefaultCols        = 120
-	sandboxSSHDefaultRows        = 36
-	sandboxSSHCopyBufSize        = 32 * 1024
-	sandboxSSHGatewayDialTimeout = 30 * time.Second
-	sandboxSSHClientConnTimeout  = 60 * time.Second
-	sandboxSSHUser               = "sandbox"
-	sandboxSSHPTYTerm            = "xterm-256color"
+	sandboxSSHWSReadBufSize     = 4096
+	sandboxSSHHandshakeTimeout  = 90 * time.Second
+	sandboxSSHWSWriteDeadline   = 15 * time.Second
+	sandboxSSHDefaultCols       = 120
+	sandboxSSHDefaultRows       = 36
+	sandboxSSHCopyBufSize       = 32 * 1024
+	sandboxSSHClientConnTimeout = 60 * time.Second
+	sandboxSSHUser              = "sandbox"
+	sandboxSSHPTYTerm           = "xterm-256color"
 )
 
 type sshStartMsg struct {
-	SandboxName   string `json:"sandbox_name"`
-	GRPCAddress   string `json:"grpc_address,omitempty"`
-	Cols          int    `json:"cols,omitempty"`
-	Rows          int    `json:"rows,omitempty"`
-	PlainShell    bool   `json:"plain_shell,omitempty"`
-	LaunchCommand string `json:"launch_command,omitempty"`
+	SandboxName    string `json:"sandbox_name"`
+	GRPCAddress    string `json:"grpc_address,omitempty"`
+	Cols           int    `json:"cols,omitempty"`
+	Rows           int    `json:"rows,omitempty"`
+	PlainShell     bool   `json:"plain_shell,omitempty"`
+	LaunchCommand  string `json:"launch_command,omitempty"`
+	HarnessBackend string `json:"harness_backend,omitempty"`
 }
 
 type resizeMsg struct {
@@ -65,7 +62,7 @@ type wsCtrlMsg struct {
 }
 
 // HandleSandboxSSHWebSocket upgrades to WebSocket, accepts one JSON start frame, mints an SSH
-// session via OpenShell gRPC from inside the cluster, opens an HTTP CONNECT tunnel and SSH shell,
+// session via OpenShell gRPC from inside the cluster, opens a ForwardTcp relay and SSH shell,
 // then proxies terminal I/O (same wire protocol as scripts/openshell-ssh-ws.mjs).
 func (h *Handlers) HandleSandboxSSHWebSocket(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sandbox-ssh-ws")
@@ -96,16 +93,18 @@ func (h *Handlers) HandleSandboxSSHWebSocket(w ErrorResponseWriter, r *http.Requ
 
 	log.Info("openshell gRPC target", "addr", grpcAddr)
 
-	ctx, cancel := context.WithTimeout(r.Context(), sandboxSSHHandshakeTimeout)
-	defer cancel()
+	handshakeCtx, handshakeCancel := context.WithTimeout(r.Context(), sandboxSSHHandshakeTimeout)
+	defer handshakeCancel()
 
-	sshClient, session, stdin, stdout, stderr, err := h.dialOpenshellShellSession(
-		ctx, grpcAddr, start.SandboxName, start.Rows, start.Cols, start.PlainShell, start.LaunchCommand)
+	// ForwardTcp must outlive the handshake; do not tie the relay stream to handshakeCtx.
+	grpcConn, sshClient, session, stdin, stdout, stderr, err := h.dialOpenshellShellSession(
+		handshakeCtx, r.Context(), grpcAddr, start.SandboxName, start.Rows, start.Cols, start.PlainShell, start.LaunchCommand, start.HarnessBackend)
 	if err != nil {
 		log.Info("openshell ssh session failed", "error", err)
 		closeWSWithError(wsConn, err.Error())
 		return
 	}
+	defer grpcConn.Close()
 	defer func() {
 		_ = session.Close()
 		_ = sshClient.Close()
@@ -128,19 +127,17 @@ func (h *Handlers) HandleSandboxSSHWebSocket(w ErrorResponseWriter, r *http.Requ
 		runSandboxSSHWSReader(wsConn, session, stdin)
 	}()
 
-	streamDone := make(chan struct{})
 	var streamWG sync.WaitGroup
 	streamWG.Add(2)
 	go copySSHStreamToWebSocket(stdout, writeWS, &streamWG)
 	go copySSHStreamToWebSocket(stderr, writeWS, &streamWG)
 	go func() {
 		streamWG.Wait()
-		close(streamDone)
+		log.Info("ssh stdout/stderr copy finished")
 	}()
 
 	select {
 	case <-copyDone:
-	case <-streamDone:
 	case <-r.Context().Done():
 	}
 	_ = wsConn.Close()
@@ -250,24 +247,15 @@ func copySSHStreamToWebSocket(r io.Reader, writeWS func(messageType int, p []byt
 	}
 }
 
-func resolveSandboxSSHRemoteCommand(plainShell bool, launchCommandFromClient string) (plain bool, execCmd string) {
-	if plainShell {
-		return true, ""
-	}
-	cmd := strings.TrimSpace(launchCommandFromClient)
-	if cmd == "" {
-		cmd = defaultSandboxSSHLaunchCmd
-	}
-	return false, cmd
-}
-
 func (h *Handlers) dialOpenshellShellSession(
-	ctx context.Context,
+	handshakeCtx, streamCtx context.Context,
 	grpcAddr, sandboxName string,
 	rows, cols int,
 	plainShell bool,
 	launchCommandFromClient string,
+	harnessBackend string,
 ) (
+	grpcConn *grpc.ClientConn,
 	sshClient *ssh.Client,
 	session *ssh.Session,
 	stdin io.WriteCloser,
@@ -275,24 +263,35 @@ func (h *Handlers) dialOpenshellShellSession(
 	stderr io.Reader,
 	err error,
 ) {
-	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcConn, err = grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("grpc dial %q: %w", grpcAddr, err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("grpc dial %q: %w", grpcAddr, err)
 	}
-	defer grpcConn.Close()
 
 	cli := openshellv1.NewOpenShellClient(grpcConn)
-	sandboxID, sshRes, err := openshellCreateSSHSession(ctx, cli, sandboxName)
+	sandboxID, sshRes, err := openshellCreateSSHSession(handshakeCtx, cli, sandboxName)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		_ = grpcConn.Close()
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
-	tunnelConn, dialHost, err := openshellDialHTTPConnectTunnel(ctx, grpcAddr, sshRes, sandboxID)
+	if sid := strings.TrimSpace(sshRes.GetSandboxId()); sid != "" {
+		sandboxID = sid
+	}
+	tunnelConn, err := openshellDialForwardTcp(streamCtx, cli, sandboxID, sshRes.GetToken())
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		_ = grpcConn.Close()
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
-	return openSSHSessionOverTunnel(tunnelConn, dialHost, rows, cols, plainShell, launchCommandFromClient)
+	sshClient, session, stdin, stdout, stderr, err = openSSHSessionOverTunnel(
+		tunnelConn, "openshell", rows, cols, plainShell, launchCommandFromClient, harnessBackend,
+	)
+	if err != nil {
+		_ = grpcConn.Close()
+		return nil, nil, nil, nil, nil, nil, err
+	}
+	return grpcConn, sshClient, session, stdin, stdout, stderr, nil
 }
 
 func sandboxIDForSSH(sb *openshellv1.Sandbox) string {
@@ -325,55 +324,177 @@ func openshellCreateSSHSession(
 		return "", nil, fmt.Errorf("CreateSshSession: %w", err)
 	}
 
-	token := sshRes.GetToken()
-	gwHost := sshRes.GetGatewayHost()
-	gwPort := sshRes.GetGatewayPort()
-	scheme := strings.ToLower(strings.TrimSpace(sshRes.GetGatewayScheme()))
-	connectPath := sshRes.GetConnectPath()
-	if token == "" || gwHost == "" || gwPort == 0 || scheme == "" || connectPath == "" {
-		return "", nil, errors.New("CreateSshSession returned incomplete tunnel fields")
+	token := strings.TrimSpace(sshRes.GetToken())
+	if token == "" {
+		return "", nil, errors.New("CreateSshSession returned empty session token")
 	}
 	return sandboxID, sshRes, nil
 }
 
-func openshellDialHTTPConnectTunnel(
+// openshellDialForwardTcp opens the OpenShell ForwardTcp bidi stream used by the CLI ssh-proxy.
+func openshellDialForwardTcp(
 	ctx context.Context,
-	grpcAddr string,
-	sshRes *openshellv1.CreateSshSessionResponse,
-	sandboxID string,
-) (tunnelConn net.Conn, dialHost string, err error) {
-	token := sshRes.GetToken()
-	gwHost := sshRes.GetGatewayHost()
-	gwPort := sshRes.GetGatewayPort()
-	scheme := strings.ToLower(strings.TrimSpace(sshRes.GetGatewayScheme()))
-	connectPath := sshRes.GetConnectPath()
-	sid := sshRes.GetSandboxId()
-	if sid == "" {
-		sid = sandboxID
+	cli openshellv1.OpenShellClient,
+	sandboxID, token string,
+) (net.Conn, error) {
+	sandboxID = strings.TrimSpace(sandboxID)
+	token = strings.TrimSpace(token)
+	if sandboxID == "" || token == "" {
+		return nil, errors.New("sandbox id and session token are required for SSH forward")
 	}
 
-	dialHost, err = resolveGatewayDialHost(gwHost, grpcAddr)
+	stream, err := cli.ForwardTcp(ctx)
 	if err != nil {
-		return nil, "", err
-	}
-	if dialHost != gwHost {
-		log := ctrllog.FromContext(ctx)
-		log.Info("using cluster-reachable host for OpenShell gateway (CreateSshSession returned loopback)",
-			"gateway_host", gwHost, "dial_host", dialHost)
+		return nil, fmt.Errorf("ForwardTcp: %w", err)
 	}
 
-	rawConn, err := dialGateway(scheme, dialHost, int(gwPort))
-	if err != nil {
-		return nil, "", err
+	if err := stream.Send(buildForwardTcpSSHInit(sandboxID, token)); err != nil {
+		_ = stream.CloseSend()
+		return nil, fmt.Errorf("ForwardTcp init: %w", err)
 	}
-
-	tunnelConn, err = completeHTTPConnect(ctx, rawConn, dialHost, connectPath, sid, token)
-	if err != nil {
-		_ = rawConn.Close()
-		return nil, "", err
-	}
-	return tunnelConn, dialHost, nil
+	return newTCPForwardConn(stream), nil
 }
+
+func buildForwardTcpSSHInit(sandboxID, token string) *openshellv1.TcpForwardFrame {
+	return &openshellv1.TcpForwardFrame{
+		Payload: &openshellv1.TcpForwardFrame_Init{
+			Init: &openshellv1.TcpForwardInit{
+				SandboxId:          sandboxID,
+				ServiceId:          fmt.Sprintf("ssh-proxy:%s", sandboxID),
+				AuthorizationToken: token,
+				Target: &openshellv1.TcpForwardInit_Ssh{
+					Ssh: &openshellv1.SshRelayTarget{},
+				},
+			},
+		},
+	}
+}
+
+// tcpForwardConn adapts OpenShell ForwardTcp to net.Conn for golang.org/x/crypto/ssh.
+// A background reader pumps gateway data into rbuf so ssh handshakes can read and write
+// concurrently (same pattern as openshell-cli ssh-proxy's split stdin/stdout tasks).
+type tcpForwardConn struct {
+	stream openshellv1.OpenShell_ForwardTcpClient
+
+	readMu   sync.Mutex
+	readCond *sync.Cond
+	rbuf     []byte
+	recvErr  error
+	closed   bool
+
+	sendMu sync.Mutex
+}
+
+func newTCPForwardConn(stream openshellv1.OpenShell_ForwardTcpClient) *tcpForwardConn {
+	c := &tcpForwardConn{stream: stream}
+	c.readCond = sync.NewCond(&c.readMu)
+	go c.pumpRecv()
+	return c
+}
+
+func (c *tcpForwardConn) pumpRecv() {
+	for {
+		frame, err := c.stream.Recv()
+		c.readMu.Lock()
+		if c.closed {
+			c.readMu.Unlock()
+			return
+		}
+		if err != nil {
+			if c.recvErr == nil {
+				c.recvErr = err
+			}
+			c.readCond.Broadcast()
+			c.readMu.Unlock()
+			return
+		}
+		if frame != nil {
+			if data := frame.GetData(); len(data) > 0 {
+				c.rbuf = append(c.rbuf, data...)
+				c.readCond.Broadcast()
+			}
+		}
+		c.readMu.Unlock()
+	}
+}
+
+func (c *tcpForwardConn) Read(p []byte) (int, error) {
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+	for len(c.rbuf) == 0 && c.recvErr == nil && !c.closed {
+		c.readCond.Wait()
+	}
+	if c.closed && len(c.rbuf) == 0 {
+		return 0, io.EOF
+	}
+	if len(c.rbuf) == 0 {
+		if c.recvErr != nil {
+			return 0, c.recvErr
+		}
+		return 0, io.EOF
+	}
+	n := copy(p, c.rbuf)
+	c.rbuf = c.rbuf[n:]
+	return n, nil
+}
+
+func (c *tcpForwardConn) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	c.readMu.Lock()
+	closed := c.closed
+	c.readMu.Unlock()
+	if closed {
+		return 0, io.ErrClosedPipe
+	}
+	if err := c.stream.Send(&openshellv1.TcpForwardFrame{
+		Payload: &openshellv1.TcpForwardFrame_Data{Data: append([]byte(nil), p...)},
+	}); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (c *tcpForwardConn) Close() error {
+	c.readMu.Lock()
+	if c.closed {
+		c.readMu.Unlock()
+		return nil
+	}
+	c.closed = true
+	if c.recvErr == nil {
+		c.recvErr = io.EOF
+	}
+	c.readCond.Broadcast()
+	c.readMu.Unlock()
+
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.stream.CloseSend()
+}
+
+func (c *tcpForwardConn) LocalAddr() net.Addr  { return &tcpForwardAddr{} }
+func (c *tcpForwardConn) RemoteAddr() net.Addr { return &tcpForwardAddr{} }
+
+func (c *tcpForwardConn) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (c *tcpForwardConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (c *tcpForwardConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+type tcpForwardAddr struct{}
+
+func (tcpForwardAddr) Network() string { return "tcp" }
+func (tcpForwardAddr) String() string  { return "openshell-forward-tcp" }
 
 func openSSHSessionOverTunnel(
 	tunnelConn net.Conn,
@@ -381,6 +502,7 @@ func openSSHSessionOverTunnel(
 	rows, cols int,
 	plainShell bool,
 	launchCommandFromClient string,
+	harnessBackend string,
 ) (
 	sshClient *ssh.Client,
 	session *ssh.Session,
@@ -434,7 +556,7 @@ func openSSHSessionOverTunnel(
 		_ = sshClient.Close()
 		return nil, nil, nil, nil, nil, fmt.Errorf("ssh RequestPty: %w", err)
 	}
-	useShell, remoteCmd := resolveSandboxSSHRemoteCommand(plainShell, launchCommandFromClient)
+	useShell, remoteCmd := openshell.ResolveSSHRemoteCommand(plainShell, launchCommandFromClient, harnessBackend)
 	if useShell {
 		if err := session.Shell(); err != nil {
 			_ = session.Close()
@@ -450,79 +572,6 @@ func openSSHSessionOverTunnel(
 	}
 
 	return sshClient, session, stdin, stdout, stderr, nil
-}
-
-func dialGateway(scheme, host string, port int) (net.Conn, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	d := net.Dialer{Timeout: sandboxSSHGatewayDialTimeout}
-	switch scheme {
-	case "https":
-		serverName := host
-		if strings.HasPrefix(host, "[") && strings.Contains(host, "]") {
-			serverName = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-		}
-		return tls.DialWithDialer(&d, "tcp", addr, &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			ServerName: serverName,
-		})
-	case "http":
-		return d.Dial("tcp", addr)
-	default:
-		return nil, fmt.Errorf("unsupported gateway_scheme %q", scheme)
-	}
-}
-
-func completeHTTPConnect(ctx context.Context, conn net.Conn, gatewayHost, connectPath, sandboxID, token string) (net.Conn, error) {
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = conn.SetDeadline(deadline)
-	}
-	req := fmt.Sprintf(
-		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nX-Sandbox-Id: %s\r\nX-Sandbox-Token: %s\r\n\r\n",
-		connectPath,
-		gatewayHost,
-		sandboxID,
-		token,
-	)
-	if _, err := conn.Write([]byte(req)); err != nil {
-		return nil, fmt.Errorf("CONNECT write: %w", err)
-	}
-
-	br := bufio.NewReader(conn)
-	statusLine, err := br.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("CONNECT read status: %w", err)
-	}
-	if !strings.Contains(statusLine, " 200 ") {
-		return nil, fmt.Errorf("CONNECT failed: %s", strings.TrimSpace(statusLine))
-	}
-	for {
-		line, rerr := br.ReadString('\n')
-		if rerr != nil {
-			return nil, fmt.Errorf("CONNECT read headers: %w", rerr)
-		}
-		if line == "\r\n" || line == "\n" {
-			break
-		}
-	}
-	_ = conn.SetDeadline(time.Time{})
-	return &prefixReaderConn{Conn: conn, br: br}, nil
-}
-
-type prefixReaderConn struct {
-	net.Conn
-	br *bufio.Reader
-}
-
-func (p *prefixReaderConn) Read(b []byte) (int, error) {
-	if p.br != nil && p.br.Buffered() > 0 {
-		n, err := p.br.Read(b)
-		if p.br.Buffered() == 0 {
-			p.br = nil
-		}
-		return n, err
-	}
-	return p.Conn.Read(b)
 }
 
 func isLoopbackHost(h string) bool {
