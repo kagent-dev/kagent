@@ -259,7 +259,7 @@ type BedrockConfig struct {
 
 	// PromptCaching enables Bedrock prompt caching by appending a CachePoint
 	// block at the end of the Converse request's `system` content array and
-	// the end of the `tools` array. Bedrock will cache the prefix up to and
+	// the end of the `toolConfig.tools` array. Bedrock will cache the prefix up to and
 	// including those cache points across requests in the same region for
 	// roughly 5 minutes after first use, billing the cached portion at a
 	// reduced rate on cache hits.
@@ -274,6 +274,24 @@ type BedrockConfig struct {
 	// +optional
 	// +kubebuilder:default=false
 	PromptCaching bool `json:"promptCaching,omitempty"`
+
+	// CacheTTL controls how long Bedrock retains a cached prefix when
+	// PromptCaching is enabled. Only meaningful when PromptCaching is true.
+	//
+	//   - "5m" (default): Bedrock's standard 5-minute sliding cache. Each cache
+	//     hit refreshes the window. Supported by all prompt-caching models.
+	//   - "1h": extended-TTL caching, useful for tasks whose Converse calls are
+	//     spaced more than 5 minutes apart.
+	//
+	// NOTE: "1h" is NOT strictly better than "5m". Extended-TTL cache writes are
+	// billed at a higher per-token rate than 5-minute writes, and 1h is supported
+	// on a narrower set of models. Only choose "1h" when calls are spaced far
+	// enough apart that a 5-minute cache would expire between them; otherwise the
+	// higher write cost is wasted. See the AWS prompt-caching docs above.
+	// +optional
+	// +kubebuilder:validation:Enum="5m";"1h"
+	// +kubebuilder:default="5m"
+	CacheTTL string `json:"cacheTTL,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.

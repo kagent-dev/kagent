@@ -234,6 +234,24 @@ def _convert_tools_to_converse(
     return converse_tools
 
 
+def _cache_point_block(cache_ttl: Optional[str] = None) -> dict:
+    """Return a fresh Bedrock CachePoint marker block.
+
+    A new dict is returned on each call so callers can safely append it to a
+    request's ``system`` or ``toolConfig.tools`` array without aliasing a
+    shared mutable object.
+
+    ``cache_ttl`` selects the retention window. ``None`` or ``"5m"`` omits the
+    ``ttl`` field, giving Bedrock's default 5-minute cache (broadest model
+    support); ``"1h"`` opts into extended-TTL caching, which is supported on
+    fewer models and billed at a higher cache-write rate.
+    """
+    block: dict[str, Any] = {"type": "default"}
+    if cache_ttl == "1h":
+        block["ttl"] = "1h"
+    return {"cachePoint": block}
+
+
 def _stop_reason_to_finish_reason(stop_reason: str) -> types.FinishReason:
     if stop_reason == "max_tokens":
         return types.FinishReason.MAX_TOKENS
@@ -257,6 +275,10 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
     # across requests in the same region; cached portion is billed at a
     # reduced rate on hit. See AWS docs for supported models / minimums.
     prompt_caching: bool = False
+    # When prompt_caching is on, cache_ttl selects the retention window:
+    # "5m"/None (Bedrock's default 5-minute cache) or "1h" (extended-TTL,
+    # narrower model support and higher cache-write cost). See _cache_point_block.
+    cache_ttl: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -299,7 +321,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
             # this point for ~5 minutes; subsequent requests with the same
             # prefix hit the cache. No-op if we didn't produce any system text.
             if self.prompt_caching and kwargs.get("system"):
-                kwargs["system"].append({"cachePoint": {"type": "default"}})
+                kwargs["system"].append(_cache_point_block(self.cache_ttl))
 
         if llm_request.config and llm_request.config.tools:
             genai_tools = [t for t in llm_request.config.tools if hasattr(t, "function_declarations")]
@@ -310,7 +332,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                     # are usually the biggest static chunk of an agent request
                     # and benefit most from caching.
                     if self.prompt_caching:
-                        converse_tools.append({"cachePoint": {"type": "default"}})
+                        converse_tools.append(_cache_point_block(self.cache_ttl))
                     kwargs["toolConfig"] = {"tools": converse_tools}
 
         # Reverse map lets us restore original tool names from sanitized names in Bedrock responses.
