@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"maps"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -19,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // configHashAnnotation is set on the agent pod template so a change to
@@ -78,7 +80,7 @@ func (a *adkApiTranslator) BuildManifest(
 	outputs := &AgentOutputs{}
 	manifestCtx := newManifestContext(agent, inputs.Deployment)
 
-	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
+	configSecret, err := a.buildConfigSecret(ctx, manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +161,11 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 }
 
 func (a *adkApiTranslator) buildConfigSecret(
+	ctx context.Context,
 	manifestCtx manifestContext,
 	cfg *adk.AgentConfig,
 	sandboxCfg *v1alpha2.SandboxConfig,
-	card *server.AgentCard,
+	card *a2a.AgentCard,
 	modelConfigSecretHashBytes []byte,
 ) (*configSecretInputs, error) {
 	cfgJSON := ""
@@ -180,11 +183,17 @@ func (a *adkApiTranslator) buildConfigSecret(
 		cfgJSON = string(bCfg)
 	}
 	if card != nil {
-		bCard, err := json.Marshal(card)
+		// TODO(0.11.0): use the v1 agent card producer once managed runtimes no longer need legacy top-level fields.
+		producer := a2av0.NewStaticAgentCardProducer(card)
+		jsonProducer, ok := producer.(a2asrv.AgentCardJSONProducer)
+		if !ok {
+			return nil, fmt.Errorf("compat agent card producer does not support JSON serialization")
+		}
+		cardJSON, err := jsonProducer.CardJSON(ctx)
 		if err != nil {
 			return nil, err
 		}
-		agentCard = string(bCard)
+		agentCard = string(cardJSON)
 	}
 	if needsSRTSettings(manifestCtx.agent, sandboxCfg) {
 		bSRTSettings, err := buildSRTSettingsJSON(sandboxCfg)

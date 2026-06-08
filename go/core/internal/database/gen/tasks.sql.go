@@ -10,7 +10,7 @@ import (
 )
 
 const getTask = `-- name: GetTask :one
-SELECT id, created_at, updated_at, deleted_at, data, session_id FROM task
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
 WHERE id = $1 AND deleted_at IS NULL
 LIMIT 1
 `
@@ -25,12 +25,13 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.DeletedAt,
 		&i.Data,
 		&i.SessionID,
+		&i.ProtocolVersion,
 	)
 	return i, err
 }
 
 const listTasksForSession = `-- name: ListTasksForSession :many
-SELECT id, created_at, updated_at, deleted_at, data, session_id FROM task
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
 WHERE session_id = $1 AND deleted_at IS NULL
 ORDER BY created_at ASC
 `
@@ -51,6 +52,7 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 			&i.DeletedAt,
 			&i.Data,
 			&i.SessionID,
+			&i.ProtocolVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -86,12 +88,13 @@ func (q *Queries) TaskExists(ctx context.Context, id string) (bool, error) {
 
 const upsertTask = `-- name: UpsertTask :exec
 WITH upserted_task AS (
-INSERT INTO task (id, data, session_id, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
-    data       = EXCLUDED.data,
-    session_id = EXCLUDED.session_id,
-    updated_at = NOW()
+    data             = EXCLUDED.data,
+    session_id       = EXCLUDED.session_id,
+    protocol_version = EXCLUDED.protocol_version,
+    updated_at       = NOW()
 RETURNING session_id
 )
 UPDATE session
@@ -103,12 +106,18 @@ WHERE upserted_task.session_id IS NOT NULL
 `
 
 type UpsertTaskParams struct {
-	ID        string
-	Data      string
-	SessionID *string
+	ID              string
+	Data            string
+	SessionID       *string
+	ProtocolVersion *string
 }
 
 func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) error {
-	_, err := q.db.Exec(ctx, upsertTask, arg.ID, arg.Data, arg.SessionID)
+	_, err := q.db.Exec(ctx, upsertTask,
+		arg.ID,
+		arg.Data,
+		arg.SessionID,
+		arg.ProtocolVersion,
+	)
 	return err
 }

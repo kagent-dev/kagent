@@ -34,7 +34,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
@@ -119,11 +118,6 @@ type Config struct {
 		CertName string
 		CertKey  string
 	}
-	Streaming struct {
-		MaxBufSize     resource.QuantityValue `default:"1Mi"`
-		InitialBufSize resource.QuantityValue `default:"4Ki"`
-		Timeout        time.Duration          `default:"60s"`
-	}
 	Proxy struct {
 		URL string
 	}
@@ -205,10 +199,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
-
-	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
-	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
-	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
 
@@ -707,9 +697,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
 		extensionCfg.Authenticator,
-		int(cfg.Streaming.MaxBufSize.Value()),
-		int(cfg.Streaming.InitialBufSize.Value()),
-		cfg.Streaming.Timeout,
 		mcpHandler,
 	)
 	if err != nil {

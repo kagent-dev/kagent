@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func TestFilterValidNamespaces(t *testing.T) {
@@ -402,9 +401,6 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
-		"STREAMING_TIMEOUT":              "120s",
-		"STREAMING_MAX_BUF_SIZE":         "2Mi",
-		"STREAMING_INITIAL_BUF_SIZE":     "8Ki",
 	}
 
 	for k, v := range envVars {
@@ -455,19 +451,5 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.WatchNamespaces != "ns1,ns2,ns3" {
 		t.Errorf("WatchNamespaces = %v, want ns1,ns2,ns3", cfg.WatchNamespaces)
-	}
-	if cfg.Streaming.Timeout != 120*time.Second {
-		t.Errorf("Streaming.Timeout = %v, want 120s", cfg.Streaming.Timeout)
-	}
-
-	// Check quantity values
-	expectedMaxBuf := resource.MustParse("2Mi")
-	if cfg.Streaming.MaxBufSize.Cmp(expectedMaxBuf) != 0 {
-		t.Errorf("Streaming.MaxBufSize = %v, want 2Mi", cfg.Streaming.MaxBufSize)
-	}
-
-	expectedInitBuf := resource.MustParse("8Ki")
-	if cfg.Streaming.InitialBufSize.Cmp(expectedInitBuf) != 0 {
-		t.Errorf("Streaming.InitialBufSize = %v, want 8Ki", cfg.Streaming.InitialBufSize)
 	}
 }

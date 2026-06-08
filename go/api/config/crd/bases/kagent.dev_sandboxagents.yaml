@@ -5397,23 +5397,25 @@ spec:
                               description: Examples are optional usage examples.
                               items:
                                 type: string
+                              maxItems: 20
                               type: array
                             id:
                               description: ID is the unique identifier for the skill.
                               type: string
                             inputModes:
-                              description: InputModes are the supported input data
-                                modes/types.
+                              description: InputModes are the supported input MIME
+                                types for this skill, overriding the agent's defaults.
                               items:
                                 type: string
                               type: array
                             name:
                               description: Name is the human-readable name of the
                                 skill.
+                              minLength: 1
                               type: string
                             outputModes:
-                              description: OutputModes are the supported output data
-                                modes/types.
+                              description: OutputModes are the supported output MIME
+                                types for this skill, overriding the agent's defaults.
                               items:
                                 type: string
                               type: array
@@ -5421,11 +5423,10 @@ spec:
                               description: Tags are optional tags for categorization.
                               items:
                                 type: string
+                              maxItems: 20
                               type: array
                           required:
-                          - id
                           - name
-                          - tags
                           type: object
                         minItems: 1
                         type: array

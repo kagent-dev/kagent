@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "parent_agent",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://parent-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://parent-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://parent-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -63,7 +71,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"parent_agent\",\"description\":\"\",\"url\":\"http://parent-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"parent_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://parent-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://parent-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://parent-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that can delegate tasks to specialists.\",\"remote_agents\":[{\"name\":\"test__NS__specialist_agent\",\"url\":\"http://specialist-agent.test:8080\",\"headers\":{\"FOO\":\"sup3rs3cr3t\"}}],\"stream\":false}"
       }
     },
@@ -133,7 +141,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "963887663212034528"
+              "kagent.dev/config-hash": "12309204394800027371"
             },
             "labels": {
               "app": "kagent",

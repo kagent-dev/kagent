@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "tls_agent_with_custom_ca",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://tls-agent-with-custom-ca.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://tls-agent-with-custom-ca.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://tls-agent-with-custom-ca.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -59,7 +67,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"tls_agent_with_custom_ca\",\"description\":\"\",\"url\":\"http://tls-agent-with-custom-ca.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"tls_agent_with_custom_ca\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://tls-agent-with-custom-ca.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://tls-agent-with-custom-ca.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://tls-agent-with-custom-ca.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/custom-ca-cert/ca.crt\",\"tls_disable_system_cas\":false,\"base_url\":\"https://internal-litellm.company.com\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with custom CA support.\",\"stream\":false}"
       }
     },
@@ -129,7 +137,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "7742056941063993416"
+              "kagent.dev/config-hash": "10652007947800059809"
             },
             "labels": {
               "app": "kagent",

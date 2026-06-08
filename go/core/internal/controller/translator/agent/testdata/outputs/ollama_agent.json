@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "ollama_agent",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://ollama-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://ollama-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://ollama-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -61,7 +69,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"ollama_agent\",\"description\":\"\",\"url\":\"http://ollama-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"ollama_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://ollama-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://ollama-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://ollama-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"ollama\",\"model\":\"llama3.2:latest\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"}},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"stream\":false}"
       }
     },
@@ -131,7 +139,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "1298797653455180865"
+              "kagent.dev/config-hash": "16198809549325160576"
             },
             "labels": {
               "app": "kagent",

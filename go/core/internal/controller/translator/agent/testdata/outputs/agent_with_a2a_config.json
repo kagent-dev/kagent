@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,7 +11,6 @@
     ],
     "description": "",
     "name": "a2a_agent",
-    "preferredTransport": "JSONRPC",
     "skills": [
       {
         "description": "Summarizes text",
@@ -21,7 +18,18 @@
         "tags": null
       }
     ],
-    "url": "http://a2a-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://a2a-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://a2a-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -60,7 +68,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"a2a_agent\",\"description\":\"\",\"url\":\"http://a2a-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[{\"id\":\"summarize\",\"name\":\"Summarize\",\"description\":\"Summarizes text\",\"tags\":null}],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"a2a_agent\",\n  \"version\": \"\",\n  \"skills\": [\n    {\n      \"description\": \"Summarizes text\",\n      \"id\": \"summarize\",\n      \"name\": \"Summarize\",\n      \"tags\": null\n    }\n  ],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://a2a-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://a2a-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://a2a-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -130,7 +138,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16405455094195710426"
+              "kagent.dev/config-hash": "11777198347800362314"
             },
             "labels": {
               "app": "kagent",

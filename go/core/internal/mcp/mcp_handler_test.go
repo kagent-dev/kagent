@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 )
 
 // TestListAgentsInputSchemaHasProperties asserts that the list_agents tool
@@ -101,14 +102,17 @@ func newA2ABackend(t *testing.T) *a2aBackend {
 		b.mu.Lock()
 		b.called = true
 		b.mu.Unlock()
+		var rpcReq map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&rpcReq)
 		resp := map[string]any{
 			"jsonrpc": "2.0",
-			"id":      "",
+			"id":      rpcReq["id"],
 			"result": map[string]any{
-				"kind":      "message",
-				"messageId": "test-msg",
-				"role":      "agent",
-				"parts":     []any{map[string]any{"kind": "text", "text": "hello from agent"}},
+				"message": map[string]any{
+					"messageId": "test-msg",
+					"role":      "ROLE_AGENT",
+					"parts":     []any{map[string]any{"text": "hello from agent"}},
+				},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -123,7 +127,14 @@ func newA2ABackend(t *testing.T) *a2aBackend {
 // newTestRegistry builds an AgentClientRegistry with a single agent pre-registered.
 func newTestRegistry(t *testing.T, namespace, name, backendURL string) *a2a.AgentClientRegistry {
 	t.Helper()
-	c, err := a2aclient.NewA2AClient(backendURL + "/" + namespace + "/" + name + "/")
+	interfaces := []*a2atype.AgentInterface{
+		{
+			URL:             backendURL + "/" + namespace + "/" + name + "/",
+			ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+			ProtocolVersion: a2atype.Version,
+		},
+	}
+	c, err := a2aclient.NewFromEndpoints(context.Background(), interfaces, a2aclient.WithJSONRPCTransport(&http.Client{}))
 	require.NoError(t, err)
 	registry := a2a.NewAgentClientRegistry()
 	registry.Register(namespace, name, c)
