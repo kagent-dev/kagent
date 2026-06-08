@@ -1124,8 +1124,9 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		}, nil
 	default:
 		return &mcp.StreamableClientTransport{
-			Endpoint:   endpoint,
-			HTTPClient: httpClient,
+			Endpoint:             endpoint,
+			HTTPClient:           httpClient,
+			DisableStandaloneSSE: true,
 		}, nil
 	}
 }
@@ -1184,7 +1185,11 @@ func (a *kagentReconciler) buildRemoteMCPServerTLSConfig(ctx context.Context, s 
 // so we need to create a custom HTTP client that adds headers to all
 // requests. When tlsConfig is non-nil it's installed on a cloned
 // transport so tool discovery honors RemoteMCPServer.spec.tls.
-func newHTTPClient(headers map[string]string, timeout time.Duration, tlsConfig *tls.Config) *http.Client {
+func newHTTPClient(
+	headers map[string]string,
+	timeout time.Duration,
+	tlsConfig *tls.Config,
+) *http.Client {
 	var base = http.DefaultTransport
 	if tlsConfig != nil {
 		// Clone the default transport to preserve its dial/keepalive
