@@ -88,6 +88,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </div>
             )}
             <Button
+              type="button"
               data-test="edit-model-name-button"
               variant="outline"
               size="icon"
