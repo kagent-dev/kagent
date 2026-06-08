@@ -84,6 +84,12 @@ spec:
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
+            {{- if include "kagent.controller.metricsEnabled" . }}
+            - name: METRICS_BIND_ADDRESS
+              value: {{ .Values.controller.metrics.bindAddress | quote }}
+            - name: METRICS_SECURE
+              value: {{ .Values.controller.metrics.secureServing | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -133,6 +139,11 @@ spec:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
+            {{- if .Values.controller.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ include "kagent.controller.metricsPort" . | int }}
+              protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           {{- with (.Values.controller.securityContext | default .Values.securityContext) }}

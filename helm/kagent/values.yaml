@@ -229,6 +229,27 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+  # -- Prometheus-style /metrics endpoint for the controller manager.
+  # When enabled, provisions a dedicated metrics Service plus the
+  # ClusterRoles required for authenticated scrapes. Bind
+  # `<fullname>-metrics-reader` to your Prometheus ServiceAccount to grant
+  # scrape access. Use `bindAddress` for any port change: the Service
+  # `targetPort` and the pod `containerPort` are derived from it at
+  # template time, so overriding `METRICS_BIND_ADDRESS` via
+  # `controller.env` shifts only the runtime listener and leaves the
+  # rendered Service pointing at the chart-time port. Setting
+  # `bindAddress: "0"` (or empty) is treated as a disable signal —
+  # equivalent to `enabled: false` — to keep faith with the controller
+  # binary's documented contract for `--metrics-bind-address`.
+  # @default -- disabled
+  metrics:
+    enabled: false
+    bindAddress: ":8443"
+    secureServing: true
+    service:
+      type: ClusterIP
+      port: 8443
+
   # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
   # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
   env:
@@ -262,7 +283,6 @@ controller:
     #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
     #   defaultWorkerPool:
     #     name: "kagent-default"
-
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
