@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	apidatabase "github.com/kagent-dev/kagent/go/api/database"
 	coredatabase "github.com/kagent-dev/kagent/go/core/internal/database"
+	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/stretchr/testify/require"
 )
@@ -25,6 +26,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	agenttranslator.DefaultAppImageDigest = "sha256:test-app"
+	agenttranslator.DefaultGoImageDigest = "sha256:test-go-base"
+	agenttranslator.DefaultGoFullImageDigest = "sha256:test-go-full"
+
 	flag.Parse()
 	code := m.Run()
 	if sharedDB != nil {
