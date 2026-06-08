@@ -242,7 +242,6 @@ const (
 
 // SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
 // WorkerPool capacity is referenced from workerPoolRef or the controller default.
-// +optional
 type SandboxSubstrateSpec struct {
 	// WorkerPoolRef references an existing ate.dev WorkerPool.
 	// +optional

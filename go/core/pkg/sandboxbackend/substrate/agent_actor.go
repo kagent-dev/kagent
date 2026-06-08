@@ -64,7 +64,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
 	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
-		actor, err = b.client.ResumeActor(ctx, actorID)
+		_, err = b.client.ResumeActor(ctx, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
 		}

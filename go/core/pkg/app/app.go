@@ -165,8 +165,8 @@ type Config struct {
 		PauseImage                 string
 		RunscAMD64URL              string
 		RunscAMD64SHA256           string
-		RunscARM64URL        string
-		RunscARM64SHA256     string
+		RunscARM64URL              string
+		RunscARM64SHA256           string
 	}
 }
 
@@ -773,19 +773,19 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:              router,
-		BindAddr:            cfg.HttpServerAddr,
-		KubeClient:          mgr.GetClient(),
-		A2AHandler:          a2aHandler,
-		MCPHandler:          mcpHandler,
-		WatchedNamespaces:   watchNamespacesList,
-		DbClient:            dbClient,
-		Authorizer:          extensionCfg.Authorizer,
-		Authenticator:       extensionCfg.Authenticator,
-		ProxyURL:            cfg.Proxy.URL,
-		Reconciler:          rcnclr,
-		SandboxBackend:      extensionCfg.SandboxBackend,
-		AgentHarnessGateway: agentHarnessGateway,
+		Router:                       router,
+		BindAddr:                     cfg.HttpServerAddr,
+		KubeClient:                   mgr.GetClient(),
+		A2AHandler:                   a2aHandler,
+		MCPHandler:                   mcpHandler,
+		WatchedNamespaces:            watchNamespacesList,
+		DbClient:                     dbClient,
+		Authorizer:                   extensionCfg.Authorizer,
+		Authenticator:                extensionCfg.Authenticator,
+		ProxyURL:                     cfg.Proxy.URL,
+		Reconciler:                   rcnclr,
+		SandboxBackend:               extensionCfg.SandboxBackend,
+		AgentHarnessGateway:          agentHarnessGateway,
 		SubstrateAteClient:           substrateAteClient,
 		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,

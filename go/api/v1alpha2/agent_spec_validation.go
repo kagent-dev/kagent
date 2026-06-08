@@ -3,8 +3,8 @@ package v1alpha2
 import "fmt"
 
 const (
-	substrateSandboxSkillsUnsupportedMsg         = "spec.skills is not supported when spec.sandbox.platform is substrate"
-	substrateSandboxPythonRuntimeUnsupportedMsg  = "spec.declarative.runtime must be \"go\" when spec.sandbox.platform is substrate"
+	substrateSandboxSkillsUnsupportedMsg        = "spec.skills is not supported when spec.sandbox.platform is substrate"
+	substrateSandboxPythonRuntimeUnsupportedMsg = "spec.declarative.runtime must be \"go\" when spec.sandbox.platform is substrate"
 )
 
 // AgentSpecHasSkills reports whether the spec configures any skill sources.

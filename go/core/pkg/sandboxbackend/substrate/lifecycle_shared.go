@@ -19,11 +19,11 @@ const (
 
 // LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
 type LifecycleDefaults struct {
-	PauseImage                 string
-	RunscAMD64URL              string
-	RunscAMD64SHA256           string
-	RunscARM64URL              string
-	RunscARM64SHA256           string
+	PauseImage           string
+	RunscAMD64URL        string
+	RunscAMD64SHA256     string
+	RunscARM64URL        string
+	RunscARM64SHA256     string
 	DefaultWorkloadImage string
 	DefaultWorkerPool    types.NamespacedName
 }
@@ -211,4 +211,3 @@ func sanitizeActorTemplateEnvVar(e corev1.EnvVar, namespace, name string) *corev
 	}
 	return nil
 }
-

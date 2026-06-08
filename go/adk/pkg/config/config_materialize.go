@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	envAgentConfigJSON   = "KAGENT_CONFIG_JSON"
-	envAgentCardJSON     = "KAGENT_AGENT_CARD_JSON"
-	envSRTSettingsJSON   = "KAGENT_SRT_SETTINGS_JSON"
-	envKagentToken       = "KAGENT_TOKEN"
-	kagentTokenDir       = "/var/run/secrets/tokens"
-	kagentTokenFile      = "kagent-token"
-	srtSettingsFile      = "srt-settings.json"
+	envAgentConfigJSON = "KAGENT_CONFIG_JSON"
+	envAgentCardJSON   = "KAGENT_AGENT_CARD_JSON"
+	envSRTSettingsJSON = "KAGENT_SRT_SETTINGS_JSON"
+	envKagentToken     = "KAGENT_TOKEN"
+	kagentTokenDir     = "/var/run/secrets/tokens"
+	kagentTokenFile    = "kagent-token"
+	srtSettingsFile    = "srt-settings.json"
 )
 
 // MaterializeFromEnv writes Agent Substrate secret-backed environment variables to

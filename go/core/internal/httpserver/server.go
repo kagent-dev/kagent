@@ -62,19 +62,19 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router              *mux.Router
-	BindAddr            string
-	KubeClient          ctrl_client.Client
-	A2AHandler          a2a.A2AHandlerMux
-	MCPHandler          *mcp.MCPHandler
-	WatchedNamespaces   []string
-	DbClient            dbpkg.Client
-	Authenticator       auth.AuthProvider
-	Authorizer          auth.Authorizer
-	ProxyURL            string
-	Reconciler          reconciler.KagentReconciler
-	SandboxBackend      sandboxbackend.Backend
-	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
+	Router                       *mux.Router
+	BindAddr                     string
+	KubeClient                   ctrl_client.Client
+	A2AHandler                   a2a.A2AHandlerMux
+	MCPHandler                   *mcp.MCPHandler
+	WatchedNamespaces            []string
+	DbClient                     dbpkg.Client
+	Authenticator                auth.AuthProvider
+	Authorizer                   auth.Authorizer
+	ProxyURL                     string
+	Reconciler                   reconciler.KagentReconciler
+	SandboxBackend               sandboxbackend.Backend
+	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
 	SubstrateAteClient           *substrate.Client
 	MCPEgressPlaintext           bool
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend

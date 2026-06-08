@@ -34,7 +34,7 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 
 	t.Run("rejects python runtime on substrate platform", func(t *testing.T) {
 		spec := &AgentSpec{
-			Type: AgentType_Declarative,
+			Type:    AgentType_Declarative,
 			Sandbox: &SandboxConfig{Platform: SandboxPlatformSubstrate},
 			Declarative: &DeclarativeAgentSpec{
 				Runtime: DeclarativeRuntime_Python,
@@ -47,7 +47,7 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 
 	t.Run("allows go runtime on substrate platform", func(t *testing.T) {
 		spec := &AgentSpec{
-			Type: AgentType_Declarative,
+			Type:    AgentType_Declarative,
 			Sandbox: &SandboxConfig{Platform: SandboxPlatformSubstrate},
 			Declarative: &DeclarativeAgentSpec{
 				Runtime: DeclarativeRuntime_Go,
