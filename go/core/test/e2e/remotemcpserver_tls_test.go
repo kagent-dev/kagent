@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -542,6 +543,76 @@ func TestE2E_API_ToolServerCompanionSecrets(t *testing.T) {
 	assert.Equal(t, "RemoteMCPServer", or.Kind)
 	assert.Equal(t, rmsName, or.Name)
 	assert.Equal(t, v1alpha2.GroupVersion.Identifier(), or.APIVersion)
+}
+
+// TestE2E_RemoteMCPServer_STREAMABLE_HTTP_WITH_STANDALONE_SSE reproduces
+// github.com/kagent-dev/kagent/issues/1955: a Streamable HTTP server that
+// holds the GET (standalone SSE) channel open without responding causes the
+// reconciler's tool discovery to fail when http.Client.Timeout fires and
+// marks the connection failed before tools/list can complete.
+func TestE2E_RemoteMCPServer_STREAMABLE_HTTP_WITH_STANDALONE_SSE(t *testing.T) {
+	cli := setupK8sClient(t, false)
+	mcp := setupMockMCP(t, false, mockmcp.Options{})
+
+	// mockmcp.Start() returns the bind address (e.g. http://[::]:PORT) which
+	// is not dialable from the proxy process itself. Extract the port and
+	// forward to 127.0.0.1 so the proxy can reach mockmcp locally.
+	_, mcpPort, err := net.SplitHostPort(mcp.server.Addr().String())
+	require.NoError(t, err)
+	localMCPURL := "http://127.0.0.1:" + mcpPort + mockmcp.MCPPath
+
+	// Start a server that accepts GET but never responds — simulating a
+	// spec-compliant MCP server that holds the standalone SSE channel open
+	// without sending events. POST requests are forwarded to mockmcp so
+	// initialize/tools-list work normally.
+	ln, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	hangingServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				// Block without writing anything back. client.Do in connectSSE
+				// blocks here until http.Client.Timeout fires, marking the
+				// connection failed and causing tools/list to fail.
+				<-r.Context().Done()
+				return
+			}
+			proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, localMCPURL, r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			proxyReq.Header = r.Header.Clone()
+			resp, err := http.DefaultTransport.RoundTrip(proxyReq)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			defer resp.Body.Close()
+			for k, vs := range resp.Header {
+				for _, v := range vs {
+					w.Header().Add(k, v)
+				}
+			}
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+		}),
+	}
+	go hangingServer.Serve(ln)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = hangingServer.Shutdown(ctx)
+	})
+
+	timeout := metav1.Duration{Duration: 5 * time.Second}
+	rms := createRMS(t, cli, v1alpha2.RemoteMCPServerSpec{
+		URL:      buildK8sURL("http://" + ln.Addr().String()),
+		Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+		Timeout:  &timeout,
+	})
+
+	assert.NotEmpty(t, rms.Status.DiscoveredTools,
+		"tool discovery must succeed even when the server holds the GET SSE channel open")
 }
 
 // recordedPaths is a small helper for assertion failure messages — turns
