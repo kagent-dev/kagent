@@ -217,13 +217,14 @@ func TestTLSConfigCELValidation(t *testing.T) {
 				}
 			},
 		},
-		// allowedNamespaces ⊥ caCertSecretRef: a pinned CA Secret can't be mounted
-		// across namespaces, so a CA-pinning RMS must be same-namespace-only.
+		// caCertSecretRef ⊥ cross-namespace-permitting allowedNamespaces: a pinned
+		// CA Secret can't be mounted across namespaces. from=All / from=Selector
+		// are rejected alongside a CA; from=Same (or omitted) is fine.
 		{
-			name: "RemoteMCPServer: allowedNamespaces with caCertSecretRef rejected",
+			name: "RemoteMCPServer: allowedNamespaces from=All with caCertSecretRef rejected",
 			build: func() ctrl_client.Object {
 				return &RemoteMCPServer{
-					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-with-ca", Namespace: ns},
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-all-ca", Namespace: ns},
 					Spec: RemoteMCPServerSpec{
 						Description:       "test",
 						URL:               "https://upstream.example.com/mcp",
@@ -232,10 +233,42 @@ func TestTLSConfigCELValidation(t *testing.T) {
 					},
 				}
 			},
-			wantReject: "spec.allowedNamespaces cannot be combined with spec.tls.caCertSecretRef",
+			wantReject: "spec.allowedNamespaces must not permit cross-namespace access",
 		},
 		{
-			name: "RemoteMCPServer: allowedNamespaces without CA accepted",
+			name: "RemoteMCPServer: allowedNamespaces from=Selector with caCertSecretRef rejected",
+			build: func() ctrl_client.Object {
+				return &RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-selector-ca", Namespace: ns},
+					Spec: RemoteMCPServerSpec{
+						Description: "test",
+						URL:         "https://upstream.example.com/mcp",
+						AllowedNamespaces: &AllowedNamespaces{
+							From:     NamespacesFromSelector,
+							Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "x"}},
+						},
+						TLS: &TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"},
+					},
+				}
+			},
+			wantReject: "spec.allowedNamespaces must not permit cross-namespace access",
+		},
+		{
+			name: "RemoteMCPServer: allowedNamespaces from=Same with caCertSecretRef accepted",
+			build: func() ctrl_client.Object {
+				return &RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-same-ca", Namespace: ns},
+					Spec: RemoteMCPServerSpec{
+						Description:       "test",
+						URL:               "https://upstream.example.com/mcp",
+						AllowedNamespaces: &AllowedNamespaces{From: NamespacesFromSame},
+						TLS:               &TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"},
+					},
+				}
+			},
+		},
+		{
+			name: "RemoteMCPServer: allowedNamespaces from=All without CA accepted",
 			build: func() ctrl_client.Object {
 				return &RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-no-ca", Namespace: ns},
