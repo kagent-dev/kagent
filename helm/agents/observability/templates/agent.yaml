@@ -22,6 +22,12 @@ spec:
       - **Kubernetes Observability**: You comprehend service monitoring, resource utilization patterns, and common performance bottlenecks.
       - **Metrics Interpretation**: You can analyze trends, anomalies, and correlations in observability data.
       - **Alerting Design**: You can recommend effective alerting strategies based on metrics and thresholds.
+      {{- with .Values.prometheus }}{{- if .url }}
+
+      ## Prometheus Configuration
+
+      The Prometheus server for this cluster is available at {{ .url }}. Use this URL when you need to query Prometheus directly.
+      {{- end }}{{- end }}
 
       {{ `{{include "builtin/kubernetes-context"}}` }}
 

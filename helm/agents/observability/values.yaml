@@ -15,3 +15,8 @@ resources:
     memory: 1Gi
 
 compaction: {}
+
+# -- Optional Prometheus server URL (e.g. "http://prometheus:9090"). When set, it is injected
+# into the agent's system message so the agent knows which Prometheus endpoint to use.
+prometheus:
+  url: ""
