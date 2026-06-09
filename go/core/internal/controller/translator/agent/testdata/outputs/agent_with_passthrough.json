@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "passthrough_agent",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://passthrough-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://passthrough-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://passthrough-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -56,7 +64,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"passthrough_agent\",\"description\":\"\",\"url\":\"http://passthrough-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"passthrough_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://passthrough-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://passthrough-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://passthrough-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"api_key_passthrough\":true,\"base_url\":\"\",\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -126,7 +134,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "2436412068147442351"
+              "kagent.dev/config-hash": "15376076214432010811"
             },
             "labels": {
               "app": "kagent",

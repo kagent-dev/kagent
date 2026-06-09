@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "An agent that uses cross-namespace tools",
     "name": "source_agent",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://source-agent.source-ns:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://source-agent.source-ns:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://source-agent.source-ns:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -76,7 +84,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"source_agent\",\"description\":\"An agent that uses cross-namespace tools\",\"url\":\"http://source-agent.source-ns:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"An agent that uses cross-namespace tools\",\n  \"name\": \"source_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://source-agent.source-ns:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://source-agent.source-ns:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://source-agent.source-ns:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"An agent that uses cross-namespace tools\",\"instruction\":\"You are an assistant with access to shared tools.\",\"http_tools\":[{\"params\":{\"url\":\"http://tools.tools-ns.svc:8080/mcp\",\"headers\":{\"Authorization\":\"tool-secret-token\"},\"timeout\":30},\"tools\":[\"list_resources\",\"get_resource\"]}],\"remote_agents\":[{\"name\":\"tools_ns__NS__tools_agent\",\"url\":\"http://tools-agent.tools-ns:8080\",\"description\":\"An agent that can be used as a cross-namespace tool\"}],\"stream\":false}"
       }
     },
@@ -146,7 +154,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "6527476808794662414"
+              "kagent.dev/config-hash": "6928733945253389376"
             },
             "labels": {
               "app": "kagent",

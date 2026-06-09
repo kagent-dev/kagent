@@ -6,12 +6,13 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -20,7 +21,6 @@ import (
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 )
 
 type A2ARegistrar struct {
@@ -30,7 +30,6 @@ type A2ARegistrar struct {
 	a2aBaseURL     string
 	sandboxA2AURL  string
 	authenticator  auth.AuthProvider
-	a2aBaseOptions []a2aclient.Option
 	agentObserver  AgentObserver
 }
 
@@ -47,9 +46,6 @@ func NewA2ARegistrar(
 	a2aBaseUrl string,
 	sandboxA2ABaseURL string,
 	authenticator auth.AuthProvider,
-	streamingMaxBuf int,
-	streamingInitialBuf int,
-	streamingTimeout time.Duration,
 	agentObserver AgentObserver,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
@@ -62,12 +58,7 @@ func NewA2ARegistrar(
 		a2aBaseURL:     a2aBaseUrl,
 		sandboxA2AURL:  sandboxA2ABaseURL,
 		authenticator:  authenticator,
-		a2aBaseOptions: []a2aclient.Option{
-			a2aclient.WithTimeout(streamingTimeout),
-			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
-			debugOpt(),
-		},
-		agentObserver: agentObserver,
+		agentObserver:  agentObserver,
 	}
 
 	return reg, nil
@@ -213,26 +204,35 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	provider := resolveProviderName(ctx, a.cache, agent)
 
-	client, err := a2aclient.NewA2AClient(
-		card.URL,
-		append(
-			a.a2aBaseOptions,
-			a2aclient.WithHTTPReqHandler(
-				&traceInjectHandler{
-					next: authimpl.A2ARequestHandler(
-						a.authenticator,
-						agentRef,
-					),
-				},
-			),
-		)...,
+	httpClient := debugHTTPClient()
+	client, err := a2aclient.NewFromEndpoints(
+		ctx,
+		// TODO(0.11.0): Prefer A2A 1.0 interfaces by default once managed runtimes are v1-capable.
+		// Keep legacy fallback during rollout so old agent pods continue to serve traffic.
+		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
+		a2aclient.WithJSONRPCTransport(httpClient),
+		// TODO(0.11.0): Remove the compat transport after legacy runtimes are unsupported.
+		a2aclient.WithCompatTransport(
+			a2atype.ProtocolVersion("0.3"),
+			a2atype.TransportProtocolJSONRPC,
+			// This creates a legacy JSON-RPC transport that is used to forward traffic to agents that are still on the legacy A2A wire.
+			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
+				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
+					URL:    iface.URL,
+					Client: httpClient,
+				}), nil
+			}),
+		),
+		a2aclient.WithCallInterceptors(
+			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
+		),
 	)
 	if err != nil {
 		return fmt.Errorf("create A2A client for %s: %w", agentRef, err)
 	}
 
 	cardCopy := *card
-	cardCopy.URL = a.a2aRouteURL(agent)
+	cardCopy.SupportedInterfaces = cloneInterfacesWithURL(card.SupportedInterfaces, a.a2aRouteURL(agent))
 
 	routeRef := a2aRouteKey(agent)
 	if err := a.handlerMux.SetAgentHandler(routeRef, client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
@@ -245,19 +245,21 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	return nil
 }
 
-func debugOpt() a2aclient.Option {
+// debugHTTPClient returns nil in normal operation, letting the a2aclient SDK apply its
+// default 3-minute request timeout. In debug mode it overrides the dial target so all
+// A2A traffic is redirected to a fixed address (e.g. a local proxy).
+func debugHTTPClient() *http.Client {
 	debugAddr := env.KagentA2ADebugAddr.Get()
-	if debugAddr != "" {
-		client := new(http.Client)
-		client.Transport = &http.Transport{
+	if debugAddr == "" {
+		return nil
+	}
+	return &http.Client{
+		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
-		}
-		return a2aclient.WithHTTPClient(client)
-	} else {
-		return func(*a2aclient.A2AClient) {}
+		},
 	}
 }
 
@@ -276,4 +278,48 @@ func a2aRouteKey(agent v1alpha2.AgentObject) string {
 func a2aRoutePath(agent v1alpha2.AgentObject) string {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
+}
+
+// cloneInterfacesWithURL clones the interfaces and sets the URL to the given value.
+func cloneInterfacesWithURL(interfaces []*a2atype.AgentInterface, url string) []*a2atype.AgentInterface {
+	if len(interfaces) == 0 {
+		return []*a2atype.AgentInterface{
+			{
+				URL:             url,
+				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+				ProtocolVersion: a2atype.Version,
+			},
+		}
+	}
+	result := make([]*a2atype.AgentInterface, 0, len(interfaces))
+	for _, i := range interfaces {
+		if i == nil {
+			continue
+		}
+		copied := *i
+		copied.URL = url
+		if copied.ProtocolVersion == "" {
+			copied.ProtocolVersion = a2atype.Version
+		}
+		result = append(result, &copied)
+	}
+	return result
+}
+
+// filterInterfacesByVersion filters the interfaces to only include the ones that match the given version.
+// Currently, this is used to select the A2A 0.3 interface for managed agents.
+func filterInterfacesByVersion(interfaces []*a2atype.AgentInterface, version a2atype.ProtocolVersion) []*a2atype.AgentInterface {
+	filtered := make([]*a2atype.AgentInterface, 0, len(interfaces))
+	for _, i := range interfaces {
+		if i == nil {
+			continue
+		}
+		if i.ProtocolVersion == version {
+			filtered = append(filtered, i)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered
+	}
+	return interfaces
 }

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"slices"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // AgentManifestInputs holds the translated data needed to emit Kubernetes resources.
@@ -16,7 +16,7 @@ type AgentManifestInputs struct {
 	Config          *adk.AgentConfig
 	Sandbox         *v1alpha2.SandboxConfig
 	Deployment      *resolvedDeployment
-	AgentCard       *server.AgentCard
+	AgentCard       *a2a.AgentCard
 	SecretHashBytes []byte
 }
 

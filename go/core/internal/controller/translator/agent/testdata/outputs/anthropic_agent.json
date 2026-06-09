@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "anthropic_agent",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://anthropic-agent.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://anthropic-agent.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://anthropic-agent.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -57,7 +65,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"anthropic_agent\",\"description\":\"\",\"url\":\"http://anthropic-agent.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"anthropic_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://anthropic-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://anthropic-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\",\"max_tokens\":4096,\"temperature\":0.3,\"top_p\":0.9,\"top_k\":40},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
       }
     },
@@ -127,7 +135,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "11498376381486429584"
+              "kagent.dev/config-hash": "6027702998463548134"
             },
             "labels": {
               "app": "kagent",
