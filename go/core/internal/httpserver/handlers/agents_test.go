@@ -20,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -81,6 +82,9 @@ func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, c
 }
 
 func setupTestHandler(t *testing.T, objects ...client.Object) (*handlers.AgentsHandler, string) {
+	t.Helper()
+	withRuntimeImageDigests(t)
+
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(setupScheme()).
 		WithObjects(objects...).
@@ -101,6 +105,21 @@ func setupTestHandler(t *testing.T, objects ...client.Object) (*handlers.AgentsH
 	}
 
 	return handlers.NewAgentsHandler(base), userID
+}
+
+func withRuntimeImageDigests(t *testing.T) {
+	t.Helper()
+	originalPython := agenttranslator.PythonADKImageDigest
+	originalGo := agenttranslator.GoADKImageDigest
+	originalGoFull := agenttranslator.GoADKFullImageDigest
+	agenttranslator.PythonADKImageDigest = "sha256:test-python-adk"
+	agenttranslator.GoADKImageDigest = "sha256:test-go-adk"
+	agenttranslator.GoADKFullImageDigest = "sha256:test-go-adk-full"
+	t.Cleanup(func() {
+		agenttranslator.PythonADKImageDigest = originalPython
+		agenttranslator.GoADKImageDigest = originalGo
+		agenttranslator.GoADKFullImageDigest = originalGoFull
+	})
 }
 
 func createAgent(client database.Client, agent *v1alpha2.Agent) {

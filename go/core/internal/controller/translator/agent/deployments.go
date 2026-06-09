@@ -123,6 +123,33 @@ func validateExtraContainers(containers []corev1.Container) error {
 	return nil
 }
 
+func resolvePythonRuntimeImage(registry string) (string, error) {
+	repo := DefaultImageConfig.Repository
+	if d := normalizeImageDigest(PythonADKImageDigest); d != "" {
+		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+	}
+	return "", fmt.Errorf(
+		"app image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+	)
+}
+
+func resolveGoRuntimeImage(registry string, full bool) (string, error) {
+	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
+	digest := GoADKImageDigest
+	imageLabel := "golang-adk"
+	if full {
+		digest = GoADKFullImageDigest
+		imageLabel = "golang-adk-full"
+	}
+	if d := normalizeImageDigest(digest); d != "" {
+		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+	}
+	return "", fmt.Errorf(
+		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+		imageLabel,
+	)
+}
+
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	// Defaults
@@ -157,14 +184,22 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		registry = spec.ImageRegistry
 	}
 
-	repository := getRuntimeImageRepository(runtime)
-
-	tag := DefaultImageConfig.Tag
-	if runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox) {
-		tag += "-full"
+	var image string
+	full := runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox)
+	switch runtime {
+	case v1alpha2.DeclarativeRuntime_Go:
+		var err error
+		image, err = resolveGoRuntimeImage(registry, full)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		var err error
+		image, err = resolvePythonRuntimeImage(registry)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	image := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {
