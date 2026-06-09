@@ -548,6 +548,7 @@ export interface RemoteMCPServerSpec {
   timeout?: string;
   sseReadTimeout?: string;
   terminateOnClose?: boolean;
+  tls?: TLSConfig;
 }
 
 export interface RemoteMCPServerResponse {
@@ -603,6 +604,14 @@ export interface ToolServerCreateRequest {
   type: "RemoteMCPServer" | "MCPServer";
   remoteMCPServer?: RemoteMCPServer;
   mcpServer?: MCPServer;
+  // Optional companion Secrets to create or update alongside the
+  // ToolServer. Each entry materializes as a key in an Opaque Secret
+  // owned by the created resource so K8s GC cleans up on delete.
+  // Names referenced here must match a Secret described in this list
+  // (e.g. RemoteMCPServer.spec.tls.caCertSecretRef) for inline
+  // materialization; pre-existing Secrets can also be referenced by
+  // name without supplying material here.
+  secrets?: SecretMaterial[];
 }
 
 

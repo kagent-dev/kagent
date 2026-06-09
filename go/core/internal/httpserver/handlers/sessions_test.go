@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func setUser(req *http.Request, userID string) *http.Request {
@@ -532,24 +532,25 @@ func TestSessionsHandler(t *testing.T) {
 			agentID := "1"
 			createTestSession(t, dbClient, sessionID, userID, agentID)
 
-			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
+			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-1",
 				ContextID: sessionID,
 			}))
-			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
+			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-2",
 				ContextID: sessionID,
 			}))
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req.Header.Set("A2A-Version", "1.0")
 			req = setUser(req, userID)
 
 			handler.HandleListTasksForSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*protocol.Task]
+			var response api.StandardResponse[[]*a2a.Task]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)

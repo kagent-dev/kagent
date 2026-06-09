@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"slices"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // AgentManifestInputs holds the translated data needed to emit Kubernetes resources.
@@ -16,7 +16,7 @@ type AgentManifestInputs struct {
 	Config          *adk.AgentConfig
 	Sandbox         *v1alpha2.SandboxConfig
 	Deployment      *resolvedDeployment
-	AgentCard       *server.AgentCard
+	AgentCard       *a2a.AgentCard
 	SecretHashBytes []byte
 }
 
@@ -252,9 +252,18 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 
 		switch {
 		case tool.McpServer != nil:
-			err := a.translateMCPServerTarget(ctx, cfg, agent.GetNamespace(), tool.McpServer, headers, a.globalProxyURL)
+			toolHashBytes, err := a.translateMCPServerTarget(ctx, cfg, mdd, agent.GetNamespace(), tool.McpServer, headers, a.globalProxyURL)
 			if err != nil {
 				return nil, nil, nil, err
+			}
+			// Fold the RemoteMCPServer's TLS-Secret hash into the agent
+			// config hash so an in-place rotation of the RMS CA Secret
+			// (same Secret name, new PEM) triggers a rollout — the
+			// agent pod has the old cert cached in memory and would
+			// otherwise keep dialing with stale trust. Mirrors how
+			// ModelConfig.Status.SecretHash flows in above.
+			if len(toolHashBytes) > 0 {
+				secretHashBytes = append(secretHashBytes, toolHashBytes...)
 			}
 		case tool.Agent != nil:
 			agentRef := tool.Agent.NamespacedName(agent.GetNamespace())

@@ -256,6 +256,7 @@ func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenName
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
 		nil,
+		false,
 	)
 
 	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)

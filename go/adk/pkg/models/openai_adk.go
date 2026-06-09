@@ -189,6 +189,9 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	if cfg.N != nil {
 		params.N = openai.Int(int64(*cfg.N))
 	}
+	if cfg.ReasoningEffort != nil {
+		params.ReasoningEffort = shared.ReasoningEffort(*cfg.ReasoningEffort)
+	}
 }
 
 func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]openai.ChatCompletionMessageParamUnion, string) {

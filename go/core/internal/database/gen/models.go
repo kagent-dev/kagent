@@ -106,12 +106,13 @@ type Memory struct {
 }
 
 type PushNotification struct {
-	ID        string
-	TaskID    string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
+	ID              string
+	TaskID          string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	ProtocolVersion *string
 }
 
 type Session struct {
@@ -126,12 +127,13 @@ type Session struct {
 }
 
 type Task struct {
-	ID        string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
-	SessionID *string
+	ID              string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	SessionID       *string
+	ProtocolVersion *string
 }
 
 type Tool struct {

@@ -1,8 +1,6 @@
 {
   "agentCard": {
     "capabilities": {
-      "pushNotifications": false,
-      "stateTransitionHistory": true,
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,9 +11,19 @@
     ],
     "description": "",
     "name": "agent_with_proxy_service",
-    "preferredTransport": "JSONRPC",
     "skills": null,
-    "url": "http://agent-with-proxy-service.test:8080",
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://agent-with-proxy-service.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://agent-with-proxy-service.test:8080"
+      }
+    ],
     "version": ""
   },
   "config": {
@@ -67,7 +75,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"name\":\"agent_with_proxy_service\",\"description\":\"\",\"url\":\"http://agent-with-proxy-service.test:8080\",\"version\":\"\",\"capabilities\":{\"streaming\":true,\"pushNotifications\":false,\"stateTransitionHistory\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"skills\":[],\"preferredTransport\":\"JSONRPC\"}",
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"agent_with_proxy_service\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://agent-with-proxy-service.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://agent-with-proxy-service.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://agent-with-proxy-service.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an agent that uses proxies.\",\"http_tools\":[{\"params\":{\"url\":\"http://proxy.kagent.svc.cluster.local:8080/mcp\",\"headers\":{\"x-kagent-host\":\"toolserver.test\"}},\"tools\":[\"k8s_get_resources\"]}],\"stream\":false}"
       }
     },
@@ -137,7 +145,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "17657014285076291438"
+              "kagent.dev/config-hash": "2741762687963053248"
             },
             "labels": {
               "app": "kagent",
