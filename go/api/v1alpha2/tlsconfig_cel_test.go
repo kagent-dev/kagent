@@ -217,6 +217,49 @@ func TestTLSConfigCELValidation(t *testing.T) {
 				}
 			},
 		},
+		// allowedNamespaces ⊥ caCertSecretRef: a pinned CA Secret can't be mounted
+		// across namespaces, so a CA-pinning RMS must be same-namespace-only.
+		{
+			name: "RemoteMCPServer: allowedNamespaces with caCertSecretRef rejected",
+			build: func() ctrl_client.Object {
+				return &RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-with-ca", Namespace: ns},
+					Spec: RemoteMCPServerSpec{
+						Description:       "test",
+						URL:               "https://upstream.example.com/mcp",
+						AllowedNamespaces: &AllowedNamespaces{From: NamespacesFromAll},
+						TLS:               &TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"},
+					},
+				}
+			},
+			wantReject: "spec.allowedNamespaces cannot be combined with spec.tls.caCertSecretRef",
+		},
+		{
+			name: "RemoteMCPServer: allowedNamespaces without CA accepted",
+			build: func() ctrl_client.Object {
+				return &RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-allowedns-no-ca", Namespace: ns},
+					Spec: RemoteMCPServerSpec{
+						Description:       "test",
+						URL:               "https://upstream.example.com/mcp",
+						AllowedNamespaces: &AllowedNamespaces{From: NamespacesFromAll},
+					},
+				}
+			},
+		},
+		{
+			name: "RemoteMCPServer: caCertSecretRef without allowedNamespaces accepted",
+			build: func() ctrl_client.Object {
+				return &RemoteMCPServer{
+					ObjectMeta: metav1.ObjectMeta{Name: "rms-ca-no-allowedns", Namespace: ns},
+					Spec: RemoteMCPServerSpec{
+						Description: "test",
+						URL:         "https://upstream.example.com/mcp",
+						TLS:         &TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"},
+					},
+				}
+			},
+		},
 	}
 
 	for _, c := range cases {
