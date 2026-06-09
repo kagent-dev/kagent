@@ -63,24 +63,24 @@ spec:
             properties:
               endpoint:
                 description: |-
-                  Endpoint is the API endpoint URL for the provider.
+                  endpoint is the API endpoint URL for the provider.
                   If not specified, the default endpoint for the provider type will be used.
                 pattern: ^https?://.*
                 type: string
               secretRef:
                 description: |-
-                  SecretRef references the Kubernetes Secret containing the API key.
+                  secretRef references the Kubernetes Secret containing the API key.
                   Optional for providers that don't require authentication (e.g., local Ollama).
                 properties:
                   name:
-                    description: Name is the name of the secret in the same namespace
+                    description: name is the name of the secret in the same namespace
                       as the ModelProviderConfig.
                     type: string
                 required:
                 - name
                 type: object
               type:
-                description: Type is the model provider type (OpenAI, Anthropic, etc.)
+                description: type is the model provider type (OpenAI, Anthropic, etc.)
                 enum:
                 - Anthropic
                 - OpenAI
@@ -107,7 +107,7 @@ spec:
             description: ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
             properties:
               conditions:
-                description: Conditions represent the latest available observations
+                description: conditions represent the latest available observations
                   of the ModelProviderConfig's state
                 items:
                   description: Condition contains details for one aspect of the current
@@ -168,27 +168,27 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               discoveredModels:
-                description: DiscoveredModels is the cached list of model IDs available
+                description: discoveredModels is the cached list of model IDs available
                   from this model provider
                 items:
                   type: string
                 type: array
               lastDiscoveryTime:
-                description: LastDiscoveryTime is the timestamp of the last successful
+                description: lastDiscoveryTime is the timestamp of the last successful
                   model discovery
                 format: date-time
                 type: string
               modelCount:
-                description: ModelCount is the number of discovered models (for kubectl
+                description: modelCount is the number of discovered models (for kubectl
                   display)
                 type: integer
               observedGeneration:
-                description: ObservedGeneration reflects the generation of the most
+                description: observedGeneration reflects the generation of the most
                   recently observed ModelProviderConfig spec
                 format: int64
                 type: integer
               secretHash:
-                description: SecretHash is a hash of the referenced secret data, used
+                description: secretHash is a hash of the referenced secret data, used
                   to detect secret changes
                 type: string
             type: object

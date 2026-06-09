@@ -55,7 +55,7 @@ spec:
             properties:
               allowedNamespaces:
                 description: |-
-                  AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
+                  allowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
                   This follows the Gateway API pattern for cross-namespace route attachments.
                   If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
                   See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
@@ -70,7 +70,7 @@ spec:
                   from:
                     default: Same
                     description: |-
-                      From indicates where references to this resource can originate.
+                      from indicates where references to this resource can originate.
                       Possible values are:
                       * All: References from all namespaces are allowed.
                       * Same: Only references from the same namespace are allowed (default).
@@ -82,7 +82,7 @@ spec:
                     type: string
                   selector:
                     description: |-
-                      Selector is a label selector for namespaces that are allowed to reference this resource.
+                      selector is a label selector for namespaces that are allowed to reference this resource.
                       Only used when From is set to "Selector".
                     properties:
                       matchExpressions:
@@ -188,7 +188,7 @@ spec:
                 type: string
               tls:
                 description: |-
-                  TLS configuration for the upstream MCP server connection.
+                  tls configuration for the upstream MCP server connection.
                   Use this for HTTPS upstreams that present a certificate the agent's
                   system trust store does not include (corporate CA, self-signed cert
                   on a test fixture, internal MCP gateway). Reuses the same TLSConfig
@@ -204,14 +204,14 @@ spec:
                 properties:
                   caCertSecretKey:
                     description: |-
-                      CACertSecretKey is the key within the Secret that contains the
+                      caCertSecretKey is the key within the Secret that contains the
                       CA certificate data (PEM-encoded). Required when CACertSecretRef
                       is set — admission rejects ref-without-key regardless of
                       DisableVerify (see the TLSConfig-level XValidation rules).
                     type: string
                   caCertSecretRef:
                     description: |-
-                      CACertSecretRef is a reference to a Kubernetes Secret containing
+                      caCertSecretRef is a reference to a Kubernetes Secret containing
                       CA certificate(s) in PEM format. The Secret must be in the same
                       namespace as the resource referencing it (ModelConfig,
                       RemoteMCPServer, or any future consumer of TLSConfig).
@@ -221,7 +221,7 @@ spec:
                   disableSystemCAs:
                     default: false
                     description: |-
-                      DisableSystemCAs disables the use of system CA certificates.
+                      disableSystemCAs disables the use of system CA certificates.
                       When false (default), system CA certificates are used for verification (safe behavior).
                       When true, only the custom CA from CACertSecretRef is trusted.
                       This allows strict security policies where only corporate CAs should be trusted.
@@ -229,7 +229,7 @@ spec:
                   disableVerify:
                     default: false
                     description: |-
-                      DisableVerify disables SSL certificate verification entirely.
+                      disableVerify disables SSL certificate verification entirely.
                       When false (default), SSL certificates are verified.
                       When true, SSL certificate verification is disabled.
                       WARNING: This should ONLY be used in development/testing environments.
@@ -350,7 +350,7 @@ spec:
                 type: integer
               secretHash:
                 description: |-
-                  SecretHash stores a hash of the TLS Secret referenced by spec.tls so
+                  secretHash stores a hash of the TLS Secret referenced by spec.tls so
                   agents that consume this RemoteMCPServer can detect cert rotation and
                   roll on the next reconcile. Empty when spec.tls.caCertSecretRef is unset.
                 type: string
